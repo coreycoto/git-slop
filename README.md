@@ -116,6 +116,11 @@ repo-local agent tooling live under:
 - `config/agents/skill_metadata_manifest.json`
 - [Agent Tools Extraction](docs/engineering/agent-tools-extraction.md)
 
+While `coreycoto/agent-tools` remains private, GitHub Actions needs either
+`AGENT_TOOLS_READ_TOKEN` or `GH_PROJECTS_TOKEN` with read access to that repo
+before `uv sync --group dev` can install the tagged dependency. If
+`agent-tools` becomes public later, that extra token is no longer required.
+
 ## Philosophy
 
 Readable code can still be slop.

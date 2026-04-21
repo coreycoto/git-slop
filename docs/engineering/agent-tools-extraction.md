@@ -77,3 +77,11 @@ The current `git-slop` implementation should be treated like this:
 This repo already uses `config/github/issue_seed_catalog.json` as the repo-local
 source of truth for seeded issues, priorities, and queue order. That pattern
 should be preserved across future consumers.
+
+## Current CI Dependency Note
+
+`git-slop` currently installs `agent-tools` from a tagged Git dependency.
+While `coreycoto/agent-tools` remains private, CI must provide either
+`AGENT_TOOLS_READ_TOKEN` or `GH_PROJECTS_TOKEN` with read access to that repo.
+If the shared package becomes public later, the workflows can install it
+without extra Git auth.
