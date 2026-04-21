@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "epics": [
+    {
+      "slug": "v1-detector",
+      "type": "Epic",
+      "title": "Epic: V1 detector",
+      "summary": "Ship the first local-first detector with inventory, token counts, history, scoring, reports, and dogfood CI.",
+      "labels": ["epic"],
+      "priority": "Now",
+      "queue_order": null
+    },
+    {
+      "slug": "v2-explainer-planner",
+      "type": "Epic",
+      "title": "Epic: V2 explainer and planner",
+      "summary": "Add explain and plan surfaces, optional local model support, and richer backlog-aware agent hooks.",
+      "labels": ["epic"],
+      "priority": "Next",
+      "queue_order": null
+    },
+    {
+      "slug": "v3-agentic-loop",
+      "type": "Epic",
+      "title": "Epic: V3 agentic loop",
+      "summary": "Add bounded refactor loops, SARIF, trend comparisons, and editor-facing integrations.",
+      "labels": ["epic"],
+      "priority": "Later",
+      "queue_order": null
+    }
+  ],
+  "queue_items": [
+    {
+      "slug": "bootstrap-repo-cli",
+      "epic_slug": "v1-detector",
+      "type": "Maintenance",
+      "title": "Maintenance: bootstrap repo and CLI scaffold",
+      "summary": "Establish the docs, package metadata, CLI surface, issue forms, and CI baseline.",
+      "labels": ["maintenance", "documentation"],
+      "priority": "Now",
+      "queue_order": 10
+    },
+    {
+      "slug": "git-slop-init",
+      "epic_slug": "v1-detector",
+      "type": "Enhancement",
+      "title": "Enhancement: implement git slop init",
+      "summary": "Create the .slop config, ignore rules, and optional agent guidance scaffold.",
+      "labels": ["enhancement"],
+      "priority": "Now",
+      "queue_order": 20
+    },
+    {
+      "slug": "tracked-file-inventory",
+      "epic_slug": "v1-detector",
+      "type": "Enhancement",
+      "title": "Enhancement: build tracked-file inventory",
+      "summary": "Use git ls-files as the source of truth and safely inventory tracked text files.",
+      "labels": ["enhancement"],
+      "priority": "Now",
+      "queue_order": 30
+    },
+    {
+      "slug": "token-counting-context-band",
+      "epic_slug": "v1-detector",
+      "type": "Enhancement",
+      "title": "Enhancement: add token counting and context bands",
+      "summary": "Count per-file token cost and classify files into context bands.",
+      "labels": ["enhancement"],
+      "priority": "Now",
+      "queue_order": 40
+    },
+    {
+      "slug": "history-miner",
+      "epic_slug": "v1-detector",
+      "type": "Enhancement",
+      "title": "Enhancement: mine Git history for age and churn",
+      "summary": "Mine first-seen age, revision counts, additions, deletions, and relative churn.",
+      "labels": ["enhancement"],
+      "priority": "Next",
+      "queue_order": 50
+    },
+    {
+      "slug": "scoring-engine",
+      "epic_slug": "v1-detector",
+      "type": "Enhancement",
+      "title": "Enhancement: score files and folders",
+      "summary": "Compute context, age, and churn pressure plus priority bands and reason codes.",
+      "labels": ["enhancement"],
+      "priority": "Next",
+      "queue_order": 60
+    },
+    {
+      "slug": "reports-terminal-output",
+      "epic_slug": "v1-detector",
+      "type": "Enhancement",
+      "title": "Enhancement: emit reports and terminal output",
+      "summary": "Write report.json, report.yaml, summary.md, and a readable terminal table.",
+      "labels": ["enhancement"],
+      "priority": "Next",
+      "queue_order": 70
+    },
+    {
+      "slug": "git-slop-check",
+      "epic_slug": "v1-detector",
+      "type": "Enhancement",
+      "title": "Enhancement: implement git slop check",
+      "summary": "Evaluate generated reports against CI-friendly thresholds.",
+      "labels": ["enhancement"],
+      "priority": "Next",
+      "queue_order": 80
+    },
+    {
+      "slug": "tests-and-fixtures",
+      "epic_slug": "v1-detector",
+      "type": "Maintenance",
+      "title": "Maintenance: add detector fixtures and coverage",
+      "summary": "Add fixture repos, parser coverage, and report snapshot tests for the detector.",
+      "labels": ["maintenance"],
+      "priority": "Next",
+      "queue_order": 90
+    },
+    {
+      "slug": "dogfood-ci",
+      "epic_slug": "v1-detector",
+      "type": "Maintenance",
+      "title": "Maintenance: add dogfood CI workflow",
+      "summary": "Run git-slop on git-slop, upload artifacts, and publish a warn-only Actions summary.",
+      "labels": ["maintenance"],
+      "priority": "Later",
+      "queue_order": 100
+    }
+  ]
+}

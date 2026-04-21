@@ -1,0 +1,43 @@
+{
+  "backlog_project": {
+    "number": 12,
+    "owner_login": "coreycoto",
+    "title": "git-slop"
+  },
+  "fields": [
+    {
+      "name": "Status",
+      "options": [
+        "Todo",
+        "In Progress",
+        "Done"
+      ],
+      "type": "single_select"
+    },
+    {
+      "name": "Priority",
+      "options": [
+        "Now",
+        "Next",
+        "Later"
+      ],
+      "type": "single_select"
+    },
+    {
+      "name": "Queue Order",
+      "options": [],
+      "type": "number"
+    }
+  ],
+  "schema_version": 1,
+  "views": [
+    {
+      "name": "Backlog",
+      "purpose": "Operational queue view for non-epic work."
+    },
+    {
+      "name": "Epics",
+      "purpose": "High-level roadmap view for epic issues."
+    }
+  ]
+}

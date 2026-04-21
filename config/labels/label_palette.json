@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "labels": [
+    {
+      "name": "enhancement",
+      "owner": "github-default",
+      "semantic_role": "feature-work",
+      "description": "New feature or request",
+      "target_color": "A2EEEF"
+    },
+    {
+      "name": "question",
+      "owner": "github-default",
+      "semantic_role": "research-or-decision",
+      "description": "Further information is requested",
+      "target_color": "D876E3"
+    },
+    {
+      "name": "bug",
+      "owner": "github-default",
+      "semantic_role": "broken-behavior",
+      "description": "Something isn't working",
+      "target_color": "D73A4A"
+    },
+    {
+      "name": "documentation",
+      "owner": "github-default",
+      "semantic_role": "docs-primary-work",
+      "description": "Improvements or additions to documentation",
+      "target_color": "0075CA"
+    },
+    {
+      "name": "epic",
+      "owner": "repo-managed",
+      "semantic_role": "multi-issue-workstream",
+      "description": "Parent issue that groups a roadmap workstream.",
+      "target_color": "C27C2C"
+    },
+    {
+      "name": "maintenance",
+      "owner": "repo-managed",
+      "semantic_role": "operations-and-upkeep",
+      "description": "Refactors, upgrades, CI, developer experience, or cleanup work.",
+      "target_color": "4D6575"
+    }
+  ]
+}

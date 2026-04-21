@@ -1,0 +1,75 @@
+name: Research
+description: Decision or evaluation issue with a recommendation as the primary deliverable.
+title: "Research: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when the deliverable is a decision-ready recommendation rather than product code.
+  - type: input
+    id: decision-question
+    attributes:
+      label: Decision question
+      description: What question should this issue answer?
+      placeholder: State the question directly.
+    validations:
+      required: true
+  - type: textarea
+    id: why-now
+    attributes:
+      label: Why now
+      description: Why is this research timely, and what decision pressure makes it necessary now?
+    validations:
+      required: true
+  - type: textarea
+    id: current-baseline
+    attributes:
+      label: Current baseline
+      description: What shipped behavior, docs, or prior decisions frame this question?
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: What we need to learn
+      description: What evidence, comparisons, or boundary questions must this issue resolve?
+    validations:
+      required: true
+  - type: textarea
+    id: deliverable
+    attributes:
+      label: Deliverable
+      description: What concrete output should this research produce?
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What should not be investigated here?
+    validations:
+      required: true
+  - type: textarea
+    id: exit-criteria
+    attributes:
+      label: Exit criteria
+      description: What must be true for this research issue to be complete and decision-ready?
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and blockers
+      description: What inputs, credentials, prior issues, or adjacent tracks matter?
+    validations:
+      required: false
+  - type: input
+    id: quarter
+    attributes:
+      label: Quarter milestone target
+      description: Optional. Use only when this issue is explicitly committed for a quarter.
+      placeholder: 2026 Q2
+    validations:
+      required: false

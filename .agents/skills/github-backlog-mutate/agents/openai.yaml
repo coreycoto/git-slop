@@ -1,0 +1,10 @@
+interface:
+  display_name: "GitHub Backlog Mutate"
+  short_description: "Apply a reviewed mixed backlog mutation plan in GitHub"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
+  brand_color: "#334155"
+  default_prompt: "Use $github-backlog-mutate to apply a reviewed issue-centric git-slop backlog mutation plan when the change spans issues, milestones, and project fields."
+
+policy:
+  allow_implicit_invocation: false

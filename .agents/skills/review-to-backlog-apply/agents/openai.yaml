@@ -1,0 +1,10 @@
+interface:
+  display_name: "Review Backlog Apply"
+  short_description: "Turn material repo review findings into backlog issues"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
+  brand_color: "#4338CA"
+  default_prompt: "Use $review-to-backlog-apply to review the current git-slop repository and create or update the backlog issues that material findings should become."
+
+policy:
+  allow_implicit_invocation: false

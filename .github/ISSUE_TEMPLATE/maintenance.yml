@@ -1,0 +1,83 @@
+name: Maintenance
+description: Refactors, dependency upgrades, CI, developer experience, or cleanup.
+title: "Maintenance: "
+labels:
+  - maintenance
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for repo-facing work that improves delivery or maintainability without directly expanding product scope.
+
+        Keep `Maintenance:` broad enough for both must-do upkeep and lower-priority developer-experience work.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Maintenance type
+      options:
+        - Dependency upgrade
+        - CI or release reliability
+        - Refactor
+        - Developer experience
+        - Cleanup
+        - Documentation process
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Problem / why now
+      description: Why is this maintenance work worth doing now?
+    validations:
+      required: true
+  - type: textarea
+    id: current-state
+    attributes:
+      label: Current state
+      description: What current repo or workflow state does this work start from?
+    validations:
+      required: false
+  - type: textarea
+    id: scope
+    attributes:
+      label: In scope
+      description: What exact slice should this issue cover?
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Out of scope
+      description: What should this issue avoid expanding into?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What must be true for this maintenance issue to be done?
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and risks
+      description: What upstream constraints, compatibility concerns, or rollout risks matter?
+    validations:
+      required: false
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: What tests, checks, artifacts, or rollout evidence should verify completion?
+    validations:
+      required: false
+  - type: input
+    id: quarter
+    attributes:
+      label: Quarter milestone target
+      description: Optional. Use only when this issue is explicitly committed for a quarter.
+      placeholder: 2026 Q2
+    validations:
+      required: false

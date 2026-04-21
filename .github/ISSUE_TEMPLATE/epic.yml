@@ -1,0 +1,66 @@
+name: Epic
+description: Multi-issue workstream under the Git Slop roadmap.
+title: "Epic: "
+labels:
+  - epic
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for a narrower multi-issue workstream. Prefer actionable child issues over queueing the epic itself.
+
+        For `git-slop`, roadmap tracks such as `Epic: V1 detector`, `Epic: V2 explainer and planner`, and `Epic: V3 agentic loop` belong here.
+  - type: input
+    id: outcome
+    attributes:
+      label: Workstream outcome
+      description: What concrete outcome should this epic produce?
+      placeholder: Define the workstream outcome in one sentence.
+    validations:
+      required: true
+  - type: textarea
+    id: why-now
+    attributes:
+      label: Why now
+      description: Why is this epic worth doing now or next?
+    validations:
+      required: true
+  - type: textarea
+    id: baseline
+    attributes:
+      label: Current baseline or prerequisite state
+      description: What already exists that this epic builds on, assumes, or narrows?
+    validations:
+      required: false
+  - type: textarea
+    id: expected-children
+    attributes:
+      label: Expected child slices
+      description: List the expected research, enhancement, bug, or maintenance child issues.
+      placeholder: |
+        - Maintenance:
+        - Enhancement:
+        - Research:
+    validations:
+      required: true
+  - type: textarea
+    id: sequencing
+    attributes:
+      label: Sequencing and dependencies
+      description: What hard ordering or dependency edges matter?
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What should stay out of this epic?
+    validations:
+      required: true
+  - type: textarea
+    id: success
+    attributes:
+      label: Success signals
+      description: How will we know this epic is meaningfully complete?
+    validations:
+      required: true

@@ -1,0 +1,22 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+htmlcov/
+
+# Local research source material
+docs/plans/
+
+# Generated Git Slop state
+.slop/latest/
+.slop/runs/
+.slop/cache/
+
+# Generated agent and governance artifacts
+.artifacts/

@@ -1,0 +1,10 @@
+interface:
+  display_name: "Quarter Plan Apply"
+  short_description: "Apply quarter commitments and record GitHub rationale"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
+  brand_color: "#A16207"
+  default_prompt: "Use $plan-quarter-apply to apply reviewed git-slop quarter commitments and record the rationale in GitHub."
+
+policy:
+  allow_implicit_invocation: false

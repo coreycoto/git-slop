@@ -1,0 +1,9 @@
+{
+  "milestones": [
+    {
+      "title": "2026 Q2",
+      "due_on": "2026-06-30",
+      "description": "Quarter commitment surface for git-slop 2026 Q2. Use milestones only for explicit time commitments, not for roadmap phases."
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+interface:
+  display_name: "Label Palette Design"
+  short_description: "Design or refresh the deterministic backlog label palette"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
+  brand_color: "#334155"
+  default_prompt: "Use $label-palette-design to preview or refresh the deterministic git-slop GitHub label palette."
+
+policy:
+  allow_implicit_invocation: true

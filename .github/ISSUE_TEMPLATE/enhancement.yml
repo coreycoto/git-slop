@@ -1,0 +1,69 @@
+name: Enhancement
+description: Net-new or expanded product or operator behavior.
+title: "Enhancement: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for new or expanded behavior. Keep the issue narrow and queue-ready.
+
+        If the work is part of a larger track, add native parent/sub-issue links after creating it.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / why now
+      description: What problem should this enhancement solve, and why is it timely?
+    validations:
+      required: true
+  - type: textarea
+    id: current-baseline
+    attributes:
+      label: Current baseline
+      description: What already exists today, and what important constraints must remain true?
+    validations:
+      required: false
+  - type: textarea
+    id: scope
+    attributes:
+      label: In scope
+      description: What exact slice should this issue cover?
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Out of scope
+      description: What should not be included in this slice?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What must be true for this issue to be complete?
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and blockers
+      description: What upstream decisions, blockers, or adjacent issues matter?
+    validations:
+      required: false
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: What tests, artifacts, or evidence should verify completion?
+    validations:
+      required: false
+  - type: input
+    id: quarter
+    attributes:
+      label: Quarter milestone target
+      description: Optional. Use only when this issue is explicitly committed for a quarter.
+      placeholder: 2026 Q2
+    validations:
+      required: false

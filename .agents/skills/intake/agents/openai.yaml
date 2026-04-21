@@ -1,0 +1,10 @@
+interface:
+  display_name: "Intake"
+  short_description: "Ingest local research and apply resulting backlog changes"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
+  brand_color: "#0F766E"
+  default_prompt: "Use $intake to ingest repo-local notes, markdown, or DOCX research into the current git-slop backlog with the minimum evidence-backed GitHub updates."
+
+policy:
+  allow_implicit_invocation: false

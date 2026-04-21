@@ -1,0 +1,50 @@
+[project]
+name = "git-slop"
+version = "0.1.0"
+description = "Local-first hotspot detection for AI-era repositories."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "PyYAML>=6.0.2",
+    "tiktoken>=0.9.0",
+]
+
+[project.scripts]
+git-slop = "git_slop.cli:main"
+
+[dependency-groups]
+dev = [
+    "agent-tools @ git+https://github.com/coreycoto/agent-tools.git@v0.2.0",
+    "pytest>=8.3.0",
+    "ruff>=0.11.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/git_slop"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/config",
+    "/.agents",
+    "/.github",
+    "/README.md",
+    "/pyproject.toml",
+]
+
+[build-system]
+requires = ["hatchling>=1.24.0"]
+build-backend = "hatchling.build"

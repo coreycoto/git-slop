@@ -1,0 +1,76 @@
+name: Bug
+description: Broken shipped behavior, regression, or docs-versus-behavior mismatch.
+title: "Bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for incorrect shipped behavior or regressions.
+
+        If this bug belongs under a larger track, add native parent/sub-issue links after creating it.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / why now
+      description: What is broken, and why does it need attention now?
+    validations:
+      required: true
+  - type: textarea
+    id: baseline
+    attributes:
+      label: Regression or known-good baseline
+      description: What previous behavior, version, or contract should this be compared against?
+    validations:
+      required: false
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction or triggering conditions
+      description: Provide the smallest reproducible path, inputs, or artifact reference.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What user, maintainer, or contract impact does this cause?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: In scope and out of scope
+      description: What should this fix include, and what should it avoid expanding into?
+    validations:
+      required: false
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: What evidence should prove the bug is fixed?
+    validations:
+      required: false
+  - type: input
+    id: quarter
+    attributes:
+      label: Quarter milestone target
+      description: Optional. Use only when this issue is explicitly committed for a quarter.
+      placeholder: 2026 Q2
+    validations:
+      required: false
