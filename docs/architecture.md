@@ -2,146 +2,238 @@
 
 ## Design Goals
 
-The architecture should stay small and boring.
+The architecture should stay deterministic, inspectable, and boring enough to
+run locally without mystery.
 
-That is a feature. The detector should be easy to run locally, easy to inspect,
-and easy to extend without turning into a framework.
+The scaling rule is simple:
+
+- `core/` gathers facts
+- `costs/` interprets facts
+- `graphs/` builds relationship structures
+- `scoring/` owns stable hotspot scoring
+- `reports/` renders output
+- `integrations/` keeps detector-adjacent extras out of the core path
 
 ## Runtime Pipeline
 
 ```text
 Git repository
-  -> tracked-file inventory via git ls-files
-  -> safe text reader with binary/decode filtering
-  -> token counting
-  -> line and byte metrics
-  -> Git history mining
-  -> scoring engine
-  -> organization-health analyzers
-  -> reports and action queue
-  -> CLI output, CI summaries, and agent-readable JSON
+  -> inventory facts
+  -> token facts
+  -> history facts
+  -> stable hotspot scoring
+  -> overlay analyzers
+  -> report assembly
+  -> bundle writing
+  -> CLI / CI / agent-readable outputs
 ```
 
-## Inventory Layer
-
-Inventory uses Git as the source of truth:
-
-- `git ls-files -z` provides the tracked-file set
-- generated dependency lockfiles are ignored by default
-- missing files are skipped safely
-- obvious binaries are skipped
-- undecodable text files are skipped
-- directory walking does not define scope
-
-This keeps the detector deterministic and aligned with what the repo actually
-tracks.
-
-## Metrics Layers
-
-### Context Metrics
-
-For each tracked text file, Git Slop computes:
-
-- bytes
-- lines
-- token count
-- `context_band`
-
-### History Metrics
-
-For each tracked text file, Git Slop computes:
-
-- first-seen age
-- revisions within the trailing window
-- additions and deletions
-- relative churn
-
-Rename following stays opt-in because it is slower and more expensive.
-When enabled, Git Slop switches to per-file history walks so renamed files keep
-their lineage instead of resetting age and churn to the newest path only.
-
-### Organization-Health Metrics
-
-After v1 scoring, Git Slop now runs a second always-on analysis stage that
-keeps the main detector score intact while adding coordination-cost evidence.
-
-The current experimental analyzers emit:
-
-- duplicate and near-duplicate token neighborhoods
-- commit-level diffusion records
-- temporal coupling edges
-- lexical affinity edges
-- cross-boundary leakage edges
-- structural clusters and consolidation candidates
-
-That layer is deterministic, repo-local, and mechanical. It does not use AST
-parsers, hosted services, or LLM-based judgment.
-
-## Scoring Layer
-
-The scoring engine combines three pressures:
-
-- `context_pressure`
-- `age_pressure`
-- `churn_pressure`
-
-These produce:
-
-- `priority_score`
-- `priority_band`
-- `reason_codes`
-
-The architecture deliberately keeps raw context cost separate from refactor
-urgency. A large new file may be context-expensive without yet being the top
-refactor candidate. A large, old, high-churn file is the real hotspot.
-
-The organization-health layer remains separate again. Duplication, diffusion,
-coupling, and boundary leakage are evidence for coordination cost, not a hidden
-fourth weight inside `priority_score`.
-
-## Output Surfaces
-
-Stable outputs belong under `.slop/`:
+## Internal Layout
 
 ```text
-.slop/
-  config.yaml
-  .gitignore
-  latest/
-    report.json
-    report.yaml
-    summary.md
-  runs/
-  cache/
+src/git_slop/
+  cli/
+  core/
+  costs/
+  graphs/
+  reports/
+  scoring/
+  integrations/
 ```
 
-Planned report contract fields:
+### `core/`
 
-- repo metadata
-- config metadata
+`core/` is the fact-gathering layer.
+
+Important modules:
+
+- `core/config.py`
+- `core/repository.py`
+- `core/inventory.py`
+- `core/token_facts.py`
+- `core/history_facts.py`
+- `core/cache.py`
+- `core/models.py`
+- `core/pipeline.py`
+
+Responsibilities:
+
+- repo root resolution
+- tracked-file inventory
+- binary/decode filtering
+- config normalization and migration
+- context-token facts
+- structural-token facts
+- Git history mining
+- cache-key construction
+- typed fact objects
+
+### `costs/`
+
+`costs/` owns analyzers.
+
+Stable cost analyzers:
+
+- `LoadCostAnalyzer`
+- `VolatilityCostAnalyzer`
+- `CoordinationCostAnalyzer`
+
+Always-on overlay analyzers:
+
+- `OrganizationHealthAnalyzer`
+- `VerificationOverlayAnalyzer`
+- `NavigationOverlayAnalyzer`
+- `BlastRadiusOverlayAnalyzer`
+- `StewardshipOverlayAnalyzer`
+- `SemanticDriftOverlayAnalyzer`
+
+### `graphs/`
+
+`graphs/` builds reusable relationship structures:
+
+- co-change graph
+- token-similarity helpers
+- relationship selectors
+- cluster selectors
+
+### `reports/`
+
+`reports/` owns schema shaping and human surfaces:
+
+- machine report assembly
+- Markdown summary
+- terminal rendering
+- bundle writing
+
+### `integrations/`
+
+Maintainer-only detector-adjacent code lives under `integrations/`, not the
+core detector pipeline.
+
+## Facts Model
+
+Typed pipeline objects now include:
+
+- `RepositoryFacts`
+- `InventoryFacts`
+- `FileFacts`
+- `TokenFacts`
+- `HistoryFacts`
+- `ChangeSetFacts`
+- `BaselineFacts`
+- `HotspotScore`
+- `OverlayFinding`
+- `Relationship`
+- `Cluster`
+
+Analyzers consume facts. They should not shell out to Git or re-tokenize files
+independently.
+
+## Token Pipelines
+
+Git Slop now keeps two token systems:
+
+### Context tokens
+
+- `tiktoken`-aligned
+- used for load and context-band math
+
+### Structural tokens
+
+Deterministic lexical/path normalization:
+
+- lowercase
+- camelCase and snake_case splitting
+- number normalization
+- quoted-string normalization
+- path-segment normalization
+
+These structural tokens drive duplication, cohesion, navigation, and drift
+analysis.
+
+## Report Contract
+
+Current machine report:
+
+- `schema_version: 3`
+
+Canonical top-level shape:
+
+- `summary`
+- `repo`
+- `config`
+- `stats`
 - `files`
 - `folders`
 - `action_queue`
+- `costs`
+- `overlays`
+
+Canonical stable cost blocks:
+
+- `costs.load`
+- `costs.volatility`
+- `costs.coordination`
+
+Canonical overlay blocks:
+
+- `overlays.organization_health`
+- `overlays.verification`
+- `overlays.navigation`
+- `overlays.blast_radius`
+- `overlays.stewardship`
+- `overlays.semantic_drift`
+
+For one compatibility cycle, Git Slop also emits:
+
 - `organization_metrics`
 - `relationships`
 - `clusters`
-- `context_band`
-- `priority_score`
-- `priority_band`
-- `reason_codes`
-- `schema_version`
 
-`report.json` is the machine-facing source of truth. `summary.md` is the
-human-facing surface.
+`git slop check` ignores overlays entirely.
 
-`organization_metrics`, `relationships`, and `clusters` are always emitted and
-explicitly marked experimental. `git slop check` ignores them entirely for now.
-The report timestamp tracks the analyzed source snapshot so cold and warm runs
-on the same HEAD can remain byte-identical.
+## Config Contract
+
+`.slop/config.yaml` now writes:
+
+- `schema_version: 2`
+
+Current namespaces:
+
+- `inventory`
+- `tokenization`
+- `history`
+- `scoring`
+- `organization`
+- `verification`
+- `navigation`
+- `blast_radius`
+- `stewardship`
+- `semantic_drift`
+- `check`
+
+Legacy `schema_version: 1` configs are still auto-normalized for one
+compatibility cycle.
+
+## Caching
+
+Required cache namespaces:
+
+- `.slop/cache/history/`
+- `.slop/cache/tokens/`
+- `.slop/cache/structure/`
+- `.slop/cache/graphs/`
+
+Rules:
+
+- cache is never required for correctness
+- stale cache is ignored automatically
+- cold and warm runs on the same HEAD/config should be byte-identical
+- candidate limiting must be deterministic
 
 ## CLI Surface
 
-The current command surface is:
+The CLI stays unchanged:
 
 - `git slop init`
 - `git slop find`
@@ -149,27 +241,5 @@ The current command surface is:
 - `git slop check`
 - `git slop version`
 
-`git slop show` now appends organization-health overlay data, strongest
-relationships, and cluster memberships for the selected file or folder.
-
-The package is published as `git-slop` so Git can expose `git slop ...` via its
-external command discovery behavior.
-
-## CI and Dogfooding
-
-The maintained CI flow is:
-
-1. install the package and dev tooling
-2. verify generated skill metadata through standalone `agent-tools`
-3. run unit and integration coverage
-
-The dogfood workflow is separate and does this:
-
-1. check out full history
-2. run Git Slop on Git Slop
-3. upload report artifacts
-4. publish `summary.md` into the Actions job summary
-5. enforce thresholds after artifact publication in warn-first mode
-
-The “publish first, fail second” rule matters so failures still leave usable
-artifacts behind for inspection.
+`show` now renders from nested `costs` and `overlays`, while compatibility
+fields still remain present in JSON output for one release cycle.

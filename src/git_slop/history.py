@@ -10,7 +10,7 @@ from typing import Any
 from .config import cache_dir
 from .git import has_head_commit, run_git
 
-HISTORY_ANALYSIS_VERSION = 1
+HISTORY_ANALYSIS_VERSION = 2
 
 
 def _parse_unix_timestamp(raw_value: str) -> int | None:
@@ -125,12 +125,14 @@ def _parse_status_log(raw_output: str) -> list[dict[str, Any]]:
         if not token:
             index += 1
             continue
-        if token != "commit" or index + 2 >= len(tokens):
+        if token != "commit" or index + 4 >= len(tokens):
             index += 1
             continue
         commit_sha = tokens[index + 1].strip()
         timestamp = _parse_unix_timestamp(tokens[index + 2]) or 0
-        index += 3
+        author_name = tokens[index + 3].strip()
+        author_email = tokens[index + 4].strip()
+        index += 5
         changes: list[dict[str, Any]] = []
         while index < len(tokens):
             token = tokens[index]
@@ -177,6 +179,9 @@ def _parse_status_log(raw_output: str) -> list[dict[str, Any]]:
             {
                 "commit": commit_sha,
                 "timestamp": timestamp,
+                "author_name": author_name,
+                "author_email": author_email,
+                "author_key": f"{author_name} <{author_email}>",
                 "changes": changes,
             }
         )
@@ -192,12 +197,14 @@ def _parse_numstat_log(raw_output: str) -> list[dict[str, Any]]:
         if not token:
             index += 1
             continue
-        if token != "commit" or index + 2 >= len(tokens):
+        if token != "commit" or index + 4 >= len(tokens):
             index += 1
             continue
         commit_sha = tokens[index + 1].strip()
         timestamp = _parse_unix_timestamp(tokens[index + 2]) or 0
-        index += 3
+        author_name = tokens[index + 3].strip()
+        author_email = tokens[index + 4].strip()
+        index += 5
         entries: list[dict[str, Any]] = []
         while index < len(tokens):
             token = tokens[index]
@@ -242,6 +249,9 @@ def _parse_numstat_log(raw_output: str) -> list[dict[str, Any]]:
             {
                 "commit": commit_sha,
                 "timestamp": timestamp,
+                "author_name": author_name,
+                "author_email": author_email,
+                "author_key": f"{author_name} <{author_email}>",
                 "entries": entries,
             }
         )
@@ -258,7 +268,7 @@ def _load_status_commits(
         "log",
         "--name-status",
         "-z",
-        "--format=commit%x00%H%x00%ct",
+        "--format=commit%x00%H%x00%ct%x00%an%x00%ae",
     ]
     if follow_renames:
         args.append("--find-renames")
@@ -282,7 +292,7 @@ def _load_numstat_commits(
         "log",
         "--numstat",
         "-z",
-        "--format=commit%x00%H%x00%ct",
+        "--format=commit%x00%H%x00%ct%x00%an%x00%ae",
         f"--since={since_utc}",
     ]
     if follow_renames:
@@ -516,6 +526,9 @@ def _build_window_history_payload(
                 {
                     "commit": commit["commit"],
                     "timestamp": int(commit["timestamp"]),
+                    "author_name": commit.get("author_name", ""),
+                    "author_email": commit.get("author_email", ""),
+                    "author_key": commit.get("author_key", ""),
                     "file_count": len(file_entries),
                     "top_level_root_count": len(roots),
                     "top_level_roots": roots,

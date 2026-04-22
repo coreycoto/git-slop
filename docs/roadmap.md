@@ -4,126 +4,83 @@
 
 Git Slop now has:
 
-- a real detector CLI
-- repo-local governance docs and issue forms
-- a standalone `agent-tools` maintainer dependency
+- a detector CLI
+- schema-3 report output with explicit `costs` and `overlays`
+- config schema 2 with migration from schema 1
+- stable hotspot scoring
+- always-on overlay analyzers
+- local caching for history and token facts
 - JSON, YAML, Markdown, and terminal reporting
-- a seeded GitHub Project and issue graph
 
-The next work is detector hardening, dogfooding, and then the `v2` explainer
-and planner surface.
+The detector program is not “done forever,” but it is now in the validation
+and adoption phase rather than the bootstrap phase.
 
-That detector-hardening phase now includes an organization-health overlay that
-stays inside the detector track rather than being folded into `v2` narration.
+## Active Program: Detector Evolution
 
-## Epic Tracks
+The current program includes three completed technical shifts:
 
-Roadmap phases are represented as epic issues, not as native GitHub milestones.
-Native milestones are reserved for quarter commitments only.
+1. typed analyzer architecture
+2. explicit `costs` / `overlays` report contract
+3. expanded always-on overlay evidence
 
-### `Epic: V1 detector`
+That means the next work should bias toward:
 
-- bootstrap repo and CLI
-- tracked-file inventory
-- token counts
-- history miner
-- scoring
-- reports
-- `init`
-- `check`
-- tests
-- dogfood workflow
-- organization-health evidence:
-  - duplicate neighborhoods
-  - near-duplicate neighborhoods
-  - temporal coupling
-  - diffusion and boundary clusters
+- validation
+- rollout
+- narrow detector fixes when cross-repo evidence justifies them
 
-### `Epic: V2 explainer and planner`
+Not toward another immediate detector-core rewrite.
 
-- `git slop explain`
-- `git slop plan`
-- optional Ollama backend
-- theme and seam detection
-- richer agent skills and hooks
+## Stable Detector Scope
 
-### `Epic: V3 agentic loop`
+Stable hotspot scope remains:
 
-- bounded refactor loop
-- SARIF
-- trend comparisons
-- editor integrations
-- hosted exploration later, if warranted
+- load / context cost
+- age / volatility
+- hotspot ranking
+- queue generation
+- CI checks
 
-## Week-One Bar
+Those stay easy to explain and must not silently absorb overlay pressures.
 
-By the end of the first week, Git Slop should have:
+## Overlay Scope
 
-- the repo scaffolded
-- docs committed
-- quarter milestones and epic issues opened
-- `git-slop` runnable with `uv`
-- `git slop init` working
-- `git slop find` producing a first report
-- CI green
-- a dogfood workflow running
+Current overlay families:
 
-That is enough to show the project publicly.
+- organization health
+- verification
+- navigation
+- blast radius
+- stewardship
+- semantic drift
 
-## Issue Seed Order
+These remain evidence-first and always-on.
 
-Open `Epic: V1 detector` leaf issues in this order:
+## Deferred Program: Explain / Plan
 
-1. bootstrap package, docs, CLI skeleton, and issue templates
-2. `init`
-3. tracked-file inventory
-4. token counting
-5. Git history miner
-6. scoring engine and reason codes
-7. JSON, YAML, Markdown, and terminal reports
-8. `check`
-9. tests and fixture repos
-10. dogfood CI
-
-Seed `v2` issues for:
+The next major program after detector evolution is:
 
 - `git slop explain`
 - `git slop plan`
-- optional Ollama backend
-- theme and seam detection
-- richer agent hooks
 
-Seed `v3` issues for:
-
-- bounded refactor loop
-- SARIF
-- trend comparisons
-- editor integrations
+Those surfaces should consume detector evidence; they should not redefine it.
 
 ## Explicit Not Yet
 
-Keep these out of milestone-critical work for now:
+Still out of scope for this program:
 
-- website polish
-- newsletter or blog platform work
 - hosted SaaS
 - autonomous refactoring
 - editor plugins
-- Homebrew tap work
-- investor story refinement
-- LLM-backed scoring
-- folding organization-health into `priority_score`
+- hidden score inflation from overlays
+- new `check` thresholds for overlays
+- LLM-backed detector scoring
 
-## Delivery Sequence
+## Delivery Guidance
 
-Recommended delivery train:
+Recommended sequence from here:
 
-1. `chore: bootstrap git-slop package, docs, and issue templates`
-2. `feat: add tracked-file inventory and token-count detector`
-3. `feat: add git history mining for file age and churn`
-4. `feat: add scoring engine, action queue, and report writers`
-5. `test: add fixture repos, parser coverage, and report snapshots`
-6. `ci: add dogfood workflow with artifact and summary publishing`
-7. `feat: add organization-health evidence without changing hotspot scoring`
-
-That sequence is now effectively the `v1-detector` hardening checklist.
+1. keep broader repo rollout moving
+2. capture validation notes from real repos
+3. fix detector-level issues only when they appear across repos
+4. start `explain` / `plan` once detector output feels stable enough to trust

@@ -2,54 +2,70 @@
 
 Find the files that cost too much context.
 
-Git Slop is a local-first detector for AI-era repositories. It scans a Git
-repo, measures token cost, age, and churn, then ranks the files and folders
-most worth refactoring. It also emits an experimental organization-health
-overlay for coordination-cost evidence such as duplication, temporal coupling,
-and boundary leakage.
+Git Slop is a deterministic, local-first detector for AI-era repositories. It
+keeps one stable promise at the center of the product:
 
-The maintainer-only backlog governance surface now lives under `agent-tools`
-and `.agents/`. That internal tooling manages GitHub issue forms, quarter
-milestone policy, label palette drift checks, and repo-local skill metadata.
+> Which files cost too much context to load, reason about, and safely change?
 
-## Why Git Slop Exists
+It now also emits a separate always-on overlay layer for structural and
+operational evidence:
 
-Traditional static analysis tells you whether code violates rules.
+> Which concepts cost too much coordination because they are duplicated,
+> scattered, weakly verified, hard to navigate, or forced to co-change?
 
-Git Slop answers a different question:
+Those are related questions, but Git Slop keeps them separate on purpose.
 
-> Which files are expensive to load, reason about, retrieve, and safely change?
+## Core Contract
 
-And now, in a separate experimental layer:
+The hotspot queue remains a context-cost detector:
 
-> Which concepts are expensive to coordinate because they are duplicated,
-> scattered, or forced to co-change across boundaries?
+- `priority_score`
+- `priority_band`
+- `context_band`
+- `git slop check`
 
-That matters for humans. It matters even more for LLM-assisted development.
+Those surfaces stay stable and explainable. They do not silently absorb
+organization, verification, navigation, blast-radius, stewardship, or semantic
+drift overlays.
 
-## What V1 Does
+The overlay layer is evidence-first:
 
-- scan tracked text files in a Git repository
-- ignore generated dependency lockfiles by default
-- count token cost
-- measure file age from Git history
-- measure churn from Git history
-- rank hotspots
-- emit JSON, YAML, Markdown, and terminal output
-- support CI checks
-- create a machine-readable action queue for humans and agents
-- emit experimental organization-health evidence:
-  - `organization_metrics`
-  - `relationships`
-  - `clusters`
+- deterministic
+- repo-local
+- language-agnostic
+- always emitted
+- not a correctness oracle
 
-## What V1 Does Not Do
+## What Git Slop Measures
 
-- automatically rewrite code
-- require hosted APIs
-- send repo data anywhere
-- use an LLM for scoring
-- fold organization-health pressures into `priority_score`
+### Stable hotspot costs
+
+- **Load cost**: context-token size and concentration
+- **Volatility cost**: age, churn, token churn, and recency-weighted activity
+- **Coordination cost**: change diffusion and co-change spread
+
+### Always-on overlays
+
+- **Organization health**: duplication, scatter, cohesion, and boundary leakage
+- **Verification**: nearby-test and historical test-cochange evidence
+- **Navigation**: ambiguity, path depth, sibling width, and term dispersion
+- **Blast radius**: temporal coupling and average changeset spread
+- **Stewardship**: author concentration and maintainer diversity
+- **Semantic drift**: high-signal terms whose neighborhoods diverge across roots
+
+## Context Tokens vs Structural Tokens
+
+Git Slop intentionally uses two token pipelines:
+
+- **Context tokens**
+  - `tiktoken`-aligned
+  - used for load and context-budget measurements
+- **Structural tokens**
+  - normalized lexical/path tokens
+  - used for duplication, cohesion, drift, navigation, and boundary analysis
+
+This separation keeps context-budget math honest without forcing the structural
+layer to reuse the wrong representation.
 
 ## Quickstart
 
@@ -61,12 +77,6 @@ uv run git-slop check
 uv run git-slop version
 uv run git-slop --help
 ```
-
-Planned install methods after the detector is real:
-
-- `uv tool install git-slop`
-- `pipx install git-slop`
-- Homebrew tap support later
 
 ## Command Surface
 
@@ -81,9 +91,9 @@ The package exposes both:
 - `git-slop ...`
 - `python -m git_slop ...`
 
-## Planned Generated State
+## Generated State
 
-Git Slop will write generated artifacts under `.slop/`:
+Git Slop writes generated artifacts under `.slop/`:
 
 ```text
 .slop/
@@ -94,27 +104,6 @@ Git Slop will write generated artifacts under `.slop/`:
   cache/
 ```
 
-`report.json` is the machine contract. `summary.md` is the human summary.
-The report timestamp reflects the analyzed repo snapshot so repeated runs on the
-same HEAD can stay byte-identical.
-
-The main hotspot queue stays driven by context cost:
-
-- token size
-- age
-- churn
-
-The organization-health layer is parallel evidence only. It does not currently
-change `priority_score`, `priority_band`, or `git slop check`.
-
-Generated dependency lockfiles such as `uv.lock`, `package-lock.json`, and
-`poetry.lock` are ignored by default so hotspot rankings stay focused on
-refactor targets rather than generated manifests.
-
-For mature repos with major file moves, set `history.follow_renames: true` in
-`.slop/config.yaml`. That is slower, but it preserves age and churn signals
-across renames instead of treating moved files as brand new.
-
 `find` writes:
 
 - `.slop/latest/report.json`
@@ -122,11 +111,121 @@ across renames instead of treating moved files as brand new.
 - `.slop/latest/summary.md`
 - `.slop/runs/<timestamp>/...`
 
-`report.json` always includes these experimental namespaces:
+The report timestamp reflects the analyzed repo snapshot so repeated runs on the
+same HEAD can stay byte-identical.
+
+## Report Contract
+
+`report.json` is the machine contract. Current machine schema:
+
+- `schema_version: 3`
+
+Canonical top-level sections:
+
+- `summary`
+- `repo`
+- `config`
+- `stats`
+- `files`
+- `folders`
+- `action_queue`
+- `costs`
+- `overlays`
+
+Canonical stable cost sections:
+
+- `costs.load`
+- `costs.volatility`
+- `costs.coordination`
+
+Canonical overlay sections:
+
+- `overlays.organization_health`
+- `overlays.verification`
+- `overlays.navigation`
+- `overlays.blast_radius`
+- `overlays.stewardship`
+- `overlays.semantic_drift`
+
+For one compatibility release cycle, Git Slop still emits these deprecated
+mirrors:
 
 - `organization_metrics`
 - `relationships`
 - `clusters`
+
+## Config Contract
+
+`.slop/config.yaml` now writes:
+
+- `schema_version: 2`
+
+Git Slop still accepts `schema_version: 1` configs and auto-normalizes them
+forward for one compatibility cycle.
+
+Current config namespaces:
+
+- `inventory`
+- `tokenization`
+- `history`
+- `scoring`
+- `organization`
+- `verification`
+- `navigation`
+- `blast_radius`
+- `stewardship`
+- `semantic_drift`
+- `check`
+
+Important defaults:
+
+- organization-health stays always-on
+- no user-facing overlay enable/disable switch
+- deterministic candidate limiting is allowed internally for performance
+- `history.follow_renames: true` remains opt-in
+
+## Internal Layout
+
+The detector now uses explicit internal layers:
+
+```text
+src/git_slop/
+  cli/
+  core/
+  costs/
+  graphs/
+  reports/
+  scoring/
+  integrations/
+```
+
+Roles:
+
+- `core/`: repository facts, config, cache, token facts, history facts, pipeline
+- `costs/`: stable cost analyzers and overlay analyzers
+- `graphs/`: co-change, similarity, relationships, and cluster helpers
+- `reports/`: schema shaping, markdown, terminal, and bundle writing
+- `scoring/`: stable hotspot scoring only
+- `integrations/`: maintainer-only or detector-adjacent integrations
+
+## What Git Slop Does Not Do
+
+- rewrite code automatically
+- require hosted APIs
+- send repo data anywhere
+- use an LLM for scoring
+- claim a boundary is “wrong” without human review
+- fold overlays into `priority_score`
+
+## Roadmap Position
+
+This repo is still in the detector program. The next major program after this
+one is not “more detector math”; it is:
+
+- `git slop explain`
+- `git slop plan`
+
+Those surfaces are intentionally deferred until the detector contract is stable.
 
 ## Project Docs
 
@@ -135,35 +234,3 @@ across renames instead of treating moved files as brand new.
 - [Scoring Model](docs/scoring-model.md)
 - [Roadmap](docs/roadmap.md)
 - [Backlog Governance](docs/engineering/backlog-governance.md)
-
-## Maintainer Tooling
-
-The public CLI stays focused on detector behavior. Backlog governance and
-repo-local agent tooling live under:
-
-- `agent-tools ...`
-- `uv run agent-tools skills sync-openai-metadata --repo-root . --check`
-- `.agents/skills/...`
-- `config/github/project_config.json`
-- `config/labels/label_palette.json`
-- `config/agents/skill_metadata_manifest.json`
-- [Agent Tools Extraction](docs/engineering/agent-tools-extraction.md)
-
-While `coreycoto/agent-tools` remains private, GitHub Actions needs either
-`AGENT_TOOLS_READ_TOKEN` or `GH_PROJECTS_TOKEN` with read access to that repo
-before `uv sync --group dev` can install the tagged dependency. If
-`agent-tools` becomes public later, that extra token is no longer required.
-
-## Philosophy
-
-Readable code can still be slop.
-
-If a file costs too much context, stays large for too long, and changes too
-often, it is expensive even when it looks clean.
-
-And a repo can also be slop when an idea leaks across too many medium-sized
-files. Git Slop treats that coordination cost as a separate layer so the
-detector stays explainable instead of collapsing everything into one opaque
-number.
-
-Git Slop exists to make that cost visible.

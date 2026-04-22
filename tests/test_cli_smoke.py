@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
 sys.path.insert(0, str(SRC_DIR))
@@ -52,7 +54,7 @@ def init_git_repo(repo_root: Path) -> None:
 
 class CliSmokeTests(unittest.TestCase):
     def test_package_import_exposes_version(self) -> None:
-        self.assertEqual(git_slop.__version__, "0.2.1")
+        self.assertEqual(git_slop.__version__, "0.4.0")
 
     def test_help_lists_registered_commands(self) -> None:
         completed = run_cli("--help")
@@ -68,7 +70,7 @@ class CliSmokeTests(unittest.TestCase):
         completed = run_cli("version")
 
         self.assertEqual(completed.returncode, 0)
-        self.assertEqual(completed.stdout.strip(), "git-slop 0.2.1")
+        self.assertEqual(completed.stdout.strip(), "git-slop 0.4.0")
         self.assertEqual(completed.stderr, "")
 
     def test_show_without_report_returns_usage_error(self) -> None:
@@ -99,6 +101,11 @@ class CliSmokeTests(unittest.TestCase):
             self.assertTrue((repo_root / ".slop" / "runs").exists())
             self.assertTrue((repo_root / ".slop" / "cache").exists())
             self.assertIn("Initialized .slop/config.yaml", completed.stdout)
+            config_payload = yaml.safe_load(
+                (repo_root / ".slop" / "config.yaml").read_text(encoding="utf-8")
+            )
+            self.assertEqual(config_payload["schema_version"], 2)
+            self.assertIn("tokenization", config_payload)
 
 
 if __name__ == "__main__":

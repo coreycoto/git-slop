@@ -10,14 +10,11 @@ from typing import Any
 import yaml
 
 from .config import latest_dir, runs_dir
-from .organization import (
-    clusters_for_path,
-    folder_clusters_for_prefix,
-    folder_relationships_for_prefix,
-    relationships_for_path,
-    top_organization_file_overlays,
-)
+from .costs.organization import top_organization_file_overlays
+from .graphs.clusters import clusters_for_path, folder_clusters_for_prefix
+from .graphs.relationships import folder_relationships_for_prefix, relationships_for_path
 from .scoring import CONTEXT_BAND_ORDER, PRIORITY_BAND_ORDER, build_folder_record
+from .tokenization import context_band_for_tokens, context_pressure_for_tokens
 
 
 def _folder_paths_for_file(path: str) -> list[str]:
@@ -30,6 +27,230 @@ def _folder_paths_for_file(path: str) -> list[str]:
     return parents
 
 
+def _mean(values: list[float]) -> float:
+    return sum(values) / max(1, len(values))
+
+
+def _top_level_root(path: str) -> str:
+    parts = PurePosixPath(path).parts
+    return parts[0] if parts else "."
+
+
+def _is_pure_context_hotspot(reason_codes: list[str]) -> bool:
+    token_cost_reasons = {"high_token_cost", "critical_token_cost"}
+    return bool(reason_codes) and set(reason_codes).issubset(token_cost_reasons)
+
+
+def _signal_label(item: dict[str, Any]) -> str:
+    return "context-only" if item["is_pure_context_hotspot"] else "mixed"
+
+
+def _overlay_folder_aggregate(
+    *,
+    overlay_name: str,
+    folder_path: str,
+    descendants: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not descendants:
+        return {"path": folder_path}
+    numeric_values: dict[str, list[float]] = defaultdict(list)
+    boolean_counts: dict[str, int] = defaultdict(int)
+    list_values: dict[str, list[str]] = defaultdict(list)
+    for descendant in descendants:
+        for key, value in descendant.items():
+            if key == "path":
+                continue
+            if isinstance(value, bool):
+                boolean_counts[key] += int(value)
+            elif isinstance(value, int | float):
+                numeric_values[key].append(float(value))
+            elif isinstance(value, list):
+                list_values[key].extend(str(item) for item in value)
+    payload: dict[str, Any] = {"path": folder_path, "overlay_name": overlay_name}
+    for key, values in numeric_values.items():
+        if key.endswith("_count") or key.endswith("_degree") or key in {
+            "path_depth",
+            "sibling_count",
+            "folder_width",
+            "duplicate_name_count",
+            "days_since_non_bot_edit",
+        }:
+            payload[key] = round(_mean(values), 6)
+        else:
+            payload[key] = round(_mean(values), 6)
+    for key, count in boolean_counts.items():
+        payload[key] = bool(count)
+    for key, values in list_values.items():
+        payload[key] = sorted(dict.fromkeys(values))[:20]
+    payload["descendant_file_count"] = len(descendants)
+    return payload
+
+
+def _build_folder_costs(
+    *,
+    descendants: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    total_tokens = sum(int(record["tokens"]) for record in descendants)
+    top_tokens = sorted((int(record["tokens"]) for record in descendants), reverse=True)
+    revision_counts = [
+        float(record["costs"]["volatility"]["commit_count_window"])
+        for record in descendants
+    ]
+    relative_token_churn = [
+        float(record["costs"]["volatility"]["relative_token_churn"]) for record in descendants
+    ]
+    change_diffusion = [
+        float(record["costs"]["coordination"]["change_diffusion"]) for record in descendants
+    ]
+    coordination_pressure = [
+        float(record["costs"]["coordination"]["coordination_pressure"]) for record in descendants
+    ]
+    return {
+        "load": {
+            "file_token_count": max(int(record["tokens"]) for record in descendants),
+            "folder_token_count": total_tokens,
+            "top_file_share": round(top_tokens[0] / max(1, total_tokens), 6),
+            "top_3_file_share": round(sum(top_tokens[:3]) / max(1, total_tokens), 6),
+            "token_concentration_ratio": round(top_tokens[0] / max(1, total_tokens), 6),
+            "context_band": context_band_for_tokens(total_tokens, config),
+            "load_pressure": round(context_pressure_for_tokens(total_tokens, config), 6),
+        },
+        "volatility": {
+            "commit_count_window": round(sum(revision_counts), 6),
+            "recency_weighted_commits": round(
+                sum(
+                    float(record["costs"]["volatility"]["recency_weighted_commits"])
+                    for record in descendants
+                ),
+                6,
+            ),
+            "line_churn_window": round(
+                sum(
+                    float(record["costs"]["volatility"]["line_churn_window"])
+                    for record in descendants
+                ),
+                6,
+            ),
+            "token_churn_window": round(
+                sum(
+                    float(record["costs"]["volatility"]["token_churn_window"])
+                    for record in descendants
+                ),
+                6,
+            ),
+            "relative_token_churn": round(_mean(relative_token_churn), 6),
+            "late_churn_spike": round(
+                _mean(
+                    [
+                        float(record["costs"]["volatility"]["late_churn_spike"])
+                        for record in descendants
+                    ]
+                ),
+                6,
+            ),
+            "volatility_pressure": round(
+                _mean(
+                    [
+                        float(record["costs"]["volatility"]["volatility_pressure"])
+                        for record in descendants
+                    ]
+                ),
+                6,
+            ),
+        },
+        "coordination": {
+            "files_touched_per_change": round(
+                _mean(
+                    [
+                        float(record["costs"]["coordination"]["files_touched_per_change"])
+                        for record in descendants
+                    ]
+                ),
+                6,
+            ),
+            "folders_touched_per_change": round(
+                _mean(
+                    [
+                        float(record["costs"]["coordination"]["folders_touched_per_change"])
+                        for record in descendants
+                    ]
+                ),
+                6,
+            ),
+            "edit_hunks_per_change": round(
+                _mean(
+                    [
+                        float(record["costs"]["coordination"]["edit_hunks_per_change"])
+                        for record in descendants
+                    ]
+                ),
+                6,
+            ),
+            "cochange_degree": round(
+                _mean(
+                    [
+                        float(record["costs"]["coordination"]["cochange_degree"])
+                        for record in descendants
+                    ]
+                ),
+                6,
+            ),
+            "cochange_centrality": round(
+                _mean(
+                    [
+                        float(record["costs"]["coordination"]["cochange_centrality"])
+                        for record in descendants
+                    ]
+                ),
+                6,
+            ),
+            "cross_folder_cochange_ratio": round(
+                _mean(
+                    [
+                        float(record["costs"]["coordination"]["cross_folder_cochange_ratio"])
+                        for record in descendants
+                    ]
+                ),
+                6,
+            ),
+            "change_diffusion": round(_mean(change_diffusion), 6),
+            "coordination_pressure": round(_mean(coordination_pressure), 6),
+        },
+    }
+
+
+def _build_folder_overlays(
+    *,
+    folder_path: str,
+    descendants: list[dict[str, Any]],
+) -> dict[str, Any]:
+    overlay_names = [
+        "organization_health",
+        "verification",
+        "navigation",
+        "blast_radius",
+        "stewardship",
+        "semantic_drift",
+    ]
+    overlays: dict[str, Any] = {}
+    for overlay_name in overlay_names:
+        overlay_descendants = [
+            record["overlays"][overlay_name]
+            for record in descendants
+            if record.get("overlays", {}).get(overlay_name) is not None
+        ]
+        if overlay_descendants:
+            overlays[overlay_name] = _overlay_folder_aggregate(
+                overlay_name=overlay_name,
+                folder_path=folder_path,
+                descendants=overlay_descendants,
+            )
+        else:
+            overlays[overlay_name] = None
+    return overlays
+
+
 def build_folder_records(
     file_records: list[dict[str, Any]], config: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -37,10 +258,15 @@ def build_folder_records(
     for record in file_records:
         for folder_path in _folder_paths_for_file(record["path"]):
             grouped[folder_path].append(record)
-    records = [
-        build_folder_record(path=folder_path, descendants=descendants, config=config)
-        for folder_path, descendants in grouped.items()
-    ]
+    records: list[dict[str, Any]] = []
+    for folder_path, descendants in grouped.items():
+        base_record = build_folder_record(path=folder_path, descendants=descendants, config=config)
+        base_record["costs"] = _build_folder_costs(descendants=descendants, config=config)
+        base_record["overlays"] = _build_folder_overlays(
+            folder_path=folder_path,
+            descendants=descendants,
+        )
+        records.append(base_record)
     return sorted(records, key=lambda record: (record["path"] != ".", record["path"]))
 
 
@@ -70,13 +296,81 @@ def build_action_queue(
     return queue
 
 
-def _is_pure_context_hotspot(reason_codes: list[str]) -> bool:
-    token_cost_reasons = {"high_token_cost", "critical_token_cost"}
-    return bool(reason_codes) and set(reason_codes).issubset(token_cost_reasons)
+def _file_map(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {record["path"]: record for record in records}
 
 
-def _signal_label(item: dict[str, Any]) -> str:
-    return "context-only" if item["is_pure_context_hotspot"] else "mixed"
+def _canonical_organization_overlay(organization_analysis: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "experimental": True,
+        "analysis_status": organization_analysis["organization_metrics"]["analysis_status"],
+        "analysis_version": organization_analysis["organization_metrics"]["analysis_version"],
+        "repo_baselines": organization_analysis["organization_metrics"]["repo_baselines"],
+        "files": organization_analysis["organization_metrics"]["files"],
+        "folders": organization_analysis["organization_metrics"]["folders"],
+        "relationships": organization_analysis["relationships"],
+        "clusters": organization_analysis["clusters"],
+        "findings": {
+            "top_structural_files": top_organization_file_overlays(
+                {
+                    "organization_metrics": organization_analysis["organization_metrics"],
+                    "relationships": organization_analysis["relationships"],
+                    "clusters": organization_analysis["clusters"],
+                },
+                limit=10,
+            ),
+            "top_consolidation_candidates": organization_analysis["clusters"][
+                "consolidation_candidates"
+            ][:10],
+        },
+    }
+
+
+def _overlay_with_folders(
+    overlay: dict[str, Any],
+    file_records: list[dict[str, Any]],
+    name: str,
+) -> dict[str, Any]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in overlay.get("files", []):
+        for folder_path in _folder_paths_for_file(record["path"]):
+            grouped[folder_path].append(record)
+    folders = [
+        _overlay_folder_aggregate(
+            overlay_name=name,
+            folder_path=folder_path,
+            descendants=descendants,
+        )
+        for folder_path, descendants in grouped.items()
+    ]
+    return {
+        **overlay,
+        "enabled": True,
+        "experimental": True,
+        "folders": sorted(folders, key=lambda item: (item["path"] != ".", item["path"])),
+    }
+
+
+def _summary_block(
+    *,
+    action_queue: list[dict[str, Any]],
+    overlays: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "top_hotspots": [item["path"] for item in action_queue[:5]],
+        "top_structural_files": [
+            item["path"]
+            for item in overlays["organization_health"]["findings"]["top_structural_files"][:5]
+        ],
+        "top_verification_gaps": [
+            item["path"]
+            for item in sorted(
+                overlays["verification"]["files"],
+                key=lambda item: (-item["verification_gap"], item["path"]),
+            )[:5]
+        ],
+    }
 
 
 def build_report(
@@ -86,7 +380,8 @@ def build_report(
     file_records: list[dict[str, Any]],
     folder_records: list[dict[str, Any]],
     action_queue: list[dict[str, Any]],
-    organization_analysis: dict[str, Any],
+    stable_costs: dict[str, dict[str, dict[str, Any]]],
+    overlay_results: dict[str, Any],
     skipped: dict[str, int],
     generated_at: str,
 ) -> dict[str, Any]:
@@ -94,13 +389,74 @@ def build_report(
     must_refactor_count = sum(
         1 for record in file_records if record["priority_band"] == "must_refactor"
     )
-    files_payload = sorted(
-        [{key: value for key, value in record.items() if key != "text"} for record in file_records],
-        key=lambda record: record["path"],
-    )
-    return {
-        "schema_version": 2,
+
+    canonical_overlays = {
+        "organization_health": _canonical_organization_overlay(
+            overlay_results["organization_health"]
+        ),
+        "verification": _overlay_with_folders(
+            overlay_results["verification"],
+            file_records,
+            "verification",
+        ),
+        "navigation": _overlay_with_folders(
+            overlay_results["navigation"],
+            file_records,
+            "navigation",
+        ),
+        "blast_radius": _overlay_with_folders(
+            overlay_results["blast_radius"],
+            file_records,
+            "blast_radius",
+        ),
+        "stewardship": _overlay_with_folders(
+            overlay_results["stewardship"],
+            file_records,
+            "stewardship",
+        ),
+        "semantic_drift": _overlay_with_folders(
+            overlay_results["semantic_drift"],
+            file_records,
+            "semantic_drift",
+        ),
+    }
+    org_file_overlays = _file_map(canonical_overlays["organization_health"]["files"])
+    verification_by_path = _file_map(canonical_overlays["verification"]["files"])
+    navigation_by_path = _file_map(canonical_overlays["navigation"]["files"])
+    blast_radius_by_path = _file_map(canonical_overlays["blast_radius"]["files"])
+    stewardship_by_path = _file_map(canonical_overlays["stewardship"]["files"])
+    semantic_drift_by_path = _file_map(canonical_overlays["semantic_drift"]["files"])
+
+    files_payload: list[dict[str, Any]] = []
+    for record in sorted(file_records, key=lambda item: item["path"]):
+        payload = {key: value for key, value in record.items() if key != "text"}
+        payload["costs"] = {
+            "load": stable_costs["load"][record["path"]],
+            "volatility": stable_costs["volatility"][record["path"]],
+            "coordination": stable_costs["coordination"][record["path"]],
+        }
+        payload["overlays"] = {
+            "organization_health": org_file_overlays.get(record["path"]),
+            "verification": verification_by_path.get(record["path"]),
+            "navigation": navigation_by_path.get(record["path"]),
+            "blast_radius": blast_radius_by_path.get(record["path"]),
+            "stewardship": stewardship_by_path.get(record["path"]),
+            "semantic_drift": semantic_drift_by_path.get(record["path"]),
+        }
+        files_payload.append(payload)
+
+    folder_records = build_folder_records(files_payload, config)
+
+    costs_summary = {
+        "load": {"analysis_status": "stable", "analysis_version": 1},
+        "volatility": {"analysis_status": "stable", "analysis_version": 1},
+        "coordination": {"analysis_status": "stable", "analysis_version": 1},
+    }
+
+    report = {
+        "schema_version": 3,
         "generated_at": generated_at,
+        "summary": _summary_block(action_queue=action_queue, overlays=canonical_overlays),
         "repo": repo,
         "config": config,
         "stats": {
@@ -120,10 +476,13 @@ def build_report(
         "files": files_payload,
         "folders": folder_records,
         "action_queue": action_queue,
-        "organization_metrics": organization_analysis["organization_metrics"],
-        "relationships": organization_analysis["relationships"],
-        "clusters": organization_analysis["clusters"],
+        "costs": costs_summary,
+        "overlays": canonical_overlays,
+        "organization_metrics": overlay_results["organization_health"]["organization_metrics"],
+        "relationships": overlay_results["organization_health"]["relationships"],
+        "clusters": overlay_results["organization_health"]["clusters"],
     }
+    return report
 
 
 def render_terminal_table(action_queue: list[dict[str, Any]]) -> str:
@@ -162,14 +521,15 @@ def render_terminal_table(action_queue: list[dict[str, Any]]) -> str:
 
 
 def _render_organization_terminal(report: dict[str, Any]) -> str:
-    overlays = top_organization_file_overlays(report, limit=5)
+    organization_overlay = report["overlays"]["organization_health"]
+    overlays = organization_overlay["findings"]["top_structural_files"][:5]
     duplicate_candidates = sorted(
-        report["relationships"]["duplicate_neighborhoods"]
-        + report["relationships"]["near_duplicate_neighborhoods"],
+        organization_overlay["relationships"]["duplicate_neighborhoods"]
+        + organization_overlay["relationships"]["near_duplicate_neighborhoods"],
         key=lambda item: (-item["evidence_score"], item["id"]),
     )[:5]
-    coupling_edges = report["relationships"]["temporal_coupling_edges"][:5]
-    consolidation_candidates = report["clusters"]["consolidation_candidates"][:5]
+    coupling_edges = organization_overlay["relationships"]["temporal_coupling_edges"][:5]
+    consolidation_candidates = organization_overlay["clusters"]["consolidation_candidates"][:5]
 
     lines = ["Organization Health", ""]
     if overlays:
@@ -242,11 +602,52 @@ def _render_organization_terminal(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _render_overlay_highlights(report: dict[str, Any]) -> str:
+    verification = sorted(
+        report["overlays"]["verification"]["files"],
+        key=lambda item: (-item["verification_gap"], item["path"]),
+    )[:5]
+    navigation = sorted(
+        report["overlays"]["navigation"]["files"],
+        key=lambda item: (-item["navigation_pressure"], item["path"]),
+    )[:5]
+    blast_radius = sorted(
+        report["overlays"]["blast_radius"]["files"],
+        key=lambda item: (-item["blast_radius_pressure"], item["path"]),
+    )[:5]
+    lines = ["Other Overlay Highlights", ""]
+    lines.append("Top Verification Gaps")
+    if verification:
+        lines.extend(
+            f"- {item['path']} (gap {item['verification_gap']:.3f})" for item in verification
+        )
+    else:
+        lines.append("- None")
+    lines.extend(["", "Top Navigation Pressure"])
+    if navigation:
+        lines.extend(
+            f"- {item['path']} (pressure {item['navigation_pressure']:.3f})"
+            for item in navigation
+        )
+    else:
+        lines.append("- None")
+    lines.extend(["", "Top Blast Radius"])
+    if blast_radius:
+        lines.extend(
+            f"- {item['path']} (pressure {item['blast_radius_pressure']:.3f})"
+            for item in blast_radius
+        )
+    else:
+        lines.append("- None")
+    return "\n".join(lines)
+
+
 def render_terminal_output(report: dict[str, Any]) -> str:
     return "\n\n".join(
         [
             render_terminal_table(report["action_queue"]),
             _render_organization_terminal(report),
+            _render_overlay_highlights(report),
         ]
     )
 
@@ -279,9 +680,9 @@ def render_summary(report: dict[str, Any]) -> str:
             f"{item['revisions_window']} | {item['churn_pressure']:.3f} | "
             f"`{_signal_label(item)}` | {', '.join(item['reason_codes']) or '_none_'} |"
         )
-    lines.extend(["", "## Organization Health", ""])
 
-    overlays = top_organization_file_overlays(report, limit=5)
+    lines.extend(["", "## Organization Health", ""])
+    overlays = report["overlays"]["organization_health"]["findings"]["top_structural_files"][:5]
     lines.extend(
         [
             "### Top Structural Files",
@@ -304,8 +705,10 @@ def render_summary(report: dict[str, Any]) -> str:
         lines.append("| _none_ | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0 | 0 |")
 
     duplicate_candidates = sorted(
-        report["relationships"]["duplicate_neighborhoods"]
-        + report["relationships"]["near_duplicate_neighborhoods"],
+        report["overlays"]["organization_health"]["relationships"]["duplicate_neighborhoods"]
+        + report["overlays"]["organization_health"]["relationships"][
+            "near_duplicate_neighborhoods"
+        ],
         key=lambda item: (-item["evidence_score"], item["id"]),
     )[:5]
     lines.extend(
@@ -326,45 +729,27 @@ def render_summary(report: dict[str, Any]) -> str:
     if not duplicate_candidates:
         lines.append("| _none_ | _none_ | 0.000 | `_none_` |")
 
-    boundary_clusters = report["clusters"]["boundary_leakage_clusters"][:5]
+    lines.extend(["", "## Overlay Highlights", ""])
+    verification = sorted(
+        report["overlays"]["verification"]["files"],
+        key=lambda item: (-item["verification_gap"], item["path"]),
+    )[:5]
     lines.extend(
         [
+            "### Verification Gaps",
             "",
-            "### Top Cross-Boundary Clusters",
-            "",
-            "| Cluster | Roots | Files | Score |",
-            "| --- | --- | ---: | ---: |",
+            "| Path | Gap | Nearby Tests | Test Cochange |",
+            "| --- | ---: | --- | ---: |",
         ]
     )
-    for cluster in boundary_clusters:
-        roots = ", ".join(f"`{root}`" for root in cluster["top_level_roots"])
+    for item in verification:
+        preview = ", ".join(f"`{path}`" for path in item["nearby_test_paths"][:3]) or "_none_"
         lines.append(
-            f"| `{cluster['id']}` | {roots} | "
-            f"{cluster['member_count']} | {cluster['evidence_score']:.3f} |"
+            f"| `{item['path']}` | {item['verification_gap']:.3f} | {preview} | "
+            f"{item['test_cochange_ratio']:.3f} |"
         )
-    if not boundary_clusters:
-        lines.append("| _none_ | `_none_` | 0 | 0.000 |")
-
-    consolidation_candidates = report["clusters"]["consolidation_candidates"][:5]
-    lines.extend(
-        [
-            "",
-            "### Top Consolidation Candidates",
-            "",
-            "| Candidate | Files | Score | Members |",
-            "| --- | ---: | ---: | --- |",
-        ]
-    )
-    for cluster in consolidation_candidates:
-        member_preview = ", ".join(f"`{path}`" for path in cluster["member_paths"][:4])
-        if cluster["member_count"] > 4:
-            member_preview += ", ..."
-        lines.append(
-            f"| `{cluster['candidate_type']}` | {cluster['member_count']} | "
-            f"{cluster['evidence_score']:.3f} | {member_preview} |"
-        )
-    if not consolidation_candidates:
-        lines.append("| `_none_` | 0 | 0.000 | _none_ |")
+    if not verification:
+        lines.append("| _none_ | 0.000 | _none_ | 0.000 |")
 
     lines.extend(["", "## Next Action Queue", ""])
     if report["action_queue"]:
@@ -459,29 +844,12 @@ def find_report_record(report: dict[str, Any], target_path: str) -> dict[str, An
     return None
 
 
-def _find_overlay_record(
-    report: dict[str, Any],
-    *,
-    target_path: str,
-    collection_name: str,
-) -> dict[str, Any] | None:
-    for record in report["organization_metrics"][collection_name]:
-        if record["path"] == target_path:
-            return dict(record)
-    return None
-
-
 def build_show_payload(report: dict[str, Any], target_path: str) -> dict[str, Any] | None:
     normalized = target_path.strip() or "."
     base_record = find_report_record(report, normalized)
     if base_record is None:
         return None
     is_file = any(record["path"] == normalized for record in report["files"])
-    overlay = _find_overlay_record(
-        report,
-        target_path=normalized,
-        collection_name="files" if is_file else "folders",
-    )
     if is_file:
         strongest_relationships = relationships_for_path(report, normalized)[:10]
         cluster_memberships = clusters_for_path(report, normalized)[:10]
@@ -490,7 +858,7 @@ def build_show_payload(report: dict[str, Any], target_path: str) -> dict[str, An
         cluster_memberships = folder_clusters_for_prefix(report, normalized)[:10]
     payload = dict(base_record)
     payload["record_type"] = "file" if is_file else "folder"
-    payload["organization_health"] = overlay
+    payload["organization_health"] = payload.get("overlays", {}).get("organization_health")
     payload["strongest_relationships"] = strongest_relationships
     payload["cluster_memberships"] = cluster_memberships
     return payload

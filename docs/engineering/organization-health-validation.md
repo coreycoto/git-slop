@@ -4,8 +4,8 @@ Date: 2026-04-22
 
 ## Scope
 
-This note records the first post-`v0.2.1` evidence-quality pass for the
-organization-health overlay.
+This note records the current evidence-quality pass for the schema-3 detector
+and its always-on overlay layer.
 
 Validated repos:
 
@@ -13,18 +13,17 @@ Validated repos:
 - `deeptravel`
 - `neuroscribes`
 
-The goal of this pass was not to expand the detector again. It was to confirm
+The goal of this pass was not to inflate the hotspot score. It was to confirm
 three things:
 
 - the hotspot queue still means context cost, not structural cost
-- the structural layer produces plausible coordination-cost evidence
-- no cross-repo signal justifies folding organization-health into
-  `priority_score`
+- the overlay layer produces plausible coordination-cost and operational
+  evidence
+- no cross-repo signal justifies folding overlays into `priority_score`
 
 ## Runtime check
 
-The runtime pass shipped in `v0.2.1` materially improved the remaining hot
-path.
+The repo-wide history pass materially improved the remaining hot path.
 
 On `deeptravel` with `history.follow_renames: true`:
 
@@ -32,9 +31,8 @@ On `deeptravel` with `history.follow_renames: true`:
 - warm full-detector run: about `3.4s`
 
 That is a large improvement over the earlier history-dominated path that was
-closer to ninety seconds. Warm organization-health analysis remains effectively
-negligible compared with inventory, tokenization, and the repo-wide history
-parse.
+closer to ninety seconds. Warm overlay analysis remains effectively negligible
+compared with inventory, tokenization, and the repo-wide history parse.
 
 ## Repo findings
 
@@ -43,8 +41,8 @@ parse.
 What it validated:
 
 - the hotspot queue still surfaces context-heavy source and test files first
-- the structural layer finds plausible internal coordination patterns in skill
-  wrappers, workflow files, icons, and docs
+- the overlay layer finds plausible internal coordination patterns in skill
+  wrappers, workflow files, docs, and checked-in assets
 - self-dogfood findings remain explainable without touching the main score
 
 Top hotspot examples:
@@ -57,16 +55,17 @@ Top hotspot examples:
 Top structural examples:
 
 - duplicate or near-duplicate skill wrapper scripts
-- duplicate skill icons across `.agents/skills/*/assets/icon.svg`
 - shared workflow structure across `.github/workflows/*.yml`
 - cross-doc coordination between `README.md`, `docs/architecture.md`,
   `docs/scoring-model.md`, and `docs/vision.md`
+- verification and navigation pressure concentrated in high-context maintainer
+  surfaces
 
 Accepted repo-local noise:
 
-- repeated skill wrappers and icon assets are real structural findings inside
-  this repo, but they are also partly an intentional outcome of the checked-in
-  skill packaging model
+- repeated skill wrappers are real structural findings inside this repo, but
+  they are also partly an intentional outcome of the checked-in skill
+  packaging model
 - this is useful evidence, not a reason to change global scoring
 
 ### `deeptravel`
@@ -75,8 +74,8 @@ What it validated:
 
 - the hotspot queue still behaves like context-cost ranking on a mature,
   high-history repo
-- the structural layer finds large coordination surfaces that the v1 queue does
-  not try to compress into one scalar
+- the overlay layer finds large coordination surfaces that the hotspot queue
+  does not try to compress into one scalar
 - rename-aware history remains compatible with the organization-health overlay
 
 Top hotspot examples:
@@ -94,6 +93,7 @@ Top structural examples:
 - large consolidation candidates across shared eval/reference/config assets
 - boundary-heavy clusters across commands, domain, engine, and maintainer
   surfaces
+- verification gaps and blast-radius pressure on mature operational code paths
 
 Accepted repo-local noise:
 
@@ -112,7 +112,7 @@ What it validated:
   TypeScript-heavy repo
 - the hotspot queue remains readable and still points at maintained code/config
   surfaces
-- the structural layer can catch plausible duplicated concepts without needing
+- the overlay layer can catch plausible duplicated concepts without needing
   cross-repo heuristic changes
 
 Top hotspot examples:
@@ -152,16 +152,21 @@ Reasoning:
 `priority_score` remains untouched.
 
 - It still represents context cost only: size, age, and churn.
-- Organization-health pressures remain parallel evidence:
+- Overlay evidence remains parallel:
   - `duplication_pressure`
   - `diffusion_pressure`
   - `coupling_pressure`
   - `boundary_pressure`
-- `git slop check` still ignores organization-health output entirely.
+  - `verification_gap`
+  - `navigation_pressure`
+  - `blast_radius_pressure`
+  - `stewardship_pressure`
+  - `semantic_drift_pressure`
+- `git slop check` still ignores overlay output entirely.
 
 The current detector should therefore be treated as:
 
 - one stable queue for context-heavy files
-- one experimental evidence layer for coordination-heavy structures
+- one experimental evidence layer for structural and operational findings
 
 That separation remains the right product boundary for the next wave.

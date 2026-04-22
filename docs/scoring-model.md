@@ -2,18 +2,21 @@
 
 ## Purpose
 
-Git Slop scores two different things:
+Git Slop now distinguishes two categories of cost:
 
-- raw context cost
-- refactor urgency
+- **stable hotspot costs**
+- **overlay evidence**
 
-And now, in a separate experimental layer, it also measures:
+Stable hotspot costs drive:
 
-- coordination cost
+- `priority_score`
+- `priority_band`
+- `context_band`
+- `git slop check`
 
-Those are related, but they are not the same.
+Overlay evidence does not.
 
-## Two-Band Model
+## Stable Hotspot Costs
 
 ### `context_band`
 
@@ -21,7 +24,7 @@ Those are related, but they are not the same.
 
 > How expensive is this file to load into working context?
 
-Initial default token bands:
+Default bands:
 
 | Token range | Context band | Meaning |
 | --- | --- | --- |
@@ -36,7 +39,7 @@ Initial default token bands:
 
 > How urgently should this file be refactored?
 
-Initial default mapping:
+Default mapping:
 
 | Score | Priority band |
 | --- | --- |
@@ -45,15 +48,15 @@ Initial default mapping:
 | `65-84` | `should_refactor` |
 | `>=85` | `must_refactor` |
 
-## Pressure Components
+## Stable Pressure Components
 
-The v1 detector uses these signals:
+The stable detector still uses:
 
 - `context_pressure`
 - `age_pressure`
 - `churn_pressure`
 
-Initial default weighting:
+Default weighting:
 
 ```text
 priority_score =
@@ -64,63 +67,62 @@ priority_score =
   )
 ```
 
-These are v1 defaults, not permanent law. They should remain easy to explain
-and easy to tune once real detector output exists.
+This remains the stable hotspot contract.
 
-## Age Model
+## Stable Cost Outputs
 
-Default age function:
+### Load
 
-```text
-age_pressure = 1 - 2^(-age_days / age_half_life_days)
-```
+Load uses **context tokens** only.
 
-Initial default:
+Required outputs:
 
-- `age_half_life_days = 180`
+- `file_token_count`
+- `folder_token_count`
+- `top_file_share`
+- `top_3_file_share`
+- `token_concentration_ratio`
+- `context_band`
+- `load_pressure`
 
-That makes older files increasingly suspicious without instantly penalizing new
-work-in-progress files.
+### Volatility
 
-## Churn Model
+Volatility uses Git history plus token deltas.
 
-Trailing-window metrics:
+Required outputs:
 
-- `revisions_window`
-- `added_window`
-- `deleted_window`
-- `churn_lines_window`
-- `relative_churn_window`
+- `commit_count_window`
+- `recency_weighted_commits`
+- `line_churn_window`
+- `token_churn_window`
+- `relative_token_churn`
+- `late_churn_spike`
+- `volatility_pressure`
 
-Default normalization:
+### Coordination
 
-```text
-revision_norm = min(1.0, revisions_window / p95_revisions_window)
-relative_churn_norm = min(1.0, relative_churn_window / p95_relative_churn_window)
-churn_pressure = 0.6 * revision_norm + 0.4 * relative_churn_norm
-```
+Coordination uses changesets and co-change, but still stays outside the stable
+score until an explicit scoring decision is made.
 
-This keeps change frequency and relative churn in the same model while reducing
-bias from file size and commit style.
+Git Slop emits these as stable explicit costs in the report:
 
-## Reason Codes
+- `files_touched_per_change`
+- `folders_touched_per_change`
+- `edit_hunks_per_change`
+- `cochange_degree`
+- `cochange_centrality`
+- `cross_folder_cochange_ratio`
+- `change_diffusion`
+- `coordination_pressure`
 
-Planned reason codes:
-
-- `high_token_cost`
-- `critical_token_cost`
-- `old_file`
-- `high_revision_frequency`
-- `high_relative_churn`
-- `old_and_volatile`
-
-The reason-code layer exists so the score remains interpretable.
+The hotspot queue still means context cost. Coordination evidence is exposed in
+the report; it does not silently inflate `priority_score`.
 
 ## Structural Context / Organization Health
 
 Git Slop now emits a parallel organization-health model for coordination cost.
 
-That layer looks for structural evidence such as:
+That layer looks for deterministic structural evidence such as:
 
 - duplicated token neighborhoods
 - near-duplicate knowledge
@@ -129,45 +131,114 @@ That layer looks for structural evidence such as:
 - lexical affinity across boundaries
 - likely consolidation candidates
 
-The first outputs live under these report namespaces:
+Canonical report location:
+
+- `overlays.organization_health`
+
+Compatibility mirrors for one release cycle:
 
 - `organization_metrics`
 - `relationships`
 - `clusters`
 
-They are intentionally evidence-oriented. They are not a fourth weight in the
-main hotspot score.
-
 ### Coordination Pressures
 
-The current experimental overlay emits these repo-relative signals:
+Current organization-health pressures:
+
+- `duplication_pressure`
+- `fragmentation_pressure`
+- `cohesion_pressure`
+- `boundary_pressure`
+
+Git Slop also preserves the earlier organization-health file overlay signals:
 
 - `duplication_pressure`
 - `diffusion_pressure`
 - `coupling_pressure`
 - `boundary_pressure`
 
-Those pressures are normalized relative to the current repo and recent history.
-High values are suspicious because they deviate from local norms, not because
-they violate a universal cleanliness law.
+These remain repo-relative evidence. They are not stable proof that a boundary
+is wrong.
 
 ### Explicit Non-Goals
 
 The organization-health layer is:
 
 - not a cleanliness oracle
-- not a fourth weight in `priority_score` yet
+- not a fourth weight in `priority_score`
 - not an LLM-based judgment system
 
-It exists to make structural cost inspectable so later `explain` and `plan`
-surfaces can consume concrete evidence instead of inventing their own opaque
-heuristics.
+## Additional Always-On Overlays
+
+Canonical overlay namespaces:
+
+- `overlays.verification`
+- `overlays.navigation`
+- `overlays.blast_radius`
+- `overlays.stewardship`
+- `overlays.semantic_drift`
+
+These are all evidence-oriented and remain outside `priority_score`.
+
+### Verification
+
+Signals:
+
+- `test_adjacency_score`
+- `test_cochange_ratio`
+- `hotspot_without_nearby_tests`
+- `churn_without_test_churn`
+- `verification_gap`
+
+### Navigation
+
+Signals:
+
+- `path_depth`
+- `sibling_count`
+- `folder_width`
+- `search_ambiguity`
+- `term_dispersion`
+- `duplicate_name_count`
+- `navigation_pressure`
+
+### Blast radius
+
+Signals:
+
+- `cochange_degree`
+- `weighted_cochange_degree`
+- `cochange_pagerank`
+- `cross_folder_coupling`
+- `average_changeset_size_when_touched`
+- `blast_radius_pressure`
+
+### Stewardship
+
+Signals:
+
+- `author_count_window`
+- `author_entropy`
+- `top_author_share`
+- `days_since_non_bot_edit`
+- `recent_maintainer_diversity`
+- `stewardship_pressure`
+
+### Semantic drift
+
+Signals:
+
+- token neighborhood vectors by root
+- drift findings for high-signal terms
+- per-file drift pressure
+
+This layer is explicitly experimental and evidence-first.
 
 ## Model Rules
 
-- `context_band` must remain a raw size signal.
-- `priority_band` must remain a composite urgency signal.
-- organization-health pressures must remain separate from `priority_score`.
+- `context_band` remains a raw size signal.
+- `priority_band` remains a composite urgency signal.
+- Overlay evidence remains separate from `priority_score`.
+- `git slop check` ignores overlays entirely.
 - LLMs must not mutate detector scores.
-- The scoring model should stay deterministic and auditable.
-- Thresholds and weights are adjustable defaults, not sacred constants.
+- Thresholds and weights remain adjustable defaults, not sacred constants.
