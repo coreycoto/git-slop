@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -197,6 +198,50 @@ def render_summary(report: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _bundle_payloads(report: dict[str, Any]) -> dict[str, str]:
+    return {
+        "report.json": json.dumps(report, indent=2, sort_keys=True) + "\n",
+        "report.yaml": yaml.safe_dump(report, sort_keys=False),
+        "summary.md": render_summary(report),
+    }
+
+
+def _write_bundle_files(output_root: Path, bundle_payloads: dict[str, str]) -> None:
+    output_root.mkdir(parents=True, exist_ok=True)
+    for file_name, content in bundle_payloads.items():
+        (output_root / file_name).write_text(content, encoding="utf-8")
+
+
+def _replace_latest_bundle(
+    latest_root: Path,
+    bundle_payloads: dict[str, str],
+    *,
+    run_slug: str,
+) -> None:
+    temp_root = latest_root.parent / f".latest-{run_slug}.tmp"
+    backup_root = latest_root.parent / f".latest-{run_slug}.bak"
+    shutil.rmtree(temp_root, ignore_errors=True)
+    shutil.rmtree(backup_root, ignore_errors=True)
+
+    try:
+        _write_bundle_files(temp_root, bundle_payloads)
+        if latest_root.exists():
+            latest_root.rename(backup_root)
+        try:
+            temp_root.rename(latest_root)
+        except Exception:
+            if backup_root.exists() and not latest_root.exists():
+                backup_root.rename(latest_root)
+            raise
+        if backup_root.exists():
+            shutil.rmtree(backup_root)
+    except Exception:
+        shutil.rmtree(temp_root, ignore_errors=True)
+        if backup_root.exists() and not latest_root.exists():
+            backup_root.rename(latest_root)
+        raise
+
+
 def write_report_bundle(
     *,
     repo_root: Path,
@@ -205,16 +250,11 @@ def write_report_bundle(
 ) -> dict[str, str]:
     run_root = runs_dir(repo_root) / run_slug
     latest_root = latest_dir(repo_root)
-    run_root.mkdir(parents=True, exist_ok=True)
     latest_root.mkdir(parents=True, exist_ok=True)
 
-    report_json = json.dumps(report, indent=2, sort_keys=True) + "\n"
-    report_yaml = yaml.safe_dump(report, sort_keys=False)
-    summary_md = render_summary(report)
-    for output_root in (run_root, latest_root):
-        (output_root / "report.json").write_text(report_json, encoding="utf-8")
-        (output_root / "report.yaml").write_text(report_yaml, encoding="utf-8")
-        (output_root / "summary.md").write_text(summary_md, encoding="utf-8")
+    bundle_payloads = _bundle_payloads(report)
+    _write_bundle_files(run_root, bundle_payloads)
+    _replace_latest_bundle(latest_root, bundle_payloads, run_slug=run_slug)
     return {
         "run_root": str(run_root),
         "latest_root": str(latest_root),

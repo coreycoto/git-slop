@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -14,6 +15,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
+
+from git_slop import reporting  # noqa: E402
+from git_slop.detector import run_detector  # noqa: E402
 
 
 def run_cli(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -191,3 +195,104 @@ class DetectorIntegrationTests(unittest.TestCase):
                 follow_record["revisions_window"],
                 no_follow_record["revisions_window"],
             )
+
+    def test_find_refreshes_latest_after_deleted_file_is_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            init_repo(repo_root)
+
+            keep_path = repo_root / "keep.py"
+            delete_path = repo_root / "delete_me.py"
+            keep_path.write_text("print('keep')\n", encoding="utf-8")
+            delete_path.write_text("print('delete')\n", encoding="utf-8")
+            commit_all(repo_root, message="initial files", timestamp="2025-01-01T00:00:00Z")
+
+            first_find = run_cli(repo_root, "find")
+            self.assertEqual(first_find.returncode, 0, first_find.stderr)
+            first_report_path = repo_root / ".slop" / "latest" / "report.json"
+            self.assertIn(
+                "delete_me.py",
+                first_report_path.read_text(encoding="utf-8"),
+            )
+
+            delete_path.unlink()
+            run_git(repo_root, "rm", "delete_me.py")
+            commit_all(repo_root, message="remove deleted file", timestamp="2025-03-01T00:00:00Z")
+
+            second_find = run_cli(repo_root, "find")
+            self.assertEqual(second_find.returncode, 0, second_find.stderr)
+            latest_root = repo_root / ".slop" / "latest"
+            report_text = (latest_root / "report.json").read_text(encoding="utf-8")
+            yaml_text = (latest_root / "report.yaml").read_text(encoding="utf-8")
+            summary_text = (latest_root / "summary.md").read_text(encoding="utf-8")
+            self.assertNotIn("delete_me.py", report_text)
+            self.assertNotIn("delete_me.py", yaml_text)
+            self.assertNotIn("delete_me.py", summary_text)
+            self.assertIn("keep.py", report_text)
+
+    def test_find_refreshes_latest_after_rename_to_current_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            init_repo(repo_root)
+
+            legacy_path = repo_root / "src" / "legacy.py"
+            legacy_path.parent.mkdir(parents=True, exist_ok=True)
+            legacy_path.write_text("print('legacy')\n", encoding="utf-8")
+            commit_all(repo_root, message="initial legacy file", timestamp="2025-01-01T00:00:00Z")
+
+            first_find = run_cli(repo_root, "find")
+            self.assertEqual(first_find.returncode, 0, first_find.stderr)
+            self.assertIn(
+                "src/legacy.py",
+                (repo_root / ".slop" / "latest" / "report.json").read_text(encoding="utf-8"),
+            )
+
+            run_git(repo_root, "mv", "src/legacy.py", "src/renamed.py")
+            commit_all(repo_root, message="rename legacy file", timestamp="2025-04-01T00:00:00Z")
+
+            second_find = run_cli(repo_root, "find")
+            self.assertEqual(second_find.returncode, 0, second_find.stderr)
+            latest_root = repo_root / ".slop" / "latest"
+            report_text = (latest_root / "report.json").read_text(encoding="utf-8")
+            summary_text = (latest_root / "summary.md").read_text(encoding="utf-8")
+            self.assertIn("src/renamed.py", report_text)
+            self.assertNotIn("src/legacy.py", report_text)
+            self.assertNotIn("src/legacy.py", summary_text)
+
+    def test_failed_latest_bundle_write_preserves_previous_latest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            init_repo(repo_root)
+
+            tracked_path = repo_root / "tracked.py"
+            tracked_path.write_text("print('first')\n", encoding="utf-8")
+            commit_all(repo_root, message="initial file", timestamp="2025-01-01T00:00:00Z")
+
+            run_detector(repo_root, print_table=False)
+            latest_root = repo_root / ".slop" / "latest"
+            original_report = (latest_root / "report.json").read_text(encoding="utf-8")
+
+            tracked_path.write_text("print('first')\nprint('second')\n", encoding="utf-8")
+            commit_all(repo_root, message="update file", timestamp="2025-02-01T00:00:00Z")
+
+            original_writer = reporting._write_bundle_files
+
+            def flaky_writer(output_root: Path, bundle_payloads: dict[str, str]) -> None:
+                if output_root.name.startswith(".latest-") and output_root.name.endswith(".tmp"):
+                    raise OSError("simulated latest write failure")
+                original_writer(output_root, bundle_payloads)
+
+            with mock.patch("git_slop.reporting._write_bundle_files", side_effect=flaky_writer):
+                with self.assertRaises(OSError):
+                    run_detector(repo_root, print_table=False)
+
+            self.assertEqual(
+                (latest_root / "report.json").read_text(encoding="utf-8"),
+                original_report,
+            )
+            leftover_paths = [
+                path.name
+                for path in latest_root.parent.iterdir()
+                if path.name.startswith(".latest-")
+            ]
+            self.assertEqual(leftover_paths, [])
