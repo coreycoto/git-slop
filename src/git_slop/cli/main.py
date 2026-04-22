@@ -18,6 +18,7 @@ from git_slop.config import (
 from git_slop.detector import run_detector
 from git_slop.git import resolve_repo_root
 from git_slop.reporting import build_show_payload, failing_records, load_report
+from git_slop.reports.explain import build_explain_payload, render_explain_text
 
 PROJECT_NAME = "git-slop"
 
@@ -54,6 +55,38 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("--report", help="Report path. Defaults to .slop/latest/report.json.")
     show_parser.add_argument("--format", choices=("text", "json"), default="text")
     show_parser.set_defaults(handler=_run_show)
+
+    explain_parser = subparsers.add_parser(
+        "explain",
+        help="Explain why selected hotspots or structural findings are expensive.",
+    )
+    explain_parser.add_argument(
+        "--report",
+        help="Report path. Defaults to .slop/latest/report.json.",
+    )
+    selector_group = explain_parser.add_mutually_exclusive_group()
+    selector_group.add_argument(
+        "--path",
+        dest="explain_path",
+        help="Repo-relative file or folder path.",
+    )
+    selector_group.add_argument(
+        "--cluster",
+        dest="cluster_id",
+        help="Cluster identifier.",
+    )
+    selector_group.add_argument(
+        "--relationship",
+        dest="relationship_id",
+        help="Relationship identifier.",
+    )
+    selector_group.add_argument(
+        "--top",
+        type=int,
+        help="Explain the top N hotspots from the action queue.",
+    )
+    explain_parser.add_argument("--format", choices=("text", "json"), default="text")
+    explain_parser.set_defaults(handler=_run_explain)
 
     check_parser = subparsers.add_parser(
         "check",
@@ -138,6 +171,37 @@ def _run_show(args: argparse.Namespace) -> int:
         print(json.dumps(record, indent=2, sort_keys=True))
     else:
         print(yaml.safe_dump(record, sort_keys=False), end="")
+    return 0
+
+
+def _run_explain(args: argparse.Namespace) -> int:
+    repo_root = resolve_repo_root()
+    report, report_path = _load_default_report(repo_root, args.report)
+    if report is None:
+        print(f"Report not found: {report_path}")
+        return 2
+    target_path = None
+    if args.explain_path is not None:
+        candidate = (repo_root / args.explain_path).resolve()
+        try:
+            target_path = candidate.relative_to(repo_root).as_posix()
+        except ValueError:
+            target_path = args.explain_path.strip() or "."
+    try:
+        payload = build_explain_payload(
+            report,
+            path=target_path,
+            cluster_id=args.cluster_id,
+            relationship_id=args.relationship_id,
+            top=args.top,
+        )
+    except ValueError as exc:
+        print(str(exc))
+        return 2
+    if args.format == "json":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(render_explain_text(payload))
     return 0
 
 

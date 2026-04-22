@@ -167,6 +167,151 @@ class DetectorIntegrationTests(unittest.TestCase):
             self.assertEqual(fail_completed.returncode, 1, fail_completed.stderr)
             self.assertIn("Check failed:", fail_completed.stdout)
 
+    def test_explain_supports_path_top_cluster_and_relationship_selectors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            init_repo(repo_root)
+
+            slop_root = repo_root / ".slop"
+            slop_root.mkdir(exist_ok=True)
+            (slop_root / "config.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "schema_version": 2,
+                        "organization": {
+                            "min_file_tokens": 20,
+                            "candidate_file_limit": 50,
+                            "min_similarity": 0.5,
+                        },
+                    },
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+
+            src_path = repo_root / "src" / "alpha.py"
+            docs_path = repo_root / "docs" / "alpha.md"
+            src_path.parent.mkdir(parents=True, exist_ok=True)
+            docs_path.parent.mkdir(parents=True, exist_ok=True)
+            repeated_lines = "\n".join(
+                f"shared duplicate concept alpha beta gamma value {index % 3}"
+                for index in range(160)
+            )
+            src_path.write_text(
+                "def build_alpha_context():\n"
+                + "\n".join(
+                    f"    note_{idx} = '{line}'"
+                    for idx, line in enumerate(repeated_lines.splitlines())
+                ),
+                encoding="utf-8",
+            )
+            docs_path.write_text(
+                "# Alpha Context\n\n" + repeated_lines + "\n",
+                encoding="utf-8",
+            )
+            commit_all(
+                repo_root, message="seed duplicate context", timestamp="2025-01-01T00:00:00Z"
+            )
+
+            find_completed = run_cli(repo_root, "find")
+            self.assertEqual(find_completed.returncode, 0, find_completed.stderr)
+
+            report_path = repo_root / ".slop" / "latest" / "report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            relationship = next(
+                (
+                    relationship
+                    for items in report["overlays"]["organization_health"]["relationships"].values()
+                    if isinstance(items, list) and items
+                    for relationship in items[:1]
+                ),
+                None,
+            )
+            if relationship is None:
+                relationship = {
+                    "id": "duplicate_neighborhood-test-edge",
+                    "kind": "duplicate_neighborhood",
+                    "source_path": "src/alpha.py",
+                    "target_path": "docs/alpha.md",
+                    "evidence_score": 1.0,
+                    "crosses_top_level_boundary": True,
+                }
+                report["overlays"]["organization_health"]["relationships"][
+                    "duplicate_neighborhoods"
+                ].append(relationship)
+            cluster = next(
+                (
+                    cluster
+                    for items in report["overlays"]["organization_health"]["clusters"].values()
+                    if isinstance(items, list) and items
+                    for cluster in items[:1]
+                ),
+                None,
+            )
+            if cluster is None:
+                cluster = {
+                    "id": "consolidation_candidate-test-cluster",
+                    "kind": "consolidation_candidate",
+                    "candidate_type": "consolidate_duplicate_knowledge",
+                    "member_count": 2,
+                    "member_paths": ["src/alpha.py", "docs/alpha.md"],
+                    "top_level_roots": ["docs", "src"],
+                    "evidence_score": 1.0,
+                    "source_relationship_ids": [relationship["id"]],
+                }
+                report["overlays"]["organization_health"]["clusters"][
+                    "consolidation_candidates"
+                ].append(cluster)
+            report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+
+            path_completed = run_cli(repo_root, "explain", "--path", "src/alpha.py")
+            self.assertEqual(path_completed.returncode, 0, path_completed.stderr)
+            self.assertIn("Hotspot Cost", path_completed.stdout)
+            self.assertIn("Overlay Evidence", path_completed.stdout)
+            self.assertIn("Interpretation boundary", path_completed.stdout)
+
+            path_json_completed = run_cli(
+                repo_root, "explain", "--path", "src/alpha.py", "--format", "json"
+            )
+            self.assertEqual(path_json_completed.returncode, 0, path_json_completed.stderr)
+            path_payload = json.loads(path_json_completed.stdout)
+            self.assertEqual(path_payload["command"], "explain")
+            self.assertEqual(path_payload["selector"]["kind"], "path")
+            self.assertEqual(path_payload["target"]["path"], "src/alpha.py")
+            self.assertIn("load", path_payload["cost_summary"])
+            self.assertIn("organization_health", path_payload["overlay_summary"])
+
+            top_json_completed = run_cli(repo_root, "explain", "--top", "2", "--format", "json")
+            self.assertEqual(top_json_completed.returncode, 0, top_json_completed.stderr)
+            top_payload = json.loads(top_json_completed.stdout)
+            self.assertEqual(top_payload["selector"]["kind"], "top")
+            self.assertEqual(len(top_payload["items"]), min(2, len(report["action_queue"])))
+            self.assertEqual(
+                top_payload["items"][0]["target"]["path"],
+                report["action_queue"][0]["path"],
+            )
+
+            cluster_json_completed = run_cli(
+                repo_root, "explain", "--cluster", cluster["id"], "--format", "json"
+            )
+            self.assertEqual(cluster_json_completed.returncode, 0, cluster_json_completed.stderr)
+            cluster_payload = json.loads(cluster_json_completed.stdout)
+            self.assertEqual(cluster_payload["selector"]["kind"], "cluster")
+            self.assertEqual(cluster_payload["target"]["id"], cluster["id"])
+            self.assertIn("member_hotspots", cluster_payload["cost_summary"])
+
+            relationship_json_completed = run_cli(
+                repo_root, "explain", "--relationship", relationship["id"], "--format", "json"
+            )
+            self.assertEqual(
+                relationship_json_completed.returncode, 0, relationship_json_completed.stderr
+            )
+            relationship_payload = json.loads(relationship_json_completed.stdout)
+            self.assertEqual(relationship_payload["selector"]["kind"], "relationship")
+            self.assertEqual(relationship_payload["target"]["id"], relationship["id"])
+            self.assertIn("source", relationship_payload["cost_summary"])
+            self.assertIn("organization_health", relationship_payload["overlay_summary"])
+
     def test_find_can_follow_rename_history_for_age(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             repo_root = Path(tmp_dir)

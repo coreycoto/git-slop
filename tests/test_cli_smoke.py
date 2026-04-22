@@ -63,6 +63,7 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("init", completed.stdout)
         self.assertIn("find", completed.stdout)
         self.assertIn("show", completed.stdout)
+        self.assertIn("explain", completed.stdout)
         self.assertIn("check", completed.stdout)
         self.assertIn("version", completed.stdout)
 
@@ -82,6 +83,13 @@ class CliSmokeTests(unittest.TestCase):
 
     def test_check_without_report_returns_usage_error(self) -> None:
         completed = run_cli("check", "--report", "tmp/missing-report.json")
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("Report not found:", completed.stdout)
+        self.assertEqual(completed.stderr, "")
+
+    def test_explain_without_report_returns_usage_error(self) -> None:
+        completed = run_cli("explain", "--path", "README.md", "--report", "tmp/missing-report.json")
 
         self.assertEqual(completed.returncode, 2)
         self.assertIn("Report not found:", completed.stdout)
