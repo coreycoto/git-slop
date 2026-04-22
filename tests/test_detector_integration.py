@@ -92,10 +92,19 @@ class DetectorIntegrationTests(unittest.TestCase):
             self.assertEqual(report["stats"]["skipped_ignored_count"], 1)
             self.assertEqual(report["files"][0]["path"], "README.md")
             self.assertEqual(report["folders"][0]["path"], ".")
-            self.assertIn("Top Hotspots", summary_md.read_text(encoding="utf-8"))
-            self.assertIn("Next Action Queue", summary_md.read_text(encoding="utf-8"))
+            summary_contents = summary_md.read_text(encoding="utf-8")
+            self.assertIn("Top Hotspots", summary_contents)
+            self.assertIn("Next Action Queue", summary_contents)
+            self.assertIn(
+                (
+                    "| Path | Priority | Context | Score | Tokens | Age | Revs | "
+                    "Churn | Signal | Reasons |"
+                ),
+                summary_contents,
+            )
             self.assertNotIn("uv.lock", [record["path"] for record in report["files"]])
             self.assertIn("README.md", completed.stdout)
+            self.assertIn("Score", completed.stdout)
 
     def test_show_and_check_use_generated_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

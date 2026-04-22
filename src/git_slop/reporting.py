@@ -54,10 +54,21 @@ def build_action_queue(
                 "tokens": record["tokens"],
                 "age_days": record["age_days"],
                 "revisions_window": record["revisions_window"],
+                "churn_pressure": record["churn_pressure"],
                 "reason_codes": record["reason_codes"],
+                "is_pure_context_hotspot": _is_pure_context_hotspot(record["reason_codes"]),
             }
         )
     return queue
+
+
+def _is_pure_context_hotspot(reason_codes: list[str]) -> bool:
+    token_cost_reasons = {"high_token_cost", "critical_token_cost"}
+    return bool(reason_codes) and set(reason_codes).issubset(token_cost_reasons)
+
+
+def _signal_label(item: dict[str, Any]) -> str:
+    return "context-only" if item["is_pure_context_hotspot"] else "mixed"
 
 
 def build_report(
@@ -109,11 +120,14 @@ def render_terminal_table(action_queue: list[dict[str, Any]]) -> str:
     path_width = max(len("Path"), min(64, max(len(item["path"]) for item in action_queue)))
     header = (
         f"{'Path':<{path_width}}  {'Priority':<14}  {'Context':<8}  "
-        f"{'Tokens':>8}  {'Age':>5}  {'Revs':>5}"
+        f"{'Score':>6}  {'Tokens':>8}  {'Age':>5}  {'Revs':>5}  {'Churn':>6}  {'Signal':<12}"
     )
     lines = [
         header,
-        f"{'-' * path_width}  {'-' * 14}  {'-' * 8}  {'-' * 8}  {'-' * 5}  {'-' * 5}",
+        (
+            f"{'-' * path_width}  {'-' * 14}  {'-' * 8}  {'-' * 6}  "
+            f"{'-' * 8}  {'-' * 5}  {'-' * 5}  {'-' * 6}  {'-' * 12}"
+        ),
     ]
     for item in action_queue:
         path = (
@@ -125,9 +139,12 @@ def render_terminal_table(action_queue: list[dict[str, Any]]) -> str:
             f"{path:<{path_width}}  "
             f"{item['priority_band']:<14}  "
             f"{item['context_band']:<8}  "
+            f"{item['priority_score']:>6.1f}  "
             f"{item['tokens']:>8}  "
             f"{item['age_days']:>5}  "
-            f"{item['revisions_window']:>5}"
+            f"{item['revisions_window']:>5}  "
+            f"{item['churn_pressure']:>6.3f}  "
+            f"{_signal_label(item):<12}"
         )
     return "\n".join(lines)
 
@@ -150,13 +167,15 @@ def render_summary(report: dict[str, Any]) -> str:
         "",
         "## Top Hotspots",
         "",
-        "| Path | Priority | Context | Tokens | Reasons |",
-        "| --- | --- | --- | ---: | --- |",
+        "| Path | Priority | Context | Score | Tokens | Age | Revs | Churn | Signal | Reasons |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for item in report["action_queue"]:
         lines.append(
             f"| `{item['path']}` | `{item['priority_band']}` | `{item['context_band']}` | "
-            f"{item['tokens']} | {', '.join(item['reason_codes']) or '_none_'} |"
+            f"{item['priority_score']:.1f} | {item['tokens']} | {item['age_days']} | "
+            f"{item['revisions_window']} | {item['churn_pressure']:.3f} | "
+            f"`{_signal_label(item)}` | {', '.join(item['reason_codes']) or '_none_'} |"
         )
     lines.extend(
         [
@@ -169,7 +188,9 @@ def render_summary(report: dict[str, Any]) -> str:
         for index, item in enumerate(report["action_queue"], start=1):
             lines.append(
                 f"{index}. `{item['path']}` "
-                f"({item['priority_band']}, {item['context_band']}, {item['tokens']} tokens)"
+                f"({item['priority_band']}, {item['context_band']}, "
+                f"score {item['priority_score']:.1f}, {item['tokens']} tokens, "
+                f"{_signal_label(item)})"
             )
     else:
         lines.append("No hotspot records found.")
