@@ -16,7 +16,7 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from git_slop import reporting  # noqa: E402
+from git_slop import history, reporting  # noqa: E402
 from git_slop.detector import run_detector  # noqa: E402
 
 
@@ -338,6 +338,9 @@ class DetectorIntegrationTests(unittest.TestCase):
             cache_root = repo_root / ".slop" / "cache" / "organization-health"
             cache_entries = list(cache_root.glob("*/*.json"))
             self.assertTrue(cache_entries)
+            history_cache_root = repo_root / ".slop" / "cache" / "history"
+            history_cache_entries = list(history_cache_root.glob("*/*.json"))
+            self.assertTrue(history_cache_entries)
 
     def test_cache_key_changes_after_head_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -360,6 +363,78 @@ class DetectorIntegrationTests(unittest.TestCase):
             cache_root = repo_root / ".slop" / "cache" / "organization-health"
             cache_dirs = [path for path in cache_root.iterdir() if path.is_dir()]
             self.assertGreaterEqual(len(cache_dirs), 2)
+
+    def test_history_cache_reuses_snapshot_on_warm_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            init_repo(repo_root)
+
+            tracked_path = repo_root / "tracked.py"
+            tracked_path.write_text("print('first')\n", encoding="utf-8")
+            commit_all(repo_root, message="initial", timestamp="2026-02-01T00:00:00Z")
+
+            run_detector(repo_root, print_table=False)
+
+            with mock.patch(
+                "git_slop.history._build_history_snapshot_uncached",
+                side_effect=AssertionError("history snapshot should be loaded from cache"),
+            ):
+                run_detector(repo_root, print_table=False)
+
+    def test_history_cache_key_changes_after_head_inventory_config_and_version_changes(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            init_repo(repo_root)
+
+            tracked_path = repo_root / "tracked.py"
+            tracked_path.write_text("print('first')\n", encoding="utf-8")
+            commit_all(repo_root, message="initial", timestamp="2026-02-01T00:00:00Z")
+
+            run_detector(repo_root, print_table=False)
+            cache_root = repo_root / ".slop" / "cache" / "history"
+            cache_dirs = [path for path in cache_root.iterdir() if path.is_dir()]
+            self.assertEqual(len(cache_dirs), 1)
+
+            tracked_path.write_text("print('first')\nprint('second')\n", encoding="utf-8")
+            commit_all(repo_root, message="second", timestamp="2026-03-01T00:00:00Z")
+            run_detector(repo_root, print_table=False)
+            cache_dirs = [path for path in cache_root.iterdir() if path.is_dir()]
+            self.assertEqual(len(cache_dirs), 2)
+
+            config_root = repo_root / ".slop"
+            config_root.mkdir(exist_ok=True)
+            (config_root / "config.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "schema_version": 1,
+                        "history": {"follow_renames": True},
+                    },
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            run_detector(repo_root, print_table=False)
+            cache_dirs = [path for path in cache_root.iterdir() if path.is_dir()]
+            self.assertEqual(len(cache_dirs), 3)
+
+            extra_path = repo_root / "extra.py"
+            extra_path.write_text("print('extra')\n", encoding="utf-8")
+            commit_all(repo_root, message="third", timestamp="2026-04-01T00:00:00Z")
+            run_detector(repo_root, print_table=False)
+            cache_dirs = [path for path in cache_root.iterdir() if path.is_dir()]
+            self.assertEqual(len(cache_dirs), 4)
+
+            patched_version = history.HISTORY_ANALYSIS_VERSION + 1
+            with mock.patch.object(
+                history,
+                "HISTORY_ANALYSIS_VERSION",
+                patched_version,
+            ):
+                run_detector(repo_root, print_table=False)
+            cache_dirs = [path for path in cache_root.iterdir() if path.is_dir()]
+            self.assertEqual(len(cache_dirs), 5)
 
     def test_find_emits_duplicate_coupling_and_cluster_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
