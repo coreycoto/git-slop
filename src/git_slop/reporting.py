@@ -10,6 +10,13 @@ from typing import Any
 import yaml
 
 from .config import latest_dir, runs_dir
+from .organization import (
+    clusters_for_path,
+    folder_clusters_for_prefix,
+    folder_relationships_for_prefix,
+    relationships_for_path,
+    top_organization_file_overlays,
+)
 from .scoring import CONTEXT_BAND_ORDER, PRIORITY_BAND_ORDER, build_folder_record
 
 
@@ -79,6 +86,7 @@ def build_report(
     file_records: list[dict[str, Any]],
     folder_records: list[dict[str, Any]],
     action_queue: list[dict[str, Any]],
+    organization_analysis: dict[str, Any],
     skipped: dict[str, int],
     generated_at: str,
 ) -> dict[str, Any]:
@@ -91,7 +99,7 @@ def build_report(
         key=lambda record: record["path"],
     )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": generated_at,
         "repo": repo,
         "config": config,
@@ -112,6 +120,9 @@ def build_report(
         "files": files_payload,
         "folders": folder_records,
         "action_queue": action_queue,
+        "organization_metrics": organization_analysis["organization_metrics"],
+        "relationships": organization_analysis["relationships"],
+        "clusters": organization_analysis["clusters"],
     }
 
 
@@ -150,12 +161,102 @@ def render_terminal_table(action_queue: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _render_organization_terminal(report: dict[str, Any]) -> str:
+    overlays = top_organization_file_overlays(report, limit=5)
+    duplicate_candidates = sorted(
+        report["relationships"]["duplicate_neighborhoods"]
+        + report["relationships"]["near_duplicate_neighborhoods"],
+        key=lambda item: (-item["evidence_score"], item["id"]),
+    )[:5]
+    coupling_edges = report["relationships"]["temporal_coupling_edges"][:5]
+    consolidation_candidates = report["clusters"]["consolidation_candidates"][:5]
+
+    lines = ["Organization Health", ""]
+    if overlays:
+        path_width = max(len("Path"), min(64, max(len(item["path"]) for item in overlays)))
+        header = (
+            f"{'Path':<{path_width}}  {'Dup':>5}  {'Diff':>5}  {'Coup':>5}  {'Bound':>5}  "
+            f"{'DupRatio':>8}  {'HiDiff':>6}  {'Cross':>5}"
+        )
+        lines.extend(
+            [
+                header,
+                (
+                    f"{'-' * path_width}  {'-' * 5}  {'-' * 5}  {'-' * 5}  {'-' * 5}  "
+                    f"{'-' * 8}  {'-' * 6}  {'-' * 5}"
+                ),
+            ]
+        )
+        for item in overlays:
+            path = (
+                item["path"]
+                if len(item["path"]) <= path_width
+                else f"...{item['path'][-(path_width - 3) :]}"
+            )
+            lines.append(
+                f"{path:<{path_width}}  "
+                f"{item['duplication_pressure']:>5.3f}  "
+                f"{item['diffusion_pressure']:>5.3f}  "
+                f"{item['coupling_pressure']:>5.3f}  "
+                f"{item['boundary_pressure']:>5.3f}  "
+                f"{item['duplicate_token_ratio']:>8.3f}  "
+                f"{item['high_diffusion_commit_count']:>6}  "
+                f"{item['cross_boundary_edge_count']:>5}"
+            )
+    else:
+        lines.append("No organization-health file overlays found.")
+
+    lines.extend(["", "Top Duplicate / Near-Duplicate Pairs"])
+    if duplicate_candidates:
+        for item in duplicate_candidates:
+            lines.append(
+                f"- {item['source_path']} <-> {item['target_path']} "
+                f"({item['kind']}, score {item['evidence_score']:.3f})"
+            )
+    else:
+        lines.append("- None")
+
+    lines.extend(["", "Top Temporal Coupling Edges"])
+    if coupling_edges:
+        for item in coupling_edges:
+            lines.append(
+                f"- {item['source_path']} <-> {item['target_path']} "
+                f"(support {item['support_count']}, lift {item['lift_score']:.3f})"
+            )
+    else:
+        lines.append("- None")
+
+    lines.extend(["", "Top Consolidation Candidates"])
+    if consolidation_candidates:
+        for item in consolidation_candidates:
+            members = ", ".join(item["member_paths"][:4])
+            if item["member_count"] > 4:
+                members += ", ..."
+            lines.append(
+                f"- {item['candidate_type']} [{item['member_count']} files, "
+                f"score {item['evidence_score']:.3f}]: {members}"
+            )
+    else:
+        lines.append("- None")
+
+    return "\n".join(lines)
+
+
+def render_terminal_output(report: dict[str, Any]) -> str:
+    return "\n\n".join(
+        [
+            render_terminal_table(report["action_queue"]),
+            _render_organization_terminal(report),
+        ]
+    )
+
+
 def render_summary(report: dict[str, Any]) -> str:
     lines = [
         "# Git Slop Summary",
         "",
         f"- Repository: `{report['repo']['repo_name']}`",
-        f"- Generated at: `{report['generated_at']}`",
+        f"- Snapshot timestamp: `{report['generated_at']}`",
         f"- Branch: `{report['repo']['branch'] or 'detached'}`",
         f"- Head commit: `{report['repo']['head_commit'] or 'none'}`",
         f"- Analyzed files: {report['stats']['analyzed_file_count']}",
@@ -178,13 +279,94 @@ def render_summary(report: dict[str, Any]) -> str:
             f"{item['revisions_window']} | {item['churn_pressure']:.3f} | "
             f"`{_signal_label(item)}` | {', '.join(item['reason_codes']) or '_none_'} |"
         )
+    lines.extend(["", "## Organization Health", ""])
+
+    overlays = top_organization_file_overlays(report, limit=5)
+    lines.extend(
+        [
+            "### Top Structural Files",
+            "",
+            (
+                "| Path | Dup | Diff | Coup | Bound | Dup Ratio | High Diff | "
+                "Cross Boundary |"
+            ),
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for item in overlays:
+        lines.append(
+            f"| `{item['path']}` | {item['duplication_pressure']:.3f} | "
+            f"{item['diffusion_pressure']:.3f} | {item['coupling_pressure']:.3f} | "
+            f"{item['boundary_pressure']:.3f} | {item['duplicate_token_ratio']:.3f} | "
+            f"{item['high_diffusion_commit_count']} | {item['cross_boundary_edge_count']} |"
+        )
+    if not overlays:
+        lines.append("| _none_ | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0 | 0 |")
+
+    duplicate_candidates = sorted(
+        report["relationships"]["duplicate_neighborhoods"]
+        + report["relationships"]["near_duplicate_neighborhoods"],
+        key=lambda item: (-item["evidence_score"], item["id"]),
+    )[:5]
     lines.extend(
         [
             "",
-            "## Next Action Queue",
+            "### Top Duplicate / Near-Duplicate Pairs",
             "",
+            "| Pair | Kind | Score | Boundary |",
+            "| --- | --- | ---: | --- |",
         ]
     )
+    for item in duplicate_candidates:
+        lines.append(
+            f"| `{item['source_path']}` ↔ `{item['target_path']}` | "
+            f"`{item['kind']}` | {item['evidence_score']:.3f} | "
+            f"`{'cross-root' if item['crosses_top_level_boundary'] else 'local'}` |"
+        )
+    if not duplicate_candidates:
+        lines.append("| _none_ | _none_ | 0.000 | `_none_` |")
+
+    boundary_clusters = report["clusters"]["boundary_leakage_clusters"][:5]
+    lines.extend(
+        [
+            "",
+            "### Top Cross-Boundary Clusters",
+            "",
+            "| Cluster | Roots | Files | Score |",
+            "| --- | --- | ---: | ---: |",
+        ]
+    )
+    for cluster in boundary_clusters:
+        roots = ", ".join(f"`{root}`" for root in cluster["top_level_roots"])
+        lines.append(
+            f"| `{cluster['id']}` | {roots} | "
+            f"{cluster['member_count']} | {cluster['evidence_score']:.3f} |"
+        )
+    if not boundary_clusters:
+        lines.append("| _none_ | `_none_` | 0 | 0.000 |")
+
+    consolidation_candidates = report["clusters"]["consolidation_candidates"][:5]
+    lines.extend(
+        [
+            "",
+            "### Top Consolidation Candidates",
+            "",
+            "| Candidate | Files | Score | Members |",
+            "| --- | ---: | ---: | --- |",
+        ]
+    )
+    for cluster in consolidation_candidates:
+        member_preview = ", ".join(f"`{path}`" for path in cluster["member_paths"][:4])
+        if cluster["member_count"] > 4:
+            member_preview += ", ..."
+        lines.append(
+            f"| `{cluster['candidate_type']}` | {cluster['member_count']} | "
+            f"{cluster['evidence_score']:.3f} | {member_preview} |"
+        )
+    if not consolidation_candidates:
+        lines.append("| `_none_` | 0 | 0.000 | _none_ |")
+
+    lines.extend(["", "## Next Action Queue", ""])
     if report["action_queue"]:
         for index, item in enumerate(report["action_queue"], start=1):
             lines.append(
@@ -275,6 +457,43 @@ def find_report_record(report: dict[str, Any], target_path: str) -> dict[str, An
             if record["path"] == normalized:
                 return dict(record)
     return None
+
+
+def _find_overlay_record(
+    report: dict[str, Any],
+    *,
+    target_path: str,
+    collection_name: str,
+) -> dict[str, Any] | None:
+    for record in report["organization_metrics"][collection_name]:
+        if record["path"] == target_path:
+            return dict(record)
+    return None
+
+
+def build_show_payload(report: dict[str, Any], target_path: str) -> dict[str, Any] | None:
+    normalized = target_path.strip() or "."
+    base_record = find_report_record(report, normalized)
+    if base_record is None:
+        return None
+    is_file = any(record["path"] == normalized for record in report["files"])
+    overlay = _find_overlay_record(
+        report,
+        target_path=normalized,
+        collection_name="files" if is_file else "folders",
+    )
+    if is_file:
+        strongest_relationships = relationships_for_path(report, normalized)[:10]
+        cluster_memberships = clusters_for_path(report, normalized)[:10]
+    else:
+        strongest_relationships = folder_relationships_for_prefix(report, normalized)[:10]
+        cluster_memberships = folder_clusters_for_prefix(report, normalized)[:10]
+    payload = dict(base_record)
+    payload["record_type"] = "file" if is_file else "folder"
+    payload["organization_health"] = overlay
+    payload["strongest_relationships"] = strongest_relationships
+    payload["cluster_memberships"] = cluster_memberships
+    return payload
 
 
 def failing_records(

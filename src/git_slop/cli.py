@@ -11,7 +11,7 @@ from . import __version__
 from .config import config_path, latest_dir, load_config, slop_gitignore_path, write_default_files
 from .detector import run_detector
 from .git import resolve_repo_root
-from .reporting import failing_records, find_report_record, load_report
+from .reporting import build_show_payload, failing_records, load_report
 
 PROJECT_NAME = "git-slop"
 
@@ -122,9 +122,9 @@ def _run_show(args: argparse.Namespace) -> int:
         target_path = candidate.relative_to(repo_root).as_posix()
     except ValueError:
         target_path = args.target_path.strip() or "."
-    record = find_report_record(report, target_path)
+    record = build_show_payload(report, target_path)
     if record is None and target_path != ".":
-        record = find_report_record(report, target_path.rstrip("/"))
+        record = build_show_payload(report, target_path.rstrip("/"))
     if record is None:
         print(f"No record found for '{args.target_path}' in {report_path}.")
         return 2

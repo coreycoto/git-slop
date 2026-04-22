@@ -13,6 +13,9 @@ Git Slop now has:
 The next work is detector hardening, dogfooding, and then the `v2` explainer
 and planner surface.
 
+That detector-hardening phase now includes an organization-health overlay that
+stays inside the detector track rather than being folded into `v2` narration.
+
 ## Epic Tracks
 
 Roadmap phases are represented as epic issues, not as native GitHub milestones.
@@ -30,6 +33,11 @@ Native milestones are reserved for quarter commitments only.
 - `check`
 - tests
 - dogfood workflow
+- organization-health evidence:
+  - duplicate neighborhoods
+  - near-duplicate neighborhoods
+  - temporal coupling
+  - diffusion and boundary clusters
 
 ### `Epic: V2 explainer and planner`
 
@@ -104,6 +112,7 @@ Keep these out of milestone-critical work for now:
 - Homebrew tap work
 - investor story refinement
 - LLM-backed scoring
+- folding organization-health into `priority_score`
 
 ## Delivery Sequence
 
@@ -115,5 +124,6 @@ Recommended delivery train:
 4. `feat: add scoring engine, action queue, and report writers`
 5. `test: add fixture repos, parser coverage, and report snapshots`
 6. `ci: add dogfood workflow with artifact and summary publishing`
+7. `feat: add organization-health evidence without changing hotspot scoring`
 
 That sequence is now effectively the `v1-detector` hardening checklist.

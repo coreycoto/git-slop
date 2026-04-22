@@ -4,7 +4,9 @@ Find the files that cost too much context.
 
 Git Slop is a local-first detector for AI-era repositories. It scans a Git
 repo, measures token cost, age, and churn, then ranks the files and folders
-most worth refactoring.
+most worth refactoring. It also emits an experimental organization-health
+overlay for coordination-cost evidence such as duplication, temporal coupling,
+and boundary leakage.
 
 The maintainer-only backlog governance surface now lives under `agent-tools`
 and `.agents/`. That internal tooling manages GitHub issue forms, quarter
@@ -17,6 +19,11 @@ Traditional static analysis tells you whether code violates rules.
 Git Slop answers a different question:
 
 > Which files are expensive to load, reason about, retrieve, and safely change?
+
+And now, in a separate experimental layer:
+
+> Which concepts are expensive to coordinate because they are duplicated,
+> scattered, or forced to co-change across boundaries?
 
 That matters for humans. It matters even more for LLM-assisted development.
 
@@ -31,6 +38,10 @@ That matters for humans. It matters even more for LLM-assisted development.
 - emit JSON, YAML, Markdown, and terminal output
 - support CI checks
 - create a machine-readable action queue for humans and agents
+- emit experimental organization-health evidence:
+  - `organization_metrics`
+  - `relationships`
+  - `clusters`
 
 ## What V1 Does Not Do
 
@@ -38,6 +49,7 @@ That matters for humans. It matters even more for LLM-assisted development.
 - require hosted APIs
 - send repo data anywhere
 - use an LLM for scoring
+- fold organization-health pressures into `priority_score`
 
 ## Quickstart
 
@@ -83,6 +95,17 @@ Git Slop will write generated artifacts under `.slop/`:
 ```
 
 `report.json` is the machine contract. `summary.md` is the human summary.
+The report timestamp reflects the analyzed repo snapshot so repeated runs on the
+same HEAD can stay byte-identical.
+
+The main hotspot queue stays driven by context cost:
+
+- token size
+- age
+- churn
+
+The organization-health layer is parallel evidence only. It does not currently
+change `priority_score`, `priority_band`, or `git slop check`.
 
 Generated dependency lockfiles such as `uv.lock`, `package-lock.json`, and
 `poetry.lock` are ignored by default so hotspot rankings stay focused on
@@ -98,6 +121,12 @@ across renames instead of treating moved files as brand new.
 - `.slop/latest/report.yaml`
 - `.slop/latest/summary.md`
 - `.slop/runs/<timestamp>/...`
+
+`report.json` always includes these experimental namespaces:
+
+- `organization_metrics`
+- `relationships`
+- `clusters`
 
 ## Project Docs
 
@@ -131,5 +160,10 @@ Readable code can still be slop.
 
 If a file costs too much context, stays large for too long, and changes too
 often, it is expensive even when it looks clean.
+
+And a repo can also be slop when an idea leaks across too many medium-sized
+files. Git Slop treats that coordination cost as a separate layer so the
+detector stays explainable instead of collapsing everything into one opaque
+number.
 
 Git Slop exists to make that cost visible.

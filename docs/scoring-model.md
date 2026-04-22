@@ -7,6 +7,10 @@ Git Slop scores two different things:
 - raw context cost
 - refactor urgency
 
+And now, in a separate experimental layer, it also measures:
+
+- coordination cost
+
 Those are related, but they are not the same.
 
 ## Two-Band Model
@@ -112,10 +116,58 @@ Planned reason codes:
 
 The reason-code layer exists so the score remains interpretable.
 
+## Structural Context / Organization Health
+
+Git Slop now emits a parallel organization-health model for coordination cost.
+
+That layer looks for structural evidence such as:
+
+- duplicated token neighborhoods
+- near-duplicate knowledge
+- high-diffusion commits
+- temporal coupling edges
+- lexical affinity across boundaries
+- likely consolidation candidates
+
+The first outputs live under these report namespaces:
+
+- `organization_metrics`
+- `relationships`
+- `clusters`
+
+They are intentionally evidence-oriented. They are not a fourth weight in the
+main hotspot score.
+
+### Coordination Pressures
+
+The current experimental overlay emits these repo-relative signals:
+
+- `duplication_pressure`
+- `diffusion_pressure`
+- `coupling_pressure`
+- `boundary_pressure`
+
+Those pressures are normalized relative to the current repo and recent history.
+High values are suspicious because they deviate from local norms, not because
+they violate a universal cleanliness law.
+
+### Explicit Non-Goals
+
+The organization-health layer is:
+
+- not a cleanliness oracle
+- not a fourth weight in `priority_score` yet
+- not an LLM-based judgment system
+
+It exists to make structural cost inspectable so later `explain` and `plan`
+surfaces can consume concrete evidence instead of inventing their own opaque
+heuristics.
+
 ## Model Rules
 
 - `context_band` must remain a raw size signal.
 - `priority_band` must remain a composite urgency signal.
+- organization-health pressures must remain separate from `priority_score`.
 - LLMs must not mutate detector scores.
 - The scoring model should stay deterministic and auditable.
 - Thresholds and weights are adjustable defaults, not sacred constants.

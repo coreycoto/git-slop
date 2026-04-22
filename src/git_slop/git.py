@@ -52,12 +52,17 @@ def repo_metadata(repo_root: Path) -> dict[str, str | bool | None]:
     branch = run_git(repo_root, ["branch", "--show-current"]).stdout.strip() or None
     head = run_git(repo_root, ["rev-parse", "--verify", "HEAD"])
     head_commit = head.stdout.strip() if head.returncode == 0 else None
+    head_commit_timestamp = None
+    if head_commit is not None:
+        timestamp = run_git(repo_root, ["log", "-1", "--format=%cI", "HEAD"])
+        head_commit_timestamp = timestamp.stdout.strip() or None
     remote = run_git(repo_root, ["config", "--get", "remote.origin.url"]).stdout.strip() or None
     return {
         "repo_root": str(repo_root),
         "repo_name": repo_root.name,
         "branch": branch,
         "head_commit": head_commit,
+        "head_commit_timestamp": head_commit_timestamp,
         "git_remote_url": remote,
         "has_head_commit": head_commit is not None,
     }

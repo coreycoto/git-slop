@@ -9,6 +9,10 @@ Large files cost too much context to load. Old files have had plenty of time to
 be split but still remain oversized. High-churn files amplify risk because they
 keep drawing edits into already-expensive surfaces.
 
+And even when no single file is obviously huge, a repo can still be costly when
+one idea leaks across too many medium-sized files. Duplication, coupling, and
+boundary leakage create coordination cost that size alone will miss.
+
 Git Slop exists to make that cost visible.
 
 ## Product Thesis
@@ -18,12 +22,23 @@ It should answer one question extremely well:
 
 > Which files cost too much context to load, reason about, and safely change?
 
+And it should answer a second question in a separate experimental layer:
+
+> Which concepts cost too much coordination because they are duplicated,
+> scattered, or forced to co-change across boundaries?
+
 The initial wedge is straightforward:
 
 - treat token cost as the primary complexity signal
 - use Git history for age and churn
 - keep scoring deterministic and explainable
 - emit machine-readable outputs for humans, CI, and agents
+
+The separation matters:
+
+- context cost remains the main detector contract
+- organization health remains parallel structural evidence
+- later explainer/planner layers consume that evidence, but do not own it
 
 ## Non-Goals
 
@@ -43,6 +58,12 @@ A successful v1 lets a maintainer answer these questions in minutes:
 - Which of those are old enough to be worrying?
 - Which of those are volatile enough to deserve immediate attention?
 - What is the next safest refactor target?
+
+A successful detector-refinement wave also lets a maintainer answer:
+
+- Which ideas are duplicated across multiple files?
+- Which file pairs co-change more often than the repo would expect?
+- Where is knowledge leaking across folder or package boundaries?
 
 A successful v2 lets an agent answer:
 
@@ -69,11 +90,15 @@ Git Slop has three deliberately separate phases:
 This separation is intentional. Trust comes from detector quality first. The
 automation layers only make sense once the scoring model is stable.
 
+That is why organization health belongs in the detector layer as evidence, not
+as narration and not as a hidden new score weight.
+
 ## Core Principles
 
 - Git is the source of truth for repository inventory and history.
 - The detector stays deterministic and explainable.
 - `context_band` and `priority_band` remain separate signals.
+- organization-health evidence remains separate from `priority_score`.
 - JSON is the machine contract; Markdown is the human summary.
 - The default workflow remains local-first and offline-friendly.
 

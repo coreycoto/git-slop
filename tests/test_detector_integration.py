@@ -86,18 +86,24 @@ class DetectorIntegrationTests(unittest.TestCase):
 
             report = json.loads(report_json.read_text(encoding="utf-8"))
             yaml_report = yaml.safe_load(report_yaml.read_text(encoding="utf-8"))
-            self.assertEqual(report["schema_version"], 1)
-            self.assertEqual(yaml_report["schema_version"], 1)
+            self.assertEqual(report["schema_version"], 2)
+            self.assertEqual(yaml_report["schema_version"], 2)
             self.assertEqual(report["repo"]["repo_name"], repo_root.name)
             self.assertIn("files", report)
             self.assertIn("folders", report)
             self.assertIn("action_queue", report)
+            self.assertIn("organization_metrics", report)
+            self.assertIn("relationships", report)
+            self.assertIn("clusters", report)
+            self.assertEqual(report["organization_metrics"]["analysis_status"], "experimental")
+            self.assertEqual(report["organization_metrics"]["analysis_version"], 1)
             self.assertEqual(report["stats"]["analyzed_file_count"], 1)
             self.assertEqual(report["stats"]["skipped_ignored_count"], 1)
             self.assertEqual(report["files"][0]["path"], "README.md")
             self.assertEqual(report["folders"][0]["path"], ".")
             summary_contents = summary_md.read_text(encoding="utf-8")
             self.assertIn("Top Hotspots", summary_contents)
+            self.assertIn("Organization Health", summary_contents)
             self.assertIn("Next Action Queue", summary_contents)
             self.assertIn(
                 (
@@ -109,6 +115,7 @@ class DetectorIntegrationTests(unittest.TestCase):
             self.assertNotIn("uv.lock", [record["path"] for record in report["files"]])
             self.assertIn("README.md", completed.stdout)
             self.assertIn("Score", completed.stdout)
+            self.assertIn("Organization Health", completed.stdout)
 
     def test_show_and_check_use_generated_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -129,11 +136,16 @@ class DetectorIntegrationTests(unittest.TestCase):
             self.assertEqual(show_completed.returncode, 0, show_completed.stderr)
             self.assertIn("path: src/app.py", show_completed.stdout)
             self.assertIn("priority_band:", show_completed.stdout)
+            self.assertIn("organization_health:", show_completed.stdout)
+            self.assertIn("strongest_relationships:", show_completed.stdout)
+            self.assertIn("cluster_memberships:", show_completed.stdout)
 
             json_show_completed = run_cli(repo_root, "show", "src", "--format", "json")
             self.assertEqual(json_show_completed.returncode, 0, json_show_completed.stderr)
             folder_record = json.loads(json_show_completed.stdout)
             self.assertEqual(folder_record["path"], "src")
+            self.assertEqual(folder_record["record_type"], "folder")
+            self.assertIn("organization_health", folder_record)
 
             pass_completed = run_cli(repo_root, "check")
             self.assertEqual(pass_completed.returncode, 0, pass_completed.stderr)
@@ -296,3 +308,173 @@ class DetectorIntegrationTests(unittest.TestCase):
                 if path.name.startswith(".latest-")
             ]
             self.assertEqual(leftover_paths, [])
+
+    def test_find_cold_and_warm_cache_runs_are_identical(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            init_repo(repo_root)
+
+            (repo_root / "src").mkdir(parents=True, exist_ok=True)
+            (repo_root / "src" / "alpha.py").write_text(
+                "def alpha(value):\n    return value.strip().lower()\n",
+                encoding="utf-8",
+            )
+            (repo_root / "src" / "beta.py").write_text(
+                "def beta(value):\n    return value.strip().lower()\n",
+                encoding="utf-8",
+            )
+            commit_all(repo_root, message="initial", timestamp="2026-02-01T00:00:00Z")
+
+            first_find = run_cli(repo_root, "find")
+            self.assertEqual(first_find.returncode, 0, first_find.stderr)
+            latest_root = repo_root / ".slop" / "latest"
+            first_report = (latest_root / "report.json").read_text(encoding="utf-8")
+
+            second_find = run_cli(repo_root, "find")
+            self.assertEqual(second_find.returncode, 0, second_find.stderr)
+            second_report = (latest_root / "report.json").read_text(encoding="utf-8")
+            self.assertEqual(first_report, second_report)
+
+            cache_root = repo_root / ".slop" / "cache" / "organization-health"
+            cache_entries = list(cache_root.glob("*/*.json"))
+            self.assertTrue(cache_entries)
+
+    def test_cache_key_changes_after_head_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            init_repo(repo_root)
+
+            tracked_path = repo_root / "tracked.py"
+            tracked_path.write_text("print('first')\n", encoding="utf-8")
+            commit_all(repo_root, message="initial", timestamp="2026-02-01T00:00:00Z")
+
+            first_find = run_cli(repo_root, "find")
+            self.assertEqual(first_find.returncode, 0, first_find.stderr)
+
+            tracked_path.write_text("print('first')\nprint('second')\n", encoding="utf-8")
+            commit_all(repo_root, message="second", timestamp="2026-03-01T00:00:00Z")
+
+            second_find = run_cli(repo_root, "find")
+            self.assertEqual(second_find.returncode, 0, second_find.stderr)
+
+            cache_root = repo_root / ".slop" / "cache" / "organization-health"
+            cache_dirs = [path for path in cache_root.iterdir() if path.is_dir()]
+            self.assertGreaterEqual(len(cache_dirs), 2)
+
+    def test_find_emits_duplicate_coupling_and_cluster_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            init_repo(repo_root)
+
+            alpha_path = repo_root / "src" / "alpha.py"
+            beta_path = repo_root / "pkg" / "beta.py"
+            gamma_path = repo_root / "docs" / "gamma.md"
+            alpha_path.parent.mkdir(parents=True, exist_ok=True)
+            beta_path.parent.mkdir(parents=True, exist_ok=True)
+            gamma_path.parent.mkdir(parents=True, exist_ok=True)
+
+            duplicate_block = "\n".join(
+                [
+                    "def shared_logic(value):",
+                    "    normalized = value.strip().lower()",
+                    "    tokens = normalized.split()",
+                    "    return [token for token in tokens if token]",
+                ]
+                * 20
+            )
+            alpha_path.write_text(f"{duplicate_block}\n", encoding="utf-8")
+            beta_path.write_text(f"{duplicate_block}\n", encoding="utf-8")
+            gamma_path.write_text(
+                "\n".join(
+                    [
+                        "shared logic converts values into normalized tokens",
+                        "shared logic keeps token order stable across boundaries",
+                    ]
+                    * 30
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            commit_all(repo_root, message="initial structure", timestamp="2025-12-01T00:00:00Z")
+
+            for index, timestamp in enumerate(
+                [
+                    "2026-01-01T00:00:00Z",
+                    "2026-02-01T00:00:00Z",
+                    "2026-03-01T00:00:00Z",
+                ],
+                start=1,
+            ):
+                alpha_path.write_text(
+                    f"{duplicate_block}\n# alpha change {index}\n",
+                    encoding="utf-8",
+                )
+                beta_path.write_text(
+                    f"{duplicate_block}\n# beta change {index}\n",
+                    encoding="utf-8",
+                )
+                commit_all(repo_root, message=f"paired change {index}", timestamp=timestamp)
+
+            for index, timestamp in enumerate(
+                [
+                    "2026-03-10T00:00:00Z",
+                    "2026-03-20T00:00:00Z",
+                    "2026-03-30T00:00:00Z",
+                    "2026-04-05T00:00:00Z",
+                    "2026-04-10T00:00:00Z",
+                ],
+                start=1,
+            ):
+                gamma_path.write_text(
+                    (
+                        "\n".join(
+                            [
+                                "shared logic converts values into normalized tokens",
+                                "shared logic keeps token order stable across boundaries",
+                            ]
+                            * 30
+                        )
+                        + f"\nindependent gamma note {index}\n"
+                    ),
+                    encoding="utf-8",
+                )
+                commit_all(repo_root, message=f"gamma-only change {index}", timestamp=timestamp)
+
+            completed = run_cli(repo_root, "find")
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+
+            report = json.loads(
+                (repo_root / ".slop" / "latest" / "report.json").read_text(encoding="utf-8")
+            )
+            duplicate_pairs = {
+                (item["source_path"], item["target_path"])
+                for item in report["relationships"]["duplicate_neighborhoods"]
+            }
+            self.assertIn(("pkg/beta.py", "src/alpha.py"), duplicate_pairs)
+
+            coupling_pairs = {
+                (item["source_path"], item["target_path"])
+                for item in report["relationships"]["temporal_coupling_edges"]
+            }
+            self.assertIn(("pkg/beta.py", "src/alpha.py"), coupling_pairs)
+
+            boundary_cluster_members = [
+                set(cluster["member_paths"])
+                for cluster in report["clusters"]["boundary_leakage_clusters"]
+            ]
+            self.assertTrue(
+                any(
+                    {"pkg/beta.py", "src/alpha.py"}.issubset(member_paths)
+                    for member_paths in boundary_cluster_members
+                )
+            )
+
+            overlay_by_path = {
+                overlay["path"]: overlay for overlay in report["organization_metrics"]["files"]
+            }
+            self.assertGreater(overlay_by_path["src/alpha.py"]["duplication_pressure"], 0.0)
+            self.assertGreater(overlay_by_path["src/alpha.py"]["coupling_pressure"], 0.0)
+            self.assertGreater(
+                overlay_by_path["src/alpha.py"]["cross_boundary_edge_count"],
+                0,
+            )

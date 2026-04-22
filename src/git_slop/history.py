@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +35,19 @@ def _empty_record_metrics() -> dict[str, float | int]:
     }
 
 
+def _top_level_root(path: str) -> str:
+    parts = Path(path).parts
+    return parts[0] if parts else "."
+
+
+def _percentile(values: list[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    sorted_values = sorted(values)
+    index = max(0, math.ceil(len(sorted_values) * quantile) - 1)
+    return float(sorted_values[index])
+
+
 def _parse_numstat_line(line: str) -> tuple[int, int] | None:
     parts = line.split("\t", 2)
     if len(parts) != 3:
@@ -42,6 +56,19 @@ def _parse_numstat_line(line: str) -> tuple[int, int] | None:
     if added_raw == "-" or deleted_raw == "-":
         return None
     return int(added_raw), int(deleted_raw)
+
+
+def _shannon_entropy(weights: list[int]) -> float:
+    total = sum(weights)
+    if total <= 0:
+        return 0.0
+    entropy = 0.0
+    for weight in weights:
+        if weight <= 0:
+            continue
+        probability = weight / total
+        entropy -= probability * math.log2(probability)
+    return entropy
 
 
 def _build_window_metrics_with_path_filter(
@@ -62,7 +89,6 @@ def _build_window_metrics_with_path_filter(
         parsed = _parse_numstat_line(line)
         if parsed is None:
             continue
-        _added, _deleted = parsed
         path = line.split("\t", 2)[2]
         normalized_path = Path(path).as_posix()
         if normalized_path not in tracked_paths:
@@ -172,14 +198,136 @@ def _first_seen_timestamp_for_path(
     return _parse_unix_timestamp(lines[-1] if follow_renames else lines[0])
 
 
-def build_history_metrics(
+def _token_density_map(records: list[dict[str, Any]]) -> dict[str, float]:
+    density: dict[str, float] = {}
+    for record in records:
+        line_count = max(int(record["lines"]), 1)
+        density[record["path"]] = max(float(record["tokens"]) / line_count, 1.0)
+    return density
+
+
+def _build_commit_records(
+    repo_root: Path,
+    tracked_paths: set[str],
+    since_utc: str,
+    token_density: dict[str, float],
+) -> list[dict[str, Any]]:
+    completed = run_git(
+        repo_root,
+        ["log", "--numstat", "--format=commit:%H\t%ct", f"--since={since_utc}", "--no-renames"],
+    )
+    if completed.returncode != 0:
+        return []
+
+    commit_records: list[dict[str, Any]] = []
+    current_commit: dict[str, Any] | None = None
+
+    def flush_commit() -> None:
+        nonlocal current_commit
+        if current_commit is None or not current_commit["files"]:
+            current_commit = None
+            return
+        file_entries = sorted(current_commit["files"], key=lambda item: item["path"])
+        line_deltas = [int(item["line_delta"]) for item in file_entries]
+        roots = sorted({item["top_level_root"] for item in file_entries})
+        commit_records.append(
+            {
+                "commit": current_commit["commit"],
+                "timestamp": current_commit["timestamp"],
+                "file_count": len(file_entries),
+                "top_level_root_count": len(roots),
+                "top_level_roots": roots,
+                "total_line_delta": sum(line_deltas),
+                "total_token_delta": sum(int(item["token_delta"]) for item in file_entries),
+                "change_entropy": round(_shannon_entropy(line_deltas), 6),
+                "files": file_entries,
+            }
+        )
+        current_commit = None
+
+    for raw_line in completed.stdout.splitlines():
+        if raw_line.startswith("commit:"):
+            flush_commit()
+            parts = raw_line.removeprefix("commit:").split("\t", 1)
+            commit_sha = parts[0].strip()
+            timestamp = _parse_unix_timestamp(parts[1]) if len(parts) > 1 else None
+            current_commit = {
+                "commit": commit_sha,
+                "timestamp": timestamp or 0,
+                "files": [],
+            }
+            continue
+        if not raw_line or current_commit is None:
+            continue
+        parsed = _parse_numstat_line(raw_line)
+        if parsed is None:
+            continue
+        path = Path(raw_line.split("\t", 2)[2]).as_posix()
+        if path not in tracked_paths:
+            continue
+        added, deleted = parsed
+        line_delta = added + deleted
+        current_commit["files"].append(
+            {
+                "path": path,
+                "added": added,
+                "deleted": deleted,
+                "line_delta": line_delta,
+                "token_delta": int(round(line_delta * token_density.get(path, 1.0))),
+                "top_level_root": _top_level_root(path),
+            }
+        )
+
+    flush_commit()
+    return commit_records
+
+
+def _build_repo_baselines(commit_records: list[dict[str, Any]]) -> dict[str, float]:
+    if not commit_records:
+        return {
+            "p95_files_touched": 0.0,
+            "p99_files_touched": 0.0,
+            "p95_token_delta_mass": 0.0,
+            "p95_top_level_root_spread": 0.0,
+            "p95_change_entropy": 0.0,
+        }
+    return {
+        "p95_files_touched": _percentile(
+            [float(record["file_count"]) for record in commit_records],
+            0.95,
+        ),
+        "p99_files_touched": _percentile(
+            [float(record["file_count"]) for record in commit_records],
+            0.99,
+        ),
+        "p95_token_delta_mass": _percentile(
+            [float(record["total_token_delta"]) for record in commit_records],
+            0.95,
+        ),
+        "p95_top_level_root_spread": _percentile(
+            [float(record["top_level_root_count"]) for record in commit_records],
+            0.95,
+        ),
+        "p95_change_entropy": _percentile(
+            [float(record["change_entropy"]) for record in commit_records],
+            0.95,
+        ),
+    }
+
+
+def build_history_snapshot(
     repo_root: Path,
     records: list[dict[str, Any]],
     config: dict[str, Any],
-) -> dict[str, dict[str, float | int]]:
+) -> dict[str, Any]:
     empty_metrics = {record["path"]: _empty_record_metrics() for record in records}
+    empty_snapshot = {
+        "file_metrics": empty_metrics,
+        "commit_records": [],
+        "repo_baselines": _build_repo_baselines([]),
+    }
     if not records or not has_head_commit(repo_root):
-        return empty_metrics
+        return empty_snapshot
 
     now = datetime.now(timezone.utc)
     history_config = config["history"]
@@ -211,6 +359,25 @@ def build_history_metrics(
         )
         metrics[record["path"]] = record_metrics
 
-    return {path: dict(values) for path, values in metrics.items()} | {
+    file_metrics = {path: dict(values) for path, values in metrics.items()} | {
         path: values for path, values in empty_metrics.items() if path not in metrics
     }
+    commit_records = _build_commit_records(
+        repo_root,
+        tracked_paths,
+        since_utc,
+        _token_density_map(records),
+    )
+    return {
+        "file_metrics": file_metrics,
+        "commit_records": commit_records,
+        "repo_baselines": _build_repo_baselines(commit_records),
+    }
+
+
+def build_history_metrics(
+    repo_root: Path,
+    records: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> dict[str, dict[str, float | int]]:
+    return build_history_snapshot(repo_root, records, config)["file_metrics"]
