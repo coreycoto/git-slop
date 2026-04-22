@@ -88,6 +88,10 @@ Generated dependency lockfiles such as `uv.lock`, `package-lock.json`, and
 `poetry.lock` are ignored by default so hotspot rankings stay focused on
 refactor targets rather than generated manifests.
 
+For mature repos with major file moves, set `history.follow_renames: true` in
+`.slop/config.yaml`. That is slower, but it preserves age and churn signals
+across renames instead of treating moved files as brand new.
+
 `find` writes:
 
 - `.slop/latest/report.json`

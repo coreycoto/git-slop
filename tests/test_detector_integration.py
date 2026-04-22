@@ -129,3 +129,56 @@ class DetectorIntegrationTests(unittest.TestCase):
             fail_completed = run_cli(repo_root, "check", "--fail-on-context-band", "compact")
             self.assertEqual(fail_completed.returncode, 1, fail_completed.stderr)
             self.assertIn("Check failed:", fail_completed.stdout)
+
+    def test_find_can_follow_rename_history_for_age(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            init_repo(repo_root)
+
+            legacy_path = repo_root / "src" / "legacy.py"
+            legacy_path.parent.mkdir(parents=True, exist_ok=True)
+            legacy_path.write_text("print('legacy')\n", encoding="utf-8")
+            commit_all(repo_root, message="add legacy file", timestamp="2025-10-01T00:00:00Z")
+
+            legacy_path.write_text("print('legacy')\nprint('still legacy')\n", encoding="utf-8")
+            commit_all(repo_root, message="update legacy file", timestamp="2026-02-01T00:00:00Z")
+
+            renamed_path = repo_root / "src" / "renamed.py"
+            run_git(repo_root, "mv", "src/legacy.py", "src/renamed.py")
+            commit_all(repo_root, message="rename legacy file", timestamp="2026-03-01T00:00:00Z")
+            renamed_path.write_text(
+                "print('legacy')\nprint('still legacy')\nprint('rename pass')\n",
+                encoding="utf-8",
+            )
+            commit_all(repo_root, message="update renamed file", timestamp="2026-04-01T00:00:00Z")
+
+            no_follow_find = run_cli(repo_root, "find")
+            self.assertEqual(no_follow_find.returncode, 0, no_follow_find.stderr)
+            no_follow_show = run_cli(repo_root, "show", "src/renamed.py", "--format", "json")
+            self.assertEqual(no_follow_show.returncode, 0, no_follow_show.stderr)
+            no_follow_record = json.loads(no_follow_show.stdout)
+            self.assertGreater(no_follow_record["age_days"], 30)
+            self.assertLess(no_follow_record["age_days"], 100)
+            self.assertGreaterEqual(no_follow_record["revisions_window"], 1)
+
+            slop_root = repo_root / ".slop"
+            slop_root.mkdir(exist_ok=True)
+            config_payload = {
+                "schema_version": 1,
+                "history": {"follow_renames": True},
+            }
+            (slop_root / "config.yaml").write_text(
+                yaml.safe_dump(config_payload, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            follow_find = run_cli(repo_root, "find")
+            self.assertEqual(follow_find.returncode, 0, follow_find.stderr)
+            follow_show = run_cli(repo_root, "show", "src/renamed.py", "--format", "json")
+            self.assertEqual(follow_show.returncode, 0, follow_show.stderr)
+            follow_record = json.loads(follow_show.stdout)
+            self.assertGreater(follow_record["age_days"], no_follow_record["age_days"])
+            self.assertGreaterEqual(
+                follow_record["revisions_window"],
+                no_follow_record["revisions_window"],
+            )

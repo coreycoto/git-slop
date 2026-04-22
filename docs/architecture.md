@@ -56,6 +56,8 @@ For each tracked text file, Git Slop computes:
 - relative churn
 
 Rename following stays opt-in because it is slower and more expensive.
+When enabled, Git Slop switches to per-file history walks so renamed files keep
+their lineage instead of resetting age and churn to the newest path only.
 
 ## Scoring Layer
 
