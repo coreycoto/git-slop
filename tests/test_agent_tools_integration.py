@@ -7,13 +7,11 @@ import sys
 import unittest
 from pathlib import Path
 
-from agent_tools.skills.metadata import (
-    build_expected_outputs,
-    load_and_validate_skill_metadata_manifest,
-)
+import yaml
 
 from git_slop.agent_skill_runtime import run_skill_entrypoint
 from git_slop.agent_skills import ACTION_SPECS, SKILL_SPECS
+from git_slop.integrations.agents.codex_surface import PLUGIN_SKILL_CATALOG
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -39,33 +37,23 @@ class AgentToolsIntegrationTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("git-slop", completed.stdout)
 
-    def test_skill_metadata_manifest_sync_contract_still_holds(self) -> None:
-        manifest = load_and_validate_skill_metadata_manifest(
-            REPO_ROOT / "config" / "agents" / "skill_metadata_manifest.json",
-            repo_root=REPO_ROOT,
-            skills_root=REPO_ROOT / ".agents" / "skills",
-        )
-        expected_outputs = build_expected_outputs(manifest)
-
-        self.assertEqual(
-            sorted(manifest["skills"]),
-            [
-                "ensure-quarter-milestones",
-                "github-backlog-mutate",
-                "intake",
-                "intake-preview",
-                "label-palette-design",
-                "plan-quarter-apply",
-                "plan-quarter-preview",
-                "plan-to-backlog-preview",
-                "review-to-backlog-apply",
-                "review-to-backlog-preview",
-            ],
-        )
-        self.assertIn(
-            REPO_ROOT / ".agents" / "skills" / "intake" / "agents" / "openai.yaml",
-            expected_outputs,
-        )
+    def test_plugin_skill_metadata_covers_repo_runtime_skills(self) -> None:
+        self.assertTrue(set(SKILL_SPECS).issubset(PLUGIN_SKILL_CATALOG))
+        for skill_name in SKILL_SPECS:
+            metadata_path = (
+                REPO_ROOT
+                / "plugins"
+                / "project-management-workflows"
+                / "skills"
+                / skill_name
+                / "agents"
+                / "openai.yaml"
+            )
+            payload = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["interface"]["default_prompt"].count(f"${skill_name}"), 1)
+            self.assertTrue(
+                any(tool["value"] == "github" for tool in payload["dependencies"]["tools"])
+            )
 
     def test_repo_local_skill_runtime_delegates_to_external_cli(self) -> None:
         output = io.StringIO()
@@ -79,12 +67,7 @@ class AgentToolsIntegrationTests(unittest.TestCase):
                     "digest",
                     "docs/vision.md",
                 ],
-                script_path=REPO_ROOT
-                / ".agents"
-                / "skills"
-                / "intake-preview"
-                / "scripts"
-                / "run.py",
+                script_path=REPO_ROOT,
             )
 
         self.assertEqual(exit_code, 0)

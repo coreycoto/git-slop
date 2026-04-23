@@ -1,0 +1,13 @@
+interface:
+  display_name: "Docs Taxonomy"
+  short_description: "Repair docs and guidance taxonomy drift with narrow edits"
+  default_prompt: "Use $docs-taxonomy to restore documentation, plugin, and agent guidance to the intended taxonomy."
+
+policy:
+  allow_implicit_invocation: false
+
+dependencies:
+  tools:
+    - type: "connector"
+      value: "github"
+      description: "Official GitHub Codex plugin"

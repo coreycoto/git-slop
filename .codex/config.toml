@@ -1,0 +1,36 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[features]
+apps = true
+multi_agent = true
+
+[agents]
+max_threads = 6
+max_depth = 1
+
+[apps._default]
+enabled = true
+open_world_enabled = true
+destructive_enabled = true
+
+[apps.connector_76869538009648d5b282a4bb21c3d157]
+enabled = true
+default_tools_enabled = true
+default_tools_approval_mode = "prompt"
+open_world_enabled = true
+destructive_enabled = true
+
+[profiles.ci_readonly]
+approval_policy = "never"
+sandbox_mode = "read-only"
+
+[profiles.ci_mutation]
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+
+[profiles.ci_release]
+approval_policy = "never"
+sandbox_mode = "workspace-write"

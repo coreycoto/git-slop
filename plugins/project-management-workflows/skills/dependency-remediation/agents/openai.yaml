@@ -1,0 +1,13 @@
+interface:
+  display_name: "Dependency Remediation"
+  short_description: "Prepare a narrow dependency or CVE remediation change"
+  default_prompt: "Use $dependency-remediation to prepare a narrow dependency or CVE remediation change for the current repository."
+
+policy:
+  allow_implicit_invocation: false
+
+dependencies:
+  tools:
+    - type: "connector"
+      value: "github"
+      description: "Official GitHub Codex plugin"

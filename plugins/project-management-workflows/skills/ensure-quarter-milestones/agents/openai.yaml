@@ -1,0 +1,13 @@
+interface:
+  display_name: "Quarter Milestones"
+  short_description: "Check the current and next quarter milestone policy"
+  default_prompt: "Use $ensure-quarter-milestones to check whether the current and next quarter milestones exist and match policy."
+
+policy:
+  allow_implicit_invocation: false
+
+dependencies:
+  tools:
+    - type: "connector"
+      value: "github"
+      description: "Official GitHub Codex plugin"

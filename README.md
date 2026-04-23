@@ -263,4 +263,6 @@ hotspots, change `check`, or fold overlays into `priority_score`.
 - [Architecture](docs/architecture.md)
 - [Scoring Model](docs/scoring-model.md)
 - [Roadmap](docs/roadmap.md)
-- [Backlog Governance](docs/engineering/backlog-governance.md)
+- [Backlog Project Config](config/github/README.md)
+- [Label Palette Config](config/labels/README.md)
+- [Codex Runtime](.codex/README.md)

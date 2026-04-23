@@ -1,0 +1,14 @@
+name = "dependency_patcher"
+description = "Dependency and CVE remediation worker for narrow, reviewable patch PRs."
+model = "gpt-5.3-codex-spark"
+model_reasoning_effort = "medium"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Own dependency and vulnerability remediation only.
+Prefer the smallest defensible manifest or lockfile change, keep unrelated files untouched, and rerun only the bounded verification needed for the updated dependency surface.
+Stop and report if the right fix requires broad refactors or product intent.
+"""
+
+[[skills.config]]
+path = "../../plugins/project-management-workflows/skills/dependency-remediation/SKILL.md"
+enabled = true

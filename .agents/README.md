@@ -1,16 +1,13 @@
 # Agent Surface
 
-This directory is the canonical repo-local agent surface for `git-slop`.
+This directory only carries repo-local plugin marketplace metadata.
 
-Use the layers like this:
+Use these surfaces:
 
-- `AGENTS.md`: always-on repo policy and execution constraints
-- `.agents/skills/README.md`: repo-local workflow catalog
-- `docs/engineering/agent-guidance-governance.md`: placement rules for agent docs, notes, and follow-up work
-- `docs/engineering/agent-skill-metadata.md`: generated `agents/openai.yaml` contract and sync workflow
-- `docs/engineering/github-mutation-workflow.md`: manual-first GitHub mutation policy
-- `docs/engineering/backlog-governance.md`: backlog shape, title prefixes, project fields, and milestone policy
-- `src/agent_tools/`: shared deterministic logic behind repo-local skills
+- `AGENTS.md`: always-on repo policy
+- `.agents/plugins/marketplace.json`: plugin install policy and discovery
+- `.codex/README.md`: Codex runtime map
+- `plugins/project-management-workflows/README.md`: canonical reusable workflow overview
 
-Use `agent-tools` for maintainer-only automation. Keep the public `git-slop`
-CLI focused on detector behavior.
+The project-management plugin is installed by default for this repo and is the
+only supported skill surface for these maintainer workflows.

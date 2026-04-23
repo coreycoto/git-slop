@@ -5,44 +5,30 @@ import io
 import unittest
 from pathlib import Path
 
-from agent_tools.skills.metadata import (
-    build_expected_outputs,
-    load_and_validate_skill_metadata_manifest,
-)
+import yaml
 
 from git_slop.agent_skill_runtime import run_skill_entrypoint
 from git_slop.agent_skills import ACTION_SPECS, SKILL_SPECS
+from git_slop.integrations.agents.codex_surface import PLUGIN_SKILL_CATALOG
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class SkillRuntimeAndMetadataTests(unittest.TestCase):
-    def test_manifest_covers_all_repo_local_skills(self) -> None:
-        manifest = load_and_validate_skill_metadata_manifest(
-            REPO_ROOT / "config" / "agents" / "skill_metadata_manifest.json",
-            repo_root=REPO_ROOT,
-            skills_root=REPO_ROOT / ".agents" / "skills",
+    def test_plugin_metadata_covers_all_repo_runtime_skills(self) -> None:
+        self.assertTrue(set(SKILL_SPECS).issubset(PLUGIN_SKILL_CATALOG))
+        metadata_path = (
+            REPO_ROOT
+            / "plugins"
+            / "project-management-workflows"
+            / "skills"
+            / "intake"
+            / "agents"
+            / "openai.yaml"
         )
-        self.assertEqual(
-            sorted(manifest["skills"]),
-            [
-                "ensure-quarter-milestones",
-                "github-backlog-mutate",
-                "intake",
-                "intake-preview",
-                "label-palette-design",
-                "plan-quarter-apply",
-                "plan-quarter-preview",
-                "plan-to-backlog-preview",
-                "review-to-backlog-apply",
-                "review-to-backlog-preview",
-            ],
-        )
-        expected_outputs = build_expected_outputs(manifest)
-        self.assertIn(
-            REPO_ROOT / ".agents" / "skills" / "intake" / "agents" / "openai.yaml",
-            expected_outputs,
-        )
+        payload = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["interface"]["display_name"], "Intake")
+        self.assertFalse(payload["policy"]["allow_implicit_invocation"])
 
     def test_skill_manifest_exposes_expected_actions(self) -> None:
         preview_spec = SKILL_SPECS["plan-quarter-preview"]
@@ -64,12 +50,7 @@ class SkillRuntimeAndMetadataTests(unittest.TestCase):
                     "digest",
                     "docs/vision.md",
                 ],
-                script_path=REPO_ROOT
-                / ".agents"
-                / "skills"
-                / "intake-preview"
-                / "scripts"
-                / "run.py",
+                script_path=REPO_ROOT,
             )
         self.assertEqual(exit_code, 0)
         self.assertIn("agent_tools.cli", output.getvalue())

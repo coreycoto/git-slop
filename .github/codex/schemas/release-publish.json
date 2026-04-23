@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["noop", "published", "failed"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "tag": {
+      "type": "string"
+    },
+    "release_url": {
+      "type": ["string", "null"]
+    },
+    "artifact_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": ["status", "summary", "tag", "release_url", "artifact_paths", "notes"],
+  "additionalProperties": false
+}

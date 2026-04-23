@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["noop", "preview_only", "applied", "failed"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "preview_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "applied_mutations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": ["status", "summary", "preview_artifacts", "applied_mutations", "notes"],
+  "additionalProperties": false
+}

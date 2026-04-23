@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["noop", "merged", "blocked", "failed"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "pr_number": {
+      "type": ["integer", "null"]
+    },
+    "merge_method": {
+      "type": ["string", "null"]
+    },
+    "verified_checks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blocking_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "status",
+    "summary",
+    "pr_number",
+    "merge_method",
+    "verified_checks",
+    "blocking_reasons"
+  ],
+  "additionalProperties": false
+}

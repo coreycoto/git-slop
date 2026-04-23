@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["noop", "patched", "failed"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "branch": {
+      "type": ["string", "null"]
+    },
+    "pr_url": {
+      "type": ["string", "null"]
+    },
+    "verification": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "status",
+    "summary",
+    "branch",
+    "pr_url",
+    "verification",
+    "changed_files",
+    "notes"
+  ],
+  "additionalProperties": false
+}

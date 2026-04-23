@@ -39,9 +39,14 @@ include = [
     "/tests",
     "/docs",
     "/config",
+    "/scripts",
     "/.agents",
+    "/.codex",
     "/.github",
+    "/plugins",
+    "/AGENTS.md",
     "/README.md",
+    "/CONTRIBUTING.md",
     "/pyproject.toml",
 ]
 

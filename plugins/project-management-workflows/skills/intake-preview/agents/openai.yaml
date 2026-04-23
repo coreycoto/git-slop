@@ -1,0 +1,13 @@
+interface:
+  display_name: "Intake Preview"
+  short_description: "Preview how local research would change the backlog"
+  default_prompt: "Use $intake-preview to preview how local notes, markdown, or DOCX research would change the current backlog."
+
+policy:
+  allow_implicit_invocation: true
+
+dependencies:
+  tools:
+    - type: "connector"
+      value: "github"
+      description: "Official GitHub Codex plugin"

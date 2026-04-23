@@ -36,4 +36,4 @@ class IssueFormTests(unittest.TestCase):
         )
         links = payload["contact_links"]
         self.assertEqual(links[0]["name"], "Backlog Governance")
-        self.assertIn("docs/engineering/backlog-governance.md", links[0]["url"])
+        self.assertIn("config/github/README.md", links[0]["url"])

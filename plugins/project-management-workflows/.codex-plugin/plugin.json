@@ -1,0 +1,43 @@
+{
+  "name": "project-management-workflows",
+  "version": "0.1.0",
+  "description": "Reusable project-management workflows, shared references, and guidance for backlog and governance automation.",
+  "author": {
+    "name": "Corey Coto",
+    "email": "support@coreycoto.com",
+    "url": "https://github.com/coreycoto"
+  },
+  "homepage": "https://github.com/coreycoto/git-slop/tree/main/plugins/project-management-workflows",
+  "repository": "https://github.com/coreycoto/git-slop",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "github",
+    "project-management",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Project Management Workflows",
+    "shortDescription": "Reusable backlog, governance, and planning workflows",
+    "longDescription": "Repo-scoped proving ground for reusable project-management workflows, shared references, and preflight guidance that complement repo-local skills and custom agents.",
+    "developerName": "Corey Coto",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/coreycoto/git-slop/tree/main/plugins/project-management-workflows",
+    "privacyPolicyURL": "https://github.com/coreycoto/git-slop",
+    "termsOfServiceURL": "https://github.com/coreycoto/git-slop",
+    "defaultPrompt": [
+      "Use the reusable planning and backlog workflows for the current repository.",
+      "Preview how a reviewed maintenance plan would become backlog-ready issues.",
+      "Reconcile backlog governance artifacts before applying deterministic GitHub changes."
+    ],
+    "brandColor": "#334155",
+    "composerIcon": "./assets/project-management-workflows.svg",
+    "logo": "./assets/project-management-workflows.svg",
+    "screenshots": []
+  }
+}

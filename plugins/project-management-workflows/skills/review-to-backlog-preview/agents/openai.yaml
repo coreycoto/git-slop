@@ -1,0 +1,13 @@
+interface:
+  display_name: "Review Backlog Preview"
+  short_description: "Preview backlog-ready issues from deterministic review findings"
+  default_prompt: "Use $review-to-backlog-preview to preview which backlog issues deterministic review findings should become."
+
+policy:
+  allow_implicit_invocation: true
+
+dependencies:
+  tools:
+    - type: "connector"
+      value: "github"
+      description: "Official GitHub Codex plugin"

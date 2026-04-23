@@ -1,0 +1,35 @@
+# Prompt before pushing or merging from interactive local sessions.
+
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "prompt",
+    justification = "Publishing changes is allowed with explicit approval.",
+    match = [
+        "git push origin main",
+        "git push origin HEAD",
+        "git push --follow-tags origin main",
+    ],
+    not_match = [
+        "git pushy origin main",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "release", "create"],
+    decision = "prompt",
+    justification = "Creating releases is allowed with explicit approval.",
+    match = [
+        "gh release create v1.2.3",
+        "gh release create v1.2.3 --notes-file NOTES.md",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "merge"],
+    decision = "prompt",
+    justification = "Merging pull requests is allowed with explicit approval.",
+    match = [
+        "gh pr merge 123 --squash",
+        "gh pr merge --auto 123",
+    ],
+)

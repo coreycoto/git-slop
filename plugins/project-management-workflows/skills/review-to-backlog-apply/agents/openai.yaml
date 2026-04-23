@@ -1,0 +1,13 @@
+interface:
+  display_name: "Review Backlog Apply"
+  short_description: "Turn deterministic review findings into backlog deltas"
+  default_prompt: "Use $review-to-backlog-apply to convert deterministic review findings into reviewed backlog deltas and apply reports."
+
+policy:
+  allow_implicit_invocation: false
+
+dependencies:
+  tools:
+    - type: "connector"
+      value: "github"
+      description: "Official GitHub Codex plugin"
