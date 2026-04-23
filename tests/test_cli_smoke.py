@@ -54,7 +54,7 @@ def init_git_repo(repo_root: Path) -> None:
 
 class CliSmokeTests(unittest.TestCase):
     def test_package_import_exposes_version(self) -> None:
-        self.assertEqual(git_slop.__version__, "0.4.1")
+        self.assertEqual(git_slop.__version__, "0.5.0")
 
     def test_help_lists_registered_commands(self) -> None:
         completed = run_cli("--help")
@@ -64,6 +64,7 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("find", completed.stdout)
         self.assertIn("show", completed.stdout)
         self.assertIn("explain", completed.stdout)
+        self.assertIn("plan", completed.stdout)
         self.assertIn("check", completed.stdout)
         self.assertIn("version", completed.stdout)
 
@@ -71,7 +72,7 @@ class CliSmokeTests(unittest.TestCase):
         completed = run_cli("version")
 
         self.assertEqual(completed.returncode, 0)
-        self.assertEqual(completed.stdout.strip(), "git-slop 0.4.1")
+        self.assertEqual(completed.stdout.strip(), "git-slop 0.5.0")
         self.assertEqual(completed.stderr, "")
 
     def test_show_without_report_returns_usage_error(self) -> None:
@@ -90,6 +91,13 @@ class CliSmokeTests(unittest.TestCase):
 
     def test_explain_without_report_returns_usage_error(self) -> None:
         completed = run_cli("explain", "--path", "README.md", "--report", "tmp/missing-report.json")
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("Report not found:", completed.stdout)
+        self.assertEqual(completed.stderr, "")
+
+    def test_plan_without_report_returns_usage_error(self) -> None:
+        completed = run_cli("plan", "--path", "README.md", "--report", "tmp/missing-report.json")
 
         self.assertEqual(completed.returncode, 2)
         self.assertIn("Report not found:", completed.stdout)

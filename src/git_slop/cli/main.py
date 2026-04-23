@@ -19,6 +19,7 @@ from git_slop.detector import run_detector
 from git_slop.git import resolve_repo_root
 from git_slop.reporting import build_show_payload, failing_records, load_report
 from git_slop.reports.explain import build_explain_payload, render_explain_text
+from git_slop.reports.plan import build_plan_payload, render_plan_text
 
 PROJECT_NAME = "git-slop"
 
@@ -87,6 +88,39 @@ def build_parser() -> argparse.ArgumentParser:
     )
     explain_parser.add_argument("--format", choices=("text", "json"), default="text")
     explain_parser.set_defaults(handler=_run_explain)
+
+    plan_parser = subparsers.add_parser(
+        "plan",
+        help="Propose bounded maintenance slices from the current detector report.",
+    )
+    plan_parser.add_argument(
+        "--report",
+        help="Report path. Defaults to .slop/latest/report.json.",
+    )
+    plan_selector_group = plan_parser.add_mutually_exclusive_group(required=True)
+    plan_selector_group.add_argument(
+        "--path",
+        dest="plan_path",
+        help="Repo-relative file or folder path.",
+    )
+    plan_selector_group.add_argument(
+        "--cluster",
+        dest="plan_cluster_id",
+        help="Cluster identifier.",
+    )
+    plan_selector_group.add_argument(
+        "--relationship",
+        dest="plan_relationship_id",
+        help="Relationship identifier.",
+    )
+    plan_parser.add_argument(
+        "--max-slices",
+        type=int,
+        default=3,
+        help="Maximum number of bounded maintenance slices to propose.",
+    )
+    plan_parser.add_argument("--format", choices=("text", "json"), default="text")
+    plan_parser.set_defaults(handler=_run_plan)
 
     check_parser = subparsers.add_parser(
         "check",
@@ -202,6 +236,37 @@ def _run_explain(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print(render_explain_text(payload))
+    return 0
+
+
+def _run_plan(args: argparse.Namespace) -> int:
+    repo_root = resolve_repo_root()
+    report, report_path = _load_default_report(repo_root, args.report)
+    if report is None:
+        print(f"Report not found: {report_path}")
+        return 2
+    target_path = None
+    if args.plan_path is not None:
+        candidate = (repo_root / args.plan_path).resolve()
+        try:
+            target_path = candidate.relative_to(repo_root).as_posix()
+        except ValueError:
+            target_path = args.plan_path.strip() or "."
+    try:
+        payload = build_plan_payload(
+            report,
+            path=target_path,
+            cluster_id=args.plan_cluster_id,
+            relationship_id=args.plan_relationship_id,
+            max_slices=args.max_slices,
+        )
+    except ValueError as exc:
+        print(str(exc))
+        return 2
+    if args.format == "json":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(render_plan_text(payload))
     return 0
 
 

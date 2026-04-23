@@ -74,6 +74,7 @@ uv run git-slop init
 uv run git-slop find
 uv run git-slop show README.md
 uv run git-slop explain --top 5
+uv run git-slop plan --path README.md
 uv run git-slop check
 uv run git-slop version
 uv run git-slop --help
@@ -85,6 +86,7 @@ uv run git-slop --help
 - `git slop find`
 - `git slop show`
 - `git slop explain`
+- `git slop plan`
 - `git slop check`
 - `git slop version`
 
@@ -93,12 +95,17 @@ The package exposes both:
 - `git-slop ...`
 - `python -m git_slop ...`
 
-### Explain
+### Explain and Plan
 
 - `git slop explain`
   - explains one file, folder, cluster, relationship, or the current top-N
     hotspots from an existing schema-3 report
   - keeps hotspot cost and overlay evidence separate
+- `git slop plan`
+  - proposes bounded maintenance slices from one file, folder, cluster, or
+    relationship selector
+  - stays stdout-only in the first implementation
+  - never mutates code, GitHub, or detector truth
 
 Examples:
 
@@ -106,6 +113,8 @@ Examples:
 uv run git-slop explain --path src/git_slop/reporting.py
 uv run git-slop explain --path src/git_slop
 uv run git-slop explain --top 5
+uv run git-slop plan --path src/git_slop
+uv run git-slop plan --relationship duplicate_neighborhood-1234
 ```
 
 ## Generated State
@@ -236,15 +245,14 @@ Roles:
 
 ## Roadmap Position
 
-This repo has moved beyond pure detector work. The current downstream surface
-now is:
+This repo has moved beyond pure detector work. The current downstream surfaces
+now are:
 
 - `git slop explain`
+- `git slop plan`
 
-`git slop explain` consumes the detector contract as-is. It does not rescore
+Those commands consume the detector contract as-is. They do not rescore
 hotspots, change `check`, or fold overlays into `priority_score`.
-
-`git slop plan` is the next release after this one.
 
 ## Project Docs
 

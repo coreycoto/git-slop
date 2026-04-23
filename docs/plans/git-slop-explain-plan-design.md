@@ -65,6 +65,11 @@ Default behavior:
 
 - if no selector is provided, behave as `--top 5`
 - `--format text` is the human default
+- folder targets also emit:
+  - `cost_summary.descendant_hotspots`
+  - `overlay_summary.descendant_overlay_maxima`
+- `--top <N>` uses compact per-hotspot blocks in text mode
+- `--top <N>` prints the interpretation boundary once at the end
 
 ### `git slop plan`
 
@@ -88,6 +93,8 @@ Default behavior:
 
 - `--max-slices 3`
 - `--format text`
+- schema-3 reports only
+- stdout only in the first implementation
 
 ## Inputs
 
@@ -133,6 +140,9 @@ Consumed detector sections:
   - load
   - volatility
   - coordination
+- folder targets also include:
+  - top descendant hotspots from current detector order
+  - descendant overlay maxima
 - one section for overlay evidence:
   - organization health
   - verification
@@ -141,6 +151,8 @@ Consumed detector sections:
   - stewardship
   - semantic drift
 - one section for strongest supporting relationships or clusters
+- `--top <N>` uses compact per-hotspot blocks instead of repeating full path
+  explanations back-to-back
 - one short “interpretation boundary” line stating that the output is evidence,
   not correctness proof
 
@@ -170,6 +182,11 @@ Consumed detector sections:
 - `supporting_relationships`
 - `supporting_clusters`
 - `boundary_note`
+
+Folder-target additive JSON fields:
+
+- `cost_summary.descendant_hotspots`
+- `overlay_summary.descendant_overlay_maxima`
 
 `git slop plan` JSON output:
 
