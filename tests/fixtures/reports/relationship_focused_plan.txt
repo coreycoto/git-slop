@@ -1,7 +1,7 @@
 Plan: relationship near_duplicate_neighborhood-35e7fad1c4e0 [near_duplicate_neighborhood]
 
 1. Inspect relationship near_duplicate_neighborhood-35e7fad1c4e0
-   scope: src/agent_tools/github/current_repo.py, src/agent_tools/github/shared/current_repo.py
+   scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py
    why: Start with the selected coupled pair before considering any surrounding cluster evidence.
    evidence: relationships=near_duplicate_neighborhood-35e7fad1c4e0; clusters=duplicate_set-ce293b441009
    out_of_scope: none

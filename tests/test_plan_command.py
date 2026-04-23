@@ -57,7 +57,7 @@ def make_folder_record(path: str, priority_score: float) -> dict[str, object]:
 
 class PlanCommandTests(unittest.TestCase):
     def test_plan_requires_one_selector(self) -> None:
-        report = FIXTURE_DIR / "git_slop_folder_report.json"
+        report = FIXTURE_DIR / "local_repo_folder_report.json"
 
         missing_selector = run_cli("plan", "--report", str(report))
         multiple_selectors = run_cli(
@@ -86,7 +86,7 @@ class PlanCommandTests(unittest.TestCase):
             self.assertIn("requires report schema 3", completed.stdout)
 
     def test_plan_folder_fixture_is_deterministic_and_bounded(self) -> None:
-        report = FIXTURE_DIR / "git_slop_folder_report.json"
+        report = FIXTURE_DIR / "local_repo_folder_report.json"
 
         first = run_cli(
             "plan",
@@ -129,12 +129,12 @@ class PlanCommandTests(unittest.TestCase):
         )
 
     def test_plan_relationship_fixture_matches_text_snapshot_and_json(self) -> None:
-        report = FIXTURE_DIR / "agent_tools_relationship_report.json"
-        expected_text = (FIXTURE_DIR / "agent_tools_relationship_plan.txt").read_text(
+        report = FIXTURE_DIR / "relationship_focused_report.json"
+        expected_text = (FIXTURE_DIR / "relationship_focused_plan.txt").read_text(
             encoding="utf-8"
         )
         expected_json = json.loads(
-            (FIXTURE_DIR / "agent_tools_relationship_plan.json").read_text(encoding="utf-8")
+            (FIXTURE_DIR / "relationship_focused_plan.json").read_text(encoding="utf-8")
         )
 
         completed = run_cli(
@@ -431,7 +431,7 @@ class PlanCommandTests(unittest.TestCase):
 
     def test_plan_json_output_keeps_current_schema_and_key_set(self) -> None:
         report = json.loads(
-            (FIXTURE_DIR / "git_slop_folder_report.json").read_text(encoding="utf-8")
+            (FIXTURE_DIR / "local_repo_folder_report.json").read_text(encoding="utf-8")
         )
 
         payload = build_plan_payload(report, path="src/git_slop")
@@ -467,14 +467,14 @@ class PlanCommandTests(unittest.TestCase):
         )
 
     def test_plan_supports_file_and_cluster_selectors(self) -> None:
-        report = FIXTURE_DIR / "agent_tools_relationship_report.json"
+        report = FIXTURE_DIR / "relationship_focused_report.json"
 
         file_completed = run_cli(
             "plan",
             "--report",
             str(report),
             "--path",
-            "src/agent_tools/github/current_repo.py",
+            "src/consumer_toolkit/github/current_repo.py",
             "--format",
             "json",
         )
@@ -493,7 +493,10 @@ class PlanCommandTests(unittest.TestCase):
 
         file_payload = json.loads(file_completed.stdout)
         cluster_payload = json.loads(cluster_completed.stdout)
-        self.assertEqual(file_payload["target"]["path"], "src/agent_tools/github/current_repo.py")
+        self.assertEqual(
+            file_payload["target"]["path"],
+            "src/consumer_toolkit/github/current_repo.py",
+        )
         self.assertEqual(cluster_payload["target"]["id"], "duplicate_set-ce293b441009")
         self.assertEqual(file_payload["report_schema_version"], 3)
         self.assertEqual(cluster_payload["report_schema_version"], 3)

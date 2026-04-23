@@ -2,14 +2,14 @@
   "action_queue": [
     {
       "context_band": "healthy",
-      "path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py",
+      "path": "tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py",
       "priority_band": "needs_refactor",
       "priority_score": 54.2,
       "reason_codes": []
     },
     {
       "context_band": "healthy",
-      "path": "tests/unit/deeptravel_maintainers/github/reviews/test_apply_review_backlog_delta.py",
+      "path": "tests/unit/consumer_maintainers/github/reviews/test_apply_review_backlog_delta.py",
       "priority_band": "needs_refactor",
       "priority_score": 50.9,
       "reason_codes": []
@@ -25,7 +25,7 @@
     },
     {
       "context_band": "healthy",
-      "path": "tests/unit/deeptravel_maintainers/testing/test_slow_test_audit_validation.py",
+      "path": "tests/unit/consumer_maintainers/testing/test_slow_test_audit_validation.py",
       "priority_band": "needs_refactor",
       "priority_score": 50.7,
       "reason_codes": [
@@ -35,7 +35,7 @@
     },
     {
       "context_band": "healthy",
-      "path": "tests/unit/deeptravel/cli/test_doctor.py",
+      "path": "tests/unit/consumer_app/cli/test_doctor.py",
       "priority_band": "needs_refactor",
       "priority_score": 50.1,
       "reason_codes": [
@@ -112,7 +112,7 @@
           "verification_gap": 0.0
         }
       },
-      "path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py",
+      "path": "tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py",
       "priority_band": "needs_refactor",
       "priority_score": 54.2,
       "reason_codes": []
@@ -174,7 +174,7 @@
           "verification_gap": 0.0
         }
       },
-      "path": "tests/unit/deeptravel_maintainers/github/reviews/test_apply_review_backlog_delta.py",
+      "path": "tests/unit/consumer_maintainers/github/reviews/test_apply_review_backlog_delta.py",
       "priority_band": "needs_refactor",
       "priority_score": 50.9,
       "reason_codes": []
@@ -302,7 +302,7 @@
           "verification_gap": 0.0
         }
       },
-      "path": "tests/unit/deeptravel_maintainers/testing/test_slow_test_audit_validation.py",
+      "path": "tests/unit/consumer_maintainers/testing/test_slow_test_audit_validation.py",
       "priority_band": "needs_refactor",
       "priority_score": 50.7,
       "reason_codes": [
@@ -367,7 +367,7 @@
           "verification_gap": 0.0
         }
       },
-      "path": "tests/unit/deeptravel/cli/test_doctor.py",
+      "path": "tests/unit/consumer_app/cli/test_doctor.py",
       "priority_band": "needs_refactor",
       "priority_score": 50.1,
       "reason_codes": [
@@ -397,8 +397,8 @@
             "evidence_score": 245.812,
             "id": "boundary_leakage_edge-4b9731494fde",
             "kind": "boundary_leakage_edge",
-            "source_path": "src/deeptravel_maintainers/github/governance/apply_backlog_mutations.py",
-            "target_path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py"
+            "source_path": "src/consumer_maintainers/github/governance/apply_backlog_mutations.py",
+            "target_path": "tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py"
           }
         ],
         "duplicate_neighborhoods": [],
@@ -407,8 +407,8 @@
             "evidence_score": 20.257,
             "id": "lexical_affinity_edge-4843bcaf58e4",
             "kind": "lexical_affinity_edge",
-            "source_path": "src/deeptravel_maintainers/github/governance/backlog_mutations.py",
-            "target_path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py"
+            "source_path": "src/consumer_maintainers/github/governance/backlog_mutations.py",
+            "target_path": "tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py"
           }
         ],
         "near_duplicate_neighborhoods": [],
@@ -417,8 +417,8 @@
             "evidence_score": 245.812,
             "id": "temporal_coupling_edge-4f9b24ae42af",
             "kind": "temporal_coupling_edge",
-            "source_path": "src/deeptravel_maintainers/github/governance/apply_backlog_mutations.py",
-            "target_path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py"
+            "source_path": "src/consumer_maintainers/github/governance/apply_backlog_mutations.py",
+            "target_path": "tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py"
           }
         ]
       }
@@ -432,8 +432,8 @@
         "evidence_score": 245.812,
         "id": "boundary_leakage_edge-4b9731494fde",
         "kind": "boundary_leakage_edge",
-        "source_path": "src/deeptravel_maintainers/github/governance/apply_backlog_mutations.py",
-        "target_path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py"
+        "source_path": "src/consumer_maintainers/github/governance/apply_backlog_mutations.py",
+        "target_path": "tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py"
       }
     ],
     "duplicate_neighborhoods": [],
@@ -442,8 +442,8 @@
         "evidence_score": 20.257,
         "id": "lexical_affinity_edge-4843bcaf58e4",
         "kind": "lexical_affinity_edge",
-        "source_path": "src/deeptravel_maintainers/github/governance/backlog_mutations.py",
-        "target_path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py"
+        "source_path": "src/consumer_maintainers/github/governance/backlog_mutations.py",
+        "target_path": "tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py"
       }
     ],
     "near_duplicate_neighborhoods": [],
@@ -452,13 +452,13 @@
         "evidence_score": 245.812,
         "id": "temporal_coupling_edge-4f9b24ae42af",
         "kind": "temporal_coupling_edge",
-        "source_path": "src/deeptravel_maintainers/github/governance/apply_backlog_mutations.py",
-        "target_path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py"
+        "source_path": "src/consumer_maintainers/github/governance/apply_backlog_mutations.py",
+        "target_path": "tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py"
       }
     ]
   },
   "repo": {
-    "repo_name": "deeptravel"
+    "repo_name": "large-validation-repo"
   },
   "schema_version": 3
 }

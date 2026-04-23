@@ -4,7 +4,7 @@ Date: 2026-04-22
 
 ## Validation set
 
-### `deeptravel`
+### `mature validation repo`
 
 - Used as the primary mature-repo validation target.
 - The detector produced actionable hotspot queues across maintainer tooling, docs,
@@ -12,7 +12,7 @@ Date: 2026-04-22
 - The first hotspot tranche and the follow-on maintenance lane both produced
   reviewable refactor work without requiring cross-repo scoring changes.
 
-### `coreycoto.com`
+### `smaller application repo A`
 
 - Needed repo-local scope tuning only.
 - The checked-in `.slop/config.yaml` ignores:
@@ -26,7 +26,7 @@ Date: 2026-04-22
   - `tests/e2e/index.ts`
   - `tools/ci/comment-playwright-regression.ts`
 
-### `neuroscribes`
+### `smaller application repo B`
 
 - Needed repo-local scope tuning only.
 - The checked-in `.slop/config.yaml` ignores:
@@ -53,9 +53,9 @@ Date: 2026-04-22
 
 Rationale:
 
-- `deeptravel` validated the detector on a mature, high-history repo and turned
+- the mature validation repo validated the detector on a high-history codebase and turned
   the output into successful queued refactor work.
-- `coreycoto.com` and `neuroscribes` each required only narrow repo-local ignore
+- the two smaller application repos each required only narrow repo-local ignore
   rules for known data/generated artifacts.
 - No cross-repo scoring or heuristic change was needed to make the queues
   credible.

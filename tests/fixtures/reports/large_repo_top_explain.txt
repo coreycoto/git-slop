@@ -1,12 +1,12 @@
 Explain: top 5 hotspots
 
-1. tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py [needs_refactor] score=54.2 context=healthy
+1. tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py [needs_refactor] score=54.2 context=healthy
    cost: load=0.789 volatility=0.241 coordination=0.710
    overlays: semantic_drift=1.000, blast_radius=0.651, navigation=0.601
    relationships: boundary_leakage_edge-4b9731494fde, temporal_coupling_edge-4f9b24ae42af
    clusters: none
 
-2. tests/unit/deeptravel_maintainers/github/reviews/test_apply_review_backlog_delta.py [needs_refactor] score=50.9 context=healthy
+2. tests/unit/consumer_maintainers/github/reviews/test_apply_review_backlog_delta.py [needs_refactor] score=50.9 context=healthy
    cost: load=0.638 volatility=0.501 coordination=0.700
    overlays: semantic_drift=1.000, organization.diffusion=0.778, blast_radius=0.658
    relationships: none
@@ -18,13 +18,13 @@ Explain: top 5 hotspots
    relationships: none
    clusters: none
 
-4. tests/unit/deeptravel_maintainers/testing/test_slow_test_audit_validation.py [needs_refactor] score=50.7 context=healthy
+4. tests/unit/consumer_maintainers/testing/test_slow_test_audit_validation.py [needs_refactor] score=50.7 context=healthy
    cost: load=0.462 volatility=1.000 coordination=0.677
    overlays: organization.diffusion=1.000, semantic_drift=1.000, blast_radius=0.723
    relationships: none
    clusters: none
 
-5. tests/unit/deeptravel/cli/test_doctor.py [needs_refactor] score=50.1 context=healthy
+5. tests/unit/consumer_app/cli/test_doctor.py [needs_refactor] score=50.1 context=healthy
    cost: load=0.458 volatility=0.961 coordination=0.671
    overlays: organization.diffusion=1.000, semantic_drift=1.000, organization.boundary=0.971
    relationships: none

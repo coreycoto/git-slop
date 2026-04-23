@@ -9,9 +9,9 @@ and its always-on overlay layer.
 
 Validated repos:
 
-- `git-slop`
-- `deeptravel`
-- `neuroscribes`
+- `local repo`
+- `mature validation repo`
+- `smaller application repo`
 
 The goal of this pass was not to inflate the hotspot score. It was to confirm
 three things:
@@ -25,7 +25,7 @@ three things:
 
 The repo-wide history pass materially improved the remaining hot path.
 
-On `deeptravel` with `history.follow_renames: true`:
+On the mature validation repo with `history.follow_renames: true`:
 
 - cold full-detector run: about `5.3s`
 - warm full-detector run: about `3.4s`
@@ -68,7 +68,7 @@ Accepted repo-local noise:
   packaging model
 - this is useful evidence, not a reason to change global scoring
 
-### `deeptravel`
+### `mature validation repo`
 
 What it validated:
 
@@ -80,11 +80,11 @@ What it validated:
 
 Top hotspot examples:
 
-- `tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py`
-- `tests/unit/deeptravel_maintainers/github/reviews/test_apply_review_backlog_delta.py`
+- `tests/unit/.../github/governance/test_backlog_mutations.py`
+- `tests/unit/.../github/reviews/test_apply_review_backlog_delta.py`
 - `schemas/shared.schema.json`
-- `tests/unit/deeptravel_maintainers/testing/test_slow_test_audit_validation.py`
-- `tests/unit/deeptravel/cli/test_doctor.py`
+- `tests/unit/.../testing/test_slow_test_audit_validation.py`
+- `tests/unit/.../cli/test_doctor.py`
 
 Top structural examples:
 
@@ -104,7 +104,7 @@ Accepted repo-local noise:
   those are useful structural evidence, but they are not an argument for
   changing the main hotspot queue
 
-### `neuroscribes`
+### `smaller application repo`
 
 What it validated:
 
@@ -117,10 +117,10 @@ What it validated:
 
 Top hotspot examples:
 
-- `src/components/OpenAIServiceProvider.ts`
+- `src/components/PrimaryServiceProvider.ts`
 - `tsconfig.json`
 - `src/index.ts`
-- `src/components/VercelCacheProvider.ts`
+- `src/components/CacheProvider.ts`
 - `src/components/FileProcessor.ts`
 
 Top structural examples:

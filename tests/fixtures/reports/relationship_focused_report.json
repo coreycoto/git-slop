@@ -12,8 +12,8 @@
         "kind": "consolidation_candidate",
         "member_count": 2,
         "member_paths": [
-          "src/agent_tools/github/current_repo.py",
-          "src/agent_tools/github/shared/current_repo.py"
+          "src/consumer_toolkit/github/current_repo.py",
+          "src/consumer_toolkit/github/shared/current_repo.py"
         ],
         "source_relationship_ids": [
           "duplicate_neighborhood-b534129a62cb",
@@ -32,8 +32,8 @@
         "kind": "duplicate_set",
         "member_count": 2,
         "member_paths": [
-          "src/agent_tools/github/current_repo.py",
-          "src/agent_tools/github/shared/current_repo.py"
+          "src/consumer_toolkit/github/current_repo.py",
+          "src/consumer_toolkit/github/shared/current_repo.py"
         ],
         "source_relationship_ids": [
           "duplicate_neighborhood-b534129a62cb",
@@ -109,7 +109,7 @@
           "verification_gap": 0.0
         }
       },
-      "path": "src/agent_tools/github/current_repo.py",
+      "path": "src/consumer_toolkit/github/current_repo.py",
       "priority_band": "watchlist",
       "priority_score": 12.6,
       "reason_codes": [
@@ -178,7 +178,7 @@
           "verification_gap": 0.0
         }
       },
-      "path": "src/agent_tools/github/shared/current_repo.py",
+      "path": "src/consumer_toolkit/github/shared/current_repo.py",
       "priority_band": "watchlist",
       "priority_score": 12.6,
       "reason_codes": [
@@ -232,7 +232,7 @@
         },
         "semantic_drift": {
           "drift_terms": [
-            "agent_tools",
+            "consumer_toolkit",
             "args",
             "argv",
             "def",
@@ -262,7 +262,7 @@
           "verification_gap": 0.0
         }
       },
-      "path": "src/agent_tools/github",
+      "path": "src/consumer_toolkit/github",
       "priority_band": "watchlist",
       "priority_score": 23.1,
       "reason_codes": [
@@ -312,7 +312,7 @@
         },
         "semantic_drift": {
           "drift_terms": [
-            "agent_tools",
+            "consumer_toolkit",
             "args",
             "argv",
             "def",
@@ -341,7 +341,7 @@
           "verification_gap": 0.0
         }
       },
-      "path": "src/agent_tools/github/shared",
+      "path": "src/consumer_toolkit/github/shared",
       "priority_band": "watchlist",
       "priority_score": 19.5,
       "reason_codes": [
@@ -365,8 +365,8 @@
             "kind": "consolidation_candidate",
             "member_count": 2,
             "member_paths": [
-              "src/agent_tools/github/current_repo.py",
-              "src/agent_tools/github/shared/current_repo.py"
+              "src/consumer_toolkit/github/current_repo.py",
+              "src/consumer_toolkit/github/shared/current_repo.py"
             ],
             "source_relationship_ids": [
               "duplicate_neighborhood-b534129a62cb",
@@ -385,8 +385,8 @@
             "kind": "duplicate_set",
             "member_count": 2,
             "member_paths": [
-              "src/agent_tools/github/current_repo.py",
-              "src/agent_tools/github/shared/current_repo.py"
+              "src/consumer_toolkit/github/current_repo.py",
+              "src/consumer_toolkit/github/shared/current_repo.py"
             ],
             "source_relationship_ids": [
               "duplicate_neighborhood-b534129a62cb",
@@ -411,8 +411,8 @@
             "id": "duplicate_neighborhood-b534129a62cb",
             "kind": "duplicate_neighborhood",
             "similarity_ratio": 1.0,
-            "source_path": "src/agent_tools/github/current_repo.py",
-            "target_path": "src/agent_tools/github/shared/current_repo.py"
+            "source_path": "src/consumer_toolkit/github/current_repo.py",
+            "target_path": "src/consumer_toolkit/github/shared/current_repo.py"
           }
         ],
         "lexical_affinity_edges": [],
@@ -424,8 +424,8 @@
             "id": "near_duplicate_neighborhood-35e7fad1c4e0",
             "kind": "near_duplicate_neighborhood",
             "similarity_ratio": 0.990099,
-            "source_path": "src/agent_tools/github/current_repo.py",
-            "target_path": "src/agent_tools/github/shared/current_repo.py"
+            "source_path": "src/consumer_toolkit/github/current_repo.py",
+            "target_path": "src/consumer_toolkit/github/shared/current_repo.py"
           }
         ],
         "temporal_coupling_edges": []
@@ -444,8 +444,8 @@
         "id": "duplicate_neighborhood-b534129a62cb",
         "kind": "duplicate_neighborhood",
         "similarity_ratio": 1.0,
-        "source_path": "src/agent_tools/github/current_repo.py",
-        "target_path": "src/agent_tools/github/shared/current_repo.py"
+        "source_path": "src/consumer_toolkit/github/current_repo.py",
+        "target_path": "src/consumer_toolkit/github/shared/current_repo.py"
       }
     ],
     "lexical_affinity_edges": [],
@@ -457,14 +457,14 @@
         "id": "near_duplicate_neighborhood-35e7fad1c4e0",
         "kind": "near_duplicate_neighborhood",
         "similarity_ratio": 0.990099,
-        "source_path": "src/agent_tools/github/current_repo.py",
-        "target_path": "src/agent_tools/github/shared/current_repo.py"
+        "source_path": "src/consumer_toolkit/github/current_repo.py",
+        "target_path": "src/consumer_toolkit/github/shared/current_repo.py"
       }
     ],
     "temporal_coupling_edges": []
   },
   "repo": {
-    "repo_name": "agent-tools"
+    "repo_name": "consumer-toolkit-repo"
   },
   "schema_version": 3
 }

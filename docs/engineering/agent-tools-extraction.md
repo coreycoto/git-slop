@@ -63,7 +63,7 @@ Use this migration order:
 1. Create `agent-tools` as a sibling repo with `uv` + `hatchling`.
 2. Move the shared runtime, metadata sync, GitHub helpers, and research intake foundation first.
 3. Keep `git-slop` as the first consumer migration and replace local runtime imports with the sibling dependency.
-4. Migrate the overlapping `deeptravel` slices second.
+4. Migrate the overlapping second consumer slices next.
 5. Leave larger workflow families such as relationships, rebalance, review closeout, autoresearch, testing/evals, and performance tooling for later waves.
 
 ## Current Extraction Boundary
