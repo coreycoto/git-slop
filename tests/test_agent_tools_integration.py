@@ -57,6 +57,7 @@ class AgentToolsIntegrationTests(unittest.TestCase):
                 "label-palette-design",
                 "plan-quarter-apply",
                 "plan-quarter-preview",
+                "plan-to-backlog-preview",
                 "review-to-backlog-apply",
                 "review-to-backlog-preview",
             ],
@@ -91,3 +92,5 @@ class AgentToolsIntegrationTests(unittest.TestCase):
         self.assertIn("research digest", output.getvalue())
         self.assertIn("intake-preview", SKILL_SPECS)
         self.assertIn("digest", ACTION_SPECS)
+        self.assertIn("plan-to-backlog-preview", SKILL_SPECS)
+        self.assertIn("plan-to-backlog", ACTION_SPECS)

@@ -1,6 +1,6 @@
 [project]
 name = "git-slop"
-version = "0.6.0"
+version = "0.7.0"
 description = "Local-first hotspot detection for AI-era repositories."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -14,7 +14,7 @@ git-slop = "git_slop.cli:main"
 
 [dependency-groups]
 dev = [
-    "agent-tools @ git+https://github.com/coreycoto/agent-tools.git@v0.2.0",
+    "agent-tools @ git+https://github.com/coreycoto/agent-tools.git@v0.4.0",
     "pytest>=8.3.0",
     "ruff>=0.11.0",
 ]

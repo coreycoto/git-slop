@@ -11,7 +11,7 @@ Current skill families:
 - `intake`: normalize repo-local markdown and DOCX research into backlog-ready artifacts
 - `review`: turn deterministic review findings into backlog deltas
 - `governance`: validate labels, issue mutation plans, and backlog structure
-- `planning`: enforce quarter milestone policy and quarter-plan deltas
+- `planning`: enforce quarter milestone policy and preview planning handoffs into backlog-ready maintenance work
 
 Keep generated metadata in sync with:
 
@@ -28,6 +28,7 @@ Current repo-local skills:
 - `review-to-backlog-apply`
 - `ensure-quarter-milestones`
 - `plan-quarter-preview`
+- `plan-to-backlog-preview`
 - `plan-quarter-apply`
 - `github-backlog-mutate`
 - `label-palette-design`

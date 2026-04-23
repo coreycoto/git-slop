@@ -44,6 +44,7 @@ Use automation for:
 - label palette preview and apply
 - milestone policy checks
 - review-to-backlog previews and controlled apply flows
+- plan-to-backlog previews for reviewed `git slop plan` output
 - quarter-plan preview and controlled apply flows
 
 Do not silently mutate:
@@ -77,4 +78,12 @@ Artifact-first mutation paths should write under:
 
 - `.artifacts/github-governance/<timestamp>/`
 - `.artifacts/review-to-backlog/<timestamp>/`
+- `.artifacts/plan-to-backlog/<timestamp>/`
 - `.artifacts/quarter-plan/<timestamp>/`
+
+Preview-specific note:
+
+- `plan-to-backlog` is preview-only in this first wave
+- it creates one backlog preview issue per `git slop plan` slice
+- it requires an explicit epic and defaults every generated issue to `Maintenance:`
+- it must not attempt live GitHub mutation

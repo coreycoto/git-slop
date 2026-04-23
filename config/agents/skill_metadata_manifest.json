@@ -65,6 +65,13 @@
       "family": "planning",
       "short_description": "Preview which issues should be committed to a quarter"
     },
+    "plan-to-backlog-preview": {
+      "allow_implicit_invocation": true,
+      "default_prompt": "Use $plan-to-backlog-preview to preview how reviewed git-slop plan slices would map into backlog-ready maintenance issues.",
+      "display_name": "Plan Backlog Preview",
+      "family": "planning",
+      "short_description": "Preview backlog-ready maintenance issues from git-slop plan output"
+    },
     "plan-quarter-apply": {
       "allow_implicit_invocation": false,
       "default_prompt": "Use $plan-quarter-apply to apply reviewed git-slop quarter commitments and record the rationale in GitHub.",

@@ -50,7 +50,7 @@ Rules:
 | `intake` | `#0F766E` | `intake-preview`, `intake` |
 | `review` | `#4338CA` | `review-to-backlog-preview`, `review-to-backlog-apply` |
 | `governance` | `#334155` | `github-backlog-mutate`, `label-palette-design` |
-| `planning` | `#A16207` | `ensure-quarter-milestones`, `plan-quarter-preview`, `plan-quarter-apply` |
+| `planning` | `#A16207` | `ensure-quarter-milestones`, `plan-quarter-preview`, `plan-to-backlog-preview`, `plan-quarter-apply` |
 
 ## Invocation Policy
 
@@ -65,6 +65,7 @@ Current implicit-enabled skills:
 - `intake-preview`
 - `review-to-backlog-preview`
 - `plan-quarter-preview`
+- `plan-to-backlog-preview`
 - `label-palette-design`
 
 Everything else remains explicit-only.

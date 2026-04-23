@@ -230,6 +230,14 @@ Use these guidance surfaces like this:
 - `.agents/skills/*`: reusable named workflows
 - backlog items: deferred or coordinated follow-up work that should not be silently folded into guidance
 
+`git slop plan` handoff preview is preview-first in this wave:
+
+- build a reviewed `plan` JSON first
+- preview one `Maintenance:` backlog issue per proposed slice
+- require an explicit epic for the preview mapping
+- keep the handoff in `.artifacts/plan-to-backlog/<timestamp>/`
+- do not mutate GitHub from this preview path
+
 ## Governance Automation
 
 `git-slop` may enforce this policy through manual-first GitHub governance

@@ -1,0 +1,10 @@
+interface:
+  display_name: "Plan Backlog Preview"
+  short_description: "Preview backlog-ready maintenance issues from git-slop plan output"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
+  brand_color: "#A16207"
+  default_prompt: "Use $plan-to-backlog-preview to preview how reviewed git-slop plan slices would map into backlog-ready maintenance issues."
+
+policy:
+  allow_implicit_invocation: true

@@ -48,6 +48,11 @@ ACTION_SPECS: dict[str, ActionSpec] = {
         "Turn review findings into a deterministic backlog delta.",
         ("github", "review-to-backlog"),
     ),
+    "plan-to-backlog": ActionSpec(
+        "plan-to-backlog",
+        "Turn git-slop plan output into a deterministic backlog preview delta.",
+        ("github", "plan-to-backlog"),
+    ),
     "apply-review-delta": ActionSpec(
         "apply-review-delta",
         "Materialize a review backlog apply report.",
@@ -105,6 +110,11 @@ SKILL_SPECS: dict[str, SkillSpec] = {
         name="plan-quarter-preview",
         description="Validate a quarter plan and preview the resulting milestone delta.",
         actions=("repo", "snapshot", "validate-quarter-plan", "build-quarter-delta"),
+    ),
+    "plan-to-backlog-preview": SkillSpec(
+        name="plan-to-backlog-preview",
+        description="Preview backlog-ready maintenance issues from git-slop plan output.",
+        actions=("repo", "snapshot", "plan-to-backlog"),
     ),
     "plan-quarter-apply": SkillSpec(
         name="plan-quarter-apply",

@@ -33,6 +33,7 @@ class SkillRuntimeAndMetadataTests(unittest.TestCase):
                 "label-palette-design",
                 "plan-quarter-apply",
                 "plan-quarter-preview",
+                "plan-to-backlog-preview",
                 "review-to-backlog-apply",
                 "review-to-backlog-preview",
             ],
@@ -46,6 +47,8 @@ class SkillRuntimeAndMetadataTests(unittest.TestCase):
     def test_skill_manifest_exposes_expected_actions(self) -> None:
         preview_spec = SKILL_SPECS["plan-quarter-preview"]
         self.assertIn("build-quarter-delta", preview_spec.actions)
+        backlog_preview_spec = SKILL_SPECS["plan-to-backlog-preview"]
+        self.assertIn("plan-to-backlog", backlog_preview_spec.actions)
         action_spec = ACTION_SPECS["label-palette"]
         self.assertEqual(action_spec.command, ("github", "sync-label-palette"))
 
