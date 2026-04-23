@@ -31,8 +31,11 @@ Rules:
 
 - `default_prompt` must explicitly mention `$skill-name`
 - implicit invocation stays limited to narrow preview-safe workflows
-- `dependencies.tools` should declare the official GitHub Codex plugin when a
-  skill expects live GitHub reads or writes during local interactive use
+- `dependencies.tools` should declare `type: connector` and `value: github`
+  whenever a skill is GitHub-touching during local interactive use
+- GitHub-touching skills hard-require both the official GitHub Codex plugin and
+  the bundled GitHub connector mapping; see
+  `_shared/references/github-runtime-prerequisites.md`
 
 Keep repo-wide behavior in `AGENTS.md`, runtime wiring in `.codex/README.md`,
 and repo-owned overlays in `config/*/README.md`.

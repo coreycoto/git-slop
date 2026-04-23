@@ -10,11 +10,12 @@ and custom-agent surfaces, then prepare the smallest docs-only fix.
 
 ## Prerequisites
 
-- Local interactive use expects the official GitHub Codex plugin.
-- Run `python3 ../../scripts/preflight_github_plugin.py` if you need to confirm the local prerequisite.
+- Local interactive use requires both the official GitHub Codex plugin and the bundled GitHub connector mapping.
+- Run `python3 ../../scripts/preflight_github_surface.py` if you need to confirm the combined local prerequisite before continuing.
 
 ## Read First
 
+- `../_shared/references/github-runtime-prerequisites.md`
 - `../_shared/references/agent-decision-patterns.md`
 - `../_shared/references/workflow-tooling-surface.md`
 

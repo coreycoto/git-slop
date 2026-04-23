@@ -6,6 +6,7 @@ from pathlib import Path
 
 from git_slop.integrations.agents.codex_surface import (
     AGENT_SKILL_BINDINGS,
+    EXPECTED_GITHUB_CONNECTOR_ID,
     PLUGIN_SKILL_CATALOG,
     ROOT_AGENTS,
     WORKFLOW_ASSETS,
@@ -74,6 +75,46 @@ class CodexSurfaceTests(unittest.TestCase):
             if item["name"] == "project-management-workflows"
         )
         self.assertEqual(plugin["policy"]["installation"], "INSTALLED_BY_DEFAULT")
+
+    def test_plugin_manifest_bundles_expected_github_connector_mapping(self) -> None:
+        manifest = json.loads(
+            (
+                REPO_ROOT
+                / "plugins"
+                / "project-management-workflows"
+                / ".codex-plugin"
+                / "plugin.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["apps"], "./.app.json")
+
+        app_mapping = json.loads(
+            (
+                REPO_ROOT
+                / "plugins"
+                / "project-management-workflows"
+                / ".app.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            app_mapping["apps"]["github"]["id"],
+            EXPECTED_GITHUB_CONNECTOR_ID,
+        )
+
+    def test_all_plugin_skills_declare_github_connector_dependency(self) -> None:
+        for skill_name in sorted(PLUGIN_SKILL_CATALOG):
+            metadata_path = (
+                REPO_ROOT
+                / "plugins"
+                / "project-management-workflows"
+                / "skills"
+                / skill_name
+                / "agents"
+                / "openai.yaml"
+            )
+            payload = metadata_path.read_text(encoding="utf-8")
+            self.assertIn('type: "connector"', payload)
+            self.assertIn('value: "github"', payload)
 
 
 if __name__ == "__main__":

@@ -8,20 +8,26 @@ It packages:
 - reusable maintainer workflow skills
 - shared references and decision aids
 - lightweight preflight guidance for external prerequisites
+- the GitHub connector mapping for GitHub-touching local interactive workflows
 - canonical workflow guidance for deterministic `agent-tools`, `gh`, and artifact usage
 
 It does **not** bundle:
 
 - the official GitHub Codex plugin
-- a custom app mapping
 - a custom MCP server
 
 ## Prerequisites
 
-For local interactive use, install and enable the official GitHub Codex plugin.
-This plugin assumes that GitHub repository, issue, PR, and project context can
-be resolved through that plugin when a reusable skill needs live GitHub reads or
-writes.
+For local interactive use, GitHub-touching skills require both:
+
+- the official GitHub Codex plugin
+- the GitHub connector mapping bundled by this plugin via `.app.json`
+
+This plugin packages the connector mapping, but it still does not bundle the
+official GitHub plugin itself. Use
+`skills/_shared/references/github-runtime-prerequisites.md` and
+`scripts/preflight_github_surface.py` to confirm the combined prerequisite
+before a local interactive workflow attempts live GitHub reads or writes.
 
 For CI and GitHub Actions, do not assume marketplace-installed connectors are
 available. Use checked-out repo files, prompt files, custom agents, `gh`,
@@ -30,9 +36,10 @@ GitHub tokens, `agent-tools`, and repo scripts instead.
 ## Structure
 
 - `.codex-plugin/plugin.json`: plugin manifest
+- `.app.json`: bundled GitHub connector mapping for local interactive use
 - `skills/`: reusable workflow skills
 - `skills/_shared/references/`: reusable decision aids and policy references
-- `scripts/preflight_github_plugin.py`: local preflight for the GitHub plugin prerequisite
+- `scripts/preflight_github_surface.py`: local preflight for the combined GitHub prerequisite
 
 ## Usage model
 

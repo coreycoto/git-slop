@@ -16,11 +16,12 @@
     "project-management",
     "workflow"
   ],
+  "apps": "./.app.json",
   "skills": "./skills/",
   "interface": {
     "displayName": "Project Management Workflows",
     "shortDescription": "Reusable backlog, governance, and planning workflows",
-    "longDescription": "Repo-scoped proving ground for reusable project-management workflows, shared references, and preflight guidance that complement repo-local skills and custom agents.",
+    "longDescription": "Repo-scoped proving ground for reusable project-management workflows, shared references, bundled GitHub connector mapping, and preflight guidance that complement thin custom agents.",
     "developerName": "Corey Coto",
     "category": "Productivity",
     "capabilities": [

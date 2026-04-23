@@ -10,4 +10,4 @@ dependencies:
   tools:
     - type: "connector"
       value: "github"
-      description: "Official GitHub Codex plugin"
+      description: "GitHub connector and official GitHub Codex plugin"

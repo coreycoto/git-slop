@@ -39,6 +39,20 @@ AGENT_SKILL_BINDINGS = {
 }
 
 PLUGIN_SKILLS_ROOT = Path("plugins/project-management-workflows/skills")
+PLUGIN_ROOT = Path("plugins/project-management-workflows")
+PLUGIN_MANIFEST = PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
+PLUGIN_APP_MAPPING = PLUGIN_ROOT / ".app.json"
+GITHUB_PREREQUISITE_REFERENCE = (
+    "plugins/project-management-workflows/skills/_shared/references/"
+    "github-runtime-prerequisites.md"
+)
+GITHUB_PREREQUISITE_REFERENCE_SKILL_PATH = (
+    "../_shared/references/github-runtime-prerequisites.md"
+)
+GITHUB_PREFLIGHT_SCRIPT = (
+    "plugins/project-management-workflows/scripts/preflight_github_surface.py"
+)
+EXPECTED_GITHUB_CONNECTOR_ID = "connector_76869538009648d5b282a4bb21c3d157"
 
 PLUGIN_SKILL_CATALOG = {
     "dependency-remediation",
@@ -92,6 +106,7 @@ PLUGIN_SHARED_REFERENCES = {
     "plugins/project-management-workflows/skills/_shared/references/agent-decision-patterns.md",
     "plugins/project-management-workflows/skills/_shared/references/agent-decision-rubric.md",
     "plugins/project-management-workflows/skills/_shared/references/backlog-project-contract.md",
+    GITHUB_PREREQUISITE_REFERENCE,
     "plugins/project-management-workflows/skills/_shared/references/github-mutation-contract.md",
     "plugins/project-management-workflows/skills/_shared/references/label-palette-contract.md",
     "plugins/project-management-workflows/skills/_shared/references/review-triage.md",
@@ -285,13 +300,7 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
                         )
                     break
 
-    plugin_manifest = (
-        repo_root
-        / "plugins"
-        / "project-management-workflows"
-        / ".codex-plugin"
-        / "plugin.json"
-    )
+    plugin_manifest = repo_root / PLUGIN_MANIFEST
     if not plugin_manifest.exists():
         errors.append("Repo-local plugin manifest is missing.")
     else:
@@ -301,10 +310,40 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
         skills_path = payload.get("skills")
         if skills_path != "./skills/":
             errors.append("Repo-local plugin manifest must expose skills at ./skills/.")
+        apps_path = payload.get("apps")
+        if apps_path != "./.app.json":
+            errors.append("Repo-local plugin manifest must expose apps at ./.app.json.")
+
+    plugin_app_mapping = repo_root / PLUGIN_APP_MAPPING
+    if not plugin_app_mapping.exists():
+        errors.append("Repo-local plugin .app.json is missing.")
+    else:
+        try:
+            app_payload = json.loads(plugin_app_mapping.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            errors.append(f"{PLUGIN_APP_MAPPING} must contain valid JSON: {exc}")
+        else:
+            apps = app_payload.get("apps")
+            if not isinstance(apps, dict):
+                errors.append(f"{PLUGIN_APP_MAPPING} must define an apps mapping.")
+            else:
+                github_app = apps.get("github")
+                if not isinstance(github_app, dict):
+                    errors.append(f"{PLUGIN_APP_MAPPING} must define apps.github.")
+                else:
+                    connector_id = github_app.get("id")
+                    if connector_id != EXPECTED_GITHUB_CONNECTOR_ID:
+                        errors.append(
+                            f"{PLUGIN_APP_MAPPING} must map apps.github.id to "
+                            f"{EXPECTED_GITHUB_CONNECTOR_ID}."
+                        )
 
     for relative_path in sorted(PLUGIN_SHARED_REFERENCES):
         if not (repo_root / relative_path).exists():
             errors.append(f"Plugin shared reference is missing: {relative_path}")
+
+    if not (repo_root / GITHUB_PREFLIGHT_SCRIPT).exists():
+        errors.append(f"GitHub preflight script is missing: {GITHUB_PREFLIGHT_SCRIPT}")
 
     for relative_path in sorted(REQUIRED_RUNTIME_DOCS):
         if not (repo_root / relative_path).exists():
@@ -345,6 +384,7 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
                 f"{metadata_path.relative_to(repo_root)}"
             )
             continue
+        skill_text = skill_doc.read_text(encoding="utf-8")
 
         try:
             metadata = _load_yaml(metadata_path)
@@ -380,15 +420,33 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
 
         dependencies = metadata.get("dependencies", {})
         tools = dependencies.get("tools") if isinstance(dependencies, dict) else None
-        if not isinstance(tools, list) or not any(
+        github_touching = isinstance(tools, list) and any(
             isinstance(tool, dict)
             and tool.get("type") == "connector"
             and tool.get("value") == "github"
             for tool in tools
-        ):
+        )
+        if not github_touching:
             errors.append(
                 f"{metadata_path.relative_to(repo_root)} must declare the GitHub connector "
                 "dependency."
+            )
+            continue
+
+        if GITHUB_PREREQUISITE_REFERENCE_SKILL_PATH not in skill_text:
+            errors.append(
+                f"{skill_doc.relative_to(repo_root)} must reference "
+                f"{GITHUB_PREREQUISITE_REFERENCE}."
+            )
+        if "preflight_github_surface.py" not in skill_text:
+            errors.append(
+                f"{skill_doc.relative_to(repo_root)} must reference "
+                f"{GITHUB_PREFLIGHT_SCRIPT}."
+            )
+        if "local-only" in skill_text.lower():
+            errors.append(
+                f"{skill_doc.relative_to(repo_root)} must not claim local-only behavior "
+                "while declaring the GitHub connector dependency."
             )
 
     for workflow_name, assets in sorted(WORKFLOW_ASSETS.items()):
@@ -410,6 +468,8 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
         repo_root / "AGENTS.md",
         repo_root / ".agents" / "README.md",
         repo_root / "README.md",
+        repo_root / "plugins" / "project-management-workflows" / "README.md",
+        repo_root / "plugins" / "project-management-workflows" / "skills" / "README.md",
         repo_root / ".github" / "ISSUE_TEMPLATE" / "config.yml",
         *sorted((repo_root / ".github" / "codex" / "prompts").glob("*.md")),
     ]
@@ -422,11 +482,29 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
                 f"{path.relative_to(repo_root)} must not reference removed engineering-doc paths."
             )
 
+    plugin_readme = repo_root / "plugins" / "project-management-workflows" / "README.md"
+    if plugin_readme.exists():
+        readme_text = plugin_readme.read_text(encoding="utf-8")
+        if "a custom app mapping" in readme_text and "does **not** bundle" in readme_text:
+            errors.append(
+                "plugins/project-management-workflows/README.md must not claim the plugin "
+                "lacks a custom app mapping."
+            )
+        if "GitHub connector mapping" not in readme_text:
+            errors.append(
+                "plugins/project-management-workflows/README.md must describe the bundled "
+                "GitHub connector mapping."
+            )
+
     return errors
 
 
 __all__ = [
     "AGENT_SKILL_BINDINGS",
+    "EXPECTED_GITHUB_CONNECTOR_ID",
+    "GITHUB_PREFLIGHT_SCRIPT",
+    "GITHUB_PREREQUISITE_REFERENCE",
+    "GITHUB_PREREQUISITE_REFERENCE_SKILL_PATH",
     "PLUGIN_SKILL_CATALOG",
     "PLUGIN_SKILLS_ROOT",
     "PLUGIN_SHARED_REFERENCES",
