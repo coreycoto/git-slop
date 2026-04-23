@@ -25,6 +25,12 @@ BOUNDARY_NOTE = (
     "Plan boundary: this is a bounded proposal only. It does not mutate code, "
     "GitHub, or detector truth, and it does not guarantee correctness or safety."
 )
+COMPACT_CLUSTER_KINDS = {"duplicate_set", "consolidation_candidate"}
+COMPACT_CLUSTER_CANDIDATES = {
+    "duplicate_set",
+    "consolidation_candidate",
+    "consolidate_duplicate_knowledge",
+}
 
 
 def _slug(value: str) -> str:
@@ -36,16 +42,18 @@ def _slug(value: str) -> str:
     )
 
 
+def _record_priority_score(report: dict[str, Any], path: str) -> float:
+    record = resolve_path(report, path)
+    return float((record or {}).get("priority_score") or 0.0)
+
+
 def _sort_paths_by_severity(
     report: dict[str, Any],
     paths: list[str],
     *,
     anchor_paths: list[str],
 ) -> list[str]:
-    path_records = {
-        path: resolve_path(report, path)
-        for path in dict.fromkeys(paths)
-    }
+    path_records = {path: resolve_path(report, path) for path in dict.fromkeys(paths)}
     anchor_order = {path: index for index, path in enumerate(anchor_paths)}
     sorted_paths = [
         path
@@ -104,29 +112,6 @@ def _folder_cluster_scope_paths(
     external = [path for path in cluster["member_paths"] if path not in descendants]
     ordered_external = _sort_paths_by_severity(report, external, anchor_paths=[])
     return descendants + ordered_external[:1]
-
-
-def _slice_payload(
-    *,
-    slice_id: str,
-    title: str,
-    scope_paths: list[str],
-    out_of_scope_paths: list[str],
-    supporting_relationship_ids: list[str],
-    supporting_cluster_ids: list[str],
-    why_this_slice: str,
-    ranking_reason: str,
-) -> dict[str, Any]:
-    return {
-        "id": slice_id,
-        "title": title,
-        "scope_paths": scope_paths,
-        "out_of_scope_paths": out_of_scope_paths,
-        "supporting_relationship_ids": supporting_relationship_ids,
-        "supporting_cluster_ids": supporting_cluster_ids,
-        "why_this_slice": why_this_slice,
-        "ranking_reason": ranking_reason,
-    }
 
 
 def _build_path_target(record: dict[str, Any]) -> dict[str, Any]:
@@ -229,7 +214,10 @@ def _anchor_context_for_relationship(
     relationship = relationship_by_id(report, relationship_id)
     if relationship is None:
         raise ValueError(f"No relationship found for '{relationship_id}'.")
-    shared_clusters = shared_clusters_for_relationship(report, relationship)
+    shared_clusters = rank_clusters(
+        shared_clusters_for_relationship(report, relationship),
+        anchor_paths=[relationship["source_path"], relationship["target_path"]],
+    )
     return {
         "selector": {"kind": "relationship", "value": relationship_id},
         "target": _build_relationship_target(relationship),
@@ -241,24 +229,135 @@ def _anchor_context_for_relationship(
     }
 
 
+def _selector_root(path: str) -> str:
+    return path.split("/", 1)[0]
+
+
+def _cluster_same_root_anchor_paths(report: dict[str, Any], cluster: dict[str, Any]) -> list[str]:
+    groups: dict[str, list[str]] = {}
+    for path in cluster["member_paths"]:
+        if resolve_path(report, path) is None:
+            continue
+        groups.setdefault(_selector_root(path), []).append(path)
+    if not groups:
+        return []
+    for root, paths in groups.items():
+        groups[root] = _sort_paths_by_severity(report, paths, anchor_paths=[])
+
+    multi_member_roots = [root for root, paths in groups.items() if len(paths) >= 2]
+    candidate_roots = multi_member_roots or list(groups)
+    ranked_roots = sorted(
+        candidate_roots,
+        key=lambda root: (
+            -sum(_record_priority_score(report, path) for path in groups[root][:2]),
+            -_record_priority_score(report, groups[root][0]),
+            root,
+        ),
+    )
+    selected = groups[ranked_roots[0]]
+    return selected[:3]
+
+
+def _cluster_anchor_candidate_paths(report: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    target = context["target"]
+    if context["selector"]["kind"] != "cluster":
+        return list(context["anchor_paths"])
+    if target["member_count"] <= MAX_SLICE_FILES and len(target.get("top_level_roots", [])) <= 2:
+        return list(context["anchor_paths"])
+    if context["supporting_relationships"]:
+        leading_relationship = context["supporting_relationships"][0]
+        return [leading_relationship["source_path"], leading_relationship["target_path"]]
+    same_root = _cluster_same_root_anchor_paths(report, context["cluster"])
+    if same_root:
+        return same_root
+    return list(context["anchor_paths"])[:3]
+
+
+def _slice_payload(
+    *,
+    slice_id: str,
+    title: str,
+    scope_paths: list[str],
+    out_of_scope_paths: list[str],
+    supporting_relationship_ids: list[str],
+    supporting_cluster_ids: list[str],
+    why_this_slice: str,
+    ranking_reason: str,
+    selector_class: int,
+) -> dict[str, Any]:
+    return {
+        "id": slice_id,
+        "title": title,
+        "scope_paths": scope_paths,
+        "out_of_scope_paths": out_of_scope_paths,
+        "supporting_relationship_ids": supporting_relationship_ids,
+        "supporting_cluster_ids": supporting_cluster_ids,
+        "why_this_slice": why_this_slice,
+        "ranking_reason": ranking_reason,
+        "_selector_class": selector_class,
+    }
+
+
+def _combined_cluster_out_of_scope(
+    cluster: dict[str, Any],
+    scope_paths: list[str],
+    out_of_scope_paths: list[str],
+) -> list[str]:
+    omitted_paths = [path for path in cluster["member_paths"] if path not in scope_paths]
+    return unique_preserving_order(out_of_scope_paths + omitted_paths)
+
+
+def _count_descendants(scope_paths: list[str], folder_path: str | None) -> int:
+    if folder_path is None:
+        return 0
+    prefix = f"{folder_path.rstrip('/')}/"
+    return sum(1 for path in scope_paths if path.startswith(prefix))
+
+
+def _cluster_bounded_density(cluster: dict[str, Any], scope_paths: list[str]) -> float:
+    member_count = max(int(cluster.get("member_count") or 0), 1)
+    return len(scope_paths) / member_count
+
+
+def _cluster_qualifies(
+    cluster: dict[str, Any],
+    scope_paths: list[str],
+    *,
+    selector_kind: str,
+    descendant_count: int = 0,
+) -> bool:
+    if int(cluster.get("member_count") or 0) <= 8:
+        return True
+    if _cluster_bounded_density(cluster, scope_paths) >= 0.5:
+        return True
+    if cluster.get("kind") in COMPACT_CLUSTER_KINDS:
+        return True
+    if cluster.get("candidate_type") in COMPACT_CLUSTER_CANDIDATES:
+        return True
+    if selector_kind == "path" and descendant_count >= 2:
+        return True
+    return False
+
+
+def _cluster_selector_class(cluster: dict[str, Any], out_of_scope_paths: list[str]) -> int:
+    if (
+        int(cluster.get("member_count") or 0) <= 8
+        or cluster.get("kind") in COMPACT_CLUSTER_KINDS
+        or cluster.get("candidate_type") in COMPACT_CLUSTER_CANDIDATES
+    ) and not out_of_scope_paths:
+        return 2
+    return 3
+
+
 def _build_anchor_slice(report: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     target = context["target"]
     selector_kind = context["selector"]["kind"]
-    candidate_paths = context["anchor_paths"]
-    if (
-        selector_kind == "cluster"
-        and target["member_count"] > MAX_SLICE_FILES
-        and context["supporting_relationships"]
-    ):
-        leading_relationship = context["supporting_relationships"][0]
-        candidate_paths = [
-            leading_relationship["source_path"],
-            leading_relationship["target_path"],
-        ]
+    candidate_paths = _cluster_anchor_candidate_paths(report, context)
+    anchor_priority = candidate_paths
     scope_paths, out_of_scope_paths = _build_scope(
         report,
         candidate_paths=candidate_paths,
-        anchor_paths=context["anchor_paths"],
+        anchor_paths=anchor_priority,
     )
     if selector_kind == "path" and target["record_type"] == "folder":
         title = f"Focus descendant hotspots in {target['path']}"
@@ -270,11 +369,11 @@ def _build_anchor_slice(report: dict[str, Any], context: dict[str, Any]) -> dict
         title = f"Anchor hotspot {target['path']}"
         why = "Start with the selected hotspot before expanding to adjacent structural evidence."
     elif selector_kind == "cluster":
-        if target["member_count"] > MAX_SLICE_FILES and context["supporting_relationships"]:
+        if candidate_paths != list(context["anchor_paths"]):
             title = f"Start inside cluster {target['id']}"
             why = (
-                "The selected cluster is broad, so start with the strongest direct "
-                "relationship-backed slice inside it before expanding."
+                "The selected cluster is broad, so start with the strongest "
+                "reviewable sub-slice before expanding."
             )
         else:
             title = f"Inspect cluster {target['id']}"
@@ -298,107 +397,189 @@ def _build_anchor_slice(report: dict[str, Any], context: dict[str, Any]) -> dict
         ],
         supporting_cluster_ids=[item["id"] for item in context["supporting_clusters"][:3]],
         why_this_slice=why,
-        ranking_reason=(
-            "Anchor slice always ranks first and keeps anchor paths ahead of "
-            "any secondary evidence."
-        ),
+        ranking_reason="Anchor slice always ranks first.",
+        selector_class=0,
     )
 
 
-def _build_relationship_slices(
+def _relationship_slice(
+    report: dict[str, Any],
+    context: dict[str, Any],
+    relationship: dict[str, Any],
+) -> dict[str, Any] | None:
+    focus_folder = context.get("focus_folder")
+    candidate_paths = [relationship["source_path"], relationship["target_path"]]
+    if focus_folder is not None:
+        folder_prefix = f"{focus_folder.rstrip('/')}/"
+        descendants = [path for path in candidate_paths if path.startswith(folder_prefix)]
+        external = [path for path in candidate_paths if path not in descendants]
+        if not descendants:
+            return None
+        candidate_paths = descendants + external[:1]
+    scope_paths, out_of_scope_paths = _build_scope(
+        report,
+        candidate_paths=candidate_paths,
+        anchor_paths=context["anchor_paths"],
+    )
+    if len(scope_paths) < 2:
+        return None
+    if focus_folder is not None:
+        descendant_count = _count_descendants(scope_paths, focus_folder)
+        external_count = len(scope_paths) - descendant_count
+        if not (
+            descendant_count >= 2 or (descendant_count == 1 and external_count >= 1)
+        ):
+            return None
+    shared_clusters = shared_clusters_for_relationship(report, relationship)
+    return _slice_payload(
+        slice_id=f"relationship-{relationship['id']}",
+        title=f"Inspect relationship {relationship['id']}",
+        scope_paths=scope_paths,
+        out_of_scope_paths=out_of_scope_paths,
+        supporting_relationship_ids=[relationship["id"]],
+        supporting_cluster_ids=[cluster["id"] for cluster in shared_clusters[:3]],
+        why_this_slice=(
+            "This pair already co-occurs in direct detector evidence and should be "
+            "reviewed together."
+        ),
+        ranking_reason="Direct relationship slices rank immediately after the anchor slice.",
+        selector_class=1,
+    )
+
+
+def _cluster_slice(
+    report: dict[str, Any],
+    context: dict[str, Any],
+    cluster: dict[str, Any],
+) -> dict[str, Any] | None:
+    focus_folder = context.get("focus_folder")
+    if focus_folder is not None:
+        candidate_paths = _folder_cluster_scope_paths(
+            report,
+            folder_path=focus_folder,
+            cluster=cluster,
+        )
+    else:
+        candidate_paths = list(cluster["member_paths"])
+    scope_paths, out_of_scope_paths = _build_scope(
+        report,
+        candidate_paths=candidate_paths,
+        anchor_paths=context["anchor_paths"],
+    )
+    combined_out_of_scope = _combined_cluster_out_of_scope(
+        cluster,
+        scope_paths,
+        out_of_scope_paths,
+    )
+    descendant_count = _count_descendants(scope_paths, focus_folder)
+    if focus_folder is not None:
+        external_count = len(scope_paths) - descendant_count
+        if not (
+            descendant_count >= 2 or (descendant_count == 1 and external_count >= 1)
+        ):
+            return None
+    if not _cluster_qualifies(
+        cluster,
+        scope_paths,
+        selector_kind=context["selector"]["kind"],
+        descendant_count=descendant_count,
+    ):
+        return None
+    if context["selector"]["kind"] == "path" and context["target"]["record_type"] == "file":
+        anchor_set = set(context["anchor_paths"])
+        if not any(path not in anchor_set for path in scope_paths):
+            return None
+    if context["selector"]["kind"] == "relationship":
+        anchor_set = set(context["anchor_paths"])
+        non_anchor_scope = [path for path in scope_paths if path not in anchor_set]
+        if not non_anchor_scope:
+            return None
+        if len(combined_out_of_scope) > len(scope_paths):
+            return None
+    return _slice_payload(
+        slice_id=f"cluster-{cluster['id']}",
+        title=f"Inspect cluster {cluster['id']}",
+        scope_paths=scope_paths,
+        out_of_scope_paths=combined_out_of_scope,
+        supporting_relationship_ids=cluster.get("source_relationship_ids", [])[:3],
+        supporting_cluster_ids=[cluster["id"]],
+        why_this_slice=(
+            "This slice stays inside one direct structural cluster instead of "
+            "sweeping a broader folder."
+        ),
+        ranking_reason="Cluster slices rank after direct relationship slices.",
+        selector_class=_cluster_selector_class(cluster, combined_out_of_scope),
+    )
+
+
+def _build_file_path_candidates(
     report: dict[str, Any],
     context: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, ...], dict[str, Any]] = {}
-    focus_folder = context.get("focus_folder")
-    anchor_paths = context["anchor_paths"]
-    for relationship in context["supporting_relationships"]:
-        candidate_paths = [relationship["source_path"], relationship["target_path"]]
-        if focus_folder is not None:
-            folder_prefix = f"{focus_folder.rstrip('/')}/"
-            in_folder = [path for path in candidate_paths if path.startswith(folder_prefix)]
-            out_of_folder = [path for path in candidate_paths if path not in in_folder]
-            if not in_folder:
-                continue
-            candidate_paths = in_folder + out_of_folder[:1]
-        scope_paths, out_of_scope_paths = _build_scope(
-            report,
-            candidate_paths=candidate_paths,
-            anchor_paths=anchor_paths,
-        )
-        shared_clusters = shared_clusters_for_relationship(report, relationship)
-        fingerprint = tuple(scope_paths)
-        cluster_ids = [cluster["id"] for cluster in shared_clusters[:3]]
-        existing = grouped.get(fingerprint)
-        if existing is None:
-            grouped[fingerprint] = _slice_payload(
-                slice_id=f"relationship-{relationship['id']}",
-                title=f"Inspect relationship {relationship['id']}",
-                scope_paths=scope_paths,
-                out_of_scope_paths=out_of_scope_paths,
-                supporting_relationship_ids=[relationship["id"]],
-                supporting_cluster_ids=cluster_ids,
-                why_this_slice=(
-                    "This pair already co-occurs in direct detector evidence "
-                    "and should be reviewed together."
-                ),
-                ranking_reason=(
-                    "Relationship slices rank after the anchor slice, ordered "
-                    "by direct evidence strength."
-                ),
-            )
-            continue
-        existing["supporting_relationship_ids"] = sorted(
-            set(existing["supporting_relationship_ids"] + [relationship["id"]])
-        )
-        existing["supporting_cluster_ids"] = sorted(
-            set(existing["supporting_cluster_ids"] + cluster_ids)
-        )[:3]
-        existing["out_of_scope_paths"] = sorted(
-            set(existing["out_of_scope_paths"] + out_of_scope_paths)
-        )
-    return list(grouped.values())
-
-
-def _build_cluster_slices(report: dict[str, Any], context: dict[str, Any]) -> list[dict[str, Any]]:
-    slices: list[dict[str, Any]] = []
-    focus_folder = context.get("focus_folder")
-    anchor_paths = context["anchor_paths"]
+    slices = [_build_anchor_slice(report, context)]
+    for relationship in context["supporting_relationships"][:3]:
+        slice_payload = _relationship_slice(report, context, relationship)
+        if slice_payload is not None:
+            slices.append(slice_payload)
+    emitted_clusters = 0
     for cluster in context["supporting_clusters"]:
-        candidate_paths = list(cluster["member_paths"])
-        if focus_folder is not None:
-            candidate_paths = _folder_cluster_scope_paths(
-                report,
-                folder_path=focus_folder,
-                cluster=cluster,
-            )
-        scope_paths, out_of_scope_paths = _build_scope(
-            report,
-            candidate_paths=candidate_paths,
-            anchor_paths=anchor_paths,
-        )
-        omitted_paths = [path for path in cluster["member_paths"] if path not in scope_paths]
-        combined_out_of_scope = dedupe_by_id(
-            [{"id": path, "path": path} for path in out_of_scope_paths + omitted_paths]
-        )
-        slices.append(
-            _slice_payload(
-                slice_id=f"cluster-{cluster['id']}",
-                title=f"Inspect cluster {cluster['id']}",
-                scope_paths=scope_paths,
-                out_of_scope_paths=[item["path"] for item in combined_out_of_scope],
-                supporting_relationship_ids=cluster.get("source_relationship_ids", [])[:3],
-                supporting_cluster_ids=[cluster["id"]],
-                why_this_slice=(
-                    "This slice stays inside one direct structural cluster "
-                    "instead of sweeping a broader folder."
-                ),
-                ranking_reason=(
-                    "Cluster slices rank after direct relationships and keep "
-                    "anchor paths ahead of lower-severity members."
-                ),
-            )
-        )
+        slice_payload = _cluster_slice(report, context, cluster)
+        if slice_payload is None:
+            continue
+        slices.append(slice_payload)
+        emitted_clusters += 1
+        if emitted_clusters >= 2:
+            break
+    return slices
+
+
+def _build_folder_path_candidates(
+    report: dict[str, Any],
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    slices = [_build_anchor_slice(report, context)]
+    for relationship in context["supporting_relationships"]:
+        slice_payload = _relationship_slice(report, context, relationship)
+        if slice_payload is not None:
+            slices.append(slice_payload)
+    for cluster in context["supporting_clusters"]:
+        slice_payload = _cluster_slice(report, context, cluster)
+        if slice_payload is not None:
+            slices.append(slice_payload)
+    return slices
+
+
+def _build_relationship_candidates(
+    report: dict[str, Any],
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    slices = [_build_anchor_slice(report, context)]
+    emitted_followups = 0
+    for cluster in context["supporting_clusters"]:
+        slice_payload = _cluster_slice(report, context, cluster)
+        if slice_payload is None:
+            continue
+        slices.append(slice_payload)
+        emitted_followups += 1
+        if emitted_followups >= 2:
+            break
+    return slices
+
+
+def _build_cluster_candidates(
+    report: dict[str, Any],
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    slices = [_build_anchor_slice(report, context)]
+    emitted_followups = 0
+    for relationship in context["supporting_relationships"]:
+        slice_payload = _relationship_slice(report, context, relationship)
+        if slice_payload is None:
+            continue
+        slices.append(slice_payload)
+        emitted_followups += 1
+        if emitted_followups >= 2:
+            break
     return slices
 
 
@@ -418,10 +599,63 @@ def _merge_slices_by_scope(slices: list[dict[str, Any]]) -> list[dict[str, Any]]
             existing["supporting_cluster_ids"] = unique_preserving_order(
                 existing["supporting_cluster_ids"] + slice_payload["supporting_cluster_ids"]
             )
+            if slice_payload["_selector_class"] < existing["_selector_class"]:
+                existing["_selector_class"] = slice_payload["_selector_class"]
+                existing["id"] = slice_payload["id"]
+                existing["title"] = slice_payload["title"]
+                existing["why_this_slice"] = slice_payload["why_this_slice"]
+                existing["ranking_reason"] = slice_payload["ranking_reason"]
             break
         else:
             merged.append(slice_payload)
     return merged
+
+
+def _top_priority_sum(report: dict[str, Any], paths: list[str]) -> float:
+    scores = sorted(
+        (_record_priority_score(report, path) for path in paths),
+        reverse=True,
+    )
+    return sum(scores[:3])
+
+
+def _slice_rank(report: dict[str, Any], slice_payload: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        slice_payload["_selector_class"],
+        -len(slice_payload["supporting_relationship_ids"]),
+        -len(slice_payload["supporting_cluster_ids"]),
+        len(slice_payload["out_of_scope_paths"]),
+        -_top_priority_sum(report, slice_payload["scope_paths"]),
+        tuple(slice_payload["scope_paths"]),
+    )
+
+
+def _suppress_weaker_subsets(
+    ranked_slices: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    kept: list[dict[str, Any]] = []
+    for slice_payload in ranked_slices:
+        current_scope = set(slice_payload["scope_paths"])
+        current_relationships = set(slice_payload["supporting_relationship_ids"])
+        current_clusters = set(slice_payload["supporting_cluster_ids"])
+        suppress = False
+        for existing in kept:
+            existing_scope = set(existing["scope_paths"])
+            if not current_scope < existing_scope:
+                continue
+            if current_relationships - set(existing["supporting_relationship_ids"]):
+                continue
+            if current_clusters - set(existing["supporting_cluster_ids"]):
+                continue
+            suppress = True
+            break
+        if not suppress:
+            kept.append(slice_payload)
+    return kept
+
+
+def _public_slice(slice_payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in slice_payload.items() if not key.startswith("_")}
 
 
 def build_plan_payload(
@@ -445,42 +679,65 @@ def build_plan_payload(
         raise ValueError("Select exactly one of --path, --cluster, or --relationship.")
     if max_slices <= 0:
         raise ValueError("--max-slices must be greater than zero.")
+
     if path is not None:
         context = _anchor_context_for_path(report, path)
+        if context["target"]["record_type"] == "folder":
+            slices = _build_folder_path_candidates(report, context)
+        else:
+            slices = _build_file_path_candidates(report, context)
     elif cluster_id is not None:
         context = _anchor_context_for_cluster(report, cluster_id)
+        slices = _build_cluster_candidates(report, context)
     else:
         context = _anchor_context_for_relationship(report, relationship_id or "")
+        slices = _build_relationship_candidates(report, context)
 
-    slices = [_build_anchor_slice(report, context)]
-    slices.extend(_build_relationship_slices(report, context))
-    slices.extend(_build_cluster_slices(report, context))
-    slices = _merge_slices_by_scope(slices)[:max_slices]
+    merged = _merge_slices_by_scope(slices)
+    ranked = sorted(merged, key=lambda item: _slice_rank(report, item))
+    suppressed = _suppress_weaker_subsets(ranked)
+    public_slices = [_public_slice(item) for item in suppressed[:max_slices]]
+
     return {
         "schema_version": PLAN_SCHEMA_VERSION,
         "report_schema_version": report.get("schema_version"),
         "command": "plan",
         "selector": context["selector"],
         "target": context["target"],
-        "proposed_slices": slices,
+        "proposed_slices": public_slices,
         "ranking_basis": {
             "anchor_first": True,
             "relationship_slices_before_cluster_slices": True,
             "max_slice_files": MAX_SLICE_FILES,
-            "secondary_sort": "current_hotspot_severity_then_path",
+            "secondary_sort": (
+                "relationship-count, cluster-count, out-of-scope-count, "
+                "top-three-priority-sum, path"
+            ),
         },
         "boundary_note": BOUNDARY_NOTE,
     }
 
 
 def render_plan_text(payload: dict[str, Any]) -> str:
-    def _render_path_list(paths: list[str]) -> str:
+    def _render_scope(paths: list[str]) -> str:
+        return ", ".join(paths) if paths else "none"
+
+    def _render_limited_paths(paths: list[str], limit: int = 5) -> str:
         if not paths:
             return "none"
-        preview = paths[:5]
+        preview = paths[:limit]
         rendered = ", ".join(preview)
         if len(paths) > len(preview):
             return f"{rendered} (+{len(paths) - len(preview)} more)"
+        return rendered
+
+    def _render_ids(items: list[str], *, limit: int) -> str:
+        if not items:
+            return "none"
+        preview = items[:limit]
+        rendered = ", ".join(preview)
+        if len(items) > len(preview):
+            return f"{rendered} (+{len(items) - len(preview)} more)"
         return rendered
 
     target = payload["target"]
@@ -492,10 +749,13 @@ def render_plan_text(payload: dict[str, Any]) -> str:
         header = f"Plan: relationship {target['id']} [{target['relationship_kind']}]"
     lines = [header]
     for index, slice_payload in enumerate(payload.get("proposed_slices", []), start=1):
-        scope = _render_path_list(slice_payload["scope_paths"])
-        relationships = ", ".join(slice_payload["supporting_relationship_ids"]) or "none"
-        clusters = ", ".join(slice_payload["supporting_cluster_ids"]) or "none"
-        out_of_scope = _render_path_list(slice_payload["out_of_scope_paths"])
+        scope = _render_scope(slice_payload["scope_paths"])
+        relationships = _render_ids(
+            slice_payload["supporting_relationship_ids"],
+            limit=3,
+        )
+        clusters = _render_ids(slice_payload["supporting_cluster_ids"], limit=2)
+        out_of_scope = _render_limited_paths(slice_payload["out_of_scope_paths"], limit=5)
         lines.extend(
             [
                 "",

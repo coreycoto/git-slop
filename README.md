@@ -104,6 +104,9 @@ The package exposes both:
 - `git slop plan`
   - proposes bounded maintenance slices from one file, folder, cluster, or
     relationship selector
+  - keeps the selected anchor first, prefers direct relationship slices over
+    broader cluster-derived spill, and suppresses weaker subset proposals that
+    add no new evidence
   - stays stdout-only in the first implementation
   - never mutates code, GitHub, or detector truth
 

@@ -234,6 +234,31 @@ Slice construction rules:
 - do not merge unrelated overlay findings into one “mega-plan”
 - prefer slices that align with existing clusters or direct relationships over
   folder-wide sweeps
+- keep the anchor slice first for every selector type
+- for folder selectors, suppress weaker subset slices that add no new
+  supporting relationship or cluster evidence
+- for relationship selectors, keep spill-heavy shared clusters as supporting
+  evidence only instead of turning them into follow-up slices
+- for broad cluster selectors, start from the strongest direct
+  relationship-backed pair when available before adding narrower follow-up
+  slices
+
+Ranking and suppression rules in the shipped implementation:
+
+- rank by selector class first:
+  1. anchor slice
+  2. direct relationship slice
+  3. compact cluster slice
+  4. broad cluster-derived slice
+- then rank deterministically by:
+  - relationship support count
+  - cluster support count
+  - out-of-scope count
+  - top-three in-scope priority-score sum
+  - lexicographic scope path order
+- merge identical-scope slices before ranking
+- suppress any later slice whose scope is a strict subset of an already-ranked
+  slice and that adds no new supporting relationship or cluster ids
 
 ## Interpretation rules
 

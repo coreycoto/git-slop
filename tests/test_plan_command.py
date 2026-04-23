@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from git_slop.reports.plan import build_plan_payload
+from git_slop.reports.plan import build_plan_payload, render_plan_text
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
@@ -29,6 +29,30 @@ def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
     )
+
+
+def make_file_record(path: str, priority_score: float) -> dict[str, object]:
+    return {
+        "path": path,
+        "priority_score": priority_score,
+        "priority_band": "watchlist",
+        "context_band": "healthy",
+        "reason_codes": [],
+        "costs": {},
+        "overlays": {},
+    }
+
+
+def make_folder_record(path: str, priority_score: float) -> dict[str, object]:
+    return {
+        "path": path,
+        "priority_score": priority_score,
+        "priority_band": "watchlist",
+        "context_band": "healthy",
+        "reason_codes": [],
+        "costs": {},
+        "overlays": {},
+    }
 
 
 class PlanCommandTests(unittest.TestCase):
@@ -140,6 +164,113 @@ class PlanCommandTests(unittest.TestCase):
                 len(item["scope_paths"]) <= 5
                 for item in json.loads(json_completed.stdout)["proposed_slices"]
             )
+        )
+
+    def test_folder_selector_suppresses_weak_subset_slices(self) -> None:
+        report = {
+            "schema_version": 3,
+            "files": [
+                make_file_record("src/pkg/a.py", 60.0),
+                make_file_record("src/pkg/b.py", 59.0),
+                make_file_record("src/pkg/c.py", 58.0),
+            ],
+            "folders": [make_folder_record("src/pkg", 61.0)],
+            "action_queue": [
+                {"path": "src/pkg/a.py"},
+                {"path": "src/pkg/b.py"},
+                {"path": "src/pkg/c.py"},
+            ],
+            "overlays": {
+                "organization_health": {
+                    "relationships": {
+                        "duplicate_neighborhoods": [],
+                        "near_duplicate_neighborhoods": [],
+                        "temporal_coupling_edges": [
+                            {
+                                "id": "rel-a-b",
+                                "kind": "temporal_coupling_edge",
+                                "source_path": "src/pkg/a.py",
+                                "target_path": "src/pkg/b.py",
+                                "evidence_score": 10.0,
+                                "crosses_top_level_boundary": False,
+                            }
+                        ],
+                        "lexical_affinity_edges": [],
+                        "boundary_leakage_edges": [],
+                    },
+                    "clusters": {
+                        "duplicate_sets": [],
+                        "scattered_concepts": [],
+                        "boundary_leakage_clusters": [],
+                        "consolidation_candidates": [],
+                    },
+                }
+            },
+        }
+
+        payload = build_plan_payload(report, path="src/pkg")
+
+        self.assertEqual(len(payload["proposed_slices"]), 1)
+        self.assertEqual(
+            payload["proposed_slices"][0]["scope_paths"],
+            ["src/pkg/a.py", "src/pkg/b.py", "src/pkg/c.py"],
+        )
+
+    def test_relationship_selector_skips_spill_heavy_cluster_followups(self) -> None:
+        member_paths = [f"src/pkg/{name}.py" for name in "abcdefghijkl"]
+        report = {
+            "schema_version": 3,
+            "files": [
+                make_file_record(path, 100.0 - index)
+                for index, path in enumerate(member_paths)
+            ],
+            "folders": [],
+            "action_queue": [],
+            "overlays": {
+                "organization_health": {
+                    "relationships": {
+                        "duplicate_neighborhoods": [],
+                        "near_duplicate_neighborhoods": [
+                            {
+                                "id": "rel-a-b",
+                                "kind": "near_duplicate_neighborhood",
+                                "source_path": "src/pkg/a.py",
+                                "target_path": "src/pkg/b.py",
+                                "evidence_score": 120.0,
+                                "crosses_top_level_boundary": False,
+                            }
+                        ],
+                        "temporal_coupling_edges": [],
+                        "lexical_affinity_edges": [],
+                        "boundary_leakage_edges": [],
+                    },
+                    "clusters": {
+                        "duplicate_sets": [],
+                        "scattered_concepts": [
+                            {
+                                "id": "scatter-wide",
+                                "kind": "scattered_concept",
+                                "member_paths": member_paths,
+                                "member_count": len(member_paths),
+                                "top_level_roots": ["src"],
+                                "evidence_score": 150.0,
+                                "source_relationship_ids": ["rel-a-b"],
+                                "candidate_type": "reduce_scattered_concept",
+                            }
+                        ],
+                        "boundary_leakage_clusters": [],
+                        "consolidation_candidates": [],
+                    },
+                }
+            },
+        }
+
+        payload = build_plan_payload(report, relationship_id="rel-a-b")
+
+        self.assertEqual(len(payload["proposed_slices"]), 1)
+        self.assertEqual(
+            payload["proposed_slices"][0]["scope_paths"],
+            ["src/pkg/a.py", "src/pkg/b.py"],
         )
 
     def test_broad_cluster_plan_starts_with_tight_relationship_backed_slice(self) -> None:
@@ -254,6 +385,85 @@ class PlanCommandTests(unittest.TestCase):
         self.assertEqual(
             payload["proposed_slices"][0]["scope_paths"],
             ["src/focus/a.py", "src/focus/b.py"],
+        )
+
+    def test_text_rendering_truncates_evidence_and_out_of_scope(self) -> None:
+        text = render_plan_text(
+            {
+                "target": {"kind": "path", "path": "src/pkg", "record_type": "folder"},
+                "proposed_slices": [
+                    {
+                        "title": "Inspect slice",
+                        "scope_paths": ["src/pkg/a.py", "src/pkg/b.py"],
+                        "why_this_slice": "Keep the proposal reviewable.",
+                        "supporting_relationship_ids": [
+                            "rel-1",
+                            "rel-2",
+                            "rel-3",
+                            "rel-4",
+                        ],
+                        "supporting_cluster_ids": [
+                            "cluster-1",
+                            "cluster-2",
+                            "cluster-3",
+                        ],
+                        "out_of_scope_paths": [
+                            "src/pkg/c.py",
+                            "src/pkg/d.py",
+                            "src/pkg/e.py",
+                            "src/pkg/f.py",
+                            "src/pkg/g.py",
+                            "src/pkg/h.py",
+                        ],
+                    }
+                ],
+                "boundary_note": "Plan boundary.",
+            }
+        )
+
+        self.assertIn("relationships=rel-1, rel-2, rel-3 (+1 more)", text)
+        self.assertIn("clusters=cluster-1, cluster-2 (+1 more)", text)
+        self.assertIn(
+            "out_of_scope: src/pkg/c.py, src/pkg/d.py, src/pkg/e.py, "
+            "src/pkg/f.py, src/pkg/g.py (+1 more)",
+            text,
+        )
+
+    def test_plan_json_output_keeps_current_schema_and_key_set(self) -> None:
+        report = json.loads(
+            (FIXTURE_DIR / "git_slop_folder_report.json").read_text(encoding="utf-8")
+        )
+
+        payload = build_plan_payload(report, path="src/git_slop")
+
+        self.assertEqual(
+            set(payload),
+            {
+                "schema_version",
+                "report_schema_version",
+                "command",
+                "selector",
+                "target",
+                "proposed_slices",
+                "ranking_basis",
+                "boundary_note",
+            },
+        )
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["report_schema_version"], 3)
+        self.assertTrue(payload["proposed_slices"])
+        self.assertEqual(
+            set(payload["proposed_slices"][0]),
+            {
+                "id",
+                "title",
+                "scope_paths",
+                "out_of_scope_paths",
+                "supporting_relationship_ids",
+                "supporting_cluster_ids",
+                "why_this_slice",
+                "ranking_reason",
+            },
         )
 
     def test_plan_supports_file_and_cluster_selectors(self) -> None:
