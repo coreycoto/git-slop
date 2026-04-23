@@ -299,14 +299,15 @@ def _format_reason_codes(reason_codes: list[str]) -> str:
 
 
 def _format_overlay_lines(overlays: dict[str, Any]) -> list[str]:
+    overlays = overlays or {}
     if not overlays:
         return ["- none"]
-    organization_health = overlays.get("organization_health", {})
-    verification = overlays.get("verification", {})
-    navigation = overlays.get("navigation", {})
-    blast_radius = overlays.get("blast_radius", {})
-    stewardship = overlays.get("stewardship", {})
-    semantic_drift = overlays.get("semantic_drift", {})
+    organization_health = overlays.get("organization_health") or {}
+    verification = overlays.get("verification") or {}
+    navigation = overlays.get("navigation") or {}
+    blast_radius = overlays.get("blast_radius") or {}
+    stewardship = overlays.get("stewardship") or {}
+    semantic_drift = overlays.get("semantic_drift") or {}
     hotspot_without_nearby_tests = bool(
         verification.get("hotspot_without_nearby_tests", False)
     )

@@ -236,9 +236,9 @@ def _build_folder_overlays(
     overlays: dict[str, Any] = {}
     for overlay_name in overlay_names:
         overlay_descendants = [
-            record["overlays"][overlay_name]
+            (record.get("overlays") or {})[overlay_name]
             for record in descendants
-            if record.get("overlays", {}).get(overlay_name) is not None
+            if (record.get("overlays") or {}).get(overlay_name) is not None
         ]
         if overlay_descendants:
             overlays[overlay_name] = _overlay_folder_aggregate(
@@ -858,7 +858,7 @@ def build_show_payload(report: dict[str, Any], target_path: str) -> dict[str, An
         cluster_memberships = folder_clusters_for_prefix(report, normalized)[:10]
     payload = dict(base_record)
     payload["record_type"] = "file" if is_file else "folder"
-    payload["organization_health"] = payload.get("overlays", {}).get("organization_health")
+    payload["organization_health"] = (payload.get("overlays") or {}).get("organization_health")
     payload["strongest_relationships"] = strongest_relationships
     payload["cluster_memberships"] = cluster_memberships
     return payload
