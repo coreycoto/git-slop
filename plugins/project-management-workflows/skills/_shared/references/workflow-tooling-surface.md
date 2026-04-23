@@ -1,7 +1,20 @@
 # Workflow Tooling Surface
 
-Use the checked-in repo, deterministic `agent-tools` helpers, and standard `gh`
-flows as the canonical execution surface for these plugin workflows.
+Use the checked-in repo, deterministic `agent-tools` helpers, and standard
+shell-driven `gh` / `git` flows as the canonical execution surface for these
+plugin workflows.
+
+## Default Tooling Decision
+
+This plugin ships shell-first by default:
+
+- `agent-tools` CLI remains the canonical deterministic helper surface
+- `gh` and `git` remain the canonical lifecycle and publication surface
+- no plugin `.mcp.json` is bundled in this wave
+
+Experimental MCP work is allowed only as a read-only spike in adjacent repos.
+It does not change the default workflow contract until it proves materially
+better during dogfood.
 
 ## Repo Context And Snapshots
 

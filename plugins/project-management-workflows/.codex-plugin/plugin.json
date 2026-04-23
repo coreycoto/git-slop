@@ -1,7 +1,7 @@
 {
   "name": "project-management-workflows",
   "version": "0.1.0",
-  "description": "Reusable project-management workflows, shared references, and guidance for backlog and governance automation.",
+  "description": "Reusable local plugin for backlog, governance, planning, and release workflows.",
   "author": {
     "name": "Corey Coto",
     "email": "support@coreycoto.com",
@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "Project Management Workflows",
     "shortDescription": "Reusable backlog, governance, and planning workflows",
-    "longDescription": "Repo-scoped proving ground for reusable project-management workflows, shared references, bundled GitHub connector mapping, and preflight guidance that complement thin custom agents.",
+    "longDescription": "Reusable local plugin for backlog, governance, planning, release, and documentation workflows with a bundled GitHub connector mapping and shell-first execution guidance.",
     "developerName": "Corey Coto",
     "category": "Productivity",
     "capabilities": [

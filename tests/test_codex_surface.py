@@ -7,8 +7,12 @@ from pathlib import Path
 from git_slop.integrations.agents.codex_surface import (
     AGENT_SKILL_BINDINGS,
     EXPECTED_GITHUB_CONNECTOR_ID,
+    HOME_LOCAL_INSTALL_HELPER,
+    HOME_LOCAL_SMOKE_SCRIPT,
+    LOCAL_FIRST_SKILLS,
     PLUGIN_SKILL_CATALOG,
     ROOT_AGENTS,
+    SKILL_RUNTIME_CLASSIFICATIONS,
     WORKFLOW_ASSETS,
     validate_codex_surface,
 )
@@ -101,7 +105,15 @@ class CodexSurfaceTests(unittest.TestCase):
             EXPECTED_GITHUB_CONNECTOR_ID,
         )
 
-    def test_all_plugin_skills_declare_github_connector_dependency(self) -> None:
+    def test_plugin_runtime_scripts_exist(self) -> None:
+        self.assertTrue((REPO_ROOT / HOME_LOCAL_INSTALL_HELPER).exists())
+        self.assertTrue((REPO_ROOT / HOME_LOCAL_SMOKE_SCRIPT).exists())
+
+    def test_docs_taxonomy_is_the_only_local_first_skill(self) -> None:
+        self.assertEqual(LOCAL_FIRST_SKILLS, {"docs-taxonomy"})
+        self.assertEqual(set(SKILL_RUNTIME_CLASSIFICATIONS), PLUGIN_SKILL_CATALOG)
+
+    def test_github_required_skills_declare_connector_dependency(self) -> None:
         for skill_name in sorted(PLUGIN_SKILL_CATALOG):
             metadata_path = (
                 REPO_ROOT
@@ -113,8 +125,12 @@ class CodexSurfaceTests(unittest.TestCase):
                 / "openai.yaml"
             )
             payload = metadata_path.read_text(encoding="utf-8")
-            self.assertIn('type: "connector"', payload)
-            self.assertIn('value: "github"', payload)
+            if skill_name in LOCAL_FIRST_SKILLS:
+                self.assertNotIn('type: "connector"', payload)
+                self.assertNotIn('value: "github"', payload)
+            else:
+                self.assertIn('type: "connector"', payload)
+                self.assertIn('value: "github"', payload)
 
 
 if __name__ == "__main__":

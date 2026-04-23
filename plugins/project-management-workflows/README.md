@@ -1,7 +1,8 @@
 # Project Management Workflows Plugin
 
-This repo-local plugin is the `git-slop` proving ground for reusable
-project-management workflows.
+This repo-local plugin packages reusable project-management workflows that can
+be consumed from `git-slop` or installed home-locally for use from other
+repositories.
 
 It packages:
 
@@ -9,7 +10,8 @@ It packages:
 - shared references and decision aids
 - lightweight preflight guidance for external prerequisites
 - the GitHub connector mapping for GitHub-touching local interactive workflows
-- canonical workflow guidance for deterministic `agent-tools`, `gh`, and artifact usage
+- canonical shell-first workflow guidance for deterministic `agent-tools`, `gh`,
+  `git`, and artifact usage
 
 It does **not** bundle:
 
@@ -29,6 +31,11 @@ official GitHub plugin itself. Use
 `scripts/preflight_github_surface.py` to confirm the combined prerequisite
 before a local interactive workflow attempts live GitHub reads or writes.
 
+The shipped plugin remains shell-first in this wave. Experimental MCP work, if
+present in adjacent repos, is read-only and optional. This plugin does not
+bundle `.mcp.json`, and its default workflows still assume `agent-tools`, `gh`,
+and `git` as the canonical execution surface.
+
 For CI and GitHub Actions, do not assume marketplace-installed connectors are
 available. Use checked-out repo files, prompt files, custom agents, `gh`,
 GitHub tokens, `agent-tools`, and repo scripts instead.
@@ -39,13 +46,40 @@ GitHub tokens, `agent-tools`, and repo scripts instead.
 - `.app.json`: bundled GitHub connector mapping for local interactive use
 - `skills/`: reusable workflow skills
 - `skills/_shared/references/`: reusable decision aids and policy references
+- `scripts/manage_home_local_plugin.py`: manage a home-local marketplace entry
+- `scripts/smoke_home_install.py`: temp-home install and runtime smoke harness
 - `scripts/preflight_github_surface.py`: local preflight for the combined GitHub prerequisite
+
+## Install Modes
+
+### Repo-local inside `git-slop`
+
+`git-slop` ships a repo-local marketplace entry in `.agents/plugins/marketplace.json`
+that installs this plugin by default for work inside this repo.
+
+### Home-local for other repos
+
+Use the checked-out helper script to install the plugin into your home-local
+Codex marketplace:
+
+```bash
+python3 plugins/project-management-workflows/scripts/manage_home_local_plugin.py install
+python3 plugins/project-management-workflows/scripts/manage_home_local_plugin.py status
+```
+
+Remove it with:
+
+```bash
+python3 plugins/project-management-workflows/scripts/manage_home_local_plugin.py remove
+```
+
+Use `--home /path/to/temp-home` to target a temp Codex home during smoke tests
+or clean-room validation.
 
 ## Usage model
 
-Use the plugin as the canonical and only supported skill surface for these
-maintainer workflows in `git-slop`. The repo-local marketplace entry installs
-it by default.
+Use the plugin as the canonical skill surface for these maintainer workflows.
+Repo-specific overlays remain outside the plugin.
 
 Repo-local overlays live outside the plugin:
 

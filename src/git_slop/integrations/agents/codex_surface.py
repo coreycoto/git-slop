@@ -52,7 +52,39 @@ GITHUB_PREREQUISITE_REFERENCE_SKILL_PATH = (
 GITHUB_PREFLIGHT_SCRIPT = (
     "plugins/project-management-workflows/scripts/preflight_github_surface.py"
 )
+HOME_LOCAL_INSTALL_HELPER = (
+    "plugins/project-management-workflows/scripts/manage_home_local_plugin.py"
+)
+HOME_LOCAL_SMOKE_SCRIPT = (
+    "plugins/project-management-workflows/scripts/smoke_home_install.py"
+)
 EXPECTED_GITHUB_CONNECTOR_ID = "connector_76869538009648d5b282a4bb21c3d157"
+SKILL_RUNTIME_CLASSIFICATIONS = {
+    "dependency-remediation": "github_required",
+    "docs-taxonomy": "local_first",
+    "ensure-quarter-milestones": "github_required",
+    "github-backlog-mutate": "github_required",
+    "intake": "github_required",
+    "intake-preview": "github_required",
+    "label-palette-design": "github_required",
+    "merge-on-green": "github_required",
+    "plan-quarter-apply": "github_required",
+    "plan-quarter-preview": "github_required",
+    "plan-to-backlog-preview": "github_required",
+    "release-publish": "github_required",
+    "review-to-backlog-apply": "github_required",
+    "review-to-backlog-preview": "github_required",
+}
+LOCAL_FIRST_SKILLS = {
+    skill_name
+    for skill_name, classification in SKILL_RUNTIME_CLASSIFICATIONS.items()
+    if classification == "local_first"
+}
+ALLOWED_SKILL_RUNTIME_CLASSIFICATIONS = {
+    "github_required",
+    "github_optional",
+    "local_first",
+}
 
 PLUGIN_SKILL_CATALOG = {
     "dependency-remediation",
@@ -344,6 +376,9 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
 
     if not (repo_root / GITHUB_PREFLIGHT_SCRIPT).exists():
         errors.append(f"GitHub preflight script is missing: {GITHUB_PREFLIGHT_SCRIPT}")
+    for relative_path in (HOME_LOCAL_INSTALL_HELPER, HOME_LOCAL_SMOKE_SCRIPT):
+        if not (repo_root / relative_path).exists():
+            errors.append(f"Plugin runtime script is missing: {relative_path}")
 
     for relative_path in sorted(REQUIRED_RUNTIME_DOCS):
         if not (repo_root / relative_path).exists():
@@ -369,6 +404,10 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
         errors.append(
             "Repo runtime skills must all resolve to plugin-owned skills: "
             f"{sorted(runtime_skill_names - PLUGIN_SKILL_CATALOG)}"
+        )
+    if set(SKILL_RUNTIME_CLASSIFICATIONS) != PLUGIN_SKILL_CATALOG:
+        errors.append(
+            "Plugin skill runtime classifications must cover the entire plugin skill catalog."
         )
 
     for skill_name in sorted(PLUGIN_SKILL_CATALOG):
@@ -426,27 +465,54 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
             and tool.get("value") == "github"
             for tool in tools
         )
-        if not github_touching:
+        classification = SKILL_RUNTIME_CLASSIFICATIONS.get(skill_name)
+        if classification not in ALLOWED_SKILL_RUNTIME_CLASSIFICATIONS:
             errors.append(
-                f"{metadata_path.relative_to(repo_root)} must declare the GitHub connector "
-                "dependency."
+                f"{skill_name} must use a valid runtime classification: "
+                f"{sorted(ALLOWED_SKILL_RUNTIME_CLASSIFICATIONS)}"
             )
             continue
-
-        if GITHUB_PREREQUISITE_REFERENCE_SKILL_PATH not in skill_text:
-            errors.append(
-                f"{skill_doc.relative_to(repo_root)} must reference "
-                f"{GITHUB_PREREQUISITE_REFERENCE}."
-            )
-        if "preflight_github_surface.py" not in skill_text:
-            errors.append(
-                f"{skill_doc.relative_to(repo_root)} must reference "
-                f"{GITHUB_PREFLIGHT_SCRIPT}."
-            )
-        if "local-only" in skill_text.lower():
+        if classification == "github_required":
+            if not github_touching:
+                errors.append(
+                    f"{metadata_path.relative_to(repo_root)} must declare the GitHub connector "
+                    "dependency."
+                )
+            if GITHUB_PREREQUISITE_REFERENCE_SKILL_PATH not in skill_text:
+                errors.append(
+                    f"{skill_doc.relative_to(repo_root)} must reference "
+                    f"{GITHUB_PREREQUISITE_REFERENCE}."
+                )
+            if "preflight_github_surface.py" not in skill_text:
+                errors.append(
+                    f"{skill_doc.relative_to(repo_root)} must reference "
+                    f"{GITHUB_PREFLIGHT_SCRIPT}."
+                )
+        else:
+            if github_touching:
+                errors.append(
+                    f"{metadata_path.relative_to(repo_root)} must not declare the GitHub "
+                    "connector dependency for a non-required skill."
+                )
+            if GITHUB_PREREQUISITE_REFERENCE_SKILL_PATH in skill_text:
+                errors.append(
+                    f"{skill_doc.relative_to(repo_root)} must not hard-require "
+                    "GitHub runtime prerequisites."
+                )
+            if "preflight_github_surface.py" in skill_text:
+                errors.append(
+                    f"{skill_doc.relative_to(repo_root)} must not hard-require "
+                    f"{GITHUB_PREFLIGHT_SCRIPT}."
+                )
+            if classification == "local_first" and "## Optional Publish" not in skill_text:
+                errors.append(
+                    f"{skill_doc.relative_to(repo_root)} must keep GitHub publication, if any, "
+                    "as an optional appendix."
+                )
+        if classification != "local_first" and "local-only" in skill_text.lower():
             errors.append(
                 f"{skill_doc.relative_to(repo_root)} must not claim local-only behavior "
-                "while declaring the GitHub connector dependency."
+                "while using a GitHub runtime classification."
             )
 
     for workflow_name, assets in sorted(WORKFLOW_ASSETS.items()):
@@ -495,20 +561,52 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
                 "plugins/project-management-workflows/README.md must describe the bundled "
                 "GitHub connector mapping."
             )
+        if "proving ground" in readme_text:
+            errors.append(
+                "plugins/project-management-workflows/README.md must not frame the plugin "
+                "as a proving ground."
+            )
+        if HOME_LOCAL_INSTALL_HELPER.split("/")[-1] not in readme_text:
+            errors.append(
+                "plugins/project-management-workflows/README.md must document the home-local "
+                "install helper."
+            )
+
+    skills_readme = repo_root / "plugins" / "project-management-workflows" / "skills" / "README.md"
+    if skills_readme.exists():
+        skills_text = skills_readme.read_text(encoding="utf-8")
+        if "Runtime Classifications" not in skills_text:
+            errors.append(
+                "plugins/project-management-workflows/skills/README.md must document the "
+                "skill runtime classifications."
+            )
+
+    plugin_manifest_text = (
+        plugin_manifest.read_text(encoding="utf-8") if plugin_manifest.exists() else ""
+    )
+    if "proving ground" in plugin_manifest_text:
+        errors.append("Repo-local plugin manifest must not frame the plugin as a proving ground.")
+    if (repo_root / "plugins" / "project-management-workflows" / ".mcp.json").exists():
+        errors.append("project-management-workflows must not bundle .mcp.json in this wave.")
 
     return errors
 
 
 __all__ = [
     "AGENT_SKILL_BINDINGS",
+    "ALLOWED_SKILL_RUNTIME_CLASSIFICATIONS",
     "EXPECTED_GITHUB_CONNECTOR_ID",
     "GITHUB_PREFLIGHT_SCRIPT",
     "GITHUB_PREREQUISITE_REFERENCE",
     "GITHUB_PREREQUISITE_REFERENCE_SKILL_PATH",
+    "HOME_LOCAL_INSTALL_HELPER",
+    "HOME_LOCAL_SMOKE_SCRIPT",
+    "LOCAL_FIRST_SKILLS",
     "PLUGIN_SKILL_CATALOG",
     "PLUGIN_SKILLS_ROOT",
     "PLUGIN_SHARED_REFERENCES",
     "ROOT_AGENTS",
+    "SKILL_RUNTIME_CLASSIFICATIONS",
     "WORKFLOW_ASSETS",
     "validate_codex_surface",
 ]
