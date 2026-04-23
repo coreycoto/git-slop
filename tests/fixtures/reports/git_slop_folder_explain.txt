@@ -22,12 +22,12 @@ Overlay Evidence
 - descendant overlay maxima: organization.diffusion=1.000, verification=0.000, navigation=0.461, blast_radius=0.953, semantic_drift=1.000
 
 Supporting Relationships
+- lexical_affinity_edge-af9a9f48473c [lexical_affinity_edge] src/git_slop/git.py -> src/git_slop/inventory.py (score=4.339)
 - boundary_leakage_edge-b87172edccae [boundary_leakage_edge] docs/architecture.md -> src/git_slop/history.py (score=7.500)
 - temporal_coupling_edge-65471a7a1195 [temporal_coupling_edge] docs/architecture.md -> src/git_slop/history.py (score=7.500)
-- boundary_leakage_edge-2c0ef3c299d7 [boundary_leakage_edge] src/git_slop/git.py -> tests/test_cli_smoke.py (score=6.804)
 
 Supporting Clusters
-- scattered_concept-c1c73fb5da90 [reduce_scattered_concept] members=8 roots=README.md, docs, src
+- boundary_leakage_cluster-cedd37539fe8 [extract_boundary] members=3 roots=src, tests
 - scattered_concept-64dcda20d417 [reduce_scattered_concept] members=10 roots=src, tests
 - boundary_leakage_cluster-e509eb2f17d5 [extract_boundary] members=7 roots=README.md, docs, src
 

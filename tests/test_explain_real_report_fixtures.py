@@ -7,6 +7,8 @@ import sys
 import unittest
 from pathlib import Path
 
+from git_slop.reports.explain import build_explain_payload
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "reports"
@@ -29,6 +31,103 @@ def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 class ExplainRealReportFixtureTests(unittest.TestCase):
+    def test_folder_explain_prefers_tight_local_clusters_over_broad_memberships(self) -> None:
+        report = {
+            "schema_version": 3,
+            "files": [
+                {
+                    "path": "src/focus/a.py",
+                    "priority_score": 50.0,
+                    "priority_band": "needs_refactor",
+                    "context_band": "healthy",
+                    "reason_codes": [],
+                    "costs": {},
+                    "overlays": {},
+                },
+                {
+                    "path": "src/focus/b.py",
+                    "priority_score": 49.0,
+                    "priority_band": "watchlist",
+                    "context_band": "healthy",
+                    "reason_codes": [],
+                    "costs": {},
+                    "overlays": {},
+                },
+                {
+                    "path": "src/other/z.py",
+                    "priority_score": 10.0,
+                    "priority_band": "watchlist",
+                    "context_band": "compact",
+                    "reason_codes": [],
+                    "costs": {},
+                    "overlays": {},
+                },
+            ],
+            "folders": [
+                {
+                    "path": "src/focus",
+                    "priority_score": 50.0,
+                    "priority_band": "needs_refactor",
+                    "context_band": "critical",
+                    "reason_codes": [],
+                    "costs": {},
+                    "overlays": {},
+                }
+            ],
+            "action_queue": [
+                {"path": "src/focus/a.py"},
+                {"path": "src/focus/b.py"},
+            ],
+            "overlays": {
+                "organization_health": {
+                    "relationships": {
+                        "duplicate_neighborhoods": [],
+                        "near_duplicate_neighborhoods": [],
+                        "temporal_coupling_edges": [],
+                        "lexical_affinity_edges": [],
+                        "boundary_leakage_edges": [],
+                    },
+                    "clusters": {
+                        "duplicate_sets": [
+                            {
+                                "id": "duplicate-small",
+                                "kind": "duplicate_set",
+                                "member_paths": ["src/focus/a.py", "src/focus/b.py"],
+                                "member_count": 2,
+                                "top_level_roots": ["src"],
+                                "evidence_score": 10.0,
+                                "source_relationship_ids": [],
+                                "candidate_type": "consolidate_duplicate_knowledge",
+                            }
+                        ],
+                        "scattered_concepts": [
+                            {
+                                "id": "scatter-large",
+                                "kind": "scattered_concept",
+                                "member_paths": [
+                                    "src/focus/a.py",
+                                    "src/focus/b.py",
+                                    "src/other/z.py",
+                                ],
+                                "member_count": 50,
+                                "top_level_roots": ["src"],
+                                "evidence_score": 99.0,
+                                "source_relationship_ids": [],
+                                "candidate_type": "reduce_scattered_concept",
+                            }
+                        ],
+                        "boundary_leakage_clusters": [],
+                        "consolidation_candidates": [],
+                    },
+                }
+            },
+        }
+
+        payload = build_explain_payload(report, path="src/focus")
+
+        self.assertEqual(payload["target"]["record_type"], "folder")
+        self.assertEqual(payload["supporting_clusters"][0]["id"], "duplicate-small")
+
     def test_git_slop_folder_fixture_matches_snapshot_and_json_additions(self) -> None:
         report = FIXTURE_DIR / "git_slop_folder_report.json"
         expected = (FIXTURE_DIR / "git_slop_folder_explain.txt").read_text(encoding="utf-8")

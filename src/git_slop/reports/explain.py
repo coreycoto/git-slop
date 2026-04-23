@@ -3,16 +3,20 @@ from __future__ import annotations
 from typing import Any
 
 from git_slop.reports.shared import (
+    all_clusters_for_record,
+    all_relationships_for_record,
     cluster_by_id,
     dedupe_by_id,
     descendant_file_records,
     descendant_hotspots,
     descendant_overlay_maxima,
-    iter_clusters,
     iter_relationships,
+    rank_clusters,
+    rank_relationships,
     record_summary,
     relationship_by_id,
     resolve_path,
+    shared_clusters_for_relationship,
     strongest_pressures,
 )
 
@@ -79,9 +83,19 @@ def _build_file_payload(
     payload["cost_summary"] = record.get("costs", {})
     payload["overlay_summary"] = record.get("overlays", {})
     payload["supporting_relationships"] = _limit_deduped(
-        record.get("strongest_relationships", []), limit=5
+        rank_relationships(
+            all_relationships_for_record(report, record),
+            anchor_paths=[record["path"]],
+        ),
+        limit=5,
     )
-    payload["supporting_clusters"] = _limit_deduped(record.get("cluster_memberships", []), limit=5)
+    payload["supporting_clusters"] = _limit_deduped(
+        rank_clusters(
+            all_clusters_for_record(report, record),
+            anchor_paths=[record["path"]],
+        ),
+        limit=5,
+    )
     return payload
 
 
@@ -113,10 +127,25 @@ def _build_folder_payload(
         **record.get("overlays", {}),
         "descendant_overlay_maxima": descendant_overlay_maxima(descendant_records),
     }
+    descendant_paths = [item["path"] for item in payload["cost_summary"]["descendant_hotspots"]]
+    if not descendant_paths:
+        descendant_paths = [item["path"] for item in descendant_records[:5]]
     payload["supporting_relationships"] = _limit_deduped(
-        record.get("strongest_relationships", []), limit=5
+        rank_relationships(
+            all_relationships_for_record(report, record),
+            anchor_paths=descendant_paths or [record["path"]],
+            focus_folder=record["path"],
+        ),
+        limit=5,
     )
-    payload["supporting_clusters"] = _limit_deduped(record.get("cluster_memberships", []), limit=5)
+    payload["supporting_clusters"] = _limit_deduped(
+        rank_clusters(
+            all_clusters_for_record(report, record),
+            anchor_paths=descendant_paths or [record["path"]],
+            focus_folder=record["path"],
+        ),
+        limit=5,
+    )
     return payload
 
 
@@ -149,11 +178,14 @@ def _build_cluster_payload(report: dict[str, Any], cluster_id: str) -> dict[str,
     )
     relationship_index = {item["id"]: item for item in iter_relationships(report)}
     supporting_relationships = _limit_deduped(
-        [
-            relationship_index[relationship_id]
-            for relationship_id in cluster.get("source_relationship_ids", [])
-            if relationship_id in relationship_index
-        ],
+        rank_relationships(
+            [
+                relationship_index[relationship_id]
+                for relationship_id in cluster.get("source_relationship_ids", [])
+                if relationship_id in relationship_index
+            ],
+            anchor_paths=cluster["member_paths"],
+        ),
         limit=5,
     )
     payload = _base_payload(
@@ -190,12 +222,7 @@ def _build_relationship_payload(report: dict[str, Any], relationship_id: str) ->
     source_record = resolve_path(report, relationship["source_path"])
     target_record = resolve_path(report, relationship["target_path"])
     shared_clusters = _limit_deduped(
-        [
-            cluster
-            for cluster in iter_clusters(report)
-            if relationship["source_path"] in cluster["member_paths"]
-            and relationship["target_path"] in cluster["member_paths"]
-        ],
+        shared_clusters_for_relationship(report, relationship),
         limit=5,
     )
     payload = _base_payload(

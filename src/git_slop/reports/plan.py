@@ -4,14 +4,19 @@ from typing import Any
 
 from git_slop.reports.shared import (
     EXPECTED_REPORT_SCHEMA_VERSION,
+    all_clusters_for_record,
+    all_relationships_for_record,
     cluster_by_id,
     dedupe_by_id,
     descendant_file_records,
     descendant_hotspots,
-    iter_clusters,
     iter_relationships,
+    rank_clusters,
+    rank_relationships,
     relationship_by_id,
     resolve_path,
+    shared_clusters_for_relationship,
+    unique_preserving_order,
 )
 
 PLAN_SCHEMA_VERSION = 1
@@ -56,23 +61,6 @@ def _sort_paths_by_severity(
         if path_records[path] is not None
     ]
     return sorted_paths
-
-
-def _shared_clusters_for_relationship(
-    report: dict[str, Any], relationship: dict[str, Any]
-) -> list[dict[str, Any]]:
-    shared = dedupe_by_id(
-        [
-            cluster
-            for cluster in iter_clusters(report)
-            if relationship["source_path"] in cluster["member_paths"]
-            and relationship["target_path"] in cluster["member_paths"]
-        ]
-    )
-    return sorted(
-        shared,
-        key=lambda item: (item["member_count"], -item["evidence_score"], item["id"]),
-    )
 
 
 def _build_scope(
@@ -180,19 +168,29 @@ def _anchor_context_for_path(report: dict[str, Any], path: str) -> dict[str, Any
     record = resolve_path(report, path)
     if record is None:
         raise ValueError(f"No record found for '{path}'.")
-    supporting_relationships = dedupe_by_id(record.get("strongest_relationships", []))
-    supporting_clusters = dedupe_by_id(record.get("cluster_memberships", []))
     if record["record_type"] == "folder":
         anchor_paths = _build_folder_anchor_paths(report, record["path"])
+        focus_folder = record["path"]
     else:
         anchor_paths = [record["path"]]
+        focus_folder = None
+    supporting_relationships = rank_relationships(
+        all_relationships_for_record(report, record),
+        anchor_paths=anchor_paths,
+        focus_folder=focus_folder,
+    )
+    supporting_clusters = rank_clusters(
+        all_clusters_for_record(report, record),
+        anchor_paths=anchor_paths,
+        focus_folder=focus_folder,
+    )
     return {
         "selector": {"kind": "path", "value": path},
         "target": _build_path_target(record),
         "anchor_paths": anchor_paths,
         "supporting_relationships": supporting_relationships,
         "supporting_clusters": supporting_clusters,
-        "focus_folder": record["path"] if record["record_type"] == "folder" else None,
+        "focus_folder": focus_folder,
         "record": record,
     }
 
@@ -205,11 +203,14 @@ def _anchor_context_for_cluster(report: dict[str, Any], cluster_id: str) -> dict
         relationship["id"]: relationship
         for relationship in dedupe_by_id(iter_relationships(report))
     }
-    supporting_relationships = [
-        relationship_index[relationship_id]
-        for relationship_id in cluster.get("source_relationship_ids", [])
-        if relationship_id in relationship_index
-    ]
+    supporting_relationships = rank_relationships(
+        [
+            relationship_index[relationship_id]
+            for relationship_id in cluster.get("source_relationship_ids", [])
+            if relationship_id in relationship_index
+        ],
+        anchor_paths=cluster["member_paths"],
+    )
     return {
         "selector": {"kind": "cluster", "value": cluster_id},
         "target": _build_cluster_target(cluster),
@@ -228,7 +229,7 @@ def _anchor_context_for_relationship(
     relationship = relationship_by_id(report, relationship_id)
     if relationship is None:
         raise ValueError(f"No relationship found for '{relationship_id}'.")
-    shared_clusters = _shared_clusters_for_relationship(report, relationship)
+    shared_clusters = shared_clusters_for_relationship(report, relationship)
     return {
         "selector": {"kind": "relationship", "value": relationship_id},
         "target": _build_relationship_target(relationship),
@@ -243,9 +244,20 @@ def _anchor_context_for_relationship(
 def _build_anchor_slice(report: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     target = context["target"]
     selector_kind = context["selector"]["kind"]
+    candidate_paths = context["anchor_paths"]
+    if (
+        selector_kind == "cluster"
+        and target["member_count"] > MAX_SLICE_FILES
+        and context["supporting_relationships"]
+    ):
+        leading_relationship = context["supporting_relationships"][0]
+        candidate_paths = [
+            leading_relationship["source_path"],
+            leading_relationship["target_path"],
+        ]
     scope_paths, out_of_scope_paths = _build_scope(
         report,
-        candidate_paths=context["anchor_paths"],
+        candidate_paths=candidate_paths,
         anchor_paths=context["anchor_paths"],
     )
     if selector_kind == "path" and target["record_type"] == "folder":
@@ -258,11 +270,18 @@ def _build_anchor_slice(report: dict[str, Any], context: dict[str, Any]) -> dict
         title = f"Anchor hotspot {target['path']}"
         why = "Start with the selected hotspot before expanding to adjacent structural evidence."
     elif selector_kind == "cluster":
-        title = f"Inspect cluster {target['id']}"
-        why = (
-            "Start with the selected cluster members before splitting work into "
-            "narrower relationship-driven slices."
-        )
+        if target["member_count"] > MAX_SLICE_FILES and context["supporting_relationships"]:
+            title = f"Start inside cluster {target['id']}"
+            why = (
+                "The selected cluster is broad, so start with the strongest direct "
+                "relationship-backed slice inside it before expanding."
+            )
+        else:
+            title = f"Inspect cluster {target['id']}"
+            why = (
+                "Start with the selected cluster members before splitting work into "
+                "narrower relationship-driven slices."
+            )
     else:
         title = f"Inspect relationship {target['id']}"
         why = (
@@ -307,7 +326,7 @@ def _build_relationship_slices(
             candidate_paths=candidate_paths,
             anchor_paths=anchor_paths,
         )
-        shared_clusters = _shared_clusters_for_relationship(report, relationship)
+        shared_clusters = shared_clusters_for_relationship(report, relationship)
         fingerprint = tuple(scope_paths)
         cluster_ids = [cluster["id"] for cluster in shared_clusters[:3]]
         existing = grouped.get(fingerprint)
@@ -383,20 +402,26 @@ def _build_cluster_slices(report: dict[str, Any], context: dict[str, Any]) -> li
     return slices
 
 
-def _dedupe_slices(slices: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = set()
-    deduped: list[dict[str, Any]] = []
+def _merge_slices_by_scope(slices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
     for slice_payload in slices:
-        fingerprint = (
-            tuple(slice_payload["scope_paths"]),
-            tuple(slice_payload["supporting_relationship_ids"]),
-            tuple(slice_payload["supporting_cluster_ids"]),
-        )
-        if fingerprint in seen:
-            continue
-        seen.add(fingerprint)
-        deduped.append(slice_payload)
-    return deduped
+        for existing in merged:
+            if existing["scope_paths"] != slice_payload["scope_paths"]:
+                continue
+            existing["out_of_scope_paths"] = unique_preserving_order(
+                existing["out_of_scope_paths"] + slice_payload["out_of_scope_paths"]
+            )
+            existing["supporting_relationship_ids"] = unique_preserving_order(
+                existing["supporting_relationship_ids"]
+                + slice_payload["supporting_relationship_ids"]
+            )
+            existing["supporting_cluster_ids"] = unique_preserving_order(
+                existing["supporting_cluster_ids"] + slice_payload["supporting_cluster_ids"]
+            )
+            break
+        else:
+            merged.append(slice_payload)
+    return merged
 
 
 def build_plan_payload(
@@ -430,7 +455,7 @@ def build_plan_payload(
     slices = [_build_anchor_slice(report, context)]
     slices.extend(_build_relationship_slices(report, context))
     slices.extend(_build_cluster_slices(report, context))
-    slices = _dedupe_slices(slices)[:max_slices]
+    slices = _merge_slices_by_scope(slices)[:max_slices]
     return {
         "schema_version": PLAN_SCHEMA_VERSION,
         "report_schema_version": report.get("schema_version"),

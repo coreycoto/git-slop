@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from git_slop.reports.plan import build_plan_payload
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "reports"
@@ -132,11 +134,126 @@ class PlanCommandTests(unittest.TestCase):
         self.assertEqual(json_completed.returncode, 0, json_completed.stderr)
         self.assertEqual(completed.stdout, expected_text)
         self.assertEqual(json.loads(json_completed.stdout), expected_json)
+        self.assertEqual(len(json.loads(json_completed.stdout)["proposed_slices"]), 1)
         self.assertTrue(
             all(
                 len(item["scope_paths"]) <= 5
                 for item in json.loads(json_completed.stdout)["proposed_slices"]
             )
+        )
+
+    def test_broad_cluster_plan_starts_with_tight_relationship_backed_slice(self) -> None:
+        report = {
+            "schema_version": 3,
+            "files": [
+                {
+                    "path": "src/focus/a.py",
+                    "priority_score": 50.0,
+                    "priority_band": "needs_refactor",
+                    "context_band": "healthy",
+                    "reason_codes": [],
+                    "costs": {},
+                    "overlays": {},
+                },
+                {
+                    "path": "src/focus/b.py",
+                    "priority_score": 49.0,
+                    "priority_band": "watchlist",
+                    "context_band": "healthy",
+                    "reason_codes": [],
+                    "costs": {},
+                    "overlays": {},
+                },
+                {
+                    "path": "src/focus/c.py",
+                    "priority_score": 48.0,
+                    "priority_band": "watchlist",
+                    "context_band": "healthy",
+                    "reason_codes": [],
+                    "costs": {},
+                    "overlays": {},
+                },
+                {
+                    "path": "src/focus/d.py",
+                    "priority_score": 47.0,
+                    "priority_band": "watchlist",
+                    "context_band": "healthy",
+                    "reason_codes": [],
+                    "costs": {},
+                    "overlays": {},
+                },
+                {
+                    "path": "src/focus/e.py",
+                    "priority_score": 46.0,
+                    "priority_band": "watchlist",
+                    "context_band": "healthy",
+                    "reason_codes": [],
+                    "costs": {},
+                    "overlays": {},
+                },
+                {
+                    "path": "src/focus/f.py",
+                    "priority_score": 45.0,
+                    "priority_band": "watchlist",
+                    "context_band": "healthy",
+                    "reason_codes": [],
+                    "costs": {},
+                    "overlays": {},
+                },
+            ],
+            "folders": [],
+            "action_queue": [],
+            "overlays": {
+                "organization_health": {
+                    "relationships": {
+                        "duplicate_neighborhoods": [
+                            {
+                                "id": "dup-strong",
+                                "kind": "duplicate_neighborhood",
+                                "source_path": "src/focus/a.py",
+                                "target_path": "src/focus/b.py",
+                                "evidence_score": 100.0,
+                                "crosses_top_level_boundary": False,
+                            }
+                        ],
+                        "near_duplicate_neighborhoods": [],
+                        "temporal_coupling_edges": [],
+                        "lexical_affinity_edges": [],
+                        "boundary_leakage_edges": [],
+                    },
+                    "clusters": {
+                        "duplicate_sets": [],
+                        "scattered_concepts": [
+                            {
+                                "id": "scatter-wide",
+                                "kind": "scattered_concept",
+                                "member_paths": [
+                                    "src/focus/a.py",
+                                    "src/focus/b.py",
+                                    "src/focus/c.py",
+                                    "src/focus/d.py",
+                                    "src/focus/e.py",
+                                    "src/focus/f.py",
+                                ],
+                                "member_count": 40,
+                                "top_level_roots": ["src"],
+                                "evidence_score": 150.0,
+                                "source_relationship_ids": ["dup-strong"],
+                                "candidate_type": "reduce_scattered_concept",
+                            }
+                        ],
+                        "boundary_leakage_clusters": [],
+                        "consolidation_candidates": [],
+                    },
+                }
+            },
+        }
+
+        payload = build_plan_payload(report, cluster_id="scatter-wide")
+
+        self.assertEqual(
+            payload["proposed_slices"][0]["scope_paths"],
+            ["src/focus/a.py", "src/focus/b.py"],
         )
 
     def test_plan_supports_file_and_cluster_selectors(self) -> None:

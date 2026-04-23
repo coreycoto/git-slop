@@ -3,6 +3,12 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any, Iterable
 
+from git_slop.graphs import (
+    clusters_for_path,
+    folder_clusters_for_prefix,
+    folder_relationships_for_prefix,
+    relationships_for_path,
+)
 from git_slop.graphs.clusters import CLUSTER_KEYS
 from git_slop.graphs.relationships import RELATIONSHIP_KEYS
 from git_slop.reporting import build_show_payload
@@ -38,6 +44,17 @@ def dedupe_by_id(items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         seen.add(item_id)
         deduped.append(item)
     return deduped
+
+
+def unique_preserving_order(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
 
 
 def iter_relationships(report: dict[str, Any]) -> list[dict[str, Any]]:
@@ -97,6 +114,21 @@ def record_summary(record: dict[str, Any] | None) -> dict[str, Any] | None:
     if "overlays" in record:
         summary["overlays"] = record["overlays"]
     return summary
+
+
+def all_relationships_for_record(
+    report: dict[str, Any],
+    record: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if record["record_type"] == "folder":
+        return folder_relationships_for_prefix(report, record["path"])
+    return relationships_for_path(report, record["path"])
+
+
+def all_clusters_for_record(report: dict[str, Any], record: dict[str, Any]) -> list[dict[str, Any]]:
+    if record["record_type"] == "folder":
+        return folder_clusters_for_prefix(report, record["path"])
+    return clusters_for_path(report, record["path"])
 
 
 def descendant_file_records(report: dict[str, Any], folder_path: str) -> list[dict[str, Any]]:
@@ -254,3 +286,129 @@ def path_matches_folder(path: str, folder_path: str) -> bool:
 def top_level_root(path: str) -> str:
     parts = PurePosixPath(path).parts
     return parts[0] if parts else "."
+
+
+def relationship_focus_count(
+    relationship: dict[str, Any],
+    *,
+    anchor_paths: list[str],
+    focus_folder: str | None = None,
+) -> tuple[int, int]:
+    endpoints = [relationship["source_path"], relationship["target_path"]]
+    anchor_matches = sum(path in anchor_paths for path in endpoints)
+    if focus_folder is None:
+        return anchor_matches, anchor_matches
+    folder_matches = sum(path_matches_folder(path, focus_folder) for path in endpoints)
+    return folder_matches, anchor_matches
+
+
+def rank_relationships(
+    relationships: Iterable[dict[str, Any]],
+    *,
+    anchor_paths: list[str],
+    focus_folder: str | None = None,
+) -> list[dict[str, Any]]:
+    deduped = dedupe_by_id(relationships)
+    ranked: list[dict[str, Any]] = []
+    for relationship in deduped:
+        folder_matches, anchor_matches = relationship_focus_count(
+            relationship,
+            anchor_paths=anchor_paths,
+            focus_folder=focus_folder,
+        )
+        if focus_folder is not None and folder_matches == 0:
+            continue
+        ranked.append(relationship)
+    return sorted(
+        ranked,
+        key=lambda item: (
+            -relationship_focus_count(
+                item,
+                anchor_paths=anchor_paths,
+                focus_folder=focus_folder,
+            )[0],
+            -relationship_focus_count(
+                item,
+                anchor_paths=anchor_paths,
+                focus_folder=focus_folder,
+            )[1],
+            -float(item.get("evidence_score", 0.0)),
+            item["id"],
+        ),
+    )
+
+
+def cluster_focus_count(
+    cluster: dict[str, Any],
+    *,
+    anchor_paths: list[str],
+    focus_folder: str | None = None,
+) -> tuple[int, int]:
+    member_paths = cluster.get("member_paths", [])
+    anchor_matches = sum(path in anchor_paths for path in member_paths)
+    if focus_folder is None:
+        return anchor_matches, anchor_matches
+    folder_matches = sum(path_matches_folder(path, focus_folder) for path in member_paths)
+    return folder_matches, anchor_matches
+
+
+def rank_clusters(
+    clusters: Iterable[dict[str, Any]],
+    *,
+    anchor_paths: list[str],
+    focus_folder: str | None = None,
+) -> list[dict[str, Any]]:
+    deduped = dedupe_by_id(clusters)
+    ranked: list[dict[str, Any]] = []
+    for cluster in deduped:
+        folder_matches, anchor_matches = cluster_focus_count(
+            cluster,
+            anchor_paths=anchor_paths,
+            focus_folder=focus_folder,
+        )
+        if focus_folder is not None and folder_matches == 0:
+            continue
+        ranked.append(cluster)
+    return sorted(
+        ranked,
+        key=lambda item: (
+            -(
+                cluster_focus_count(
+                    item,
+                    anchor_paths=anchor_paths,
+                    focus_folder=focus_folder,
+                )[0]
+                / max(item.get("member_count", len(item.get("member_paths", []))), 1)
+            ),
+            -cluster_focus_count(
+                item,
+                anchor_paths=anchor_paths,
+                focus_folder=focus_folder,
+            )[1],
+            item.get("member_count", len(item.get("member_paths", []))),
+            -cluster_focus_count(
+                item,
+                anchor_paths=anchor_paths,
+                focus_folder=focus_folder,
+            )[0],
+            len(item.get("top_level_roots", [])),
+            -float(item.get("evidence_score", 0.0)),
+            item["id"],
+        ),
+    )
+
+
+def shared_clusters_for_relationship(
+    report: dict[str, Any],
+    relationship: dict[str, Any],
+) -> list[dict[str, Any]]:
+    shared = [
+        cluster
+        for cluster in iter_clusters(report)
+        if relationship["source_path"] in cluster["member_paths"]
+        and relationship["target_path"] in cluster["member_paths"]
+    ]
+    return rank_clusters(
+        shared,
+        anchor_paths=[relationship["source_path"], relationship["target_path"]],
+    )
