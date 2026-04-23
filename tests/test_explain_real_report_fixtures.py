@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = REPO_ROOT / "src"
+FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "reports"
+
+
+def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        str(SRC_DIR) if not existing_pythonpath else f"{SRC_DIR}{os.pathsep}{existing_pythonpath}"
+    )
+    return subprocess.run(
+        [sys.executable, "-m", "git_slop", *args],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+class ExplainRealReportFixtureTests(unittest.TestCase):
+    def test_git_slop_folder_fixture_matches_snapshot_and_json_additions(self) -> None:
+        report = FIXTURE_DIR / "git_slop_folder_report.json"
+        expected = (FIXTURE_DIR / "git_slop_folder_explain.txt").read_text(encoding="utf-8")
+
+        completed = run_cli("explain", "--report", str(report), "--path", "src/git_slop")
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout, expected)
+
+        json_completed = run_cli(
+            "explain",
+            "--report",
+            str(report),
+            "--path",
+            "src/git_slop",
+            "--format",
+            "json",
+        )
+        self.assertEqual(json_completed.returncode, 0, json_completed.stderr)
+        payload = json.loads(json_completed.stdout)
+        self.assertEqual(payload["target"]["record_type"], "folder")
+        self.assertEqual(len(payload["cost_summary"]["descendant_hotspots"]), 5)
+        self.assertIn("descendant_overlay_maxima", payload["overlay_summary"])
+        self.assertEqual(
+            len(payload["supporting_relationships"]),
+            len({item["id"] for item in payload["supporting_relationships"]}),
+        )
+        self.assertEqual(
+            len(payload["supporting_clusters"]),
+            len({item["id"] for item in payload["supporting_clusters"]}),
+        )
+
+    def test_deeptravel_top_fixture_matches_compact_snapshot(self) -> None:
+        report = FIXTURE_DIR / "deeptravel_top_report.json"
+        expected = (FIXTURE_DIR / "deeptravel_top_explain.txt").read_text(encoding="utf-8")
+
+        completed = run_cli("explain", "--report", str(report), "--top", "5")
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout, expected)
+        self.assertEqual(completed.stdout.count("Interpretation boundary"), 1)
+
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        for index, item in enumerate(payload["action_queue"][:5], start=1):
+            self.assertIn(f"{index}. {item['path']}", completed.stdout)
+
+    def test_agent_tools_relationship_fixture_supports_relationship_selector(self) -> None:
+        report = FIXTURE_DIR / "agent_tools_relationship_report.json"
+
+        completed = run_cli(
+            "explain",
+            "--report",
+            str(report),
+            "--relationship",
+            "near_duplicate_neighborhood-35e7fad1c4e0",
+            "--format",
+            "json",
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["selector"]["kind"], "relationship")
+        self.assertEqual(payload["target"]["id"], "near_duplicate_neighborhood-35e7fad1c4e0")
+        self.assertIn("source", payload["cost_summary"])
+        self.assertIn("target", payload["cost_summary"])
+        self.assertEqual(
+            [cluster["id"] for cluster in payload["supporting_clusters"]],
+            ["duplicate_set-ce293b441009"],
+        )
+
+    def test_git_slop_cluster_fixture_supports_cluster_selector(self) -> None:
+        report = FIXTURE_DIR / "git_slop_folder_report.json"
+
+        completed = run_cli(
+            "explain",
+            "--report",
+            str(report),
+            "--cluster",
+            "scattered_concept-c1c73fb5da90",
+            "--format",
+            "json",
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["selector"]["kind"], "cluster")
+        self.assertEqual(payload["target"]["id"], "scattered_concept-c1c73fb5da90")
+        self.assertIn("member_hotspots", payload["cost_summary"])

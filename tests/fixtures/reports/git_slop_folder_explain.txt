@@ -1,0 +1,34 @@
+Explain: path src/git_slop [folder]
+
+Hotspot Cost
+- priority: should_refactor (66.0) context=critical reasons=critical_token_cost, high_revision_frequency, high_relative_churn
+- load: max_file_tokens=10549, folder_tokens=24674, pressure=1.000
+- volatility: commits=28.0, relative_token_churn=5.389, pressure=0.562
+- coordination: diffusion=0.910, degree=92.428571, pressure=0.900
+- descendant hotspots:
+  - src/git_slop/organization.py priority=should_refactor score=66.0 context=critical
+  - src/git_slop/reporting.py priority=needs_refactor score=59.0 context=healthy
+  - src/git_slop/history.py priority=watchlist score=46.7 context=healthy
+  - src/git_slop/__init__.py priority=watchlist score=18.1 context=compact
+  - src/git_slop/cli.py priority=watchlist score=14.2 context=compact
+
+Overlay Evidence
+- organization_health: duplication=0.000, diffusion=0.800, coupling=0.200, boundary=0.300, clusters=4
+- verification: gap=0.000, adjacency=0.000, test_cochange=1.000, hotspot_without_nearby_tests=True
+- navigation: pressure=0.441, ambiguity=0.339, path_depth=2.0
+- blast_radius: pressure=0.911, degree=92.428571, cross_folder=0.852
+- stewardship: pressure=0.000, authors=1.0, top_author_share=1.000
+- semantic_drift: pressure=0.996, terms=for, from, git, if, import
+- descendant overlay maxima: organization.diffusion=1.000, verification=0.000, navigation=0.461, blast_radius=0.953, semantic_drift=1.000
+
+Supporting Relationships
+- boundary_leakage_edge-b87172edccae [boundary_leakage_edge] docs/architecture.md -> src/git_slop/history.py (score=7.500)
+- temporal_coupling_edge-65471a7a1195 [temporal_coupling_edge] docs/architecture.md -> src/git_slop/history.py (score=7.500)
+- boundary_leakage_edge-2c0ef3c299d7 [boundary_leakage_edge] src/git_slop/git.py -> tests/test_cli_smoke.py (score=6.804)
+
+Supporting Clusters
+- scattered_concept-c1c73fb5da90 [reduce_scattered_concept] members=8 roots=README.md, docs, src
+- scattered_concept-64dcda20d417 [reduce_scattered_concept] members=10 roots=src, tests
+- boundary_leakage_cluster-e509eb2f17d5 [extract_boundary] members=7 roots=README.md, docs, src
+
+Interpretation boundary: this is structural evidence, not proof that an abstraction, boundary, or refactor is correct.

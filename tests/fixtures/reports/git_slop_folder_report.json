@@ -1,0 +1,1525 @@
+{
+  "action_queue": [
+    {
+      "context_band": "critical",
+      "path": "src/git_slop/organization.py",
+      "priority_band": "should_refactor",
+      "priority_score": 66.0,
+      "reason_codes": [
+        "critical_token_cost"
+      ]
+    },
+    {
+      "context_band": "healthy",
+      "path": "src/git_slop/reporting.py",
+      "priority_band": "needs_refactor",
+      "priority_score": 59.0,
+      "reason_codes": [
+        "high_revision_frequency"
+      ]
+    },
+    {
+      "context_band": "healthy",
+      "path": "src/git_slop/history.py",
+      "priority_band": "watchlist",
+      "priority_score": 46.7,
+      "reason_codes": [
+        "high_revision_frequency"
+      ]
+    },
+    {
+      "context_band": "compact",
+      "path": "src/git_slop/__init__.py",
+      "priority_band": "watchlist",
+      "priority_score": 18.1,
+      "reason_codes": [
+        "high_revision_frequency"
+      ]
+    },
+    {
+      "context_band": "compact",
+      "path": "src/git_slop/cli.py",
+      "priority_band": "watchlist",
+      "priority_score": 14.2,
+      "reason_codes": [
+        "high_relative_churn"
+      ]
+    }
+  ],
+  "clusters": {
+    "analysis_status": "experimental",
+    "analysis_version": 1,
+    "boundary_leakage_clusters": [
+      {
+        "candidate_type": "extract_boundary",
+        "evidence_score": 143.326,
+        "id": "boundary_leakage_cluster-e509eb2f17d5",
+        "kind": "boundary_leakage_cluster",
+        "member_count": 7,
+        "member_paths": [
+          "README.md",
+          "docs/architecture.md",
+          "docs/engineering/organization-health-validation.md",
+          "docs/roadmap.md",
+          "docs/scoring-model.md",
+          "docs/vision.md",
+          "src/git_slop/history.py"
+        ],
+        "source_relationship_ids": [
+          "boundary_leakage_edge-ae64a36a5266",
+          "boundary_leakage_edge-b87172edccae",
+          "boundary_leakage_edge-cbe525682c58",
+          "boundary_leakage_edge-e6febfcaf40a",
+          "boundary_leakage_edge-fc5b03ae286e",
+          "boundary_leakage_edge-fec18ba20060"
+        ],
+        "top_level_roots": [
+          "README.md",
+          "docs",
+          "src"
+        ]
+      },
+      {
+        "candidate_type": "extract_boundary",
+        "evidence_score": 11.753,
+        "id": "boundary_leakage_cluster-cedd37539fe8",
+        "kind": "boundary_leakage_cluster",
+        "member_count": 3,
+        "member_paths": [
+          "src/git_slop/git.py",
+          "tests/test_agent_tools_integration.py",
+          "tests/test_cli_smoke.py"
+        ],
+        "source_relationship_ids": [
+          "boundary_leakage_edge-2c0ef3c299d7",
+          "boundary_leakage_edge-64dba92ceed3"
+        ],
+        "top_level_roots": [
+          "src",
+          "tests"
+        ]
+      }
+    ],
+    "consolidation_candidates": [
+      {
+        "candidate_type": "reduce_scattered_concept",
+        "evidence_score": 301.524,
+        "id": "scattered_concept-c1c73fb5da90",
+        "kind": "consolidation_candidate",
+        "member_count": 8,
+        "member_paths": [
+          "README.md",
+          "docs/architecture.md",
+          "docs/engineering/broader-adoption-readiness.md",
+          "docs/engineering/organization-health-validation.md",
+          "docs/roadmap.md",
+          "docs/scoring-model.md",
+          "docs/vision.md",
+          "src/git_slop/history.py"
+        ],
+        "source_relationship_ids": [
+          "lexical_affinity_edge-370c758009aa",
+          "lexical_affinity_edge-4a3ea9c1ac76",
+          "lexical_affinity_edge-4f2b6d62a64d",
+          "lexical_affinity_edge-672f7a47214a",
+          "lexical_affinity_edge-6cb397e4d6f8",
+          "lexical_affinity_edge-826ab9857df1",
+          "lexical_affinity_edge-886f7a78c256",
+          "lexical_affinity_edge-94048950215c",
+          "lexical_affinity_edge-a53def8846b2",
+          "lexical_affinity_edge-b7bbca30c4d2",
+          "lexical_affinity_edge-cec2bb72a8d3",
+          "lexical_affinity_edge-db55e4f6cc14",
+          "lexical_affinity_edge-e7c708381402",
+          "lexical_affinity_edge-f5f7255c5359",
+          "temporal_coupling_edge-0a6fe599ed39",
+          "temporal_coupling_edge-65471a7a1195"
+        ],
+        "top_level_roots": [
+          "README.md",
+          "docs",
+          "src"
+        ]
+      },
+      {
+        "candidate_type": "reduce_scattered_concept",
+        "evidence_score": 185.562,
+        "id": "scattered_concept-64dcda20d417",
+        "kind": "consolidation_candidate",
+        "member_count": 10,
+        "member_paths": [
+          "src/git_slop/git.py",
+          "src/git_slop/inventory.py",
+          "tests/test_agent_tools_integration.py",
+          "tests/test_cli_smoke.py",
+          "tests/test_detector_integration.py",
+          "tests/unit/agent_tools/test_backlog_deltas.py",
+          "tests/unit/agent_tools/test_governance_config.py",
+          "tests/unit/agent_tools/test_issue_forms.py",
+          "tests/unit/agent_tools/test_research_digest.py",
+          "tests/unit/agent_tools/test_skill_runtime_and_metadata.py"
+        ],
+        "source_relationship_ids": [
+          "lexical_affinity_edge-047b27f0fa17",
+          "lexical_affinity_edge-0eca8b04c029",
+          "lexical_affinity_edge-198cebbae987",
+          "lexical_affinity_edge-1a326dc121b3",
+          "lexical_affinity_edge-1dd87692e031",
+          "lexical_affinity_edge-2a9c845624e3",
+          "lexical_affinity_edge-30f54593785e",
+          "lexical_affinity_edge-33f1a38d8b7c",
+          "lexical_affinity_edge-50c351a82bb7",
+          "lexical_affinity_edge-52aa3fe66d56",
+          "lexical_affinity_edge-5bd62e6d1967",
+          "lexical_affinity_edge-602c2366fcfa",
+          "lexical_affinity_edge-6dc97d6fec8a",
+          "lexical_affinity_edge-7cc3d061147f",
+          "lexical_affinity_edge-81c1d659ab35",
+          "lexical_affinity_edge-af9a9f48473c",
+          "lexical_affinity_edge-bb15e8035fa1",
+          "lexical_affinity_edge-bdf352e7108f",
+          "lexical_affinity_edge-c1d3ee9b0079",
+          "lexical_affinity_edge-cd5408c46e12",
+          "lexical_affinity_edge-cee469f266c4",
+          "lexical_affinity_edge-d219f8ad9a7e",
+          "lexical_affinity_edge-e21532496983",
+          "lexical_affinity_edge-ee9e01d0bc6e",
+          "lexical_affinity_edge-f99df798449c"
+        ],
+        "top_level_roots": [
+          "src",
+          "tests"
+        ]
+      },
+      {
+        "candidate_type": "extract_boundary",
+        "evidence_score": 143.326,
+        "id": "boundary_leakage_cluster-e509eb2f17d5",
+        "kind": "consolidation_candidate",
+        "member_count": 7,
+        "member_paths": [
+          "README.md",
+          "docs/architecture.md",
+          "docs/engineering/organization-health-validation.md",
+          "docs/roadmap.md",
+          "docs/scoring-model.md",
+          "docs/vision.md",
+          "src/git_slop/history.py"
+        ],
+        "source_relationship_ids": [
+          "boundary_leakage_edge-ae64a36a5266",
+          "boundary_leakage_edge-b87172edccae",
+          "boundary_leakage_edge-cbe525682c58",
+          "boundary_leakage_edge-e6febfcaf40a",
+          "boundary_leakage_edge-fc5b03ae286e",
+          "boundary_leakage_edge-fec18ba20060"
+        ],
+        "top_level_roots": [
+          "README.md",
+          "docs",
+          "src"
+        ]
+      },
+      {
+        "candidate_type": "extract_boundary",
+        "evidence_score": 11.753,
+        "id": "boundary_leakage_cluster-cedd37539fe8",
+        "kind": "consolidation_candidate",
+        "member_count": 3,
+        "member_paths": [
+          "src/git_slop/git.py",
+          "tests/test_agent_tools_integration.py",
+          "tests/test_cli_smoke.py"
+        ],
+        "source_relationship_ids": [
+          "boundary_leakage_edge-2c0ef3c299d7",
+          "boundary_leakage_edge-64dba92ceed3"
+        ],
+        "top_level_roots": [
+          "src",
+          "tests"
+        ]
+      }
+    ],
+    "duplicate_sets": [],
+    "scattered_concepts": [
+      {
+        "candidate_type": "reduce_scattered_concept",
+        "evidence_score": 301.524,
+        "id": "scattered_concept-c1c73fb5da90",
+        "kind": "scattered_concept",
+        "member_count": 8,
+        "member_paths": [
+          "README.md",
+          "docs/architecture.md",
+          "docs/engineering/broader-adoption-readiness.md",
+          "docs/engineering/organization-health-validation.md",
+          "docs/roadmap.md",
+          "docs/scoring-model.md",
+          "docs/vision.md",
+          "src/git_slop/history.py"
+        ],
+        "source_relationship_ids": [
+          "lexical_affinity_edge-370c758009aa",
+          "lexical_affinity_edge-4a3ea9c1ac76",
+          "lexical_affinity_edge-4f2b6d62a64d",
+          "lexical_affinity_edge-672f7a47214a",
+          "lexical_affinity_edge-6cb397e4d6f8",
+          "lexical_affinity_edge-826ab9857df1",
+          "lexical_affinity_edge-886f7a78c256",
+          "lexical_affinity_edge-94048950215c",
+          "lexical_affinity_edge-a53def8846b2",
+          "lexical_affinity_edge-b7bbca30c4d2",
+          "lexical_affinity_edge-cec2bb72a8d3",
+          "lexical_affinity_edge-db55e4f6cc14",
+          "lexical_affinity_edge-e7c708381402",
+          "lexical_affinity_edge-f5f7255c5359",
+          "temporal_coupling_edge-0a6fe599ed39",
+          "temporal_coupling_edge-65471a7a1195"
+        ],
+        "top_level_roots": [
+          "README.md",
+          "docs",
+          "src"
+        ]
+      },
+      {
+        "candidate_type": "reduce_scattered_concept",
+        "evidence_score": 185.562,
+        "id": "scattered_concept-64dcda20d417",
+        "kind": "scattered_concept",
+        "member_count": 10,
+        "member_paths": [
+          "src/git_slop/git.py",
+          "src/git_slop/inventory.py",
+          "tests/test_agent_tools_integration.py",
+          "tests/test_cli_smoke.py",
+          "tests/test_detector_integration.py",
+          "tests/unit/agent_tools/test_backlog_deltas.py",
+          "tests/unit/agent_tools/test_governance_config.py",
+          "tests/unit/agent_tools/test_issue_forms.py",
+          "tests/unit/agent_tools/test_research_digest.py",
+          "tests/unit/agent_tools/test_skill_runtime_and_metadata.py"
+        ],
+        "source_relationship_ids": [
+          "lexical_affinity_edge-047b27f0fa17",
+          "lexical_affinity_edge-0eca8b04c029",
+          "lexical_affinity_edge-198cebbae987",
+          "lexical_affinity_edge-1a326dc121b3",
+          "lexical_affinity_edge-1dd87692e031",
+          "lexical_affinity_edge-2a9c845624e3",
+          "lexical_affinity_edge-30f54593785e",
+          "lexical_affinity_edge-33f1a38d8b7c",
+          "lexical_affinity_edge-50c351a82bb7",
+          "lexical_affinity_edge-52aa3fe66d56",
+          "lexical_affinity_edge-5bd62e6d1967",
+          "lexical_affinity_edge-602c2366fcfa",
+          "lexical_affinity_edge-6dc97d6fec8a",
+          "lexical_affinity_edge-7cc3d061147f",
+          "lexical_affinity_edge-81c1d659ab35",
+          "lexical_affinity_edge-af9a9f48473c",
+          "lexical_affinity_edge-bb15e8035fa1",
+          "lexical_affinity_edge-bdf352e7108f",
+          "lexical_affinity_edge-c1d3ee9b0079",
+          "lexical_affinity_edge-cd5408c46e12",
+          "lexical_affinity_edge-cee469f266c4",
+          "lexical_affinity_edge-d219f8ad9a7e",
+          "lexical_affinity_edge-e21532496983",
+          "lexical_affinity_edge-ee9e01d0bc6e",
+          "lexical_affinity_edge-f99df798449c"
+        ],
+        "top_level_roots": [
+          "src",
+          "tests"
+        ]
+      }
+    ]
+  },
+  "files": [
+    {
+      "context_band": "critical",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.841101,
+          "cochange_degree": 14,
+          "coordination_pressure": 0.576421
+        },
+        "load": {
+          "file_token_count": 10549,
+          "folder_token_count": 24674,
+          "load_pressure": 1.0
+        },
+        "volatility": {
+          "commit_count_window": 1,
+          "relative_token_churn": 1.0,
+          "volatility_pressure": 0.3
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.406874,
+          "cochange_degree": 14,
+          "cross_folder_coupling": 0.571429
+        },
+        "navigation": {
+          "navigation_pressure": 0.418039,
+          "path_depth": 2,
+          "search_ambiguity": 0.292157
+        },
+        "organization_health": {
+          "boundary_pressure": 0.0,
+          "cluster_ids": [],
+          "coupling_pressure": 0.0,
+          "diffusion_pressure": 0.0,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "str",
+            "path",
+            "from",
+            "import"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": true,
+          "test_adjacency_score": 0.0,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "src/git_slop/organization.py",
+      "priority_band": "should_refactor",
+      "priority_score": 66.0,
+      "reason_codes": [
+        "critical_token_cost"
+      ]
+    },
+    {
+      "context_band": "healthy",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.690542,
+          "cochange_degree": 99,
+          "coordination_pressure": 0.813068
+        },
+        "load": {
+          "file_token_count": 7519,
+          "folder_token_count": 24674,
+          "load_pressure": 0.7519
+        },
+        "volatility": {
+          "commit_count_window": 4,
+          "relative_token_churn": 0.62894,
+          "volatility_pressure": 0.694357
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.952685,
+          "cochange_degree": 99,
+          "cross_folder_coupling": 0.868687
+        },
+        "navigation": {
+          "navigation_pressure": 0.454216,
+          "path_depth": 2,
+          "search_ambiguity": 0.356863
+        },
+        "organization_health": {
+          "boundary_pressure": 0.0,
+          "cluster_ids": [],
+          "coupling_pressure": 0.0,
+          "diffusion_pressure": 1.0,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "for",
+            "if",
+            "in",
+            "str"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 0.0,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "src/git_slop/reporting.py",
+      "priority_band": "needs_refactor",
+      "priority_score": 59.0,
+      "reason_codes": [
+        "high_revision_frequency"
+      ]
+    },
+    {
+      "context_band": "healthy",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.770105,
+          "cochange_degree": 99,
+          "coordination_pressure": 0.852849
+        },
+        "load": {
+          "file_token_count": 4858,
+          "folder_token_count": 24674,
+          "load_pressure": 0.4858
+        },
+        "volatility": {
+          "commit_count_window": 4,
+          "relative_token_churn": 1.862701,
+          "volatility_pressure": 0.879398
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.952685,
+          "cochange_degree": 99,
+          "cross_folder_coupling": 0.868687
+        },
+        "navigation": {
+          "navigation_pressure": 0.421275,
+          "path_depth": 2,
+          "search_ambiguity": 0.278431
+        },
+        "organization_health": {
+          "boundary_pressure": 0.5,
+          "cluster_ids": [
+            "boundary_leakage_cluster-e509eb2f17d5",
+            "scattered_concept-c1c73fb5da90"
+          ],
+          "coupling_pressure": 1.0,
+          "diffusion_pressure": 1.0,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "for",
+            "if",
+            "in",
+            "str",
+            "path"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 0.0,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "src/git_slop/history.py",
+      "priority_band": "watchlist",
+      "priority_score": 46.7,
+      "reason_codes": [
+        "high_revision_frequency"
+      ]
+    },
+    {
+      "context_band": "compact",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.683596,
+          "cochange_degree": 99,
+          "coordination_pressure": 0.809595
+        },
+        "load": {
+          "file_token_count": 56,
+          "folder_token_count": 24674,
+          "load_pressure": 0.0056
+        },
+        "volatility": {
+          "commit_count_window": 6,
+          "relative_token_churn": 1.892857,
+          "volatility_pressure": 0.886364
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.920685,
+          "cochange_degree": 99,
+          "cross_folder_coupling": 0.868687
+        },
+        "navigation": {
+          "navigation_pressure": 0.440392,
+          "path_depth": 2,
+          "search_ambiguity": 0.354902
+        },
+        "organization_health": {
+          "boundary_pressure": 0.0,
+          "cluster_ids": [],
+          "coupling_pressure": 0.0,
+          "diffusion_pressure": 0.0,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "not",
+            "str",
+            "from",
+            "import"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 0.0,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "src/git_slop/__init__.py",
+      "priority_band": "watchlist",
+      "priority_score": 18.1,
+      "reason_codes": [
+        "high_revision_frequency"
+      ]
+    },
+    {
+      "context_band": "compact",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.920551,
+          "cochange_degree": 99,
+          "coordination_pressure": 0.928072
+        },
+        "load": {
+          "file_token_count": 40,
+          "folder_token_count": 24674,
+          "load_pressure": 0.004
+        },
+        "volatility": {
+          "commit_count_window": 2,
+          "relative_token_churn": 21.35,
+          "volatility_pressure": 0.7
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.952685,
+          "cochange_degree": 99,
+          "cross_folder_coupling": 0.868687
+        },
+        "navigation": {
+          "navigation_pressure": 0.461471,
+          "path_depth": 2,
+          "search_ambiguity": 0.372549
+        },
+        "organization_health": {
+          "boundary_pressure": 0.0,
+          "cluster_ids": [],
+          "coupling_pressure": 0.0,
+          "diffusion_pressure": 0.0,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "str",
+            "from",
+            "git",
+            "import"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 0.0,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "src/git_slop/cli.py",
+      "priority_band": "watchlist",
+      "priority_score": 14.2,
+      "reason_codes": [
+        "high_relative_churn"
+      ]
+    },
+    {
+      "context_band": "compact",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.920551,
+          "cochange_degree": 99,
+          "coordination_pressure": 0.928072
+        },
+        "load": {
+          "file_token_count": 511,
+          "folder_token_count": 24674,
+          "load_pressure": 0.0511
+        },
+        "volatility": {
+          "commit_count_window": 2,
+          "relative_token_churn": 1.0,
+          "volatility_pressure": 0.45
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.952685,
+          "cochange_degree": 99,
+          "cross_folder_coupling": 0.868687
+        },
+        "navigation": {
+          "navigation_pressure": 0.446569,
+          "path_depth": 2,
+          "search_ambiguity": 0.352941
+        },
+        "organization_health": {
+          "boundary_pressure": 1.0,
+          "cluster_ids": [
+            "boundary_leakage_cluster-cedd37539fe8",
+            "scattered_concept-64dcda20d417"
+          ],
+          "coupling_pressure": 0.0,
+          "diffusion_pressure": 1.0,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "if",
+            "str",
+            "path",
+            "repo_root"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 0.0,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "src/git_slop/git.py",
+      "priority_band": "watchlist",
+      "priority_score": 12.1,
+      "reason_codes": []
+    },
+    {
+      "context_band": "compact",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 1.0,
+          "cochange_degree": 98,
+          "coordination_pressure": 0.966599
+        },
+        "load": {
+          "file_token_count": 426,
+          "folder_token_count": 24674,
+          "load_pressure": 0.0426
+        },
+        "volatility": {
+          "commit_count_window": 1,
+          "relative_token_churn": 1.0,
+          "volatility_pressure": 0.3
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.951384,
+          "cochange_degree": 98,
+          "cross_folder_coupling": 0.877551
+        },
+        "navigation": {
+          "navigation_pressure": 0.385098,
+          "path_depth": 2,
+          "search_ambiguity": 0.213725
+        },
+        "organization_health": {
+          "boundary_pressure": 0.0,
+          "cluster_ids": [
+            "scattered_concept-64dcda20d417"
+          ],
+          "coupling_pressure": 0.0,
+          "diffusion_pressure": 1.0,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "if",
+            "str"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 0.0,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "src/git_slop/inventory.py",
+      "priority_band": "watchlist",
+      "priority_score": 8.6,
+      "reason_codes": []
+    },
+    {
+      "context_band": "compact",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.683596,
+          "cochange_degree": 99,
+          "coordination_pressure": 0.811615
+        },
+        "load": {
+          "file_token_count": 867,
+          "folder_token_count": 7090,
+          "load_pressure": 0.0867
+        },
+        "volatility": {
+          "commit_count_window": 6,
+          "relative_token_churn": 1.116494,
+          "volatility_pressure": 0.767411
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.923716,
+          "cochange_degree": 99,
+          "cross_folder_coupling": 0.878788
+        },
+        "navigation": {
+          "navigation_pressure": 0.208775,
+          "path_depth": 1,
+          "search_ambiguity": 0.278431
+        },
+        "organization_health": {
+          "boundary_pressure": 0.5,
+          "cluster_ids": [
+            "boundary_leakage_cluster-cedd37539fe8",
+            "scattered_concept-64dcda20d417"
+          ],
+          "coupling_pressure": 0.0,
+          "diffusion_pressure": 1.0,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "in",
+            "str",
+            "true",
+            "repo_root",
+            "import"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 1.0,
+          "test_cochange_ratio": 0.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "tests/test_cli_smoke.py",
+      "priority_band": "watchlist",
+      "priority_score": 20.6,
+      "reason_codes": [
+        "high_revision_frequency"
+      ]
+    },
+    {
+      "context_band": "compact",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 1.0,
+          "cochange_degree": 98,
+          "coordination_pressure": 0.966599
+        },
+        "load": {
+          "file_token_count": 577,
+          "folder_token_count": 7090,
+          "load_pressure": 0.0577
+        },
+        "volatility": {
+          "commit_count_window": 1,
+          "relative_token_churn": 1.0,
+          "volatility_pressure": 0.3
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.951384,
+          "cochange_degree": 98,
+          "cross_folder_coupling": 0.877551
+        },
+        "navigation": {
+          "navigation_pressure": 0.221029,
+          "path_depth": 1,
+          "search_ambiguity": 0.327451
+        },
+        "organization_health": {
+          "boundary_pressure": 0.5,
+          "cluster_ids": [
+            "boundary_leakage_cluster-cedd37539fe8",
+            "scattered_concept-64dcda20d417"
+          ],
+          "coupling_pressure": 0.0,
+          "diffusion_pressure": 1.0,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "in",
+            "str",
+            "from",
+            "repo_root",
+            "import"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 1.0,
+          "test_cochange_ratio": 0.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "tests/test_agent_tools_integration.py",
+      "priority_band": "watchlist",
+      "priority_score": 9.5,
+      "reason_codes": []
+    },
+    {
+      "context_band": "compact",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.829169,
+          "cochange_degree": 99,
+          "coordination_pressure": 0.890462
+        },
+        "load": {
+          "file_token_count": 1101,
+          "folder_token_count": 3292,
+          "load_pressure": 0.1101
+        },
+        "volatility": {
+          "commit_count_window": 3,
+          "relative_token_churn": 0.713896,
+          "volatility_pressure": 0.557143
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.964806,
+          "cochange_degree": 99,
+          "cross_folder_coupling": 0.909091
+        },
+        "navigation": {
+          "navigation_pressure": 0.291225,
+          "path_depth": 1,
+          "search_ambiguity": 0.388235
+        },
+        "organization_health": {
+          "boundary_pressure": 1.0,
+          "cluster_ids": [
+            "boundary_leakage_cluster-e509eb2f17d5",
+            "scattered_concept-c1c73fb5da90"
+          ],
+          "coupling_pressure": 1.0,
+          "diffusion_pressure": 1.0,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "and",
+            "for",
+            "is",
+            "str",
+            "the"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 0.0,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "docs/architecture.md",
+      "priority_band": "watchlist",
+      "priority_score": 17.7,
+      "reason_codes": []
+    }
+  ],
+  "folders": [
+    {
+      "context_band": "critical",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.9105,
+          "cochange_degree": 92.428571,
+          "coordination_pressure": 0.900167
+        },
+        "load": {
+          "file_token_count": 10549,
+          "folder_token_count": 24674,
+          "load_pressure": 1.0
+        },
+        "volatility": {
+          "commit_count_window": 28.0,
+          "relative_token_churn": 5.389214,
+          "volatility_pressure": 0.561712
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.910762,
+          "cochange_degree": 92.428571,
+          "cross_folder_coupling": 0.851886
+        },
+        "navigation": {
+          "navigation_pressure": 0.440854,
+          "path_depth": 2.0,
+          "search_ambiguity": 0.338655
+        },
+        "organization_health": {
+          "boundary_pressure": 0.3,
+          "cluster_ids": [
+            "boundary_leakage_cluster-cedd37539fe8",
+            "boundary_leakage_cluster-e509eb2f17d5",
+            "scattered_concept-64dcda20d417",
+            "scattered_concept-c1c73fb5da90"
+          ],
+          "coupling_pressure": 0.2,
+          "diffusion_pressure": 0.8,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "for",
+            "from",
+            "git",
+            "if",
+            "import",
+            "in",
+            "not",
+            "path",
+            "repo",
+            "repo_root",
+            "str"
+          ],
+          "semantic_drift_pressure": 0.996429
+        },
+        "stewardship": {
+          "author_count_window": 1.0,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": true,
+          "test_adjacency_score": 0.0,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "src/git_slop",
+      "priority_band": "should_refactor",
+      "priority_score": 66.0,
+      "reason_codes": [
+        "critical_token_cost",
+        "high_revision_frequency",
+        "high_relative_churn"
+      ]
+    }
+  ],
+  "overlays": {
+    "organization_health": {
+      "analysis_status": "experimental",
+      "analysis_version": 1,
+      "clusters": {
+        "analysis_status": "experimental",
+        "analysis_version": 1,
+        "boundary_leakage_clusters": [
+          {
+            "candidate_type": "extract_boundary",
+            "evidence_score": 143.326,
+            "id": "boundary_leakage_cluster-e509eb2f17d5",
+            "kind": "boundary_leakage_cluster",
+            "member_count": 7,
+            "member_paths": [
+              "README.md",
+              "docs/architecture.md",
+              "docs/engineering/organization-health-validation.md",
+              "docs/roadmap.md",
+              "docs/scoring-model.md",
+              "docs/vision.md",
+              "src/git_slop/history.py"
+            ],
+            "source_relationship_ids": [
+              "boundary_leakage_edge-ae64a36a5266",
+              "boundary_leakage_edge-b87172edccae",
+              "boundary_leakage_edge-cbe525682c58",
+              "boundary_leakage_edge-e6febfcaf40a",
+              "boundary_leakage_edge-fc5b03ae286e",
+              "boundary_leakage_edge-fec18ba20060"
+            ],
+            "top_level_roots": [
+              "README.md",
+              "docs",
+              "src"
+            ]
+          },
+          {
+            "candidate_type": "extract_boundary",
+            "evidence_score": 11.753,
+            "id": "boundary_leakage_cluster-cedd37539fe8",
+            "kind": "boundary_leakage_cluster",
+            "member_count": 3,
+            "member_paths": [
+              "src/git_slop/git.py",
+              "tests/test_agent_tools_integration.py",
+              "tests/test_cli_smoke.py"
+            ],
+            "source_relationship_ids": [
+              "boundary_leakage_edge-2c0ef3c299d7",
+              "boundary_leakage_edge-64dba92ceed3"
+            ],
+            "top_level_roots": [
+              "src",
+              "tests"
+            ]
+          }
+        ],
+        "consolidation_candidates": [
+          {
+            "candidate_type": "reduce_scattered_concept",
+            "evidence_score": 301.524,
+            "id": "scattered_concept-c1c73fb5da90",
+            "kind": "consolidation_candidate",
+            "member_count": 8,
+            "member_paths": [
+              "README.md",
+              "docs/architecture.md",
+              "docs/engineering/broader-adoption-readiness.md",
+              "docs/engineering/organization-health-validation.md",
+              "docs/roadmap.md",
+              "docs/scoring-model.md",
+              "docs/vision.md",
+              "src/git_slop/history.py"
+            ],
+            "source_relationship_ids": [
+              "lexical_affinity_edge-370c758009aa",
+              "lexical_affinity_edge-4a3ea9c1ac76",
+              "lexical_affinity_edge-4f2b6d62a64d",
+              "lexical_affinity_edge-672f7a47214a",
+              "lexical_affinity_edge-6cb397e4d6f8",
+              "lexical_affinity_edge-826ab9857df1",
+              "lexical_affinity_edge-886f7a78c256",
+              "lexical_affinity_edge-94048950215c",
+              "lexical_affinity_edge-a53def8846b2",
+              "lexical_affinity_edge-b7bbca30c4d2",
+              "lexical_affinity_edge-cec2bb72a8d3",
+              "lexical_affinity_edge-db55e4f6cc14",
+              "lexical_affinity_edge-e7c708381402",
+              "lexical_affinity_edge-f5f7255c5359",
+              "temporal_coupling_edge-0a6fe599ed39",
+              "temporal_coupling_edge-65471a7a1195"
+            ],
+            "top_level_roots": [
+              "README.md",
+              "docs",
+              "src"
+            ]
+          },
+          {
+            "candidate_type": "reduce_scattered_concept",
+            "evidence_score": 185.562,
+            "id": "scattered_concept-64dcda20d417",
+            "kind": "consolidation_candidate",
+            "member_count": 10,
+            "member_paths": [
+              "src/git_slop/git.py",
+              "src/git_slop/inventory.py",
+              "tests/test_agent_tools_integration.py",
+              "tests/test_cli_smoke.py",
+              "tests/test_detector_integration.py",
+              "tests/unit/agent_tools/test_backlog_deltas.py",
+              "tests/unit/agent_tools/test_governance_config.py",
+              "tests/unit/agent_tools/test_issue_forms.py",
+              "tests/unit/agent_tools/test_research_digest.py",
+              "tests/unit/agent_tools/test_skill_runtime_and_metadata.py"
+            ],
+            "source_relationship_ids": [
+              "lexical_affinity_edge-047b27f0fa17",
+              "lexical_affinity_edge-0eca8b04c029",
+              "lexical_affinity_edge-198cebbae987",
+              "lexical_affinity_edge-1a326dc121b3",
+              "lexical_affinity_edge-1dd87692e031",
+              "lexical_affinity_edge-2a9c845624e3",
+              "lexical_affinity_edge-30f54593785e",
+              "lexical_affinity_edge-33f1a38d8b7c",
+              "lexical_affinity_edge-50c351a82bb7",
+              "lexical_affinity_edge-52aa3fe66d56",
+              "lexical_affinity_edge-5bd62e6d1967",
+              "lexical_affinity_edge-602c2366fcfa",
+              "lexical_affinity_edge-6dc97d6fec8a",
+              "lexical_affinity_edge-7cc3d061147f",
+              "lexical_affinity_edge-81c1d659ab35",
+              "lexical_affinity_edge-af9a9f48473c",
+              "lexical_affinity_edge-bb15e8035fa1",
+              "lexical_affinity_edge-bdf352e7108f",
+              "lexical_affinity_edge-c1d3ee9b0079",
+              "lexical_affinity_edge-cd5408c46e12",
+              "lexical_affinity_edge-cee469f266c4",
+              "lexical_affinity_edge-d219f8ad9a7e",
+              "lexical_affinity_edge-e21532496983",
+              "lexical_affinity_edge-ee9e01d0bc6e",
+              "lexical_affinity_edge-f99df798449c"
+            ],
+            "top_level_roots": [
+              "src",
+              "tests"
+            ]
+          },
+          {
+            "candidate_type": "extract_boundary",
+            "evidence_score": 143.326,
+            "id": "boundary_leakage_cluster-e509eb2f17d5",
+            "kind": "consolidation_candidate",
+            "member_count": 7,
+            "member_paths": [
+              "README.md",
+              "docs/architecture.md",
+              "docs/engineering/organization-health-validation.md",
+              "docs/roadmap.md",
+              "docs/scoring-model.md",
+              "docs/vision.md",
+              "src/git_slop/history.py"
+            ],
+            "source_relationship_ids": [
+              "boundary_leakage_edge-ae64a36a5266",
+              "boundary_leakage_edge-b87172edccae",
+              "boundary_leakage_edge-cbe525682c58",
+              "boundary_leakage_edge-e6febfcaf40a",
+              "boundary_leakage_edge-fc5b03ae286e",
+              "boundary_leakage_edge-fec18ba20060"
+            ],
+            "top_level_roots": [
+              "README.md",
+              "docs",
+              "src"
+            ]
+          },
+          {
+            "candidate_type": "extract_boundary",
+            "evidence_score": 11.753,
+            "id": "boundary_leakage_cluster-cedd37539fe8",
+            "kind": "consolidation_candidate",
+            "member_count": 3,
+            "member_paths": [
+              "src/git_slop/git.py",
+              "tests/test_agent_tools_integration.py",
+              "tests/test_cli_smoke.py"
+            ],
+            "source_relationship_ids": [
+              "boundary_leakage_edge-2c0ef3c299d7",
+              "boundary_leakage_edge-64dba92ceed3"
+            ],
+            "top_level_roots": [
+              "src",
+              "tests"
+            ]
+          }
+        ],
+        "duplicate_sets": [],
+        "scattered_concepts": [
+          {
+            "candidate_type": "reduce_scattered_concept",
+            "evidence_score": 301.524,
+            "id": "scattered_concept-c1c73fb5da90",
+            "kind": "scattered_concept",
+            "member_count": 8,
+            "member_paths": [
+              "README.md",
+              "docs/architecture.md",
+              "docs/engineering/broader-adoption-readiness.md",
+              "docs/engineering/organization-health-validation.md",
+              "docs/roadmap.md",
+              "docs/scoring-model.md",
+              "docs/vision.md",
+              "src/git_slop/history.py"
+            ],
+            "source_relationship_ids": [
+              "lexical_affinity_edge-370c758009aa",
+              "lexical_affinity_edge-4a3ea9c1ac76",
+              "lexical_affinity_edge-4f2b6d62a64d",
+              "lexical_affinity_edge-672f7a47214a",
+              "lexical_affinity_edge-6cb397e4d6f8",
+              "lexical_affinity_edge-826ab9857df1",
+              "lexical_affinity_edge-886f7a78c256",
+              "lexical_affinity_edge-94048950215c",
+              "lexical_affinity_edge-a53def8846b2",
+              "lexical_affinity_edge-b7bbca30c4d2",
+              "lexical_affinity_edge-cec2bb72a8d3",
+              "lexical_affinity_edge-db55e4f6cc14",
+              "lexical_affinity_edge-e7c708381402",
+              "lexical_affinity_edge-f5f7255c5359",
+              "temporal_coupling_edge-0a6fe599ed39",
+              "temporal_coupling_edge-65471a7a1195"
+            ],
+            "top_level_roots": [
+              "README.md",
+              "docs",
+              "src"
+            ]
+          },
+          {
+            "candidate_type": "reduce_scattered_concept",
+            "evidence_score": 185.562,
+            "id": "scattered_concept-64dcda20d417",
+            "kind": "scattered_concept",
+            "member_count": 10,
+            "member_paths": [
+              "src/git_slop/git.py",
+              "src/git_slop/inventory.py",
+              "tests/test_agent_tools_integration.py",
+              "tests/test_cli_smoke.py",
+              "tests/test_detector_integration.py",
+              "tests/unit/agent_tools/test_backlog_deltas.py",
+              "tests/unit/agent_tools/test_governance_config.py",
+              "tests/unit/agent_tools/test_issue_forms.py",
+              "tests/unit/agent_tools/test_research_digest.py",
+              "tests/unit/agent_tools/test_skill_runtime_and_metadata.py"
+            ],
+            "source_relationship_ids": [
+              "lexical_affinity_edge-047b27f0fa17",
+              "lexical_affinity_edge-0eca8b04c029",
+              "lexical_affinity_edge-198cebbae987",
+              "lexical_affinity_edge-1a326dc121b3",
+              "lexical_affinity_edge-1dd87692e031",
+              "lexical_affinity_edge-2a9c845624e3",
+              "lexical_affinity_edge-30f54593785e",
+              "lexical_affinity_edge-33f1a38d8b7c",
+              "lexical_affinity_edge-50c351a82bb7",
+              "lexical_affinity_edge-52aa3fe66d56",
+              "lexical_affinity_edge-5bd62e6d1967",
+              "lexical_affinity_edge-602c2366fcfa",
+              "lexical_affinity_edge-6dc97d6fec8a",
+              "lexical_affinity_edge-7cc3d061147f",
+              "lexical_affinity_edge-81c1d659ab35",
+              "lexical_affinity_edge-af9a9f48473c",
+              "lexical_affinity_edge-bb15e8035fa1",
+              "lexical_affinity_edge-bdf352e7108f",
+              "lexical_affinity_edge-c1d3ee9b0079",
+              "lexical_affinity_edge-cd5408c46e12",
+              "lexical_affinity_edge-cee469f266c4",
+              "lexical_affinity_edge-d219f8ad9a7e",
+              "lexical_affinity_edge-e21532496983",
+              "lexical_affinity_edge-ee9e01d0bc6e",
+              "lexical_affinity_edge-f99df798449c"
+            ],
+            "top_level_roots": [
+              "src",
+              "tests"
+            ]
+          }
+        ]
+      },
+      "relationships": {
+        "analysis_status": "experimental",
+        "analysis_version": 1,
+        "boundary_leakage_edges": [
+          {
+            "crosses_top_level_boundary": true,
+            "evidence_score": 7.5,
+            "id": "boundary_leakage_edge-b87172edccae",
+            "kind": "boundary_leakage_edge",
+            "source_path": "docs/architecture.md",
+            "target_path": "src/git_slop/history.py"
+          },
+          {
+            "crosses_top_level_boundary": true,
+            "evidence_score": 6.804,
+            "id": "boundary_leakage_edge-2c0ef3c299d7",
+            "kind": "boundary_leakage_edge",
+            "source_path": "src/git_slop/git.py",
+            "target_path": "tests/test_cli_smoke.py"
+          },
+          {
+            "crosses_top_level_boundary": true,
+            "evidence_score": 4.949,
+            "id": "boundary_leakage_edge-64dba92ceed3",
+            "kind": "boundary_leakage_edge",
+            "source_path": "src/git_slop/git.py",
+            "target_path": "tests/test_agent_tools_integration.py"
+          }
+        ],
+        "duplicate_neighborhoods": [],
+        "lexical_affinity_edges": [
+          {
+            "crosses_top_level_boundary": true,
+            "evidence_score": 6.804,
+            "id": "lexical_affinity_edge-1a326dc121b3",
+            "kind": "lexical_affinity_edge",
+            "similarity_ratio": 0.238636,
+            "source_path": "src/git_slop/git.py",
+            "target_path": "tests/test_cli_smoke.py"
+          },
+          {
+            "crosses_top_level_boundary": true,
+            "evidence_score": 4.949,
+            "id": "lexical_affinity_edge-cee469f266c4",
+            "kind": "lexical_affinity_edge",
+            "similarity_ratio": 0.181818,
+            "source_path": "src/git_slop/git.py",
+            "target_path": "tests/test_agent_tools_integration.py"
+          },
+          {
+            "crosses_top_level_boundary": false,
+            "evidence_score": 4.339,
+            "id": "lexical_affinity_edge-af9a9f48473c",
+            "kind": "lexical_affinity_edge",
+            "similarity_ratio": 0.191781,
+            "source_path": "src/git_slop/git.py",
+            "target_path": "src/git_slop/inventory.py"
+          }
+        ],
+        "near_duplicate_neighborhoods": [],
+        "temporal_coupling_edges": [
+          {
+            "crosses_top_level_boundary": true,
+            "evidence_score": 7.5,
+            "id": "temporal_coupling_edge-65471a7a1195",
+            "kind": "temporal_coupling_edge",
+            "source_path": "docs/architecture.md",
+            "support_count": 3,
+            "target_path": "src/git_slop/history.py"
+          }
+        ]
+      }
+    }
+  },
+  "relationships": {
+    "analysis_status": "experimental",
+    "analysis_version": 1,
+    "boundary_leakage_edges": [
+      {
+        "crosses_top_level_boundary": true,
+        "evidence_score": 7.5,
+        "id": "boundary_leakage_edge-b87172edccae",
+        "kind": "boundary_leakage_edge",
+        "source_path": "docs/architecture.md",
+        "target_path": "src/git_slop/history.py"
+      },
+      {
+        "crosses_top_level_boundary": true,
+        "evidence_score": 6.804,
+        "id": "boundary_leakage_edge-2c0ef3c299d7",
+        "kind": "boundary_leakage_edge",
+        "source_path": "src/git_slop/git.py",
+        "target_path": "tests/test_cli_smoke.py"
+      },
+      {
+        "crosses_top_level_boundary": true,
+        "evidence_score": 4.949,
+        "id": "boundary_leakage_edge-64dba92ceed3",
+        "kind": "boundary_leakage_edge",
+        "source_path": "src/git_slop/git.py",
+        "target_path": "tests/test_agent_tools_integration.py"
+      }
+    ],
+    "duplicate_neighborhoods": [],
+    "lexical_affinity_edges": [
+      {
+        "crosses_top_level_boundary": true,
+        "evidence_score": 6.804,
+        "id": "lexical_affinity_edge-1a326dc121b3",
+        "kind": "lexical_affinity_edge",
+        "similarity_ratio": 0.238636,
+        "source_path": "src/git_slop/git.py",
+        "target_path": "tests/test_cli_smoke.py"
+      },
+      {
+        "crosses_top_level_boundary": true,
+        "evidence_score": 4.949,
+        "id": "lexical_affinity_edge-cee469f266c4",
+        "kind": "lexical_affinity_edge",
+        "similarity_ratio": 0.181818,
+        "source_path": "src/git_slop/git.py",
+        "target_path": "tests/test_agent_tools_integration.py"
+      },
+      {
+        "crosses_top_level_boundary": false,
+        "evidence_score": 4.339,
+        "id": "lexical_affinity_edge-af9a9f48473c",
+        "kind": "lexical_affinity_edge",
+        "similarity_ratio": 0.191781,
+        "source_path": "src/git_slop/git.py",
+        "target_path": "src/git_slop/inventory.py"
+      }
+    ],
+    "near_duplicate_neighborhoods": [],
+    "temporal_coupling_edges": [
+      {
+        "crosses_top_level_boundary": true,
+        "evidence_score": 7.5,
+        "id": "temporal_coupling_edge-65471a7a1195",
+        "kind": "temporal_coupling_edge",
+        "source_path": "docs/architecture.md",
+        "support_count": 3,
+        "target_path": "src/git_slop/history.py"
+      }
+    ]
+  },
+  "repo": {
+    "repo_name": "git-slop"
+  },
+  "schema_version": 3
+}

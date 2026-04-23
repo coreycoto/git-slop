@@ -1,0 +1,464 @@
+{
+  "action_queue": [
+    {
+      "context_band": "healthy",
+      "path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py",
+      "priority_band": "needs_refactor",
+      "priority_score": 54.2,
+      "reason_codes": []
+    },
+    {
+      "context_band": "healthy",
+      "path": "tests/unit/deeptravel_maintainers/github/reviews/test_apply_review_backlog_delta.py",
+      "priority_band": "needs_refactor",
+      "priority_score": 50.9,
+      "reason_codes": []
+    },
+    {
+      "context_band": "healthy",
+      "path": "schemas/shared.schema.json",
+      "priority_band": "needs_refactor",
+      "priority_score": 50.8,
+      "reason_codes": [
+        "high_revision_frequency"
+      ]
+    },
+    {
+      "context_band": "healthy",
+      "path": "tests/unit/deeptravel_maintainers/testing/test_slow_test_audit_validation.py",
+      "priority_band": "needs_refactor",
+      "priority_score": 50.7,
+      "reason_codes": [
+        "high_revision_frequency",
+        "high_relative_churn"
+      ]
+    },
+    {
+      "context_band": "healthy",
+      "path": "tests/unit/deeptravel/cli/test_doctor.py",
+      "priority_band": "needs_refactor",
+      "priority_score": 50.1,
+      "reason_codes": [
+        "high_revision_frequency",
+        "high_relative_churn"
+      ]
+    }
+  ],
+  "clusters": {
+    "analysis_status": "experimental",
+    "analysis_version": 1,
+    "boundary_leakage_clusters": [],
+    "consolidation_candidates": [],
+    "duplicate_sets": [],
+    "scattered_concepts": []
+  },
+  "files": [
+    {
+      "context_band": "healthy",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.925803,
+          "cochange_degree": 463,
+          "coordination_pressure": 0.710196
+        },
+        "load": {
+          "file_token_count": 7895,
+          "folder_token_count": 52182,
+          "load_pressure": 0.7895
+        },
+        "volatility": {
+          "commit_count_window": 4,
+          "relative_token_churn": 1.022039,
+          "volatility_pressure": 0.241304
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.651036,
+          "cochange_degree": 463,
+          "cross_folder_coupling": 0.639309
+        },
+        "navigation": {
+          "navigation_pressure": 0.601063,
+          "path_depth": 5,
+          "search_ambiguity": 0.360653
+        },
+        "organization_health": {
+          "boundary_pressure": 0.058824,
+          "cluster_ids": [],
+          "coupling_pressure": 0.059005,
+          "diffusion_pressure": 0.222222,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "assert",
+            "none",
+            "true",
+            "str",
+            "false"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 1.0,
+          "test_cochange_ratio": 0.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py",
+      "priority_band": "needs_refactor",
+      "priority_score": 54.2,
+      "reason_codes": []
+    },
+    {
+      "context_band": "healthy",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.895794,
+          "cochange_degree": 478,
+          "coordination_pressure": 0.700487
+        },
+        "load": {
+          "file_token_count": 6378,
+          "folder_token_count": 13723,
+          "load_pressure": 0.6378
+        },
+        "volatility": {
+          "commit_count_window": 12,
+          "relative_token_churn": 1.190185,
+          "volatility_pressure": 0.501243
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.658335,
+          "cochange_degree": 478,
+          "cross_folder_coupling": 0.646444
+        },
+        "navigation": {
+          "navigation_pressure": 0.357799,
+          "path_depth": 5,
+          "search_ambiguity": 0.347595
+        },
+        "organization_health": {
+          "boundary_pressure": 0.235294,
+          "cluster_ids": [],
+          "coupling_pressure": 0.552628,
+          "diffusion_pressure": 0.777778,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "assert",
+            "none",
+            "str"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 1.0,
+          "test_cochange_ratio": 0.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "tests/unit/deeptravel_maintainers/github/reviews/test_apply_review_backlog_delta.py",
+      "priority_band": "needs_refactor",
+      "priority_score": 50.9,
+      "reason_codes": []
+    },
+    {
+      "context_band": "healthy",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.891448,
+          "cochange_degree": 139,
+          "coordination_pressure": 0.671508
+        },
+        "load": {
+          "file_token_count": 5457,
+          "folder_token_count": 5457,
+          "load_pressure": 0.5457
+        },
+        "volatility": {
+          "commit_count_window": 19,
+          "relative_token_churn": 1.405168,
+          "volatility_pressure": 0.736785
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.628278,
+          "cochange_degree": 139,
+          "cross_folder_coupling": 0.94964
+        },
+        "navigation": {
+          "navigation_pressure": 0.2148,
+          "path_depth": 1,
+          "search_ambiguity": 0.375601
+        },
+        "organization_health": {
+          "boundary_pressure": 1.0,
+          "cluster_ids": [],
+          "coupling_pressure": 0.622607,
+          "diffusion_pressure": 0.333333,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "json",
+            "str",
+            "false"
+          ],
+          "semantic_drift_pressure": 0.993141
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 0.0,
+          "test_cochange_ratio": 0.894737,
+          "verification_gap": 0.053474
+        }
+      },
+      "path": "schemas/shared.schema.json",
+      "priority_band": "needs_refactor",
+      "priority_score": 50.8,
+      "reason_codes": [
+        "high_revision_frequency"
+      ]
+    },
+    {
+      "context_band": "healthy",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.745909,
+          "cochange_degree": 788,
+          "coordination_pressure": 0.677491
+        },
+        "load": {
+          "file_token_count": 4617,
+          "folder_token_count": 46203,
+          "load_pressure": 0.4617
+        },
+        "volatility": {
+          "commit_count_window": 35,
+          "relative_token_churn": 4.111544,
+          "volatility_pressure": 1.0
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.722927,
+          "cochange_degree": 788,
+          "cross_folder_coupling": 0.506345
+        },
+        "navigation": {
+          "navigation_pressure": 0.625651,
+          "path_depth": 4,
+          "search_ambiguity": 0.414605
+        },
+        "organization_health": {
+          "boundary_pressure": 0.5,
+          "cluster_ids": [],
+          "coupling_pressure": 0.273362,
+          "diffusion_pressure": 1.0,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "assert",
+            "none",
+            "pytest",
+            "str",
+            "in"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 1.0,
+          "test_cochange_ratio": 0.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "tests/unit/deeptravel_maintainers/testing/test_slow_test_audit_validation.py",
+      "priority_band": "needs_refactor",
+      "priority_score": 50.7,
+      "reason_codes": [
+        "high_revision_frequency",
+        "high_relative_churn"
+      ]
+    },
+    {
+      "context_band": "healthy",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.88759,
+          "cochange_degree": 518,
+          "coordination_pressure": 0.671237
+        },
+        "load": {
+          "file_token_count": 4582,
+          "folder_token_count": 22646,
+          "load_pressure": 0.4582
+        },
+        "volatility": {
+          "commit_count_window": 23,
+          "relative_token_churn": 3.041903,
+          "volatility_pressure": 0.960928
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.618894,
+          "cochange_degree": 518,
+          "cross_folder_coupling": 0.469112
+        },
+        "navigation": {
+          "navigation_pressure": 0.435619,
+          "path_depth": 4,
+          "search_ambiguity": 0.333677
+        },
+        "organization_health": {
+          "boundary_pressure": 0.970588,
+          "cluster_ids": [],
+          "coupling_pressure": 0.896962,
+          "diffusion_pressure": 1.0,
+          "duplication_pressure": 0.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "assert",
+            "str",
+            "in"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 1.0,
+          "test_cochange_ratio": 0.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "tests/unit/deeptravel/cli/test_doctor.py",
+      "priority_band": "needs_refactor",
+      "priority_score": 50.1,
+      "reason_codes": [
+        "high_revision_frequency",
+        "high_relative_churn"
+      ]
+    }
+  ],
+  "folders": [],
+  "overlays": {
+    "organization_health": {
+      "analysis_status": "experimental",
+      "analysis_version": 1,
+      "clusters": {
+        "analysis_status": "experimental",
+        "analysis_version": 1,
+        "boundary_leakage_clusters": [],
+        "consolidation_candidates": [],
+        "duplicate_sets": [],
+        "scattered_concepts": []
+      },
+      "relationships": {
+        "analysis_status": "experimental",
+        "analysis_version": 1,
+        "boundary_leakage_edges": [
+          {
+            "evidence_score": 245.812,
+            "id": "boundary_leakage_edge-4b9731494fde",
+            "kind": "boundary_leakage_edge",
+            "source_path": "src/deeptravel_maintainers/github/governance/apply_backlog_mutations.py",
+            "target_path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py"
+          }
+        ],
+        "duplicate_neighborhoods": [],
+        "lexical_affinity_edges": [
+          {
+            "evidence_score": 20.257,
+            "id": "lexical_affinity_edge-4843bcaf58e4",
+            "kind": "lexical_affinity_edge",
+            "source_path": "src/deeptravel_maintainers/github/governance/backlog_mutations.py",
+            "target_path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py"
+          }
+        ],
+        "near_duplicate_neighborhoods": [],
+        "temporal_coupling_edges": [
+          {
+            "evidence_score": 245.812,
+            "id": "temporal_coupling_edge-4f9b24ae42af",
+            "kind": "temporal_coupling_edge",
+            "source_path": "src/deeptravel_maintainers/github/governance/apply_backlog_mutations.py",
+            "target_path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py"
+          }
+        ]
+      }
+    }
+  },
+  "relationships": {
+    "analysis_status": "experimental",
+    "analysis_version": 1,
+    "boundary_leakage_edges": [
+      {
+        "evidence_score": 245.812,
+        "id": "boundary_leakage_edge-4b9731494fde",
+        "kind": "boundary_leakage_edge",
+        "source_path": "src/deeptravel_maintainers/github/governance/apply_backlog_mutations.py",
+        "target_path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py"
+      }
+    ],
+    "duplicate_neighborhoods": [],
+    "lexical_affinity_edges": [
+      {
+        "evidence_score": 20.257,
+        "id": "lexical_affinity_edge-4843bcaf58e4",
+        "kind": "lexical_affinity_edge",
+        "source_path": "src/deeptravel_maintainers/github/governance/backlog_mutations.py",
+        "target_path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py"
+      }
+    ],
+    "near_duplicate_neighborhoods": [],
+    "temporal_coupling_edges": [
+      {
+        "evidence_score": 245.812,
+        "id": "temporal_coupling_edge-4f9b24ae42af",
+        "kind": "temporal_coupling_edge",
+        "source_path": "src/deeptravel_maintainers/github/governance/apply_backlog_mutations.py",
+        "target_path": "tests/unit/deeptravel_maintainers/github/governance/test_backlog_mutations.py"
+      }
+    ]
+  },
+  "repo": {
+    "repo_name": "deeptravel"
+  },
+  "schema_version": 3
+}

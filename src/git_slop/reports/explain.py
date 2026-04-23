@@ -2,9 +2,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from git_slop.graphs.clusters import CLUSTER_KEYS
-from git_slop.graphs.relationships import RELATIONSHIP_KEYS
-from git_slop.reporting import build_show_payload
+from git_slop.reports.shared import (
+    cluster_by_id,
+    dedupe_by_id,
+    descendant_file_records,
+    descendant_hotspots,
+    descendant_overlay_maxima,
+    iter_clusters,
+    iter_relationships,
+    record_summary,
+    relationship_by_id,
+    resolve_path,
+    strongest_pressures,
+)
 
 EXPLAIN_SCHEMA_VERSION = 1
 BOUNDARY_NOTE = (
@@ -13,163 +23,8 @@ BOUNDARY_NOTE = (
 )
 
 
-def _relationship_sections(report: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    canonical = report.get("overlays", {}).get("organization_health", {}).get("relationships", {})
-    return canonical or report.get("relationships", {})
-
-
-def _cluster_sections(report: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    canonical = report.get("overlays", {}).get("organization_health", {}).get("clusters", {})
-    return canonical or report.get("clusters", {})
-
-
-def _iter_relationships(report: dict[str, Any]) -> list[dict[str, Any]]:
-    sections = _relationship_sections(report)
-    relationships: list[dict[str, Any]] = []
-    for key in RELATIONSHIP_KEYS:
-        relationships.extend(sections.get(key, []))
-    return sorted(relationships, key=lambda item: (-item["evidence_score"], item["id"]))
-
-
-def _iter_clusters(report: dict[str, Any]) -> list[dict[str, Any]]:
-    sections = _cluster_sections(report)
-    clusters: list[dict[str, Any]] = []
-    for key in CLUSTER_KEYS:
-        clusters.extend(sections.get(key, []))
-    return sorted(clusters, key=lambda item: (-item["evidence_score"], item["id"]))
-
-
-def _relationship_by_id(report: dict[str, Any], relationship_id: str) -> dict[str, Any] | None:
-    for relationship in _iter_relationships(report):
-        if relationship["id"] == relationship_id:
-            return relationship
-    return None
-
-
-def _cluster_by_id(report: dict[str, Any], cluster_id: str) -> dict[str, Any] | None:
-    for cluster in _iter_clusters(report):
-        if cluster["id"] == cluster_id:
-            return cluster
-    return None
-
-
-def _resolve_path(report: dict[str, Any], target_path: str) -> dict[str, Any] | None:
-    normalized = target_path.strip() or "."
-    record = build_show_payload(report, normalized)
-    if record is None and normalized != ".":
-        record = build_show_payload(report, normalized.rstrip("/"))
-    return record
-
-
-def _record_summary(record: dict[str, Any] | None) -> dict[str, Any] | None:
-    if record is None:
-        return None
-    summary: dict[str, Any] = {
-        "path": record["path"],
-        "priority_score": record.get("priority_score"),
-        "priority_band": record.get("priority_band"),
-        "context_band": record.get("context_band"),
-        "reason_codes": record.get("reason_codes", []),
-    }
-    if "costs" in record:
-        summary["costs"] = record["costs"]
-    if "overlays" in record:
-        summary["overlays"] = record["overlays"]
-    return summary
-
-
-def _member_overlay_maxima(member_records: list[dict[str, Any]]) -> dict[str, Any]:
-    if not member_records:
-        return {}
-    return {
-        "organization_health": {
-            "duplication_pressure": round(
-                max(
-                    float(record["overlays"]["organization_health"]["duplication_pressure"])
-                    for record in member_records
-                ),
-                6,
-            ),
-            "diffusion_pressure": round(
-                max(
-                    float(record["overlays"]["organization_health"]["diffusion_pressure"])
-                    for record in member_records
-                ),
-                6,
-            ),
-            "coupling_pressure": round(
-                max(
-                    float(record["overlays"]["organization_health"]["coupling_pressure"])
-                    for record in member_records
-                ),
-                6,
-            ),
-            "boundary_pressure": round(
-                max(
-                    float(record["overlays"]["organization_health"]["boundary_pressure"])
-                    for record in member_records
-                ),
-                6,
-            ),
-        },
-        "verification": {
-            "verification_gap": round(
-                max(
-                    float(
-                        record["overlays"]["verification"]["verification_gap"]
-                    )
-                    for record in member_records
-                ),
-                6,
-            ),
-        },
-        "navigation": {
-            "navigation_pressure": round(
-                max(
-                    float(
-                        record["overlays"]["navigation"]["navigation_pressure"]
-                    )
-                    for record in member_records
-                ),
-                6,
-            ),
-        },
-        "blast_radius": {
-            "blast_radius_pressure": round(
-                max(
-                    float(
-                        record["overlays"]["blast_radius"][
-                            "blast_radius_pressure"
-                        ]
-                    )
-                    for record in member_records
-                ),
-                6,
-            ),
-        },
-        "stewardship": {
-            "stewardship_pressure": round(
-                max(
-                    float(
-                        record["overlays"]["stewardship"][
-                            "stewardship_pressure"
-                        ]
-                    )
-                    for record in member_records
-                ),
-                6,
-            ),
-        },
-        "semantic_drift": {
-            "semantic_drift_pressure": round(
-                max(
-                    float(record["overlays"]["semantic_drift"]["semantic_drift_pressure"])
-                    for record in member_records
-                ),
-                6,
-            ),
-        },
-    }
+def _limit_deduped(items: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    return dedupe_by_id(items)[:limit]
 
 
 def _base_payload(
@@ -185,10 +40,29 @@ def _base_payload(
     }
 
 
-def _build_path_payload(report: dict[str, Any], target_path: str) -> dict[str, Any]:
-    record = _resolve_path(report, target_path)
-    if record is None:
-        raise ValueError(f"No record found for '{target_path}'.")
+def _descendant_hotspot_summaries(report: dict[str, Any], folder_path: str) -> list[dict[str, Any]]:
+    hotspots = descendant_hotspots(report, folder_path, limit=5)
+    if hotspots:
+        summaries: list[dict[str, Any]] = []
+        for item in hotspots:
+            record = resolve_path(report, item["path"])
+            if record is not None:
+                summary = record_summary(record)
+                if summary is not None:
+                    summaries.append(summary)
+        return summaries
+    return [
+        record_summary(record)
+        for record in descendant_file_records(report, folder_path)[:5]
+    ]
+
+
+def _build_file_payload(
+    report: dict[str, Any],
+    *,
+    target_path: str,
+    record: dict[str, Any],
+) -> dict[str, Any]:
     payload = _base_payload(
         report,
         selector={"kind": "path", "value": target_path},
@@ -204,19 +78,65 @@ def _build_path_payload(report: dict[str, Any], target_path: str) -> dict[str, A
     )
     payload["cost_summary"] = record.get("costs", {})
     payload["overlay_summary"] = record.get("overlays", {})
-    payload["supporting_relationships"] = record.get("strongest_relationships", [])[:5]
-    payload["supporting_clusters"] = record.get("cluster_memberships", [])[:5]
+    payload["supporting_relationships"] = _limit_deduped(
+        record.get("strongest_relationships", []), limit=5
+    )
+    payload["supporting_clusters"] = _limit_deduped(record.get("cluster_memberships", []), limit=5)
     return payload
 
 
+def _build_folder_payload(
+    report: dict[str, Any],
+    *,
+    target_path: str,
+    record: dict[str, Any],
+) -> dict[str, Any]:
+    descendant_records = descendant_file_records(report, record["path"])
+    payload = _base_payload(
+        report,
+        selector={"kind": "path", "value": target_path},
+        target={
+            "kind": "path",
+            "path": record["path"],
+            "record_type": record["record_type"],
+            "priority_score": record.get("priority_score"),
+            "priority_band": record.get("priority_band"),
+            "context_band": record.get("context_band"),
+            "reason_codes": record.get("reason_codes", []),
+        },
+    )
+    payload["cost_summary"] = {
+        **record.get("costs", {}),
+        "descendant_hotspots": _descendant_hotspot_summaries(report, record["path"]),
+    }
+    payload["overlay_summary"] = {
+        **record.get("overlays", {}),
+        "descendant_overlay_maxima": descendant_overlay_maxima(descendant_records),
+    }
+    payload["supporting_relationships"] = _limit_deduped(
+        record.get("strongest_relationships", []), limit=5
+    )
+    payload["supporting_clusters"] = _limit_deduped(record.get("cluster_memberships", []), limit=5)
+    return payload
+
+
+def _build_path_payload(report: dict[str, Any], target_path: str) -> dict[str, Any]:
+    record = resolve_path(report, target_path)
+    if record is None:
+        raise ValueError(f"No record found for '{target_path}'.")
+    if record["record_type"] == "folder":
+        return _build_folder_payload(report, target_path=target_path, record=record)
+    return _build_file_payload(report, target_path=target_path, record=record)
+
+
 def _build_cluster_payload(report: dict[str, Any], cluster_id: str) -> dict[str, Any]:
-    cluster = _cluster_by_id(report, cluster_id)
+    cluster = cluster_by_id(report, cluster_id)
     if cluster is None:
         raise ValueError(f"No cluster found for '{cluster_id}'.")
     member_records = [
         record
         for record in (
-            _resolve_path(report, member_path) for member_path in cluster["member_paths"]
+            resolve_path(report, member_path) for member_path in cluster["member_paths"]
         )
         if record is not None
     ]
@@ -227,12 +147,15 @@ def _build_cluster_payload(report: dict[str, Any], cluster_id: str) -> dict[str,
             item["path"],
         ),
     )
-    relationship_index = {item["id"]: item for item in _iter_relationships(report)}
-    supporting_relationships = [
-        relationship_index[relationship_id]
-        for relationship_id in cluster.get("source_relationship_ids", [])
-        if relationship_id in relationship_index
-    ][:5]
+    relationship_index = {item["id"]: item for item in iter_relationships(report)}
+    supporting_relationships = _limit_deduped(
+        [
+            relationship_index[relationship_id]
+            for relationship_id in cluster.get("source_relationship_ids", [])
+            if relationship_id in relationship_index
+        ],
+        limit=5,
+    )
     payload = _base_payload(
         report,
         selector={"kind": "cluster", "value": cluster_id},
@@ -247,13 +170,13 @@ def _build_cluster_payload(report: dict[str, Any], cluster_id: str) -> dict[str,
         },
     )
     payload["cost_summary"] = {
-        "member_hotspots": [_record_summary(record) for record in member_records[:5]],
+        "member_hotspots": [record_summary(record) for record in member_records[:5]],
         "member_count": cluster["member_count"],
         "top_level_roots": cluster.get("top_level_roots", []),
     }
     payload["overlay_summary"] = {
         "organization_health": cluster,
-        "member_overlay_maxima": _member_overlay_maxima(member_records),
+        "member_overlay_maxima": descendant_overlay_maxima(member_records),
     }
     payload["supporting_relationships"] = supporting_relationships
     payload["supporting_clusters"] = [cluster]
@@ -261,17 +184,20 @@ def _build_cluster_payload(report: dict[str, Any], cluster_id: str) -> dict[str,
 
 
 def _build_relationship_payload(report: dict[str, Any], relationship_id: str) -> dict[str, Any]:
-    relationship = _relationship_by_id(report, relationship_id)
+    relationship = relationship_by_id(report, relationship_id)
     if relationship is None:
         raise ValueError(f"No relationship found for '{relationship_id}'.")
-    source_record = _resolve_path(report, relationship["source_path"])
-    target_record = _resolve_path(report, relationship["target_path"])
-    shared_clusters = [
-        cluster
-        for cluster in _iter_clusters(report)
-        if relationship["source_path"] in cluster["member_paths"]
-        and relationship["target_path"] in cluster["member_paths"]
-    ][:5]
+    source_record = resolve_path(report, relationship["source_path"])
+    target_record = resolve_path(report, relationship["target_path"])
+    shared_clusters = _limit_deduped(
+        [
+            cluster
+            for cluster in iter_clusters(report)
+            if relationship["source_path"] in cluster["member_paths"]
+            and relationship["target_path"] in cluster["member_paths"]
+        ],
+        limit=5,
+    )
     payload = _base_payload(
         report,
         selector={"kind": "relationship", "value": relationship_id},
@@ -285,8 +211,8 @@ def _build_relationship_payload(report: dict[str, Any], relationship_id: str) ->
         },
     )
     payload["cost_summary"] = {
-        "source": _record_summary(source_record),
-        "target": _record_summary(target_record),
+        "source": record_summary(source_record),
+        "target": record_summary(target_record),
     }
     payload["overlay_summary"] = {
         "organization_health": relationship,
@@ -416,7 +342,7 @@ def _format_cluster_brief(cluster: dict[str, Any]) -> str:
     )
 
 
-def _render_path_entry(payload: dict[str, Any]) -> str:
+def _render_file_entry(payload: dict[str, Any]) -> str:
     target = payload["target"]
     cost_summary = payload.get("cost_summary", {})
     lines = [
@@ -465,20 +391,42 @@ def _render_path_entry(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _render_cluster_entry(payload: dict[str, Any]) -> str:
+def _render_folder_entry(payload: dict[str, Any]) -> str:
     target = payload["target"]
-    member_hotspots = payload.get("cost_summary", {}).get("member_hotspots", [])
-    organization_health = payload["overlay_summary"]["organization_health"]
+    cost_summary = payload.get("cost_summary", {})
+    overlay_summary = payload.get("overlay_summary", {})
+    descendant_hotspots = cost_summary.get("descendant_hotspots", [])[:5]
+    descendant_maxima = overlay_summary.get("descendant_overlay_maxima", {})
     lines = [
-        f"Explain: cluster {target['id']} [{target['cluster_kind']}]",
+        f"Explain: path {target['path']} [{target['record_type']}]",
         "",
         "Hotspot Cost",
         (
-            f"- members={target['member_count']} "
-            f"roots={', '.join(target.get('top_level_roots', [])) or 'none'} "
-            f"candidate_type={target.get('candidate_type') or 'n/a'}"
+            "- priority: "
+            f"{target.get('priority_band')} ({target.get('priority_score')}) "
+            f"context={target.get('context_band')} "
+            f"reasons={_format_reason_codes(target.get('reason_codes', []))}"
         ),
-        "- member hotspots:",
+        (
+            "- load: "
+            f"max_file_tokens={cost_summary.get('load', {}).get('file_token_count', 0)}, "
+            f"folder_tokens={cost_summary.get('load', {}).get('folder_token_count', 0)}, "
+            f"pressure={cost_summary.get('load', {}).get('load_pressure', 0.0):.3f}"
+        ),
+        (
+            "- volatility: "
+            f"commits={cost_summary.get('volatility', {}).get('commit_count_window', 0)}, "
+            f"relative_token_churn="
+            f"{cost_summary.get('volatility', {}).get('relative_token_churn', 0.0):.3f}, "
+            f"pressure={cost_summary.get('volatility', {}).get('volatility_pressure', 0.0):.3f}"
+        ),
+        (
+            "- coordination: "
+            f"diffusion={cost_summary.get('coordination', {}).get('change_diffusion', 0.0):.3f}, "
+            f"degree={cost_summary.get('coordination', {}).get('cochange_degree', 0)}, "
+            f"pressure={cost_summary.get('coordination', {}).get('coordination_pressure', 0.0):.3f}"
+        ),
+        "- descendant hotspots:",
     ]
     lines.extend(
         [
@@ -486,49 +434,33 @@ def _render_cluster_entry(payload: dict[str, Any]) -> str:
                 f"  - {item['path']} priority={item.get('priority_band')} "
                 f"score={item.get('priority_score')} context={item.get('context_band')}"
             )
-            for item in member_hotspots
+            for item in descendant_hotspots
         ]
         or ["  - none"]
     )
-    lines.extend(
-        [
-            "",
-            "Overlay Evidence",
-            (
-                "- organization_health: "
-                f"candidate_type="
-                f"{organization_health.get('candidate_type') or organization_health.get('kind')}, "
-                f"evidence_score={organization_health.get('evidence_score', 0.0):.3f}"
-            ),
-        ]
-    )
-    maxima = payload["overlay_summary"].get("member_overlay_maxima", {})
-    if maxima:
-        organization_maxima = maxima.get("organization_health", {})
-        verification_maxima = maxima.get("verification", {})
-        navigation_maxima = maxima.get("navigation", {})
-        blast_radius_maxima = maxima.get("blast_radius", {})
-        semantic_drift_maxima = maxima.get("semantic_drift", {})
-        lines.extend(
-            [
-                (
-                    "- member overlay maxima: "
-                    f"duplication={organization_maxima.get('duplication_pressure', 0.0):.3f}, "
-                    f"verification_gap={verification_maxima.get('verification_gap', 0.0):.3f}, "
-                    f"navigation={navigation_maxima.get('navigation_pressure', 0.0):.3f}, "
-                    f"blast_radius={blast_radius_maxima.get('blast_radius_pressure', 0.0):.3f}, "
-                    "semantic_drift="
-                    f"{semantic_drift_maxima.get('semantic_drift_pressure', 0.0):.3f}"
-                )
-            ]
+    lines.extend(["", "Overlay Evidence", *_format_overlay_lines(overlay_summary)])
+    if descendant_maxima:
+        organization_maxima = descendant_maxima.get("organization_health", {})
+        verification_maxima = descendant_maxima.get("verification", {})
+        navigation_maxima = descendant_maxima.get("navigation", {})
+        blast_radius_maxima = descendant_maxima.get("blast_radius", {})
+        semantic_drift_maxima = descendant_maxima.get("semantic_drift", {})
+        lines.append(
+            "- descendant overlay maxima: "
+            f"organization.diffusion={organization_maxima.get('diffusion_pressure', 0.0):.3f}, "
+            f"verification={verification_maxima.get('verification_gap', 0.0):.3f}, "
+            f"navigation={navigation_maxima.get('navigation_pressure', 0.0):.3f}, "
+            f"blast_radius={blast_radius_maxima.get('blast_radius_pressure', 0.0):.3f}, "
+            "semantic_drift="
+            f"{semantic_drift_maxima.get('semantic_drift_pressure', 0.0):.3f}"
         )
     lines.extend(["", "Supporting Relationships"])
-    relationships = payload.get("supporting_relationships", [])
+    relationships = payload.get("supporting_relationships", [])[:3]
     lines.extend(
         [_format_relationship_brief(relationship) for relationship in relationships] or ["- none"]
     )
     lines.extend(["", "Supporting Clusters"])
-    clusters = payload.get("supporting_clusters", [])
+    clusters = payload.get("supporting_clusters", [])[:3]
     lines.extend([_format_cluster_brief(cluster) for cluster in clusters] or ["- none"])
     lines.extend(["", payload["boundary_note"]])
     return "\n".join(lines)
@@ -578,17 +510,110 @@ def _render_relationship_entry(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _render_cluster_entry(payload: dict[str, Any]) -> str:
+    target = payload["target"]
+    member_hotspots = payload.get("cost_summary", {}).get("member_hotspots", [])
+    organization_health = payload["overlay_summary"]["organization_health"]
+    lines = [
+        f"Explain: cluster {target['id']} [{target['cluster_kind']}]",
+        "",
+        "Hotspot Cost",
+        (
+            f"- members={target['member_count']} "
+            f"roots={', '.join(target.get('top_level_roots', [])) or 'none'} "
+            f"candidate_type={target.get('candidate_type') or 'n/a'}"
+        ),
+        "- member hotspots:",
+    ]
+    lines.extend(
+        [
+            (
+                f"  - {item['path']} priority={item.get('priority_band')} "
+                f"score={item.get('priority_score')} context={item.get('context_band')}"
+            )
+            for item in member_hotspots
+        ]
+        or ["  - none"]
+    )
+    lines.extend(
+        [
+            "",
+            "Overlay Evidence",
+            (
+                "- organization_health: "
+                f"candidate_type="
+                f"{organization_health.get('candidate_type') or organization_health.get('kind')}, "
+                f"evidence_score={organization_health.get('evidence_score', 0.0):.3f}"
+            ),
+        ]
+    )
+    maxima = payload["overlay_summary"].get("member_overlay_maxima", {})
+    if maxima:
+        lines.append(
+            "- member overlay maxima: "
+            f"organization.diffusion="
+            f"{maxima.get('organization_health', {}).get('diffusion_pressure', 0.0):.3f}, "
+            f"verification={maxima.get('verification', {}).get('verification_gap', 0.0):.3f}, "
+            f"navigation={maxima.get('navigation', {}).get('navigation_pressure', 0.0):.3f}, "
+            f"blast_radius={maxima.get('blast_radius', {}).get('blast_radius_pressure', 0.0):.3f}, "
+            "semantic_drift="
+            f"{maxima.get('semantic_drift', {}).get('semantic_drift_pressure', 0.0):.3f}"
+        )
+    lines.extend(["", "Supporting Relationships"])
+    relationships = payload.get("supporting_relationships", [])
+    lines.extend(
+        [_format_relationship_brief(relationship) for relationship in relationships] or ["- none"]
+    )
+    lines.extend(["", "Supporting Clusters"])
+    clusters = payload.get("supporting_clusters", [])
+    lines.extend([_format_cluster_brief(cluster) for cluster in clusters] or ["- none"])
+    lines.extend(["", payload["boundary_note"]])
+    return "\n".join(lines)
+
+
+def _render_top_item(payload: dict[str, Any], *, ordinal: int) -> str:
+    target = payload["target"]
+    cost_summary = payload.get("cost_summary", {})
+    strongest = strongest_pressures(payload.get("overlay_summary", {}), limit=3)
+    overlay_summary = ", ".join(f"{label}={value:.3f}" for label, value in strongest)
+    relationships = payload.get("supporting_relationships", [])[:2]
+    clusters = payload.get("supporting_clusters", [])[:2]
+    relationship_ids = ", ".join(item["id"] for item in relationships) or "none"
+    cluster_ids = ", ".join(item["id"] for item in clusters) or "none"
+    return "\n".join(
+        [
+            (
+                f"{ordinal}. {target['path']} [{target.get('priority_band')}] "
+                f"score={target.get('priority_score')} context={target.get('context_band')}"
+            ),
+            (
+                "   cost: "
+                f"load={cost_summary.get('load', {}).get('load_pressure', 0.0):.3f} "
+                f"volatility="
+                f"{cost_summary.get('volatility', {}).get('volatility_pressure', 0.0):.3f} "
+                f"coordination="
+                f"{cost_summary.get('coordination', {}).get('coordination_pressure', 0.0):.3f}"
+            ),
+            f"   overlays: {overlay_summary}",
+            f"   relationships: {relationship_ids}",
+            f"   clusters: {cluster_ids}",
+        ]
+    )
+
+
 def render_explain_text(payload: dict[str, Any]) -> str:
     selector_kind = payload.get("selector", {}).get("kind")
     if selector_kind == "top":
         count = payload.get("target", {}).get("count", 0)
         blocks = [f"Explain: top {count} hotspots"]
-        for item in payload.get("items", []):
-            blocks.extend(["", _render_path_entry(item)])
+        for index, item in enumerate(payload.get("items", []), start=1):
+            blocks.extend(["", _render_top_item(item, ordinal=index)])
         blocks.extend(["", payload["boundary_note"]])
         return "\n".join(blocks)
     if selector_kind == "cluster":
         return _render_cluster_entry(payload)
     if selector_kind == "relationship":
         return _render_relationship_entry(payload)
-    return _render_path_entry(payload)
+    if payload.get("target", {}).get("record_type") == "folder":
+        return _render_folder_entry(payload)
+    return _render_file_entry(payload)

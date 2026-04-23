@@ -1,0 +1,470 @@
+{
+  "action_queue": [],
+  "clusters": {
+    "analysis_status": "experimental",
+    "analysis_version": 1,
+    "boundary_leakage_clusters": [],
+    "consolidation_candidates": [
+      {
+        "candidate_type": "consolidate_duplicate_knowledge",
+        "evidence_score": 1268.594,
+        "id": "duplicate_set-ce293b441009",
+        "kind": "consolidation_candidate",
+        "member_count": 2,
+        "member_paths": [
+          "src/agent_tools/github/current_repo.py",
+          "src/agent_tools/github/shared/current_repo.py"
+        ],
+        "source_relationship_ids": [
+          "duplicate_neighborhood-b534129a62cb",
+          "near_duplicate_neighborhood-35e7fad1c4e0"
+        ],
+        "top_level_roots": [
+          "src"
+        ]
+      }
+    ],
+    "duplicate_sets": [
+      {
+        "candidate_type": "consolidate_duplicate_knowledge",
+        "evidence_score": 1268.594,
+        "id": "duplicate_set-ce293b441009",
+        "kind": "duplicate_set",
+        "member_count": 2,
+        "member_paths": [
+          "src/agent_tools/github/current_repo.py",
+          "src/agent_tools/github/shared/current_repo.py"
+        ],
+        "source_relationship_ids": [
+          "duplicate_neighborhood-b534129a62cb",
+          "near_duplicate_neighborhood-35e7fad1c4e0"
+        ],
+        "top_level_roots": [
+          "src"
+        ]
+      }
+    ],
+    "scattered_concepts": []
+  },
+  "files": [
+    {
+      "context_band": "compact",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.990849,
+          "cochange_degree": 29,
+          "coordination_pressure": 0.706124
+        },
+        "load": {
+          "file_token_count": 490,
+          "folder_token_count": 497,
+          "load_pressure": 0.049
+        },
+        "volatility": {
+          "commit_count_window": 1,
+          "relative_token_churn": 1.0,
+          "volatility_pressure": 0.477273
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.594726,
+          "cochange_degree": 29,
+          "cross_folder_coupling": 0.413793
+        },
+        "navigation": {
+          "navigation_pressure": 0.335326,
+          "path_depth": 3,
+          "search_ambiguity": 0.591304
+        },
+        "organization_health": {
+          "boundary_pressure": 0.0,
+          "cluster_ids": [
+            "duplicate_set-ce293b441009",
+            "scattered_concept-89f3da03e6ed"
+          ],
+          "coupling_pressure": 0.0,
+          "diffusion_pressure": 0.333333,
+          "duplication_pressure": 1.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "args",
+            "argv",
+            "def",
+            "if",
+            "none"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 0.0,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "src/agent_tools/github/current_repo.py",
+      "priority_band": "watchlist",
+      "priority_score": 12.6,
+      "reason_codes": [
+        "high_relative_churn"
+      ]
+    },
+    {
+      "context_band": "compact",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.95563,
+          "cochange_degree": 37,
+          "coordination_pressure": 0.70051
+        },
+        "load": {
+          "file_token_count": 489,
+          "folder_token_count": 4119,
+          "load_pressure": 0.0489
+        },
+        "volatility": {
+          "commit_count_window": 1,
+          "relative_token_churn": 1.0,
+          "volatility_pressure": 0.477273
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.606836,
+          "cochange_degree": 37,
+          "cross_folder_coupling": 0.297297
+        },
+        "navigation": {
+          "navigation_pressure": 0.462826,
+          "path_depth": 4,
+          "search_ambiguity": 0.591304
+        },
+        "organization_health": {
+          "boundary_pressure": 0.0,
+          "cluster_ids": [
+            "duplicate_set-ce293b441009",
+            "scattered_concept-89f3da03e6ed"
+          ],
+          "coupling_pressure": 0.0,
+          "diffusion_pressure": 0.333333,
+          "duplication_pressure": 1.0
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "args",
+            "argv",
+            "def",
+            "if",
+            "none"
+          ],
+          "semantic_drift_pressure": 1.0
+        },
+        "stewardship": {
+          "author_count_window": 1,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 0.0,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "src/agent_tools/github/shared/current_repo.py",
+      "priority_band": "watchlist",
+      "priority_score": 12.6,
+      "reason_codes": [
+        "high_relative_churn"
+      ]
+    }
+  ],
+  "folders": [
+    {
+      "context_band": "critical",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.928169,
+          "cochange_degree": 43.153846,
+          "coordination_pressure": 0.720156
+        },
+        "load": {
+          "file_token_count": 1198,
+          "folder_token_count": 13361,
+          "load_pressure": 1.0
+        },
+        "volatility": {
+          "commit_count_window": 46.0,
+          "relative_token_churn": 1.047742,
+          "volatility_pressure": 0.608245
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.652376,
+          "cochange_degree": 43.153846,
+          "cross_folder_coupling": 0.328434
+        },
+        "navigation": {
+          "navigation_pressure": 0.441247,
+          "path_depth": 3.923077,
+          "search_ambiguity": 0.568451
+        },
+        "organization_health": {
+          "boundary_pressure": 0.095238,
+          "cluster_ids": [
+            "boundary_leakage_cluster-dc1a8d4e3fb8",
+            "duplicate_set-5e3d69835291",
+            "duplicate_set-ce293b441009",
+            "scattered_concept-72edafb9a32f",
+            "scattered_concept-89f3da03e6ed"
+          ],
+          "coupling_pressure": 0.190476,
+          "diffusion_pressure": 0.587302,
+          "duplication_pressure": 0.238095
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "agent_tools",
+            "args",
+            "argv",
+            "def",
+            "from",
+            "github",
+            "if",
+            "import",
+            "in",
+            "json",
+            "none",
+            "payload",
+            "repo_root",
+            "return",
+            "str"
+          ],
+          "semantic_drift_pressure": 0.980769
+        },
+        "stewardship": {
+          "author_count_window": 1.0,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 0.096154,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "src/agent_tools/github",
+      "priority_band": "watchlist",
+      "priority_score": 23.1,
+      "reason_codes": [
+        "high_relative_churn"
+      ]
+    },
+    {
+      "context_band": "healthy",
+      "costs": {
+        "coordination": {
+          "change_diffusion": 0.943261,
+          "cochange_degree": 42.5,
+          "coordination_pressure": 0.722193
+        },
+        "load": {
+          "file_token_count": 1086,
+          "folder_token_count": 4119,
+          "load_pressure": 0.4119
+        },
+        "volatility": {
+          "commit_count_window": 12.0,
+          "relative_token_churn": 1.026071,
+          "volatility_pressure": 0.560742
+        }
+      },
+      "overlays": {
+        "blast_radius": {
+          "blast_radius_pressure": 0.644594,
+          "cochange_degree": 42.5,
+          "cross_folder_coupling": 0.315315
+        },
+        "navigation": {
+          "navigation_pressure": 0.457083,
+          "path_depth": 4.0,
+          "search_ambiguity": 0.533333
+        },
+        "organization_health": {
+          "boundary_pressure": 0.0,
+          "cluster_ids": [
+            "duplicate_set-ce293b441009",
+            "scattered_concept-72edafb9a32f",
+            "scattered_concept-89f3da03e6ed"
+          ],
+          "coupling_pressure": 0.0,
+          "diffusion_pressure": 0.52381,
+          "duplication_pressure": 0.142857
+        },
+        "semantic_drift": {
+          "drift_terms": [
+            "agent_tools",
+            "args",
+            "argv",
+            "def",
+            "from",
+            "github",
+            "if",
+            "import",
+            "in",
+            "json",
+            "none",
+            "payload",
+            "repo_root",
+            "str"
+          ],
+          "semantic_drift_pressure": 0.9875
+        },
+        "stewardship": {
+          "author_count_window": 1.0,
+          "stewardship_pressure": 0.0,
+          "top_author_share": 1.0
+        },
+        "verification": {
+          "hotspot_without_nearby_tests": false,
+          "test_adjacency_score": 0.0625,
+          "test_cochange_ratio": 1.0,
+          "verification_gap": 0.0
+        }
+      },
+      "path": "src/agent_tools/github/shared",
+      "priority_band": "watchlist",
+      "priority_score": 19.5,
+      "reason_codes": [
+        "high_relative_churn"
+      ]
+    }
+  ],
+  "overlays": {
+    "organization_health": {
+      "analysis_status": "experimental",
+      "analysis_version": 1,
+      "clusters": {
+        "analysis_status": "experimental",
+        "analysis_version": 1,
+        "boundary_leakage_clusters": [],
+        "consolidation_candidates": [
+          {
+            "candidate_type": "consolidate_duplicate_knowledge",
+            "evidence_score": 1268.594,
+            "id": "duplicate_set-ce293b441009",
+            "kind": "consolidation_candidate",
+            "member_count": 2,
+            "member_paths": [
+              "src/agent_tools/github/current_repo.py",
+              "src/agent_tools/github/shared/current_repo.py"
+            ],
+            "source_relationship_ids": [
+              "duplicate_neighborhood-b534129a62cb",
+              "near_duplicate_neighborhood-35e7fad1c4e0"
+            ],
+            "top_level_roots": [
+              "src"
+            ]
+          }
+        ],
+        "duplicate_sets": [
+          {
+            "candidate_type": "consolidate_duplicate_knowledge",
+            "evidence_score": 1268.594,
+            "id": "duplicate_set-ce293b441009",
+            "kind": "duplicate_set",
+            "member_count": 2,
+            "member_paths": [
+              "src/agent_tools/github/current_repo.py",
+              "src/agent_tools/github/shared/current_repo.py"
+            ],
+            "source_relationship_ids": [
+              "duplicate_neighborhood-b534129a62cb",
+              "near_duplicate_neighborhood-35e7fad1c4e0"
+            ],
+            "top_level_roots": [
+              "src"
+            ]
+          }
+        ],
+        "scattered_concepts": []
+      },
+      "relationships": {
+        "analysis_status": "experimental",
+        "analysis_version": 1,
+        "boundary_leakage_edges": [],
+        "duplicate_neighborhoods": [
+          {
+            "crosses_top_level_boundary": false,
+            "duplicate_token_mass": 128,
+            "evidence_score": 128.0,
+            "id": "duplicate_neighborhood-b534129a62cb",
+            "kind": "duplicate_neighborhood",
+            "similarity_ratio": 1.0,
+            "source_path": "src/agent_tools/github/current_repo.py",
+            "target_path": "src/agent_tools/github/shared/current_repo.py"
+          }
+        ],
+        "lexical_affinity_edges": [],
+        "near_duplicate_neighborhoods": [
+          {
+            "crosses_top_level_boundary": false,
+            "duplicate_token_mass": 1152,
+            "evidence_score": 1140.594,
+            "id": "near_duplicate_neighborhood-35e7fad1c4e0",
+            "kind": "near_duplicate_neighborhood",
+            "similarity_ratio": 0.990099,
+            "source_path": "src/agent_tools/github/current_repo.py",
+            "target_path": "src/agent_tools/github/shared/current_repo.py"
+          }
+        ],
+        "temporal_coupling_edges": []
+      }
+    }
+  },
+  "relationships": {
+    "analysis_status": "experimental",
+    "analysis_version": 1,
+    "boundary_leakage_edges": [],
+    "duplicate_neighborhoods": [
+      {
+        "crosses_top_level_boundary": false,
+        "duplicate_token_mass": 128,
+        "evidence_score": 128.0,
+        "id": "duplicate_neighborhood-b534129a62cb",
+        "kind": "duplicate_neighborhood",
+        "similarity_ratio": 1.0,
+        "source_path": "src/agent_tools/github/current_repo.py",
+        "target_path": "src/agent_tools/github/shared/current_repo.py"
+      }
+    ],
+    "lexical_affinity_edges": [],
+    "near_duplicate_neighborhoods": [
+      {
+        "crosses_top_level_boundary": false,
+        "duplicate_token_mass": 1152,
+        "evidence_score": 1140.594,
+        "id": "near_duplicate_neighborhood-35e7fad1c4e0",
+        "kind": "near_duplicate_neighborhood",
+        "similarity_ratio": 0.990099,
+        "source_path": "src/agent_tools/github/current_repo.py",
+        "target_path": "src/agent_tools/github/shared/current_repo.py"
+      }
+    ],
+    "temporal_coupling_edges": []
+  },
+  "repo": {
+    "repo_name": "agent-tools"
+  },
+  "schema_version": 3
+}

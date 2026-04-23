@@ -281,6 +281,24 @@ class DetectorIntegrationTests(unittest.TestCase):
             self.assertIn("load", path_payload["cost_summary"])
             self.assertIn("organization_health", path_payload["overlay_summary"])
 
+            folder_path_completed = run_cli(repo_root, "explain", "--path", "src")
+            self.assertEqual(folder_path_completed.returncode, 0, folder_path_completed.stderr)
+            self.assertIn("descendant hotspots", folder_path_completed.stdout.lower())
+
+            folder_json_completed = run_cli(
+                repo_root,
+                "explain",
+                "--path",
+                "src",
+                "--format",
+                "json",
+            )
+            self.assertEqual(folder_json_completed.returncode, 0, folder_json_completed.stderr)
+            folder_payload = json.loads(folder_json_completed.stdout)
+            self.assertEqual(folder_payload["target"]["record_type"], "folder")
+            self.assertIn("descendant_hotspots", folder_payload["cost_summary"])
+            self.assertIn("descendant_overlay_maxima", folder_payload["overlay_summary"])
+
             top_json_completed = run_cli(repo_root, "explain", "--top", "2", "--format", "json")
             self.assertEqual(top_json_completed.returncode, 0, top_json_completed.stderr)
             top_payload = json.loads(top_json_completed.stdout)
@@ -290,6 +308,12 @@ class DetectorIntegrationTests(unittest.TestCase):
                 top_payload["items"][0]["target"]["path"],
                 report["action_queue"][0]["path"],
             )
+
+            top_text_completed = run_cli(repo_root, "explain", "--top", "2")
+            self.assertEqual(top_text_completed.returncode, 0, top_text_completed.stderr)
+            self.assertEqual(top_text_completed.stdout.count("Interpretation boundary"), 1)
+            self.assertIn("1. ", top_text_completed.stdout)
+            self.assertIn("2. ", top_text_completed.stdout)
 
             cluster_json_completed = run_cli(
                 repo_root, "explain", "--cluster", cluster["id"], "--format", "json"
