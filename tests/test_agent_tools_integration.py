@@ -7,8 +7,6 @@ import sys
 import unittest
 from pathlib import Path
 
-import yaml
-
 from git_slop.agent_skill_runtime import run_skill_entrypoint
 from git_slop.agent_skills import ACTION_SPECS, SKILL_SPECS
 from git_slop.integrations.agents.codex_surface import PLUGIN_SKILL_CATALOG
@@ -39,21 +37,8 @@ class AgentToolsIntegrationTests(unittest.TestCase):
 
     def test_plugin_skill_metadata_covers_repo_runtime_skills(self) -> None:
         self.assertTrue(set(SKILL_SPECS).issubset(PLUGIN_SKILL_CATALOG))
-        for skill_name in SKILL_SPECS:
-            metadata_path = (
-                REPO_ROOT
-                / "plugins"
-                / "project-management-workflows"
-                / "skills"
-                / skill_name
-                / "agents"
-                / "openai.yaml"
-            )
-            payload = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
-            self.assertEqual(payload["interface"]["default_prompt"].count(f"${skill_name}"), 1)
-            self.assertTrue(
-                any(tool["value"] == "github" for tool in payload["dependencies"]["tools"])
-            )
+        self.assertIn("docs-taxonomy", PLUGIN_SKILL_CATALOG)
+        self.assertIn("plan-to-backlog-preview", PLUGIN_SKILL_CATALOG)
 
     def test_repo_local_skill_runtime_delegates_to_external_cli(self) -> None:
         output = io.StringIO()

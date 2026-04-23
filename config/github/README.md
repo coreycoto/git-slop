@@ -2,13 +2,16 @@
 
 This directory holds the repo-owned backlog and project overlay for `git-slop`.
 
-Use the reusable workflow contract from the plugin for mutation, preview/apply,
-and artifact rules:
+Use the reusable workflow contract from the installed
+`project-management-workflows` plugin from `coreycoto/agent-plugins` for
+mutation, preview/apply, and artifact rules.
 
-- `plugins/project-management-workflows/skills/_shared/references/backlog-project-contract.md`
-- `plugins/project-management-workflows/skills/_shared/references/github-mutation-contract.md`
-- `plugins/project-management-workflows/skills/_shared/references/review-triage.md`
-- `plugins/project-management-workflows/skills/_shared/references/workflow-tooling-surface.md`
+The relevant shared references there are:
+
+- backlog/project contract
+- GitHub mutation contract
+- review triage
+- workflow tooling surface
 
 ## Files
 

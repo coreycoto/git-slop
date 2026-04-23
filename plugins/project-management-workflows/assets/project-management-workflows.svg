@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Project management workflows">
-  <rect width="128" height="128" rx="20" fill="#334155"/>
-  <rect x="20" y="22" width="88" height="18" rx="8" fill="#E2E8F0"/>
-  <rect x="20" y="52" width="54" height="16" rx="8" fill="#0F766E"/>
-  <rect x="20" y="80" width="88" height="16" rx="8" fill="#A16207"/>
-  <circle cx="91" cy="60" r="13" fill="#4338CA"/>
-  <path d="M86 60l4 4 8-10" fill="none" stroke="#F8FAFC" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/>
-</svg>

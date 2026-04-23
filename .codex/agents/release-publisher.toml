@@ -5,10 +5,7 @@ model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Prepare release notes, artifacts, and publication steps for tagged releases.
+Use the installed $project-management-workflows:release-publish skill as the workflow contract.
 Use standard git and gh flows only. Never fall back to the GitHub Git Data API.
 If publication is blocked by runtime or repo policy, stop and report the blocking condition clearly.
 """
-
-[[skills.config]]
-path = "../../plugins/project-management-workflows/skills/release-publish/SKILL.md"
-enabled = true

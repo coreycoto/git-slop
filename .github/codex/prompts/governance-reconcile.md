@@ -8,8 +8,10 @@ immediately with an actionable error that names the missing agent file.
 Use that agent for the read-only audit and preview phase first; if the preview
 proves that an allowed deterministic auto-fix is needed, the parent run may
 apply that narrow mutation surface afterward.
-Treat the plugin-owned governance skills below as the canonical workflow
-contracts for this job.
+Use `$project-management-workflows:github-backlog-mutate`,
+`$project-management-workflows:ensure-quarter-milestones`, and
+`$project-management-workflows:label-palette-design` as the canonical workflow
+skills for this job.
 
 ## Read First
 
@@ -17,10 +19,6 @@ contracts for this job.
 - `.codex/README.md`
 - `config/github/README.md`
 - `config/labels/README.md`
-- `plugins/project-management-workflows/skills/_shared/references/github-mutation-contract.md`
-- `plugins/project-management-workflows/skills/github-backlog-mutate/SKILL.md`
-- `plugins/project-management-workflows/skills/ensure-quarter-milestones/SKILL.md`
-- `plugins/project-management-workflows/skills/label-palette-design/SKILL.md`
 
 ## Goal
 

@@ -2,11 +2,15 @@
 
 This directory holds the repo-owned label palette overlay for `git-slop`.
 
-Use the reusable workflow contract from the plugin for sync and mutation rules:
+Use the reusable workflow contract from the installed
+`project-management-workflows` plugin from `coreycoto/agent-plugins` for sync
+and mutation rules.
 
-- `plugins/project-management-workflows/skills/_shared/references/label-palette-contract.md`
-- `plugins/project-management-workflows/skills/_shared/references/github-mutation-contract.md`
-- `plugins/project-management-workflows/skills/_shared/references/workflow-tooling-surface.md`
+The relevant shared references there are:
+
+- label palette contract
+- GitHub mutation contract
+- workflow tooling surface
 
 ## Files
 

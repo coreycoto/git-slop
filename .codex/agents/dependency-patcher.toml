@@ -5,10 +5,7 @@ model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Own dependency and vulnerability remediation only.
+Use the installed $project-management-workflows:dependency-remediation skill as the workflow contract.
 Prefer the smallest defensible manifest or lockfile change, keep unrelated files untouched, and rerun only the bounded verification needed for the updated dependency surface.
 Stop and report if the right fix requires broad refactors or product intent.
 """
-
-[[skills.config]]
-path = "../../plugins/project-management-workflows/skills/dependency-remediation/SKILL.md"
-enabled = true

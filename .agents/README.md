@@ -1,13 +1,16 @@
 # Agent Surface
 
-This directory only carries repo-local plugin marketplace metadata.
+This directory only carries the tracked marketplace-source contract for the
+installed project-management plugin.
 
 Use these surfaces:
 
 - `AGENTS.md`: always-on repo policy
-- `.agents/plugins/marketplace.json`: plugin install policy and discovery
+- `.agents/plugins/marketplace-source.json`: pinned marketplace source manifest
 - `.codex/README.md`: Codex runtime map
-- `plugins/project-management-workflows/README.md`: canonical reusable workflow overview
 
-The project-management plugin is installed by default for this repo and is the
-only supported skill surface for these maintainer workflows.
+`git-slop` consumes the `project-management-workflows` plugin from
+`coreycoto/agent-plugins` through a pinned marketplace-source bootstrap helper
+that runs `codex marketplace add <source> --ref <sha>` or writes the equivalent
+home config when Codex is unavailable on PATH. That plugin is the only
+supported skill surface for these maintainer workflows.

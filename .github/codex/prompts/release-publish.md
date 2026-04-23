@@ -5,15 +5,13 @@ You are running in GitHub Actions inside the `git-slop` repository.
 Use the custom agent `release_publisher` defined at
 `.codex/agents/release-publisher.toml`. If that agent is unavailable, stop
 immediately with an actionable error that names the missing agent file.
-Treat `plugins/project-management-workflows/skills/release-publish/SKILL.md` as
-the canonical workflow contract for this job.
+Use `$project-management-workflows:release-publish` as the canonical workflow
+skill for this job.
 
 ## Read First
 
 - `AGENTS.md`
 - `.codex/README.md`
-- `plugins/project-management-workflows/README.md`
-- `plugins/project-management-workflows/skills/release-publish/SKILL.md`
 
 ## Goal
 

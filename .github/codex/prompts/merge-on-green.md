@@ -7,15 +7,13 @@ Use the custom agent `merge_gatekeeper` defined at
 immediately with an actionable error that names the missing agent file.
 Use that agent for the read-only gate review first; only if it concludes the PR
 is merge-safe may the parent run execute the final `gh pr merge`.
-Treat `plugins/project-management-workflows/skills/merge-on-green/SKILL.md` as
-the canonical workflow contract for this job.
+Use `$project-management-workflows:merge-on-green` as the canonical workflow
+skill for this job.
 
 ## Read First
 
 - `AGENTS.md`
 - `.codex/README.md`
-- `plugins/project-management-workflows/skills/_shared/references/github-mutation-contract.md`
-- `plugins/project-management-workflows/skills/merge-on-green/SKILL.md`
 
 ## Goal
 

@@ -8,8 +8,8 @@ Use the runtime layers like this:
 - `.codex/config.toml`: project-scoped defaults, app permissions, and CI profiles
 - `.codex/rules/*.rules`: interactive approval prompts for sensitive shell commands
 - `.codex/agents/*.toml`: custom execution roles
-- `.agents/plugins/marketplace.json`: plugin discovery and install policy
-- `plugins/project-management-workflows/`: canonical reusable workflow contract
+- `.agents/plugins/marketplace-source.json`: pinned marketplace source manifest
+- installed `project-management-workflows` plugin from `coreycoto/agent-plugins`: canonical reusable workflow contract
 - `.github/codex/prompts/*`: workflow prompts that explicitly name the custom agents to use
 - `.github/codex/schemas/*`: structured-output schemas for Codex-driven workflows
 

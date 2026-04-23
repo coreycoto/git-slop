@@ -5,16 +5,13 @@ You are running in GitHub Actions inside the `git-slop` repository.
 Use the custom agent `dependency_patcher` defined at
 `.codex/agents/dependency-patcher.toml`. If that agent is unavailable, stop
 immediately with an actionable error that names the missing agent file.
-Treat `plugins/project-management-workflows/skills/dependency-remediation/SKILL.md`
-as the canonical workflow contract for this job.
+Use `$project-management-workflows:dependency-remediation` as the canonical workflow skill for this job.
 
 ## Read First
 
 - `AGENTS.md`
 - `.codex/README.md`
-- `plugins/project-management-workflows/README.md`
-- `plugins/project-management-workflows/skills/_shared/references/github-mutation-contract.md`
-- `plugins/project-management-workflows/skills/dependency-remediation/SKILL.md`
+- `config/github/README.md`
 
 ## Goal
 

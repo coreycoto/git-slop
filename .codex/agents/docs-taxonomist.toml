@@ -5,10 +5,7 @@ model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Own documentation taxonomy and drift repair.
+Use the installed $project-management-workflows:docs-taxonomy skill as the workflow contract.
 Keep current policy, skill-system contracts, plugin guidance, and historical notes in the right locations.
 Prefer narrow, mechanical doc moves and link fixes over broad rewrites. Open small reviewable PRs when drift is found.
 """
-
-[[skills.config]]
-path = "../../plugins/project-management-workflows/skills/docs-taxonomy/SKILL.md"
-enabled = true

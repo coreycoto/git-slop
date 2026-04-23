@@ -5,8 +5,6 @@ import io
 import unittest
 from pathlib import Path
 
-import yaml
-
 from git_slop.agent_skill_runtime import run_skill_entrypoint
 from git_slop.agent_skills import ACTION_SPECS, SKILL_SPECS
 from git_slop.integrations.agents.codex_surface import PLUGIN_SKILL_CATALOG
@@ -17,18 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 class SkillRuntimeAndMetadataTests(unittest.TestCase):
     def test_plugin_metadata_covers_all_repo_runtime_skills(self) -> None:
         self.assertTrue(set(SKILL_SPECS).issubset(PLUGIN_SKILL_CATALOG))
-        metadata_path = (
-            REPO_ROOT
-            / "plugins"
-            / "project-management-workflows"
-            / "skills"
-            / "intake"
-            / "agents"
-            / "openai.yaml"
-        )
-        payload = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
-        self.assertEqual(payload["interface"]["display_name"], "Intake")
-        self.assertFalse(payload["policy"]["allow_implicit_invocation"])
+        self.assertIn("intake", PLUGIN_SKILL_CATALOG)
 
     def test_skill_manifest_exposes_expected_actions(self) -> None:
         preview_spec = SKILL_SPECS["plan-quarter-preview"]
