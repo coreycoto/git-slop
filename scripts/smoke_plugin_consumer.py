@@ -37,6 +37,12 @@ REAL_CODEX_HOME = Path.home() / ".codex"
 
 def _skill_available_from_output(combined_output: str) -> bool:
     normalized = combined_output.lower().replace("’", "'")
+    available_markers = (
+        "codex.skill.injected",
+        "skills/docs-taxonomy/skill.md",
+    )
+    if any(marker in normalized for marker in available_markers):
+        return True
     unavailable_markers = (
         "not available in this session",
         "isn't available in this session",

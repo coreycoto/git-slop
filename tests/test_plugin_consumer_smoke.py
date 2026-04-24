@@ -41,6 +41,7 @@ class PluginConsumerSmokeTests(unittest.TestCase):
                 "The named skill isn’t available in this session."
             )
         )
+        self.assertTrue(SMOKE._skill_available_from_output("codex.skill.injected"))
         self.assertTrue(SMOKE._skill_available_from_output("Completed docs-only audit."))
 
 

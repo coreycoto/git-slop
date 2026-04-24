@@ -11,6 +11,7 @@ Use these surfaces:
 
 `git-slop` consumes the `project-management-workflows` plugin from
 `coreycoto/agent-plugins` through a pinned marketplace-source bootstrap helper
-that runs `codex marketplace add <source> --ref <sha>` or writes the equivalent
-home config when Codex is unavailable on PATH. That plugin is the only
+that registers the marketplace source, enables
+`project-management-workflows@agent-plugins-marketplace`, and materializes the
+pinned plugin into the local Codex plugin cache. That plugin is the only
 supported skill surface for these maintainer workflows.
