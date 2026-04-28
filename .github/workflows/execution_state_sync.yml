@@ -35,6 +35,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Prepare artifact root
+        id: artifact-root
+        shell: bash
+        run: |
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          root=".artifacts/execution-state/$stamp"
+          mkdir -p "$root"
+          echo "path=$root" >> "$GITHUB_OUTPUT"
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -76,15 +85,6 @@ jobs:
 
       - name: Bootstrap agent-plugins marketplace source
         run: uv run python scripts/bootstrap_agent_plugins_marketplace.py install
-
-      - name: Prepare artifact root
-        id: artifact-root
-        shell: bash
-        run: |
-          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-          root=".artifacts/execution-state/$stamp"
-          mkdir -p "$root"
-          echo "path=$root" >> "$GITHUB_OUTPUT"
 
       - name: Resolve backlog project identity
         id: project
@@ -209,4 +209,3 @@ jobs:
         with:
           name: execution-state
           path: ${{ steps.artifact-root.outputs.path }}
-

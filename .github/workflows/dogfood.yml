@@ -39,6 +39,20 @@ jobs:
             exit 1
           fi
 
+      - name: Configure agent-plugins dependency access
+        env:
+          AGENT_PLUGINS_GIT_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
+        run: |
+          if [ -n "$AGENT_PLUGINS_GIT_TOKEN" ]; then
+            git config --global url."https://x-access-token:${AGENT_PLUGINS_GIT_TOKEN}@github.com/coreycoto/agent-plugins.git".insteadOf "https://github.com/coreycoto/agent-plugins.git"
+          elif GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/coreycoto/agent-plugins.git >/dev/null 2>&1; then
+            echo "agent-plugins is publicly readable; no extra git auth configured."
+          else
+            echo "coreycoto/agent-plugins is private and cannot be fetched from CI without a token." >&2
+            echo "Set AGENT_PLUGINS_READ_TOKEN with read access to coreycoto/agent-plugins, or make the repo public." >&2
+            exit 1
+          fi
+
       - name: Sync project
         run: uv sync --group dev
 
