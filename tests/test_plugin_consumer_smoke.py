@@ -30,7 +30,7 @@ class PluginConsumerSmokeTests(unittest.TestCase):
         )
         self.assertEqual(payload["required_plugin"], "project-management-workflows")
 
-    def test_skill_detection_treats_unavailable_wording_as_missing(self) -> None:
+    def test_skill_detection_requires_available_marker(self) -> None:
         self.assertFalse(
             SMOKE._skill_available_from_output(  # noqa: SLF001
                 "The named skill isn't available in this session."
@@ -42,7 +42,7 @@ class PluginConsumerSmokeTests(unittest.TestCase):
             )
         )
         self.assertTrue(SMOKE._skill_available_from_output("codex.skill.injected"))
-        self.assertTrue(SMOKE._skill_available_from_output("Completed docs-only audit."))
+        self.assertFalse(SMOKE._skill_available_from_output("Completed docs-only audit."))
 
 
 if __name__ == "__main__":

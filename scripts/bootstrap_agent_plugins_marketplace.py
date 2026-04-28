@@ -258,7 +258,21 @@ def _plugin_source_path(marketplace_root: Path, manifest: dict[str, str]) -> Pat
         relative_path = source.get("path")
         if not isinstance(relative_path, str) or not relative_path.strip():
             break
-        plugin_root = (marketplace_root / relative_path).resolve()
+        plugin_relative_path = Path(relative_path)
+        if plugin_relative_path.is_absolute():
+            raise RuntimeError(
+                f"Plugin source path for {manifest['required_plugin']} must be a relative path in "
+                f"{marketplace_path}, got {relative_path}."
+            )
+        plugin_root = (marketplace_root / plugin_relative_path).resolve()
+        marketplace_root_resolved = marketplace_root.resolve()
+        try:
+            plugin_root.relative_to(marketplace_root_resolved)
+        except ValueError:
+            raise RuntimeError(
+                f"Plugin source path {plugin_root} escapes marketplace root "
+                f"{marketplace_root_resolved}."
+            )
         if not (plugin_root / ".codex-plugin" / "plugin.json").is_file():
             raise RuntimeError(f"Plugin manifest not found at {plugin_root}.")
         return plugin_root
