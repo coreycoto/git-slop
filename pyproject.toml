@@ -38,6 +38,7 @@ include = [
     "/src",
     "/tests",
     "/docs",
+    "/man",
     "/config",
     "/scripts",
     "/.agents",

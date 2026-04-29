@@ -87,6 +87,9 @@ class DistributionTests(unittest.TestCase):
         self.assertIn('depends_on "rust" => :build', formula)
         self.assertIn('resource "tiktoken"', formula)
         self.assertIn('virtualenv_install_with_resources using: "python3.13"', formula)
+        self.assertIn('man1.install "man/git-slop.1"', formula)
+        self.assertIn("(man1/\"git-slop.1\").write", formula)
+        self.assertIn(".TH GIT-SLOP 1", formula)
         self.assertIn('assert_match "git-slop"', formula)
 
     def test_homebrew_formula_requires_wheel_payload(self) -> None:
