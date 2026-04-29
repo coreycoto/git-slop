@@ -22,6 +22,7 @@ from git_slop.reports.compare import build_compare_payload, render_compare_text
 from git_slop.reports.explain import build_explain_payload, render_explain_text
 from git_slop.reports.plan import build_plan_payload, render_plan_text
 from git_slop.reports.prompt_pack import write_prompt_pack
+from git_slop.reports.sarif import build_sarif_payload, render_sarif_json, write_sarif_file
 
 PROJECT_NAME = "git-slop"
 
@@ -165,6 +166,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     compare_parser.add_argument("--format", choices=("text", "json"), default="text")
     compare_parser.set_defaults(handler=_run_compare)
+
+    sarif_parser = subparsers.add_parser(
+        "sarif",
+        help="Export action-queue findings from an existing schema-3 report as SARIF.",
+    )
+    sarif_parser.add_argument(
+        "--report",
+        help="Report path. Defaults to .slop/latest/report.json.",
+    )
+    sarif_parser.add_argument(
+        "--top",
+        type=int,
+        default=None,
+        help="Maximum number of action-queue findings to export.",
+    )
+    sarif_parser.add_argument(
+        "--output",
+        help="Optional SARIF output path. Defaults to stdout.",
+    )
+    sarif_parser.set_defaults(handler=_run_sarif)
 
     version_parser = subparsers.add_parser("version", help="Print version information.")
     version_parser.set_defaults(handler=_run_version)
@@ -377,6 +398,25 @@ def _run_compare(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print(render_compare_text(payload, top=args.top))
+    return 0
+
+
+def _run_sarif(args: argparse.Namespace) -> int:
+    repo_root = resolve_repo_root()
+    report, report_path = _load_default_report(repo_root, args.report)
+    if report is None:
+        print(f"Report not found: {report_path}")
+        return 2
+    try:
+        payload = build_sarif_payload(report, report_path=report_path, top=args.top)
+    except ValueError as exc:
+        print(str(exc))
+        return 2
+    if args.output:
+        write_sarif_file(payload, Path(args.output))
+        print(f"Wrote SARIF report to {args.output}.")
+    else:
+        print(render_sarif_json(payload), end="")
     return 0
 
 

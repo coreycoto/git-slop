@@ -78,6 +78,7 @@ uv run git-slop explain --top 5 --prompt-pack .slop/prompt-packs/top
 uv run git-slop plan --path README.md
 uv run git-slop plan --path README.md --format json --prompt-pack .slop/prompt-packs/readme-plan
 uv run git-slop compare --base .slop/runs/<old>/report.json --head .slop/latest/report.json
+uv run git-slop sarif --report .slop/latest/report.json --output .slop/latest/git-slop.sarif
 uv run git-slop check
 uv run git-slop version
 uv run git-slop --help
@@ -117,6 +118,7 @@ interpretation, maintenance-planning, and consumer-adoption guidance.
 - `git slop plan`
 - `git slop check`
 - `git slop compare`
+- `git slop sarif`
 - `git slop version`
 
 The package exposes both:
@@ -181,6 +183,24 @@ uv run git-slop compare \
   --base .slop/runs/20260401T120000Z/report.json \
   --head .slop/latest/report.json \
   --format json
+```
+
+### SARIF
+
+- `git slop sarif`
+  - exports action-queue findings from an existing schema-3 report as SARIF 2.1.0
+  - preserves detector hotspot cost and overlay evidence as separate SARIF
+    properties
+  - writes to stdout by default or to `--output <path>` when provided
+  - never uploads results, reruns the detector, changes scoring, or mutates
+    GitHub
+
+Example:
+
+```bash
+uv run git-slop sarif \
+  --report .slop/latest/report.json \
+  --output .slop/latest/git-slop.sarif
 ```
 
 ## Generated State
@@ -319,6 +339,7 @@ now are:
 - prompt-pack-only local model handoff
 - preview-only backlog handoff metadata
 - read-only V3 trend comparisons through `git slop compare`
+- read-only V3 SARIF export through `git slop sarif`
 
 Those commands consume the detector contract as-is. They do not rescore
 hotspots, change `check`, or fold overlays into `priority_score`.
