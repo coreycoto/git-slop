@@ -15,7 +15,7 @@ uv run ruff check
 uv run pytest
 ```
 
-## Build And Publish
+## Build Locally
 
 - Build wheel and source distributions:
 
@@ -23,29 +23,25 @@ uv run pytest
 uv build
 ```
 
-- Build the release manifest:
+- Create the local semver tag, then run the release preparation helper. The
+  helper builds release artifacts, builds the release manifest with the exact
+  tag SHA, and regenerates the private Homebrew tap formula:
 
 ```bash
-uv run python scripts/build_release_manifest.py --dist-dir dist --output .artifacts/releases/release-manifest.json
+git tag v<version>
+uv run python scripts/release_prepare.py --version <version> --tap ../homebrew-tap
 ```
+
+## Publish
 
 - Push the semver tag and let `.github/workflows/release-publish.yml` publish
   the GitHub release artifacts:
 
 ```bash
-git tag v<version>
 git push origin v<version>
 ```
 
 ## Update Homebrew
-
-- Regenerate the private tap formula from the published release manifest:
-
-```bash
-uv run python scripts/update_homebrew_formula.py \
-  --manifest .artifacts/releases/release-manifest.json \
-  --formula ../homebrew-tap/Formula/git-slop.rb
-```
 
 - In `coreycoto/homebrew-tap`, verify:
 

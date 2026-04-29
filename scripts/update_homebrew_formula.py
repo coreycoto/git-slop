@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-MANPAGE_PATH = PROJECT_ROOT / "man" / "git-slop.1"
 
 RESOURCES = [
     (
@@ -60,7 +59,6 @@ def render_formula(manifest: dict[str, Any]) -> str:
         raise ValueError("release manifest must include wheel.url and wheel.sha256")
     homebrew_source = _homebrew_source(manifest)
     version = manifest.get("version") or homebrew_source["tag"].removeprefix("v")
-    manpage = _formula_manpage_fallback()
     resource_blocks = "\n\n".join(
         "\n".join(
             [
@@ -88,24 +86,13 @@ def render_formula(manifest: dict[str, Any]) -> str:
         f"{resource_blocks}\n\n"
         "  def install\n"
         '    virtualenv_install_with_resources using: "python3.13"\n'
-        '    if File.exist?("man/git-slop.1")\n'
-        '      man1.install "man/git-slop.1"\n'
-        "    else\n"
-        '      (man1/"git-slop.1").write <<~\'MANPAGE\'\n'
-        f"{manpage}\n"
-        "      MANPAGE\n"
-        "    end\n"
+        '    man1.install "man/git-slop.1"\n'
         "  end\n\n"
         "  test do\n"
         '    assert_match "git-slop", shell_output("#{bin}/git-slop version")\n'
         "  end\n"
         "end\n"
     )
-
-
-def _formula_manpage_fallback() -> str:
-    lines = MANPAGE_PATH.read_text().splitlines()
-    return "\n".join(f"        {line}" if line else "" for line in lines)
 
 
 def _homebrew_source(manifest: dict[str, Any]) -> dict[str, str]:
