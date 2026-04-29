@@ -19,7 +19,7 @@ from git_slop.reports.shared import (
     unique_preserving_order,
 )
 
-PLAN_SCHEMA_VERSION = 1
+PLAN_SCHEMA_VERSION = 2
 MAX_SLICE_FILES = 5
 BOUNDARY_NOTE = (
     "Plan boundary: this is a bounded proposal only. It does not mutate code, "
@@ -296,6 +296,72 @@ def _slice_payload(
         "ranking_reason": ranking_reason,
         "_selector_class": selector_class,
     }
+
+
+def _priority_hint_for_slice(report: dict[str, Any], scope_paths: list[str]) -> str:
+    top_score = max((_record_priority_score(report, path) for path in scope_paths), default=0.0)
+    if top_score >= 75.0:
+        return "Now"
+    if top_score >= 40.0:
+        return "Next"
+    return "Later"
+
+
+def _issue_title_for_slice(slice_payload: dict[str, Any]) -> str:
+    return f"Maintenance: {slice_payload['title']}"
+
+
+def _evidence_summary_for_slice(slice_payload: dict[str, Any]) -> str:
+    relationships = slice_payload["supporting_relationship_ids"]
+    clusters = slice_payload["supporting_cluster_ids"]
+    evidence_parts = []
+    if relationships:
+        evidence_parts.append(f"{len(relationships)} relationship(s)")
+    if clusters:
+        evidence_parts.append(f"{len(clusters)} cluster(s)")
+    if not evidence_parts:
+        evidence_parts.append("anchor detector evidence")
+    return (
+        f"{slice_payload['why_this_slice']} Evidence: "
+        f"{', '.join(evidence_parts)}. Scope: "
+        f"{', '.join(slice_payload['scope_paths']) or 'none'}."
+    )
+
+
+def _backlog_handoff_for_slice(
+    report: dict[str, Any],
+    context: dict[str, Any],
+    slice_payload: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "mutation_policy": "preview_only",
+        "proposed_issue_title": _issue_title_for_slice(slice_payload),
+        "issue_type": "maintenance",
+        "suggested_labels": ["maintenance"],
+        "priority_hint": _priority_hint_for_slice(report, slice_payload["scope_paths"]),
+        "evidence_summary": _evidence_summary_for_slice(slice_payload),
+        "acceptance_criteria": [
+            "Review the scoped paths against the cited git-slop evidence.",
+            "Keep changes bounded to the proposed scope unless new evidence is documented.",
+            "Preserve detector score, check, and overlay semantics.",
+        ],
+        "source": {
+            "command": "git slop plan",
+            "selector": context["selector"],
+            "report_schema_version": report.get("schema_version"),
+        },
+    }
+
+
+def _enrich_public_slice(
+    report: dict[str, Any],
+    context: dict[str, Any],
+    slice_payload: dict[str, Any],
+) -> dict[str, Any]:
+    public = _public_slice(slice_payload)
+    public["evidence_summary"] = _evidence_summary_for_slice(public)
+    public["backlog_handoff"] = _backlog_handoff_for_slice(report, context, public)
+    return public
 
 
 def _combined_cluster_out_of_scope(
@@ -696,7 +762,10 @@ def build_plan_payload(
     merged = _merge_slices_by_scope(slices)
     ranked = sorted(merged, key=lambda item: _slice_rank(report, item))
     suppressed = _suppress_weaker_subsets(ranked)
-    public_slices = [_public_slice(item) for item in suppressed[:max_slices]]
+    public_slices = [
+        _enrich_public_slice(report, context, item)
+        for item in suppressed[:max_slices]
+    ]
 
     return {
         "schema_version": PLAN_SCHEMA_VERSION,
@@ -713,6 +782,12 @@ def build_plan_payload(
                 "relationship-count, cluster-count, out-of-scope-count, "
                 "top-three-priority-sum, path"
             ),
+        },
+        "backlog_handoff": {
+            "mutation_policy": "preview_only",
+            "candidate_count": len(public_slices),
+            "target_plugin_skill": "$project-management-workflows:plan-to-backlog-preview",
+            "source_selector": context["selector"],
         },
         "boundary_note": BOUNDARY_NOTE,
     }
@@ -740,6 +815,12 @@ def render_plan_text(payload: dict[str, Any]) -> str:
             return f"{rendered} (+{len(items) - len(preview)} more)"
         return rendered
 
+    def _render_backlog(slice_payload: dict[str, Any]) -> str:
+        handoff = slice_payload.get("backlog_handoff", {})
+        title = handoff.get("proposed_issue_title", "n/a")
+        priority = handoff.get("priority_hint", "n/a")
+        return f"   backlog: {title} priority={priority} policy=preview_only"
+
     target = payload["target"]
     if target["kind"] == "path":
         header = f"Plan: path {target['path']} [{target['record_type']}]"
@@ -762,7 +843,9 @@ def render_plan_text(payload: dict[str, Any]) -> str:
                 f"{index}. {slice_payload['title']}",
                 f"   scope: {scope}",
                 f"   why: {slice_payload['why_this_slice']}",
+                f"   evidence_summary: {slice_payload.get('evidence_summary', 'n/a')}",
                 f"   evidence: relationships={relationships}; clusters={clusters}",
+                _render_backlog(slice_payload),
                 f"   out_of_scope: {out_of_scope}",
             ]
         )

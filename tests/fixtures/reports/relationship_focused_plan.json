@@ -1,8 +1,41 @@
 {
+  "backlog_handoff": {
+    "candidate_count": 1,
+    "mutation_policy": "preview_only",
+    "source_selector": {
+      "kind": "relationship",
+      "value": "near_duplicate_neighborhood-35e7fad1c4e0"
+    },
+    "target_plugin_skill": "$project-management-workflows:plan-to-backlog-preview"
+  },
   "boundary_note": "Plan boundary: this is a bounded proposal only. It does not mutate code, GitHub, or detector truth, and it does not guarantee correctness or safety.",
   "command": "plan",
   "proposed_slices": [
     {
+      "backlog_handoff": {
+        "acceptance_criteria": [
+          "Review the scoped paths against the cited git-slop evidence.",
+          "Keep changes bounded to the proposed scope unless new evidence is documented.",
+          "Preserve detector score, check, and overlay semantics."
+        ],
+        "evidence_summary": "Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py.",
+        "issue_type": "maintenance",
+        "mutation_policy": "preview_only",
+        "priority_hint": "Later",
+        "proposed_issue_title": "Maintenance: Inspect relationship near_duplicate_neighborhood-35e7fad1c4e0",
+        "source": {
+          "command": "git slop plan",
+          "report_schema_version": 3,
+          "selector": {
+            "kind": "relationship",
+            "value": "near_duplicate_neighborhood-35e7fad1c4e0"
+          }
+        },
+        "suggested_labels": [
+          "maintenance"
+        ]
+      },
+      "evidence_summary": "Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py.",
       "id": "anchor-relationship-near_duplicate_neighborhood-35e7fad1c4e0",
       "out_of_scope_paths": [],
       "ranking_reason": "Anchor slice always ranks first.",
@@ -27,7 +60,7 @@
     "secondary_sort": "relationship-count, cluster-count, out-of-scope-count, top-three-priority-sum, path"
   },
   "report_schema_version": 3,
-  "schema_version": 1,
+  "schema_version": 2,
   "selector": {
     "kind": "relationship",
     "value": "near_duplicate_neighborhood-35e7fad1c4e0"

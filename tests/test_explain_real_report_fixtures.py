@@ -148,9 +148,12 @@ class ExplainRealReportFixtureTests(unittest.TestCase):
         )
         self.assertEqual(json_completed.returncode, 0, json_completed.stderr)
         payload = json.loads(json_completed.stdout)
+        self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["target"]["record_type"], "folder")
         self.assertEqual(len(payload["cost_summary"]["descendant_hotspots"]), 5)
         self.assertIn("descendant_overlay_maxima", payload["overlay_summary"])
+        self.assertIn("evidence_summary", payload)
+        self.assertIn("strongest_overlays", payload["evidence_summary"])
         self.assertEqual(
             len(payload["supporting_relationships"]),
             len({item["id"] for item in payload["supporting_relationships"]}),
@@ -174,6 +177,17 @@ class ExplainRealReportFixtureTests(unittest.TestCase):
         for index, item in enumerate(payload["action_queue"][:5], start=1):
             self.assertIn(f"{index}. {item['path']}", completed.stdout)
 
+    def test_explain_defaults_to_top_five_when_no_selector_is_supplied(self) -> None:
+        report = FIXTURE_DIR / "large_repo_top_report.json"
+
+        completed = run_cli("explain", "--report", str(report), "--format", "json")
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["schema_version"], 2)
+        self.assertEqual(payload["selector"], {"kind": "top", "value": 5})
+        self.assertEqual(len(payload["items"]), 5)
+
     def test_relationship_focused_fixture_supports_relationship_selector(self) -> None:
         report = FIXTURE_DIR / "relationship_focused_report.json"
 
@@ -190,9 +204,11 @@ class ExplainRealReportFixtureTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         payload = json.loads(completed.stdout)
         self.assertEqual(payload["selector"]["kind"], "relationship")
+        self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["target"]["id"], "near_duplicate_neighborhood-35e7fad1c4e0")
         self.assertIn("source", payload["cost_summary"])
         self.assertIn("target", payload["cost_summary"])
+        self.assertIn("evidence_summary", payload)
         self.assertEqual(
             [cluster["id"] for cluster in payload["supporting_clusters"]],
             ["duplicate_set-ce293b441009"],
@@ -275,5 +291,7 @@ class ExplainRealReportFixtureTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         payload = json.loads(completed.stdout)
         self.assertEqual(payload["selector"]["kind"], "cluster")
+        self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["target"]["id"], "scattered_concept-c1c73fb5da90")
         self.assertIn("member_hotspots", payload["cost_summary"])
+        self.assertIn("evidence_summary", payload)
