@@ -14,7 +14,7 @@ git-slop = "git_slop.cli:main"
 
 [dependency-groups]
 dev = [
-    "agent-tools @ git+https://github.com/coreycoto/agent-tools.git@cf3f7bec2ddd0a1391a0a2a6bcf0beb3ca91ffd9",
+    "agent-plugins @ git+https://github.com/coreycoto/agent-plugins.git@579379ad0d059d8b017cb7117209e1ba06792925",
     "pytest>=8.3.0",
     "ruff>=0.11.0",
 ]

@@ -27,7 +27,7 @@ artifacts before any allowed mutation.
 
 ## Boundaries
 
-- Use checked-out repo files, `gh`, GitHub tokens, `agent-tools`, and local
+- Use checked-out repo files, `gh`, GitHub tokens, `agent_plugins` runtime APIs, and local
   CLI tooling only.
 - Do not assume Marketplace-installed connectors are available on the runner.
 - Do not use the GitHub Git Data API.

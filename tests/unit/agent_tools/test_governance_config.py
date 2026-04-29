@@ -5,10 +5,10 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from agent_tools.github.governance.milestone_check import build_milestone_check_payload
-from agent_tools.github.shared.issue_catalog import load_issue_seed_catalog
-from agent_tools.github.shared.label_palette import load_label_palette, repo_managed_labels
-from agent_tools.github.shared.project_config import load_project_config
+from agent_plugins.github.governance.milestone_check import build_milestone_check_payload
+from agent_plugins.github.shared.issue_catalog import load_issue_seed_catalog
+from agent_plugins.github.shared.label_palette import load_label_palette, repo_managed_labels
+from agent_plugins.github.shared.project_config import load_project_config
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
