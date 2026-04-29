@@ -77,6 +77,12 @@ jobs:
         if: steps.codex_preflight.outputs.enabled == 'true'
         run: mkdir -p .artifacts/codex .artifacts/releases
 
+      - name: Install Codex CI config
+        if: steps.codex_preflight.outputs.enabled == 'true'
+        run: |
+          mkdir -p "$HOME/.codex"
+          cp .codex/config.toml "$HOME/.codex/config.toml"
+
       - name: Run Codex release publish
         if: steps.codex_preflight.outputs.enabled == 'true'
         id: run_codex
