@@ -16,6 +16,8 @@ Git Slop now has:
 - prompt-pack-only local model handoff
 - preview-only backlog handoff metadata
 - read-only trend comparison with `git slop compare`
+- read-only SARIF export with `git slop sarif`
+- preview-only bounded refactor handoff with `git slop refactor-preview`
 - JSON, YAML, Markdown, and terminal reporting
 
 The detector bootstrap program is complete. The repo is now past the first
@@ -93,7 +95,7 @@ Current V3 child slices:
 
 - trend comparisons with `git slop compare`
 - SARIF output with `git slop sarif`
-- preview-only bounded refactor loops
+- preview-only bounded refactor loops with `git slop refactor-preview`
 - editor-facing integration research
 
 `git slop compare` consumes two existing schema-3 reports and describes file,
@@ -103,6 +105,12 @@ folder, overlay, and queue movement. It does not rerun the detector, mutate
 `git slop sarif` exports action-queue findings from an existing schema-3 report
 as SARIF 2.1.0. It preserves hotspot cost and overlay evidence as separate
 properties and does not upload results, rerun the detector, or mutate GitHub.
+
+`git slop refactor-preview` consumes saved `git slop plan --format json` output
+and emits bounded maintainer steps, review checklist items, evidence, and
+non-mutating patch-preview notes. It does not edit files, generate diffs, invoke
+models, commit or push changes, rerun the detector, rescore detector truth, or
+mutate GitHub.
 
 ## Explicit Not Yet
 

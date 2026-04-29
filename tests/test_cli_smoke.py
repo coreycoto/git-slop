@@ -70,6 +70,7 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("check", completed.stdout)
         self.assertIn("compare", completed.stdout)
         self.assertIn("sarif", completed.stdout)
+        self.assertIn("refactor-preview", completed.stdout)
         self.assertIn("version", completed.stdout)
 
     def test_version_command_works_via_python_module(self) -> None:
