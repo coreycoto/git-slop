@@ -57,9 +57,10 @@ def render_formula(manifest: dict[str, Any]) -> str:
     wheel = manifest["wheel"]
     if not wheel.get("url") or not wheel.get("sha256"):
         raise ValueError("release manifest must include wheel.url and wheel.sha256")
+    source = _source_artifact(manifest)
     release_tag = manifest.get("tag") or _release_tag_from_wheel_url(wheel["url"])
     version = manifest.get("version") or release_tag.removeprefix("v")
-    asset_name = wheel.get("name") or Path(wheel["url"]).name
+    asset_name = source["name"]
     release_api_url = f"https://api.github.com/repos/coreycoto/git-slop/releases/tags/{release_tag}"
     resource_blocks = "\n\n".join(
         "\n".join(
@@ -127,7 +128,7 @@ def render_formula(manifest: dict[str, Any]) -> str:
         f'      using:      GitSlopPrivateReleaseDownloadStrategy,\n'
         f'      asset_name: "{asset_name}"\n'
         f'  version "{version}"\n'
-        f'  sha256 "{wheel["sha256"]}"\n'
+        f'  sha256 "{source["sha256"]}"\n'
         '  license "MIT"\n\n'
         '  depends_on "rust" => :build\n\n'
         '  depends_on "libyaml"\n'
@@ -148,6 +149,13 @@ def _release_tag_from_wheel_url(url: str) -> str:
     if not match:
         raise ValueError("release manifest must include tag or a GitHub release wheel URL")
     return match.group(1)
+
+
+def _source_artifact(manifest: dict[str, Any]) -> dict[str, str]:
+    for artifact in manifest.get("artifacts", []):
+        if artifact.get("name", "").endswith(".tar.gz") and artifact.get("sha256"):
+            return {"name": artifact["name"], "sha256": artifact["sha256"]}
+    raise ValueError("release manifest must include a source distribution artifact")
 
 
 def main() -> int:

@@ -52,6 +52,12 @@ class DistributionTests(unittest.TestCase):
 
     def test_homebrew_formula_renders_private_release_wheel(self) -> None:
         manifest = {
+            "artifacts": [
+                {
+                    "name": "git_slop-0.7.2.tar.gz",
+                    "sha256": "1" * 64,
+                }
+            ],
             "wheel": {
                 "url": "https://github.com/coreycoto/git-slop/releases/download/v0.7.2/git_slop-0.7.2-py3-none-any.whl",
                 "sha256": "0" * 64,
@@ -65,8 +71,9 @@ class DistributionTests(unittest.TestCase):
         self.assertIn("HOMEBREW_GITHUB_API_TOKEN", formula)
         self.assertIn("https://api.github.com/repos/coreycoto/git-slop/releases/tags/v0.7.2", formula)
         self.assertIn("using:      GitSlopPrivateReleaseDownloadStrategy", formula)
-        self.assertIn('asset_name: "git_slop-0.7.2-py3-none-any.whl"', formula)
+        self.assertIn('asset_name: "git_slop-0.7.2.tar.gz"', formula)
         self.assertIn('version "0.7.2"', formula)
+        self.assertIn('sha256 "1111111111111111111111111111111111111111111111111111111111111111"', formula)
         self.assertIn('include Language::Python::Virtualenv', formula)
         self.assertIn('depends_on "python@3.13"', formula)
         self.assertIn('depends_on "rust" => :build', formula)
