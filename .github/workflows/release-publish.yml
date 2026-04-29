@@ -61,6 +61,36 @@ jobs:
       - name: Build release manifest
         run: uv run python scripts/build_release_manifest.py --dist-dir dist --output .artifacts/releases/release-manifest.json
 
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_tag="${GITHUB_REF_NAME}"
+          if [[ ! "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            release_tag="v$(python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          fi
+          notes_path=".artifacts/releases/${release_tag}-notes.md"
+          {
+            echo "# git-slop ${release_tag}"
+            echo
+            echo "## Artifacts"
+            echo
+            echo "- \`dist/git_slop-${release_tag#v}-py3-none-any.whl\`"
+            echo "- \`dist/git_slop-${release_tag#v}.tar.gz\`"
+            echo "- \`.artifacts/releases/release-manifest.json\`"
+          } > "$notes_path"
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release edit "$release_tag" --title "$release_tag" --notes-file "$notes_path"
+          else
+            gh release create "$release_tag" --title "$release_tag" --notes-file "$notes_path"
+          fi
+          gh release upload "$release_tag" \
+            "dist/git_slop-${release_tag#v}-py3-none-any.whl" \
+            "dist/git_slop-${release_tag#v}.tar.gz" \
+            ".artifacts/releases/release-manifest.json" \
+            --clobber
+
       - name: Detect Codex credentials
         id: codex_preflight
         env:
