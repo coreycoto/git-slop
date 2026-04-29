@@ -43,7 +43,7 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(manifest["tag"], "v0.7.2")
         self.assertEqual(
             manifest["homebrew_source"]["url"],
-            "git@github.com:coreycoto/git-slop.git",
+            "ssh://git@github.com/coreycoto/git-slop.git",
         )
         self.assertEqual(manifest["homebrew_source"]["tag"], "v0.7.2")
         self.assertTrue(manifest["homebrew_source"]["revision"])
@@ -63,7 +63,7 @@ class DistributionTests(unittest.TestCase):
     def test_homebrew_formula_renders_pinned_private_git_source(self) -> None:
         manifest = {
             "homebrew_source": {
-                "url": "git@github.com:coreycoto/git-slop.git",
+                "url": "ssh://git@github.com/coreycoto/git-slop.git",
                 "tag": "v0.7.2",
                 "revision": "405cc8928c3adf891a75e17ed438aa2c4b2dbcd2",
             },
@@ -78,7 +78,7 @@ class DistributionTests(unittest.TestCase):
 
         self.assertIn("class GitSlop < Formula", formula)
         self.assertNotIn("HOMEBREW_GITHUB_API_TOKEN", formula)
-        self.assertIn('url "git@github.com:coreycoto/git-slop.git"', formula)
+        self.assertIn('url "ssh://git@github.com/coreycoto/git-slop.git"', formula)
         self.assertIn('tag:      "v0.7.2"', formula)
         self.assertIn('revision: "405cc8928c3adf891a75e17ed438aa2c4b2dbcd2"', formula)
         self.assertIn('version "0.7.2"', formula)

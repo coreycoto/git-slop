@@ -68,7 +68,7 @@ def build_manifest(*, project_root: Path, dist_dir: Path, tag: str | None = None
         "tag": release_tag,
         "repository": REPO_FULL_NAME,
         "homebrew_source": {
-            "url": f"git@github.com:{REPO_FULL_NAME}.git",
+            "url": f"ssh://git@github.com/{REPO_FULL_NAME}.git",
             "tag": release_tag,
             "revision": _git_revision(project_root, release_tag),
         },
