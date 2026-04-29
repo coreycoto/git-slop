@@ -395,5 +395,16 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
             errors.append(f"{workflow_name} must not configure agent-tools dependency access.")
         if workflow_name == "ci.yml" and "scripts/smoke_plugin_consumer.py" not in workflow_text:
             errors.append("ci.yml must run scripts/smoke_plugin_consumer.py.")
+        if "openai/codex-action@v1" in workflow_text:
+            if ".artifacts/codex-home" not in workflow_text:
+                errors.append(f"{workflow_name} must prepare an isolated Codex home.")
+            if "cp .codex/config.toml .artifacts/codex-home/config.toml" not in workflow_text:
+                errors.append(
+                    f"{workflow_name} must copy repo Codex config into the isolated Codex home."
+                )
+            if "codex-home: ${{ github.workspace }}/.artifacts/codex-home" not in workflow_text:
+                errors.append(
+                    f"{workflow_name} must pass the isolated Codex home to codex-action."
+                )
 
     return errors

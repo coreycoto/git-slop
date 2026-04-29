@@ -72,9 +72,11 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Prepare artifact directories
+      - name: Prepare Codex runtime directories
         if: steps.codex_preflight.outputs.enabled == 'true'
-        run: mkdir -p .artifacts/codex .artifacts/dependency-remediation
+        run: |
+          mkdir -p .artifacts/codex .artifacts/codex-home .artifacts/dependency-remediation
+          cp .codex/config.toml .artifacts/codex-home/config.toml
 
       - name: Run Codex dependency remediation
         if: steps.codex_preflight.outputs.enabled == 'true'
@@ -84,6 +86,7 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/dependency-remediation.md
           output-file: .artifacts/codex/dependency-remediation.json
+          codex-home: ${{ github.workspace }}/.artifacts/codex-home
           codex-args: >-
             ["--profile","ci_mutation","--output-schema",".github/codex/schemas/dependency-remediation.json"]
           safety-strategy: drop-sudo

@@ -78,9 +78,11 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Prepare artifact directories
+      - name: Prepare Codex runtime directories
         if: steps.codex_preflight.outputs.enabled == 'true'
-        run: mkdir -p .artifacts/codex .artifacts/github-governance
+        run: |
+          mkdir -p .artifacts/codex .artifacts/codex-home .artifacts/github-governance
+          cp .codex/config.toml .artifacts/codex-home/config.toml
 
       - name: Run Codex governance reconcile
         if: steps.codex_preflight.outputs.enabled == 'true'
@@ -90,6 +92,7 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/governance-reconcile.md
           output-file: .artifacts/codex/governance-reconcile.json
+          codex-home: ${{ github.workspace }}/.artifacts/codex-home
           codex-args: >-
             ["--profile","ci_mutation","--output-schema",".github/codex/schemas/governance-reconcile.json"]
           safety-strategy: drop-sudo
