@@ -5,18 +5,10 @@ requires-python = ">=3.13"
 [[package]]
 name = "agent-plugins"
 version = "0.1.0"
-source = { git = "https://github.com/coreycoto/agent-plugins.git?rev=a0692d1d441e6f9c1dfa0030886859407f4f8cfd#a0692d1d441e6f9c1dfa0030886859407f4f8cfd" }
+source = { git = "https://github.com/coreycoto/agent-plugins.git?rev=579379ad0d059d8b017cb7117209e1ba06792925#579379ad0d059d8b017cb7117209e1ba06792925" }
 dependencies = [
-    { name = "pyyaml" },
-]
-
-[[package]]
-name = "agent-tools"
-version = "0.4.0"
-source = { git = "https://github.com/coreycoto/agent-tools.git?rev=cf3f7bec2ddd0a1391a0a2a6bcf0beb3ca91ffd9#cf3f7bec2ddd0a1391a0a2a6bcf0beb3ca91ffd9" }
-dependencies = [
-    { name = "agent-plugins" },
     { name = "jsonschema" },
+    { name = "pyyaml" },
 ]
 
 [[package]]
@@ -114,7 +106,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "agent-tools" },
+    { name = "agent-plugins" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -127,7 +119,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "agent-tools", git = "https://github.com/coreycoto/agent-tools.git?rev=cf3f7bec2ddd0a1391a0a2a6bcf0beb3ca91ffd9" },
+    { name = "agent-plugins", git = "https://github.com/coreycoto/agent-plugins.git?rev=579379ad0d059d8b017cb7117209e1ba06792925" },
     { name = "pytest", specifier = ">=8.3.0" },
     { name = "ruff", specifier = ">=0.11.0" },
 ]

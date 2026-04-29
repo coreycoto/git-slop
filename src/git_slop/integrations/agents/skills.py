@@ -1,77 +1,77 @@
 from __future__ import annotations
 
-from agent_tools.skills.manifest import ActionSpec, SkillSpec
+from agent_plugins.contracts.skills import ActionSpec, SkillSpec
 
 ACTION_SPECS: dict[str, ActionSpec] = {
     "repo": ActionSpec(
         "repo",
         "Resolve the current repository context.",
-        ("github", "current-repo"),
+        ("agent_plugins.github.current_repo",),
     ),
     "snapshot": ActionSpec(
         "snapshot",
         "Build the current backlog project snapshot.",
-        ("github", "project-snapshot"),
+        ("agent_plugins.github.shared.project_snapshot",),
     ),
     "graph": ActionSpec(
         "graph",
         "Build the canonical issue graph.",
-        ("github", "issue-graph"),
+        ("agent_plugins.github.shared.issue_graph",),
     ),
     "digest": ActionSpec(
         "digest",
         "Normalize local markdown and DOCX research into intake artifacts.",
-        ("research", "digest"),
+        ("agent_plugins.research.digest",),
     ),
     "label-palette": ActionSpec(
         "label-palette",
         "Validate or preview the checked-in label palette.",
-        ("github", "sync-label-palette"),
+        ("agent_plugins.github.governance.sync_label_palette",),
     ),
     "milestone-check": ActionSpec(
         "milestone-check",
         "Compute the current and next quarter milestone policy.",
-        ("github", "milestone-check"),
+        ("agent_plugins.github.governance.milestone_check",),
     ),
     "validate-backlog-mutations": ActionSpec(
         "validate-backlog-mutations",
         "Validate a deterministic backlog mutation plan.",
-        ("github", "validate-backlog-mutations"),
+        ("agent_plugins.github.governance.validate_backlog_mutations",),
     ),
     "apply-backlog-mutations": ActionSpec(
         "apply-backlog-mutations",
         "Materialize an apply report for a backlog mutation plan.",
-        ("github", "apply-backlog-mutations"),
+        ("agent_plugins.github.governance.apply_backlog_mutations",),
     ),
     "review-to-backlog": ActionSpec(
         "review-to-backlog",
         "Turn review findings into a deterministic backlog delta.",
-        ("github", "review-to-backlog"),
+        ("agent_plugins.github.reviews.review_to_backlog",),
     ),
     "plan-to-backlog": ActionSpec(
         "plan-to-backlog",
         "Turn git-slop plan output into a deterministic backlog preview delta.",
-        ("github", "plan-to-backlog"),
+        ("agent_plugins.github.planning.plan_to_backlog",),
     ),
     "apply-review-delta": ActionSpec(
         "apply-review-delta",
         "Materialize a review backlog apply report.",
-        ("github", "apply-review-backlog-delta"),
+        ("agent_plugins.github.reviews.apply_review_backlog_delta",),
     ),
     "validate-quarter-plan": ActionSpec(
         "validate-quarter-plan",
         "Validate a quarter plan payload.",
-        ("github", "validate-quarter-plan"),
+        ("agent_plugins.github.planning.validate_quarter_plan",),
     ),
     "build-quarter-delta": ActionSpec(
         "build-quarter-delta",
         "Turn a validated quarter plan into a milestone delta.",
-        ("github", "build-quarter-plan-delta"),
+        ("agent_plugins.github.planning.build_quarter_plan_delta",),
     ),
     "apply-quarter-delta": ActionSpec(
         "apply-quarter-delta",
         "Materialize a quarter-plan apply report.",
-        ("github", "apply-quarter-plan-delta"),
+        ("agent_plugins.github.planning.apply_quarter_plan_delta",),
     ),
 }
 

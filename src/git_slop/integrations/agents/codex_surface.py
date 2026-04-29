@@ -35,7 +35,7 @@ AGENT_SKILL_REFERENCES = {
 }
 
 EXPECTED_PLUGIN_URL = "https://github.com/coreycoto/agent-plugins.git"
-EXPECTED_PLUGIN_SHA = "0cc65a23bb676254ae51295835c1cba03b9dfe17"
+EXPECTED_PLUGIN_SHA = "579379ad0d059d8b017cb7117209e1ba06792925"
 EXPECTED_MARKETPLACE_NAME = "agent-plugins-marketplace"
 MARKETPLACE_SOURCE_MANIFEST = Path(".agents/plugins/marketplace-source.json")
 BOOTSTRAP_SCRIPT = Path("scripts/bootstrap_agent_plugins_marketplace.py")
@@ -284,6 +284,10 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
         for forbidden in REMOVED_LOCAL_PLUGIN_REFERENCES:
             if forbidden in prompt_text:
                 errors.append(f"{assets['prompt']} must not reference {forbidden}.")
+        if "agent-tools" in prompt_text or "agent_tools" in prompt_text:
+            errors.append(
+                f"{assets['prompt']} must use agent_plugins runtime APIs, not agent-tools."
+            )
 
     for relative_path in (
         "AGENTS.md",
@@ -336,6 +340,8 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
             errors.append(
                 f"{workflow_name} must bootstrap the pinned agent-plugins marketplace source."
             )
+        if "AGENT_TOOLS_READ_TOKEN" in workflow_text or "agent-tools.git" in workflow_text:
+            errors.append(f"{workflow_name} must not configure agent-tools dependency access.")
         if workflow_name == "ci.yml" and "scripts/smoke_plugin_consumer.py" not in workflow_text:
             errors.append("ci.yml must run scripts/smoke_plugin_consumer.py.")
 

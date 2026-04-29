@@ -23,7 +23,10 @@ class SkillRuntimeAndMetadataTests(unittest.TestCase):
         backlog_preview_spec = SKILL_SPECS["plan-to-backlog-preview"]
         self.assertIn("plan-to-backlog", backlog_preview_spec.actions)
         action_spec = ACTION_SPECS["label-palette"]
-        self.assertEqual(action_spec.command, ("github", "sync-label-palette"))
+        self.assertEqual(
+            action_spec.command,
+            ("agent_plugins.github.governance.sync_label_palette",),
+        )
 
     def test_skill_runtime_can_print_delegated_command(self) -> None:
         output = io.StringIO()
@@ -40,5 +43,5 @@ class SkillRuntimeAndMetadataTests(unittest.TestCase):
                 script_path=REPO_ROOT,
             )
         self.assertEqual(exit_code, 0)
-        self.assertIn("agent_tools.cli", output.getvalue())
-        self.assertIn("research digest", output.getvalue())
+        self.assertIn("agent_plugins.research.digest", output.getvalue())
+        self.assertIn("docs/vision.md", output.getvalue())

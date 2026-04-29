@@ -12,17 +12,18 @@ from git_slop.agent_skills import ACTION_SPECS, SKILL_SPECS
 from git_slop.integrations.agents.codex_surface import PLUGIN_SKILL_CATALOG
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_SNAPSHOT_ENTRYPOINT = (
+    "from agent_plugins.github.shared.project_snapshot import main; raise SystemExit(main())"
+)
 
 
-class AgentToolsIntegrationTests(unittest.TestCase):
-    def test_external_agent_tools_cli_is_available(self) -> None:
+class AgentPluginsRuntimeIntegrationTests(unittest.TestCase):
+    def test_external_agent_plugins_runtime_is_available(self) -> None:
         completed = subprocess.run(
             [
                 sys.executable,
-                "-m",
-                "agent_tools",
-                "github",
-                "project-snapshot",
+                "-c",
+                PROJECT_SNAPSHOT_ENTRYPOINT,
                 "--repo-root",
                 str(REPO_ROOT),
             ],
@@ -56,8 +57,8 @@ class AgentToolsIntegrationTests(unittest.TestCase):
             )
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("agent_tools.cli", output.getvalue())
-        self.assertIn("research digest", output.getvalue())
+        self.assertIn("agent_plugins.research.digest", output.getvalue())
+        self.assertIn("docs/vision.md", output.getvalue())
         self.assertIn("intake-preview", SKILL_SPECS)
         self.assertIn("digest", ACTION_SPECS)
         self.assertIn("plan-to-backlog-preview", SKILL_SPECS)

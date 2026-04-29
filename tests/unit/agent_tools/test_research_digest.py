@@ -6,7 +6,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from agent_tools.research.digest import build_manifest, write_artifacts
+from agent_plugins.research.digest import build_manifest, write_artifacts
 
 DOCX_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
