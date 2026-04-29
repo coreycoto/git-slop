@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,10 @@ def render_formula(manifest: dict[str, Any]) -> str:
     wheel = manifest["wheel"]
     if not wheel.get("url") or not wheel.get("sha256"):
         raise ValueError("release manifest must include wheel.url and wheel.sha256")
+    release_tag = manifest.get("tag") or _release_tag_from_wheel_url(wheel["url"])
+    version = manifest.get("version") or release_tag.removeprefix("v")
+    asset_name = wheel.get("name") or Path(wheel["url"]).name
+    release_api_url = f"https://api.github.com/repos/coreycoto/git-slop/releases/tags/{release_tag}"
     resource_blocks = "\n\n".join(
         "\n".join(
             [
@@ -68,21 +73,60 @@ def render_formula(manifest: dict[str, Any]) -> str:
         for name, url, sha256 in RESOURCES
     )
     return (
+        "require \"json\"\n"
+        "require \"net/http\"\n"
+        "require \"uri\"\n\n"
         "class GitSlopPrivateReleaseDownloadStrategy < CurlDownloadStrategy\n"
         "  def initialize(url, name, version, **meta)\n"
-        '    token = ENV["HOMEBREW_GITHUB_API_TOKEN"] || ENV["GITHUB_TOKEN"] || ENV["GH_TOKEN"]\n'
-        '    odie "Set HOMEBREW_GITHUB_API_TOKEN, GITHUB_TOKEN, or GH_TOKEN with access to coreycoto/git-slop." if token.blank?\n\n'
+        '    @asset_name = meta.delete(:asset_name)\n'
+        '    @github_token = ENV["HOMEBREW_GITHUB_API_TOKEN"] || ENV["GITHUB_TOKEN"] || ENV["GH_TOKEN"]\n'
+        "    if @github_token.blank?\n"
+        '      odie "Set HOMEBREW_GITHUB_API_TOKEN, GITHUB_TOKEN, or GH_TOKEN with access to coreycoto/git-slop."\n'
+        "    end\n\n"
         "    meta[:headers] ||= []\n"
-        '    meta[:headers] << "Authorization: Bearer #{token}"\n'
+        '    meta[:headers] << "Authorization: Bearer #{@github_token}"\n'
         '    meta[:headers] << "Accept: application/octet-stream"\n'
         "    super\n"
+        "  end\n"
+        "\n"
+        "  private\n"
+        "\n"
+        "  def resolve_url_basename_time_file_size(url, timeout: nil)\n"
+        "    super(resolve_asset_api_url(url), timeout: timeout)\n"
+        "  end\n"
+        "\n"
+        "  def _fetch(url:, resolved_url:, timeout:)\n"
+        "    super(url: resolve_asset_api_url(url), resolved_url: resolved_url, timeout: timeout)\n"
+        "  end\n"
+        "\n"
+        "  def resolve_asset_api_url(release_api_url)\n"
+        '    return release_api_url if release_api_url.include?("/releases/assets/")\n'
+        "\n"
+        "    @resolve_asset_api_url ||= begin\n"
+        "      uri = URI(release_api_url)\n"
+        "      request = Net::HTTP::Get.new(uri)\n"
+        '      request["Authorization"] = "Bearer #{@github_token}"\n'
+        '      request["Accept"] = "application/vnd.github+json"\n'
+        "      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|\n"
+        "        http.request(request)\n"
+        "      end\n"
+        "      unless response.is_a?(Net::HTTPSuccess)\n"
+        '        odie "Unable to read git-slop release metadata from #{release_api_url}: HTTP #{response.code}"\n'
+        "      end\n"
+        "      asset = JSON.parse(response.body).fetch(\"assets\").find { |candidate| candidate.fetch(\"name\") == @asset_name }\n"
+        '      odie "Release asset #{@asset_name} was not found in #{release_api_url}." if asset.nil?\n'
+        "      asset.fetch(\"url\")\n"
+        "    end\n"
         "  end\n"
         "end\n\n"
         'class GitSlop < Formula\n'
         '  include Language::Python::Virtualenv\n\n'
         '  desc "Local-first hotspot detection for AI-era repositories"\n'
         '  homepage "https://github.com/coreycoto/git-slop"\n'
-        f'  url "{wheel["url"]}", using: GitSlopPrivateReleaseDownloadStrategy\n'
+        f'  url "{release_api_url}",\n'
+        f'      using:      GitSlopPrivateReleaseDownloadStrategy,\n'
+        f'      asset_name: "{asset_name}"\n'
+        f'  version "{version}"\n'
         f'  sha256 "{wheel["sha256"]}"\n'
         '  license "MIT"\n\n'
         '  depends_on "rust" => :build\n\n'
@@ -97,6 +141,13 @@ def render_formula(manifest: dict[str, Any]) -> str:
         "  end\n"
         "end\n"
     )
+
+
+def _release_tag_from_wheel_url(url: str) -> str:
+    match = re.search(r"/releases/download/([^/]+)/", url)
+    if not match:
+        raise ValueError("release manifest must include tag or a GitHub release wheel URL")
+    return match.group(1)
 
 
 def main() -> int:
