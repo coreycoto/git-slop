@@ -75,13 +75,11 @@ jobs:
 
       - name: Prepare artifact directories
         if: steps.codex_preflight.outputs.enabled == 'true'
-        run: mkdir -p .artifacts/codex .artifacts/releases
+        run: mkdir -p .artifacts/codex .artifacts/releases .artifacts/codex-home
 
       - name: Install Codex CI config
         if: steps.codex_preflight.outputs.enabled == 'true'
-        run: |
-          mkdir -p "$HOME/.codex"
-          cp .codex/config.toml "$HOME/.codex/config.toml"
+        run: cp .codex/config.toml .artifacts/codex-home/config.toml
 
       - name: Run Codex release publish
         if: steps.codex_preflight.outputs.enabled == 'true'
@@ -91,6 +89,7 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/release-publish.md
           output-file: .artifacts/codex/release-publish.json
+          codex-home: .artifacts/codex-home
           codex-args: >-
             ["--profile","ci_release","--output-schema",".github/codex/schemas/release-publish.json"]
           safety-strategy: drop-sudo

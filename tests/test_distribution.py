@@ -27,21 +27,21 @@ class DistributionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             dist_dir = Path(tmp_dir) / "dist"
             dist_dir.mkdir()
-            wheel = dist_dir / "git_slop-0.7.1-py3-none-any.whl"
-            sdist = dist_dir / "git_slop-0.7.1.tar.gz"
+            wheel = dist_dir / "git_slop-0.7.2-py3-none-any.whl"
+            sdist = dist_dir / "git_slop-0.7.2.tar.gz"
             wheel.write_bytes(b"wheel")
             sdist.write_bytes(b"sdist")
 
             manifest = BUILD_MANIFEST.build_manifest(
                 project_root=REPO_ROOT,
                 dist_dir=dist_dir,
-                tag="v0.7.1",
+                tag="v0.7.2",
             )
 
         self.assertEqual(manifest["schema_version"], 1)
         self.assertEqual(manifest["project"], "git-slop")
-        self.assertEqual(manifest["tag"], "v0.7.1")
-        self.assertEqual(manifest["wheel"]["name"], "git_slop-0.7.1-py3-none-any.whl")
+        self.assertEqual(manifest["tag"], "v0.7.2")
+        self.assertEqual(manifest["wheel"]["name"], "git_slop-0.7.2-py3-none-any.whl")
         self.assertTrue(manifest["wheel"]["sha256"])
         self.assertIn("uv_release_wheel", manifest["install"])
         self.assertIn("homebrew_private_tap", manifest["install"])
@@ -53,7 +53,7 @@ class DistributionTests(unittest.TestCase):
     def test_homebrew_formula_renders_private_release_wheel(self) -> None:
         manifest = {
             "wheel": {
-                "url": "https://github.com/coreycoto/git-slop/releases/download/v0.7.1/git_slop-0.7.1-py3-none-any.whl",
+                "url": "https://github.com/coreycoto/git-slop/releases/download/v0.7.2/git_slop-0.7.2-py3-none-any.whl",
                 "sha256": "0" * 64,
             }
         }
