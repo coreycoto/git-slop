@@ -35,7 +35,7 @@ AGENT_SKILL_REFERENCES = {
 }
 
 EXPECTED_PLUGIN_URL = "https://github.com/coreycoto/agent-plugins.git"
-EXPECTED_PLUGIN_SHA = "579379ad0d059d8b017cb7117209e1ba06792925"
+EXPECTED_PLUGIN_SHA = "1cb87285df878822bcbb561bc684a57a24362a37"
 EXPECTED_MARKETPLACE_NAME = "agent-plugins-marketplace"
 MARKETPLACE_SOURCE_MANIFEST = Path(".agents/plugins/marketplace-source.json")
 BOOTSTRAP_SCRIPT = Path("scripts/bootstrap_agent_plugins_marketplace.py")
