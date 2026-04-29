@@ -20,7 +20,7 @@ from git_slop.reports.shared import (
     strongest_pressures,
 )
 
-EXPLAIN_SCHEMA_VERSION = 1
+EXPLAIN_SCHEMA_VERSION = 2
 BOUNDARY_NOTE = (
     "Interpretation boundary: this is structural evidence, not proof that an "
     "abstraction, boundary, or refactor is correct."
@@ -41,6 +41,69 @@ def _base_payload(
         "selector": selector,
         "target": target,
         "boundary_note": BOUNDARY_NOTE,
+    }
+
+
+def _cost_evidence_summary(costs: dict[str, Any]) -> list[str]:
+    summaries: list[tuple[float, str]] = []
+    load = costs.get("load", {}) or {}
+    volatility = costs.get("volatility", {}) or {}
+    coordination = costs.get("coordination", {}) or {}
+    summaries.extend(
+        [
+            (
+                float(load.get("load_pressure", 0.0)),
+                (
+                    "load pressure "
+                    f"{float(load.get('load_pressure', 0.0)):.3f} from "
+                    f"{int(load.get('file_token_count', 0))} file tokens"
+                ),
+            ),
+            (
+                float(volatility.get("volatility_pressure", 0.0)),
+                (
+                    "volatility pressure "
+                    f"{float(volatility.get('volatility_pressure', 0.0)):.3f} from "
+                    f"{int(volatility.get('commit_count_window', 0))} commits"
+                ),
+            ),
+            (
+                float(coordination.get("coordination_pressure", 0.0)),
+                (
+                    "coordination pressure "
+                    f"{float(coordination.get('coordination_pressure', 0.0)):.3f} from "
+                    f"degree {int(coordination.get('cochange_degree', 0))}"
+                ),
+            ),
+        ]
+    )
+    ranked = [text for value, text in sorted(summaries, key=lambda item: (-item[0], item[1]))]
+    return ranked[:3]
+
+
+def _overlay_evidence_summary(overlays: dict[str, Any]) -> list[str]:
+    strongest = strongest_pressures(overlays or {}, limit=3)
+    return [f"{label} pressure {value:.3f}" for label, value in strongest]
+
+
+def _evidence_summary(
+    payload: dict[str, Any],
+    *,
+    mode: str,
+) -> dict[str, Any]:
+    relationships = payload.get("supporting_relationships", [])
+    clusters = payload.get("supporting_clusters", [])
+    return {
+        "detector_cost": _cost_evidence_summary(payload.get("cost_summary", {})),
+        "strongest_overlays": _overlay_evidence_summary(payload.get("overlay_summary", {})),
+        "supporting_evidence": {
+            "relationship_ids": [item["id"] for item in relationships[:5]],
+            "cluster_ids": [item["id"] for item in clusters[:5]],
+        },
+        "interpretation": (
+            f"{mode} explanation is based on detector report evidence only; "
+            "it does not prove correctness or require a refactor."
+        ),
     }
 
 
@@ -96,6 +159,7 @@ def _build_file_payload(
         ),
         limit=5,
     )
+    payload["evidence_summary"] = _evidence_summary(payload, mode="Path")
     return payload
 
 
@@ -146,6 +210,7 @@ def _build_folder_payload(
         ),
         limit=5,
     )
+    payload["evidence_summary"] = _evidence_summary(payload, mode="Folder")
     return payload
 
 
@@ -212,6 +277,7 @@ def _build_cluster_payload(report: dict[str, Any], cluster_id: str) -> dict[str,
     }
     payload["supporting_relationships"] = supporting_relationships
     payload["supporting_clusters"] = [cluster]
+    payload["evidence_summary"] = _evidence_summary(payload, mode="Cluster")
     return payload
 
 
@@ -248,6 +314,7 @@ def _build_relationship_payload(report: dict[str, Any], relationship_id: str) ->
     }
     payload["supporting_relationships"] = [relationship]
     payload["supporting_clusters"] = shared_clusters
+    payload["evidence_summary"] = _evidence_summary(payload, mode="Relationship")
     return payload
 
 
@@ -265,6 +332,20 @@ def _build_top_payload(report: dict[str, Any], count: int) -> dict[str, Any]:
         "selector": {"kind": "top", "value": count},
         "target": {"kind": "top", "count": count},
         "items": items,
+        "evidence_summary": {
+            "detector_cost": [
+                "top explanations preserve the current action_queue order"
+            ],
+            "strongest_overlays": [],
+            "supporting_evidence": {
+                "relationship_ids": [],
+                "cluster_ids": [],
+            },
+            "interpretation": (
+                "Top explanations describe detector ordering; they do not rerank "
+                "hotspots or prove a refactor is required."
+            ),
+        },
         "boundary_note": BOUNDARY_NOTE,
     }
 
@@ -370,6 +451,28 @@ def _format_cluster_brief(cluster: dict[str, Any]) -> str:
     )
 
 
+def _format_evidence_summary(summary: dict[str, Any]) -> list[str]:
+    if not summary:
+        return ["- none"]
+    detector_cost = summary.get("detector_cost", []) or ["none"]
+    strongest_overlays = summary.get("strongest_overlays", []) or ["none"]
+    supporting = summary.get("supporting_evidence", {}) or {}
+    relationship_ids = supporting.get("relationship_ids", []) or ["none"]
+    cluster_ids = supporting.get("cluster_ids", []) or ["none"]
+    return [
+        f"- strongest detector costs: {'; '.join(detector_cost)}",
+        f"- strongest overlays: {'; '.join(strongest_overlays)}",
+        f"- supporting relationships: {', '.join(relationship_ids)}",
+        f"- supporting clusters: {', '.join(cluster_ids)}",
+        f"- interpretation: {summary.get('interpretation', 'evidence only')}",
+    ]
+
+
+def _append_evidence_summary(lines: list[str], payload: dict[str, Any]) -> None:
+    lines.extend(["", "Evidence Summary"])
+    lines.extend(_format_evidence_summary(payload.get("evidence_summary", {})))
+
+
 def _render_file_entry(payload: dict[str, Any]) -> str:
     target = payload["target"]
     cost_summary = payload.get("cost_summary", {})
@@ -415,6 +518,7 @@ def _render_file_entry(payload: dict[str, Any]) -> str:
     lines.extend(["", "Supporting Clusters"])
     clusters = payload.get("supporting_clusters", [])
     lines.extend([_format_cluster_brief(cluster) for cluster in clusters] or ["- none"])
+    _append_evidence_summary(lines, payload)
     lines.extend(["", payload["boundary_note"]])
     return "\n".join(lines)
 
@@ -490,6 +594,7 @@ def _render_folder_entry(payload: dict[str, Any]) -> str:
     lines.extend(["", "Supporting Clusters"])
     clusters = payload.get("supporting_clusters", [])[:3]
     lines.extend([_format_cluster_brief(cluster) for cluster in clusters] or ["- none"])
+    _append_evidence_summary(lines, payload)
     lines.extend(["", payload["boundary_note"]])
     return "\n".join(lines)
 
@@ -534,6 +639,7 @@ def _render_relationship_entry(payload: dict[str, Any]) -> str:
     ]
     clusters = payload.get("supporting_clusters", [])
     lines.extend([_format_cluster_brief(cluster) for cluster in clusters] or ["- none"])
+    _append_evidence_summary(lines, payload)
     lines.extend(["", payload["boundary_note"]])
     return "\n".join(lines)
 
@@ -595,6 +701,7 @@ def _render_cluster_entry(payload: dict[str, Any]) -> str:
     lines.extend(["", "Supporting Clusters"])
     clusters = payload.get("supporting_clusters", [])
     lines.extend([_format_cluster_brief(cluster) for cluster in clusters] or ["- none"])
+    _append_evidence_summary(lines, payload)
     lines.extend(["", payload["boundary_note"]])
     return "\n".join(lines)
 
@@ -636,6 +743,8 @@ def render_explain_text(payload: dict[str, Any]) -> str:
         blocks = [f"Explain: top {count} hotspots"]
         for index, item in enumerate(payload.get("items", []), start=1):
             blocks.extend(["", _render_top_item(item, ordinal=index)])
+        blocks.extend(["", "Evidence Summary"])
+        blocks.extend(_format_evidence_summary(payload.get("evidence_summary", {})))
         blocks.extend(["", payload["boundary_note"]])
         return "\n".join(blocks)
     if selector_kind == "cluster":

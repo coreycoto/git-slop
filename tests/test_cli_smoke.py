@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -11,6 +12,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = REPO_ROOT / "src"
+FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "reports"
 sys.path.insert(0, str(SRC_DIR))
 
 import git_slop  # noqa: E402
@@ -102,6 +104,73 @@ class CliSmokeTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 2)
         self.assertIn("Report not found:", completed.stdout)
         self.assertEqual(completed.stderr, "")
+
+    def test_explain_prompt_pack_writes_local_model_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pack_dir = Path(tmp_dir) / "explain-pack"
+            completed = run_cli(
+                "explain",
+                "--report",
+                str(FIXTURE_DIR / "local_repo_folder_report.json"),
+                "--path",
+                "src/git_slop",
+                "--prompt-pack",
+                str(pack_dir),
+                "--format",
+                "json",
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            context = json.loads((pack_dir / "context.json").read_text(encoding="utf-8"))
+            self.assertEqual(context["command"], "explain")
+            self.assertEqual(context["payload"]["schema_version"], 2)
+            self.assertTrue((pack_dir / "prompt.md").exists())
+            self.assertIn(
+                "must not rescore detector truth",
+                (pack_dir / "README.md").read_text(encoding="utf-8"),
+            )
+
+    def test_plan_prompt_pack_writes_local_model_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pack_dir = Path(tmp_dir) / "plan-pack"
+            completed = run_cli(
+                "plan",
+                "--report",
+                str(FIXTURE_DIR / "relationship_focused_report.json"),
+                "--relationship",
+                "near_duplicate_neighborhood-35e7fad1c4e0",
+                "--prompt-pack",
+                str(pack_dir),
+                "--format",
+                "json",
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            context = json.loads((pack_dir / "context.json").read_text(encoding="utf-8"))
+            self.assertEqual(context["command"], "plan")
+            self.assertEqual(context["payload"]["schema_version"], 2)
+            self.assertEqual(
+                context["payload"]["backlog_handoff"]["mutation_policy"],
+                "preview_only",
+            )
+
+    def test_prompt_pack_rejects_existing_file_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pack_path = Path(tmp_dir) / "not-a-dir"
+            pack_path.write_text("occupied\n", encoding="utf-8")
+
+            completed = run_cli(
+                "explain",
+                "--report",
+                str(FIXTURE_DIR / "local_repo_folder_report.json"),
+                "--top",
+                "1",
+                "--prompt-pack",
+                str(pack_path),
+            )
+
+            self.assertEqual(completed.returncode, 2)
+            self.assertIn("Prompt pack path is not a directory", completed.stdout)
 
     def test_init_writes_expected_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

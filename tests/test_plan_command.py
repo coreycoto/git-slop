@@ -446,11 +446,17 @@ class PlanCommandTests(unittest.TestCase):
                 "target",
                 "proposed_slices",
                 "ranking_basis",
+                "backlog_handoff",
                 "boundary_note",
             },
         )
-        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["report_schema_version"], 3)
+        self.assertEqual(payload["backlog_handoff"]["mutation_policy"], "preview_only")
+        self.assertEqual(
+            payload["backlog_handoff"]["target_plugin_skill"],
+            "$project-management-workflows:plan-to-backlog-preview",
+        )
         self.assertTrue(payload["proposed_slices"])
         self.assertEqual(
             set(payload["proposed_slices"][0]),
@@ -461,9 +467,15 @@ class PlanCommandTests(unittest.TestCase):
                 "out_of_scope_paths",
                 "supporting_relationship_ids",
                 "supporting_cluster_ids",
+                "evidence_summary",
+                "backlog_handoff",
                 "why_this_slice",
                 "ranking_reason",
             },
+        )
+        self.assertEqual(
+            payload["proposed_slices"][0]["backlog_handoff"]["mutation_policy"],
+            "preview_only",
         )
 
     def test_plan_supports_file_and_cluster_selectors(self) -> None:

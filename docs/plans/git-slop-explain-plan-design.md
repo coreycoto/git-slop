@@ -39,6 +39,7 @@ Purpose:
 - no GitHub mutation
 - no mandatory LLM dependency
 - no hosted-only workflow
+- no model invocation from prompt-pack generation
 
 ## CLI surface
 
@@ -60,6 +61,7 @@ Options to support in the first implementation:
   - `--relationship <relationship-id>`
   - `--top <N>`
 - `--format text|json`
+- `--prompt-pack <dir>`
 
 Default behavior:
 
@@ -88,13 +90,14 @@ Options to support in the first implementation:
   - `--relationship <relationship-id>`
 - `--max-slices <N>`
 - `--format text|json`
+- `--prompt-pack <dir>`
 
 Default behavior:
 
 - `--max-slices 3`
 - `--format text`
 - schema-3 reports only
-- stdout only in the first implementation
+- primary output prints to stdout; prompt packs are explicit local file outputs
 
 ## Inputs
 
@@ -181,6 +184,7 @@ Consumed detector sections:
 - `overlay_summary`
 - `supporting_relationships`
 - `supporting_clusters`
+- `evidence_summary`
 - `boundary_note`
 
 Folder-target additive JSON fields:
@@ -197,7 +201,19 @@ Folder-target additive JSON fields:
 - `target`
 - `proposed_slices`
 - `ranking_basis`
+- `backlog_handoff`
 - `boundary_note`
+
+Each proposed slice also includes `evidence_summary` and `backlog_handoff`.
+Backlog handoff is preview/report-only. It may include proposed issue title,
+maintenance issue type, suggested labels, priority hint, evidence summary,
+acceptance criteria, and source selector metadata, but it must not mutate
+GitHub.
+
+Prompt-pack output writes deterministic local files when `--prompt-pack <dir>`
+is provided: `context.json`, `prompt.md`, and `README.md`. Prompt packs are for
+local model summarization only. Git Slop does not invoke models, configure
+providers, or send repository data anywhere.
 
 ## Ranking and selection rules
 

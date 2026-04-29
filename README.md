@@ -74,7 +74,9 @@ uv run git-slop init
 uv run git-slop find
 uv run git-slop show README.md
 uv run git-slop explain --top 5
+uv run git-slop explain --top 5 --prompt-pack .slop/prompt-packs/top
 uv run git-slop plan --path README.md
+uv run git-slop plan --path README.md --format json --prompt-pack .slop/prompt-packs/readme-plan
 uv run git-slop check
 uv run git-slop version
 uv run git-slop --help
@@ -126,13 +128,19 @@ The package exposes both:
   - explains one file, folder, cluster, relationship, or the current top-N
     hotspots from an existing schema-3 report
   - keeps hotspot cost and overlay evidence separate
+  - can write a prompt-pack directory for local-model summarization without
+    invoking a model
 - `git slop plan`
   - proposes bounded maintenance slices from one file, folder, cluster, or
     relationship selector
   - keeps the selected anchor first, prefers direct relationship slices over
     broader cluster-derived spill, and suppresses weaker subset proposals that
     add no new evidence
-  - stays stdout-only in the first implementation
+  - emits preview-only backlog handoff metadata in JSON output
+  - can write a prompt-pack directory for local-model summarization without
+    invoking a model
+  - prints the primary proposal to stdout; optional prompt packs are explicit
+    file outputs
   - never mutates code, GitHub, or detector truth
 
 Examples:
@@ -144,6 +152,15 @@ uv run git-slop explain --top 5
 uv run git-slop plan --path src/git_slop
 uv run git-slop plan --relationship duplicate_neighborhood-1234
 ```
+
+Prompt packs are deterministic local files:
+
+- `context.json`: the selected explain/plan payload plus minimal report metadata
+- `prompt.md`: local-model instructions
+- `README.md`: boundary rules
+
+Prompt packs are advisory only. They do not add a model dependency, call a
+provider, rescore detector truth, mutate code, or mutate GitHub.
 
 ## Generated State
 
@@ -278,6 +295,8 @@ now are:
 
 - `git slop explain`
 - `git slop plan`
+- prompt-pack-only local model handoff
+- preview-only backlog handoff metadata
 
 Those commands consume the detector contract as-is. They do not rescore
 hotspots, change `check`, or fold overlays into `priority_score`.

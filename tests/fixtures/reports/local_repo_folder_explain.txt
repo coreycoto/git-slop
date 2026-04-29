@@ -31,4 +31,11 @@ Supporting Clusters
 - scattered_concept-64dcda20d417 [reduce_scattered_concept] members=10 roots=src, tests
 - boundary_leakage_cluster-e509eb2f17d5 [extract_boundary] members=7 roots=README.md, docs, src
 
+Evidence Summary
+- strongest detector costs: load pressure 1.000 from 10549 file tokens; coordination pressure 0.900 from degree 92; volatility pressure 0.562 from 28 commits
+- strongest overlays: semantic_drift pressure 0.996; blast_radius pressure 0.911; organization.diffusion pressure 0.800
+- supporting relationships: lexical_affinity_edge-af9a9f48473c, boundary_leakage_edge-b87172edccae, temporal_coupling_edge-65471a7a1195, boundary_leakage_edge-2c0ef3c299d7, lexical_affinity_edge-1a326dc121b3
+- supporting clusters: boundary_leakage_cluster-cedd37539fe8, scattered_concept-64dcda20d417, boundary_leakage_cluster-e509eb2f17d5, scattered_concept-c1c73fb5da90
+- interpretation: Folder explanation is based on detector report evidence only; it does not prove correctness or require a refactor.
+
 Interpretation boundary: this is structural evidence, not proof that an abstraction, boundary, or refactor is correct.

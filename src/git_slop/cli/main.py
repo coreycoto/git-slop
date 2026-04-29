@@ -20,6 +20,7 @@ from git_slop.git import resolve_repo_root
 from git_slop.reporting import build_show_payload, failing_records, load_report
 from git_slop.reports.explain import build_explain_payload, render_explain_text
 from git_slop.reports.plan import build_plan_payload, render_plan_text
+from git_slop.reports.prompt_pack import write_prompt_pack
 
 PROJECT_NAME = "git-slop"
 
@@ -87,6 +88,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Explain the top N hotspots from the action queue.",
     )
     explain_parser.add_argument("--format", choices=("text", "json"), default="text")
+    explain_parser.add_argument(
+        "--prompt-pack",
+        help="Write a deterministic local-model prompt pack to this directory.",
+    )
     explain_parser.set_defaults(handler=_run_explain)
 
     plan_parser = subparsers.add_parser(
@@ -120,6 +125,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum number of bounded maintenance slices to propose.",
     )
     plan_parser.add_argument("--format", choices=("text", "json"), default="text")
+    plan_parser.add_argument(
+        "--prompt-pack",
+        help="Write a deterministic local-model prompt pack to this directory.",
+    )
     plan_parser.set_defaults(handler=_run_plan)
 
     check_parser = subparsers.add_parser(
@@ -232,6 +241,17 @@ def _run_explain(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(str(exc))
         return 2
+    if args.prompt_pack:
+        try:
+            write_prompt_pack(
+                command="explain",
+                payload=payload,
+                report=report,
+                output_dir=Path(args.prompt_pack),
+            )
+        except ValueError as exc:
+            print(str(exc))
+            return 2
     if args.format == "json":
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
@@ -263,6 +283,17 @@ def _run_plan(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(str(exc))
         return 2
+    if args.prompt_pack:
+        try:
+            write_prompt_pack(
+                command="plan",
+                payload=payload,
+                report=report,
+                output_dir=Path(args.prompt_pack),
+            )
+        except ValueError as exc:
+            print(str(exc))
+            return 2
     if args.format == "json":
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:

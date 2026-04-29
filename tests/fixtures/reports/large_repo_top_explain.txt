@@ -30,4 +30,11 @@ Explain: top 5 hotspots
    relationships: none
    clusters: none
 
+Evidence Summary
+- strongest detector costs: top explanations preserve the current action_queue order
+- strongest overlays: none
+- supporting relationships: none
+- supporting clusters: none
+- interpretation: Top explanations describe detector ordering; they do not rerank hotspots or prove a refactor is required.
+
 Interpretation boundary: this is structural evidence, not proof that an abstraction, boundary, or refactor is correct.
