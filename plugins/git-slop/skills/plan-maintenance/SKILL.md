@@ -15,9 +15,11 @@ proposal.
 3. Run `git-slop plan --format json` for the same selector when the output may
    become backlog work.
 4. Keep the proposal narrow and evidence-backed.
-5. Use the plan payload's preview-only `backlog_handoff` metadata as input to
+5. Run `git-slop refactor-preview --plan <plan.json>` when a maintainer needs
+   bounded, non-mutating next steps before editing code.
+6. Use the plan payload's preview-only `backlog_handoff` metadata as input to
    `$project-management-workflows:plan-to-backlog-preview`.
-6. If local model summarization is useful, add `--prompt-pack <dir>` and use the
+7. If local model summarization is useful, add `--prompt-pack <dir>` and use the
    generated prompt pack locally. Do not treat model output as detector truth.
-7. Do not create, update, close, label, or milestone GitHub issues from
+8. Do not create, update, close, label, or milestone GitHub issues from
    `git-slop`; live mutation remains outside this product-specific skill.

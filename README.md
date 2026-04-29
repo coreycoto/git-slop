@@ -79,6 +79,7 @@ uv run git-slop plan --path README.md
 uv run git-slop plan --path README.md --format json --prompt-pack .slop/prompt-packs/readme-plan
 uv run git-slop compare --base .slop/runs/<old>/report.json --head .slop/latest/report.json
 uv run git-slop sarif --report .slop/latest/report.json --output .slop/latest/git-slop.sarif
+uv run git-slop refactor-preview --plan .slop/latest/plan.json
 uv run git-slop check
 uv run git-slop version
 uv run git-slop --help
@@ -119,6 +120,7 @@ interpretation, maintenance-planning, and consumer-adoption guidance.
 - `git slop check`
 - `git slop compare`
 - `git slop sarif`
+- `git slop refactor-preview`
 - `git slop version`
 
 The package exposes both:
@@ -201,6 +203,27 @@ Example:
 uv run git-slop sarif \
   --report .slop/latest/report.json \
   --output .slop/latest/git-slop.sarif
+```
+
+### Refactor Preview
+
+- `git slop refactor-preview`
+  - consumes saved `git slop plan --format json` output
+  - emits bounded maintainer steps, review checklist items, evidence, and
+    non-mutating patch-preview notes for plan slices
+  - filters to a specific stable slice ID with `--slice <slice-id>` when needed
+  - never edits files, generates diffs, invokes models, commits, pushes, reruns
+    the detector, changes scoring, or mutates GitHub
+
+Example:
+
+```bash
+uv run git-slop plan \
+  --relationship near_duplicate_neighborhood-1234 \
+  --format json > .slop/latest/plan.json
+uv run git-slop refactor-preview \
+  --plan .slop/latest/plan.json \
+  --format json
 ```
 
 ## Generated State
@@ -340,6 +363,7 @@ now are:
 - preview-only backlog handoff metadata
 - read-only V3 trend comparisons through `git slop compare`
 - read-only V3 SARIF export through `git slop sarif`
+- preview-only V3 bounded refactor handoff through `git slop refactor-preview`
 
 Those commands consume the detector contract as-is. They do not rescore
 hotspots, change `check`, or fold overlays into `priority_score`.
