@@ -61,6 +61,9 @@ class DistributionTests(unittest.TestCase):
         formula = UPDATE_FORMULA.render_formula(manifest)
 
         self.assertIn("class GitSlop < Formula", formula)
+        self.assertIn("class GitSlopPrivateReleaseDownloadStrategy < CurlDownloadStrategy", formula)
+        self.assertIn("HOMEBREW_GITHUB_API_TOKEN", formula)
+        self.assertIn("using: GitSlopPrivateReleaseDownloadStrategy", formula)
         self.assertIn('include Language::Python::Virtualenv', formula)
         self.assertIn('depends_on "python@3.13"', formula)
         self.assertIn('depends_on "rust" => :build', formula)

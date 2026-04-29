@@ -68,11 +68,21 @@ def render_formula(manifest: dict[str, Any]) -> str:
         for name, url, sha256 in RESOURCES
     )
     return (
+        "class GitSlopPrivateReleaseDownloadStrategy < CurlDownloadStrategy\n"
+        "  def initialize(url, name, version, **meta)\n"
+        '    token = ENV["HOMEBREW_GITHUB_API_TOKEN"] || ENV["GITHUB_TOKEN"] || ENV["GH_TOKEN"]\n'
+        '    odie "Set HOMEBREW_GITHUB_API_TOKEN, GITHUB_TOKEN, or GH_TOKEN with access to coreycoto/git-slop." if token.blank?\n\n'
+        "    meta[:headers] ||= []\n"
+        '    meta[:headers] << "Authorization: Bearer #{token}"\n'
+        '    meta[:headers] << "Accept: application/octet-stream"\n'
+        "    super\n"
+        "  end\n"
+        "end\n\n"
         'class GitSlop < Formula\n'
         '  include Language::Python::Virtualenv\n\n'
         '  desc "Local-first hotspot detection for AI-era repositories"\n'
         '  homepage "https://github.com/coreycoto/git-slop"\n'
-        f'  url "{wheel["url"]}"\n'
+        f'  url "{wheel["url"]}", using: GitSlopPrivateReleaseDownloadStrategy\n'
         f'  sha256 "{wheel["sha256"]}"\n'
         '  license "MIT"\n\n'
         '  depends_on "rust" => :build\n\n'

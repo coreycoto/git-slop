@@ -77,6 +77,7 @@ def build_manifest(*, project_root: Path, dist_dir: Path, tag: str | None = None
                 "uv tool install --force .artifacts/git-slop/<wheel>",
             ],
             "homebrew_private_tap": [
+                'export HOMEBREW_GITHUB_API_TOKEN="$(gh auth token)"',
                 "brew tap coreycoto/tap git@github.com:coreycoto/homebrew-tap.git",
                 "brew install coreycoto/tap/git-slop",
             ],
