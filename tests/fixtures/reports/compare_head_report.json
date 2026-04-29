@@ -1,0 +1,93 @@
+{
+  "action_queue": [
+    {
+      "path": "src/new.py"
+    },
+    {
+      "path": "src/a.py"
+    },
+    {
+      "path": "src/b.py"
+    }
+  ],
+  "files": [
+    {
+      "context_band": "critical",
+      "costs": {
+        "load": {
+          "file_token_count": 160,
+          "load_pressure": 0.75
+        }
+      },
+      "overlays": {
+        "verification": {
+          "verification_gap": 0.8
+        }
+      },
+      "path": "src/a.py",
+      "priority_band": "should_refactor",
+      "priority_score": 70.0,
+      "reason_codes": [],
+      "tokens": 160
+    },
+    {
+      "context_band": "healthy",
+      "costs": {
+        "load": {
+          "file_token_count": 150,
+          "load_pressure": 0.3
+        }
+      },
+      "overlays": {
+        "navigation": {
+          "navigation_pressure": 0.1
+        }
+      },
+      "path": "src/b.py",
+      "priority_band": "watchlist",
+      "priority_score": 30.0,
+      "reason_codes": [],
+      "tokens": 150
+    },
+    {
+      "context_band": "compact",
+      "costs": {
+        "load": {
+          "file_token_count": 20,
+          "load_pressure": 0.05
+        }
+      },
+      "overlays": {},
+      "path": "src/new.py",
+      "priority_band": "watchlist",
+      "priority_score": 10.0,
+      "reason_codes": [],
+      "tokens": 20
+    }
+  ],
+  "folders": [
+    {
+      "context_band": "critical",
+      "costs": {
+        "load": {
+          "file_token_count": 330,
+          "load_pressure": 0.8
+        }
+      },
+      "overlays": {},
+      "path": "src",
+      "priority_band": "should_refactor",
+      "priority_score": 70.0,
+      "reason_codes": []
+    }
+  ],
+  "repo": {
+    "head_sha": "head-sha",
+    "repo_name": "compare-fixture"
+  },
+  "schema_version": 3,
+  "stats": {},
+  "summary": {
+    "generated_at": "2026-04-02T00:00:00Z"
+  }
+}

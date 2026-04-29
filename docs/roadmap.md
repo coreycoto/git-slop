@@ -15,6 +15,7 @@ Git Slop now has:
 - maintainer-facing `plan`-to-backlog preview integration
 - prompt-pack-only local model handoff
 - preview-only backlog handoff metadata
+- read-only trend comparison with `git slop compare`
 - JSON, YAML, Markdown, and terminal reporting
 
 The detector bootstrap program is complete. The repo is now past the first
@@ -85,14 +86,19 @@ Current V2 follow-through scope:
 These surfaces should continue to consume detector evidence; they should not
 redefine it.
 
-## Deferred Program: V3 Agentic Loop
+## Active Program: V3 Agentic Loop
 
-Still deferred to V3:
+V3 begins with read-only report comparison before higher-risk integrations.
+Current V3 child slices:
 
-- bounded refactor loops
+- trend comparisons with `git slop compare`
 - SARIF output
-- trend comparisons
-- editor-facing integrations
+- preview-only bounded refactor loops
+- editor-facing integration research
+
+`git slop compare` consumes two existing schema-3 reports and describes file,
+folder, overlay, and queue movement. It does not rerun the detector, mutate
+`.slop/`, imply causality, or change scoring/check semantics.
 
 ## Explicit Not Yet
 
@@ -113,4 +119,4 @@ Recommended sequence from here:
 2. refine `explain` and `plan` quality without changing detector meaning
 3. expand maintainer-only preview workflows carefully and explicitly
 4. touch detector-core only when multi-repo evidence requires it
-5. defer autonomous and editor-facing loops to V3
+5. defer autonomous and editor-facing loops until compare and SARIF foundations exist

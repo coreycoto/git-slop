@@ -18,6 +18,7 @@ from git_slop.config import (
 from git_slop.detector import run_detector
 from git_slop.git import resolve_repo_root
 from git_slop.reporting import build_show_payload, failing_records, load_report
+from git_slop.reports.compare import build_compare_payload, render_compare_text
 from git_slop.reports.explain import build_explain_payload, render_explain_text
 from git_slop.reports.plan import build_plan_payload, render_plan_text
 from git_slop.reports.prompt_pack import write_prompt_pack
@@ -149,6 +150,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the config default fail threshold for priority_band.",
     )
     check_parser.set_defaults(handler=_run_check)
+
+    compare_parser = subparsers.add_parser(
+        "compare",
+        help="Compare two existing schema-3 reports without rerunning the detector.",
+    )
+    compare_parser.add_argument("--base", required=True, help="Base report.json path.")
+    compare_parser.add_argument("--head", required=True, help="Head report.json path.")
+    compare_parser.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="Maximum number of changed files and queue movements to show.",
+    )
+    compare_parser.add_argument("--format", choices=("text", "json"), default="text")
+    compare_parser.set_defaults(handler=_run_compare)
 
     version_parser = subparsers.add_parser("version", help="Print version information.")
     version_parser.set_defaults(handler=_run_version)
@@ -335,6 +351,33 @@ def _run_check(args: argparse.Namespace) -> int:
             f"score={failure['priority_score']})"
         )
     return 1
+
+
+def _run_compare(args: argparse.Namespace) -> int:
+    base_path = Path(args.base)
+    head_path = Path(args.head)
+    try:
+        base_report = load_report(base_path)
+        head_report = load_report(head_path)
+    except FileNotFoundError as exc:
+        print(f"Report not found: {exc.filename}")
+        return 2
+    try:
+        payload = build_compare_payload(
+            base_report,
+            head_report,
+            base_path=str(base_path),
+            head_path=str(head_path),
+            top=args.top,
+        )
+    except ValueError as exc:
+        print(str(exc))
+        return 2
+    if args.format == "json":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(render_compare_text(payload, top=args.top))
+    return 0
 
 
 def _run_version(_args: argparse.Namespace) -> int:

@@ -14,6 +14,7 @@ explanation/plan.
 - Generate artifacts: `git-slop find`
 - Explain current evidence: `git-slop explain --top 5` or `git-slop explain --path <path>`
 - Propose bounded work: `git-slop plan --path <path>` or `git-slop plan --relationship <id>`
+- Compare existing reports: `git-slop compare --base <old-report.json> --head <new-report.json>`
 - Run the gate surface: `git-slop check`
 
 Consumer repos may provide a wrapper such as `./scripts/git_slop.sh`; prefer it

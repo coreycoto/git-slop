@@ -77,6 +77,7 @@ uv run git-slop explain --top 5
 uv run git-slop explain --top 5 --prompt-pack .slop/prompt-packs/top
 uv run git-slop plan --path README.md
 uv run git-slop plan --path README.md --format json --prompt-pack .slop/prompt-packs/readme-plan
+uv run git-slop compare --base .slop/runs/<old>/report.json --head .slop/latest/report.json
 uv run git-slop check
 uv run git-slop version
 uv run git-slop --help
@@ -115,6 +116,7 @@ interpretation, maintenance-planning, and consumer-adoption guidance.
 - `git slop explain`
 - `git slop plan`
 - `git slop check`
+- `git slop compare`
 - `git slop version`
 
 The package exposes both:
@@ -161,6 +163,25 @@ Prompt packs are deterministic local files:
 
 Prompt packs are advisory only. They do not add a model dependency, call a
 provider, rescore detector truth, mutate code, or mutate GitHub.
+
+### Compare
+
+- `git slop compare`
+  - compares two existing schema-3 `report.json` files
+  - reports added, removed, changed, and unchanged file/folder records
+  - reports hotspot score movement, band movement, overlay pressure deltas, and
+    action queue movement
+  - never reruns the detector, writes `.slop/`, changes scoring, or implies
+    causality
+
+Example:
+
+```bash
+uv run git-slop compare \
+  --base .slop/runs/20260401T120000Z/report.json \
+  --head .slop/latest/report.json \
+  --format json
+```
 
 ## Generated State
 
@@ -297,6 +318,7 @@ now are:
 - `git slop plan`
 - prompt-pack-only local model handoff
 - preview-only backlog handoff metadata
+- read-only V3 trend comparisons through `git slop compare`
 
 Those commands consume the detector contract as-is. They do not rescore
 hotspots, change `check`, or fold overlays into `priority_score`.
