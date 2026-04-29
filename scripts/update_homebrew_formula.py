@@ -6,6 +6,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -61,7 +62,10 @@ def render_formula(manifest: dict[str, Any]) -> str:
     release_tag = manifest.get("tag") or _release_tag_from_wheel_url(wheel["url"])
     version = manifest.get("version") or release_tag.removeprefix("v")
     asset_name = source["name"]
-    release_api_url = f"https://api.github.com/repos/coreycoto/git-slop/releases/tags/{release_tag}"
+    release_api_url = (
+        f"https://api.github.com/repos/coreycoto/git-slop/releases/tags/{release_tag}"
+        f"?asset={quote(asset_name)}"
+    )
     resource_blocks = "\n\n".join(
         "\n".join(
             [
@@ -80,9 +84,11 @@ def render_formula(manifest: dict[str, Any]) -> str:
         "class GitSlopPrivateReleaseDownloadStrategy < CurlDownloadStrategy\n"
         "  def initialize(url, name, version, **meta)\n"
         '    @asset_name = meta.delete(:asset_name)\n'
-        '    @github_token = ENV["HOMEBREW_GITHUB_API_TOKEN"] || ENV["GITHUB_TOKEN"] || ENV["GH_TOKEN"]\n'
+        '    @github_token = ENV["HOMEBREW_GITHUB_API_TOKEN"] || ENV["GITHUB_TOKEN"] || '
+        'ENV["GH_TOKEN"]\n'
         "    if @github_token.blank?\n"
-        '      odie "Set HOMEBREW_GITHUB_API_TOKEN, GITHUB_TOKEN, or GH_TOKEN with access to coreycoto/git-slop."\n'
+        '      odie "Set HOMEBREW_GITHUB_API_TOKEN, GITHUB_TOKEN, or GH_TOKEN with access '
+        'to coreycoto/git-slop."\n'
         "    end\n\n"
         "    meta[:headers] ||= []\n"
         '    meta[:headers] << "Authorization: Bearer #{@github_token}"\n'
@@ -105,6 +111,7 @@ def render_formula(manifest: dict[str, Any]) -> str:
         "\n"
         "    @resolve_asset_api_url ||= begin\n"
         "      uri = URI(release_api_url)\n"
+        "      uri.query = nil\n"
         "      request = Net::HTTP::Get.new(uri)\n"
         '      request["Authorization"] = "Bearer #{@github_token}"\n'
         '      request["Accept"] = "application/vnd.github+json"\n'
@@ -112,10 +119,14 @@ def render_formula(manifest: dict[str, Any]) -> str:
         "        http.request(request)\n"
         "      end\n"
         "      unless response.is_a?(Net::HTTPSuccess)\n"
-        '        odie "Unable to read git-slop release metadata from #{release_api_url}: HTTP #{response.code}"\n'
+        '        odie "Unable to read git-slop release metadata from #{release_api_url}: '
+        'HTTP #{response.code}"\n'
         "      end\n"
-        "      asset = JSON.parse(response.body).fetch(\"assets\").find { |candidate| candidate.fetch(\"name\") == @asset_name }\n"
-        '      odie "Release asset #{@asset_name} was not found in #{release_api_url}." if asset.nil?\n'
+        "      asset = JSON.parse(response.body).fetch(\"assets\").find do |candidate|\n"
+        "        candidate.fetch(\"name\") == @asset_name\n"
+        "      end\n"
+        '      odie "Release asset #{@asset_name} was not found in #{release_api_url}." '
+        "if asset.nil?\n"
         "      asset.fetch(\"url\")\n"
         "    end\n"
         "  end\n"

@@ -69,11 +69,17 @@ class DistributionTests(unittest.TestCase):
         self.assertIn("class GitSlop < Formula", formula)
         self.assertIn("class GitSlopPrivateReleaseDownloadStrategy < CurlDownloadStrategy", formula)
         self.assertIn("HOMEBREW_GITHUB_API_TOKEN", formula)
-        self.assertIn("https://api.github.com/repos/coreycoto/git-slop/releases/tags/v0.7.2", formula)
+        self.assertIn(
+            "https://api.github.com/repos/coreycoto/git-slop/releases/tags/v0.7.2",
+            formula,
+        )
         self.assertIn("using:      GitSlopPrivateReleaseDownloadStrategy", formula)
         self.assertIn('asset_name: "git_slop-0.7.2.tar.gz"', formula)
         self.assertIn('version "0.7.2"', formula)
-        self.assertIn('sha256 "1111111111111111111111111111111111111111111111111111111111111111"', formula)
+        self.assertIn(
+            'sha256 "1111111111111111111111111111111111111111111111111111111111111111"',
+            formula,
+        )
         self.assertIn('include Language::Python::Virtualenv', formula)
         self.assertIn('depends_on "python@3.13"', formula)
         self.assertIn('depends_on "rust" => :build', formula)
