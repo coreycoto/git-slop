@@ -66,8 +66,8 @@ jobs:
       - name: Prepare Codex runtime directories
         if: steps.codex_preflight.outputs.enabled == 'true'
         run: |
-          mkdir -p .artifacts/codex .artifacts/codex-home
-          cp .codex/config.toml .artifacts/codex-home/config.toml
+          mkdir -p .artifacts/codex "$RUNNER_TEMP/codex-home"
+          cp .codex/config.toml "$RUNNER_TEMP/codex-home/config.toml"
 
       - name: Run Codex merge gate
         if: steps.codex_preflight.outputs.enabled == 'true'
@@ -77,7 +77,7 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/merge-on-green.md
           output-file: .artifacts/codex/merge-on-green.json
-          codex-home: ${{ github.workspace }}/.artifacts/codex-home
+          codex-home: ${{ runner.temp }}/codex-home
           codex-args: >-
             ["--profile","ci_mutation","--output-schema",".github/codex/schemas/merge-on-green.json"]
           safety-strategy: drop-sudo

@@ -83,8 +83,8 @@ jobs:
       - name: Prepare Codex runtime directories
         if: steps.codex_preflight.outputs.enabled == 'true'
         run: |
-          mkdir -p .artifacts/codex .artifacts/codex-home .artifacts/docs-taxonomy
-          cp .codex/config.toml .artifacts/codex-home/config.toml
+          mkdir -p .artifacts/codex .artifacts/docs-taxonomy "$RUNNER_TEMP/codex-home"
+          cp .codex/config.toml "$RUNNER_TEMP/codex-home/config.toml"
 
       - name: Run Codex docs taxonomy audit
         if: steps.codex_preflight.outputs.enabled == 'true'
@@ -94,7 +94,7 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/docs-taxonomy.md
           output-file: .artifacts/codex/docs-taxonomy.json
-          codex-home: ${{ github.workspace }}/.artifacts/codex-home
+          codex-home: ${{ runner.temp }}/codex-home
           codex-args: >-
             ["--profile","ci_mutation","--output-schema",".github/codex/schemas/docs-taxonomy.json"]
           safety-strategy: drop-sudo
