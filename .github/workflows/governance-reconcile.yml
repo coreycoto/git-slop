@@ -46,7 +46,7 @@ jobs:
 
       - name: Configure agent-tools dependency access
         env:
-          AGENT_TOOLS_GIT_TOKEN: ${{ secrets.AGENT_TOOLS_READ_TOKEN != '' && secrets.AGENT_TOOLS_READ_TOKEN || secrets.GH_PROJECTS_TOKEN }}
+          AGENT_TOOLS_GIT_TOKEN: ${{ secrets.AGENT_TOOLS_READ_TOKEN }}
         run: |
           if [ -n "$AGENT_TOOLS_GIT_TOKEN" ]; then
             git config --global url."https://x-access-token:${AGENT_TOOLS_GIT_TOKEN}@github.com/coreycoto/agent-tools.git".insteadOf "https://github.com/coreycoto/agent-tools.git"
@@ -54,13 +54,13 @@ jobs:
             echo "agent-tools is publicly readable; no extra git auth configured."
           else
             echo "coreycoto/agent-tools is private and cannot be fetched from CI without a token." >&2
-            echo "Set AGENT_TOOLS_READ_TOKEN or GH_PROJECTS_TOKEN with read access to coreycoto/agent-tools, or make the repo public." >&2
+            echo "Set AGENT_TOOLS_READ_TOKEN with read access to coreycoto/agent-tools, or make the repo public." >&2
             exit 1
           fi
 
       - name: Configure agent-plugins dependency access
         env:
-          AGENT_PLUGINS_GIT_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN != '' && secrets.AGENT_PLUGINS_READ_TOKEN || secrets.GH_PROJECTS_TOKEN }}
+          AGENT_PLUGINS_GIT_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
         run: |
           if [ -n "$AGENT_PLUGINS_GIT_TOKEN" ]; then
             git config --global url."https://x-access-token:${AGENT_PLUGINS_GIT_TOKEN}@github.com/coreycoto/agent-plugins.git".insteadOf "https://github.com/coreycoto/agent-plugins.git"
@@ -68,7 +68,7 @@ jobs:
             echo "agent-plugins is publicly readable; no extra git auth configured."
           else
             echo "coreycoto/agent-plugins is private and cannot be fetched from CI without a token." >&2
-            echo "Set AGENT_PLUGINS_READ_TOKEN or GH_PROJECTS_TOKEN with read access to coreycoto/agent-plugins, or make the repo public." >&2
+            echo "Set AGENT_PLUGINS_READ_TOKEN with read access to coreycoto/agent-plugins, or make the repo public." >&2
             exit 1
           fi
 
