@@ -41,23 +41,33 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(manifest["schema_version"], 1)
         self.assertEqual(manifest["project"], "git-slop")
         self.assertEqual(manifest["tag"], "v0.7.2")
+        self.assertEqual(
+            manifest["homebrew_source"]["url"],
+            "git@github.com:coreycoto/git-slop.git",
+        )
+        self.assertEqual(manifest["homebrew_source"]["tag"], "v0.7.2")
+        self.assertTrue(manifest["homebrew_source"]["revision"])
         self.assertEqual(manifest["wheel"]["name"], "git_slop-0.7.2-py3-none-any.whl")
         self.assertTrue(manifest["wheel"]["sha256"])
         self.assertIn("uv_release_wheel", manifest["install"])
         self.assertIn("homebrew_private_tap", manifest["install"])
+        self.assertNotIn(
+            "HOMEBREW_GITHUB_API_TOKEN",
+            "\n".join(manifest["install"]["homebrew_private_tap"]),
+        )
         self.assertEqual(
             {artifact["name"] for artifact in manifest["artifacts"]},
             {wheel.name, sdist.name},
         )
 
-    def test_homebrew_formula_renders_private_release_wheel(self) -> None:
+    def test_homebrew_formula_renders_pinned_private_git_source(self) -> None:
         manifest = {
-            "artifacts": [
-                {
-                    "name": "git_slop-0.7.2.tar.gz",
-                    "sha256": "1" * 64,
-                }
-            ],
+            "homebrew_source": {
+                "url": "git@github.com:coreycoto/git-slop.git",
+                "tag": "v0.7.2",
+                "revision": "405cc8928c3adf891a75e17ed438aa2c4b2dbcd2",
+            },
+            "version": "0.7.2",
             "wheel": {
                 "url": "https://github.com/coreycoto/git-slop/releases/download/v0.7.2/git_slop-0.7.2-py3-none-any.whl",
                 "sha256": "0" * 64,
@@ -67,19 +77,11 @@ class DistributionTests(unittest.TestCase):
         formula = UPDATE_FORMULA.render_formula(manifest)
 
         self.assertIn("class GitSlop < Formula", formula)
-        self.assertIn("class GitSlopPrivateReleaseDownloadStrategy < CurlDownloadStrategy", formula)
-        self.assertIn("HOMEBREW_GITHUB_API_TOKEN", formula)
-        self.assertIn(
-            "https://api.github.com/repos/coreycoto/git-slop/releases/tags/v0.7.2",
-            formula,
-        )
-        self.assertIn("using:      GitSlopPrivateReleaseDownloadStrategy", formula)
-        self.assertIn('asset_name: "git_slop-0.7.2.tar.gz"', formula)
+        self.assertNotIn("HOMEBREW_GITHUB_API_TOKEN", formula)
+        self.assertIn('url "git@github.com:coreycoto/git-slop.git"', formula)
+        self.assertIn('tag:      "v0.7.2"', formula)
+        self.assertIn('revision: "405cc8928c3adf891a75e17ed438aa2c4b2dbcd2"', formula)
         self.assertIn('version "0.7.2"', formula)
-        self.assertIn(
-            'sha256 "1111111111111111111111111111111111111111111111111111111111111111"',
-            formula,
-        )
         self.assertIn('include Language::Python::Virtualenv', formula)
         self.assertIn('depends_on "python@3.13"', formula)
         self.assertIn('depends_on "rust" => :build', formula)

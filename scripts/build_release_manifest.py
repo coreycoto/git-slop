@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,14 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _git_revision(project_root: Path, release_tag: str) -> str:
+    return subprocess.check_output(
+        ["git", "rev-list", "-n", "1", release_tag],
+        cwd=project_root,
+        text=True,
+    ).strip()
 
 
 def _artifact_path(path: Path, project_root: Path) -> str:
@@ -58,6 +67,11 @@ def build_manifest(*, project_root: Path, dist_dir: Path, tag: str | None = None
         "version": version,
         "tag": release_tag,
         "repository": REPO_FULL_NAME,
+        "homebrew_source": {
+            "url": f"git@github.com:{REPO_FULL_NAME}.git",
+            "tag": release_tag,
+            "revision": _git_revision(project_root, release_tag),
+        },
         "artifacts": artifacts,
         "wheel": {
             "name": wheel_name,
@@ -77,7 +91,6 @@ def build_manifest(*, project_root: Path, dist_dir: Path, tag: str | None = None
                 "uv tool install --force .artifacts/git-slop/<wheel>",
             ],
             "homebrew_private_tap": [
-                'export HOMEBREW_GITHUB_API_TOKEN="$(gh auth token)"',
                 "brew tap coreycoto/tap git@github.com:coreycoto/homebrew-tap.git",
                 "brew install coreycoto/tap/git-slop",
             ],

@@ -96,7 +96,6 @@ git-slop version
 On macOS, the private Homebrew tap is the preferred operator install:
 
 ```bash
-export HOMEBREW_GITHUB_API_TOKEN="$(gh auth token)"
 brew tap coreycoto/tap git@github.com:coreycoto/homebrew-tap.git
 brew install coreycoto/tap/git-slop
 git-slop version
