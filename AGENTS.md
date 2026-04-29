@@ -28,4 +28,4 @@
 - Use prompt files under `.github/codex/prompts/` for every Codex-powered workflow job.
 - Use schema files under `.github/codex/schemas/` when a workflow expects structured output before applying a mutation.
 - Treat the official GitHub Codex plugin as a local interactive prerequisite, not as a CI dependency.
-- In CI, rely on checked-out repo files, prompt files, custom agents, `gh`, GitHub tokens, and `agent-tools`.
+- In CI, rely on checked-out repo files, prompt files, custom agents, `gh`, GitHub tokens, and importable `agent_plugins` runtime APIs.
