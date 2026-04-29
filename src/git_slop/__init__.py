@@ -8,4 +8,4 @@ __all__ = ["__version__"]
 try:
     __version__ = version("git-slop")
 except PackageNotFoundError:
-    __version__ = "0.7.0"
+    __version__ = "0.7.1"

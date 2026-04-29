@@ -5,7 +5,9 @@
 - `AGENTS.md`: always-on repo-wide policy and execution constraints
 - `.codex/README.md`: Codex runtime map for config, rules, agents, prompts, and schemas
 - `.agents/plugins/marketplace-source.json`: pinned marketplace source manifest
+- `.agents/plugins/marketplace.json`: local `git-slop-marketplace` publication manifest
 - installed `project-management-workflows` plugin from `coreycoto/agent-plugins`: reusable workflow contract and metadata
+- local `git-slop` plugin under `plugins/git-slop`: product-specific usage, install, report, interpretation, planning, and adoption guidance
 - `config/github/README.md`: repo-owned backlog/project overlay and seed data
 - `config/labels/README.md`: repo-owned label palette overlay
 
@@ -19,6 +21,7 @@
 
 - Keep the public `git slop` CLI focused on detector, report, explain, and plan behavior.
 - Keep reusable maintainer workflow instructions in the installed project-management plugin from `coreycoto/agent-plugins`.
+- Keep the local `git-slop@git-slop-marketplace` plugin focused on product-specific CLI usage and consumer adoption guidance.
 - Bootstrap that plugin through the tracked marketplace source manifest instead of a checked-in repo-local marketplace file.
 - Keep repo-specific overlays next to the repo-owned data they describe under `config/*/README.md`.
 - Keep custom agents thin: they should reference plugin skills and only add role, sandbox, model, and delegation guidance.

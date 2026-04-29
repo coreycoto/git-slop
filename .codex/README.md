@@ -9,7 +9,9 @@ Use the runtime layers like this:
 - `.codex/rules/*.rules`: interactive approval prompts for sensitive shell commands
 - `.codex/agents/*.toml`: custom execution roles
 - `.agents/plugins/marketplace-source.json`: pinned marketplace source manifest
+- `.agents/plugins/marketplace.json`: local `git-slop-marketplace` manifest
 - installed `project-management-workflows` plugin from `coreycoto/agent-plugins`: canonical reusable workflow contract
+- `plugins/git-slop`: product-owned plugin for installing, running, interpreting, and adopting `git-slop`
 - `.github/codex/prompts/*`: workflow prompts that explicitly name the custom agents to use
 - `.github/codex/schemas/*`: structured-output schemas for Codex-driven workflows
 
@@ -36,6 +38,10 @@ They should:
 - reference plugin-owned skills for workflow contract
 - keep only role, sandbox, model, and delegation guidance
 - avoid becoming the primary store for reusable workflow or repo policy
+
+The `git-slop@git-slop-marketplace` plugin is the canonical reusable guidance
+surface for the product CLI itself. Keep generic backlog, governance, and
+release workflows in the installed `project-management-workflows` plugin.
 
 Current project-scoped agents:
 

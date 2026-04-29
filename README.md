@@ -80,6 +80,31 @@ uv run git-slop version
 uv run git-slop --help
 ```
 
+## Install From Private Releases
+
+Tagged releases publish wheel and source artifacts plus a release manifest. For
+private `uv` installation, download the wheel and manifest with GitHub CLI,
+verify the manifest SHA256, then install the wheel:
+
+```bash
+gh release download v0.7.1 --repo coreycoto/git-slop --pattern 'git_slop-*.whl' --pattern release-manifest.json --dir .artifacts/git-slop
+shasum -a 256 .artifacts/git-slop/git_slop-0.7.1-py3-none-any.whl
+uv tool install --force .artifacts/git-slop/git_slop-0.7.1-py3-none-any.whl
+git-slop version
+```
+
+On macOS, the private Homebrew tap is the preferred operator install:
+
+```bash
+brew tap coreycoto/tap git@github.com:coreycoto/homebrew-tap.git
+brew install coreycoto/tap/git-slop
+git-slop version
+```
+
+The Codex plugin is published from this repo as
+`git-slop@git-slop-marketplace`. It owns install/update, report-running,
+interpretation, maintenance-planning, and consumer-adoption guidance.
+
 ## Command Surface
 
 - `git slop init`

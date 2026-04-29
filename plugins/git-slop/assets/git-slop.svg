@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="git-slop">
+  <rect width="128" height="128" rx="24" fill="#0f172a"/>
+  <path d="M30 34h68v12H30zM30 58h48v12H30zM30 82h68v12H30z" fill="#e2e8f0"/>
+  <path d="M88 56l12 12-12 12-8-8 4-4-4-4z" fill="#38bdf8"/>
+</svg>

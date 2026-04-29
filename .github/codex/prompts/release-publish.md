@@ -24,7 +24,8 @@ using standard `git` and `gh` flows only.
   only.
 - Do not assume Marketplace-installed connectors are available on the runner.
 - Do not use the GitHub Git Data API.
-- Build and attach release artifacts from the checked-out repo when needed.
+- Build and attach release artifacts from the checked-out repo when needed,
+  including `.artifacts/releases/release-manifest.json` when present.
 - Never create or move tags in this workflow; the tag already exists.
 
 ## Workflow
@@ -34,6 +35,7 @@ using standard `git` and `gh` flows only.
 3. Draft or update release notes in a file under `.artifacts/releases/`.
 4. Publish the GitHub release with `gh release create` or update the existing
    release if it already exists.
-5. Report the release URL and the artifact paths that were uploaded.
+5. Attach the built wheel, sdist, and release manifest.
+6. Report the release URL and the artifact paths that were uploaded.
 
 Your final response must satisfy the structured output schema for this workflow.

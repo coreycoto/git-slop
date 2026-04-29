@@ -1,0 +1,43 @@
+{
+  "name": "git-slop",
+  "version": "0.1.0",
+  "description": "Codex guidance for installing, running, interpreting, and adopting git-slop.",
+  "author": {
+    "name": "Corey Coto",
+    "email": "support@coreycoto.com",
+    "url": "https://github.com/coreycoto"
+  },
+  "homepage": "https://github.com/coreycoto/git-slop/tree/main/plugins/git-slop",
+  "repository": "https://github.com/coreycoto/git-slop",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "git-slop",
+    "repo-health",
+    "hotspots"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Git Slop",
+    "shortDescription": "Run and interpret git-slop hotspot reports",
+    "longDescription": "Codex guidance for installing or updating git-slop, running deterministic hotspot reports, interpreting report artifacts, planning bounded maintenance slices, and adopting git-slop in consumer repositories without mixing product guidance into shared project-management workflows.",
+    "developerName": "Corey Coto",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "websiteURL": "https://github.com/coreycoto/git-slop/tree/main/plugins/git-slop",
+    "privacyPolicyURL": "https://github.com/coreycoto/git-slop",
+    "termsOfServiceURL": "https://github.com/coreycoto/git-slop",
+    "defaultPrompt": [
+      "Use git-slop guidance to install, run, and interpret repo hotspot reports.",
+      "Keep git-slop as an observational detector unless the repository explicitly promotes its results into required gates.",
+      "Reference project-management workflow skills only when converting reviewed git-slop maintenance plans into backlog work."
+    ],
+    "brandColor": "#475569",
+    "composerIcon": "./assets/git-slop.svg",
+    "logo": "./assets/git-slop.svg",
+    "screenshots": []
+  }
+}

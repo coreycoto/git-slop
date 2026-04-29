@@ -1,0 +1,20 @@
+{
+  "name": "git-slop-marketplace",
+  "interface": {
+    "displayName": "git-slop Marketplace"
+  },
+  "plugins": [
+    {
+      "name": "git-slop",
+      "source": {
+        "source": "local",
+        "path": "./plugins/git-slop"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

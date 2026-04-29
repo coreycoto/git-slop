@@ -1,0 +1,7 @@
+interface:
+  display_name: "Run Git Slop"
+  short_description: "Run git-slop report commands"
+  default_prompt: "Use $git-slop:run-report to run git-slop through the current repository's preferred wrapper or CLI."
+
+policy:
+  allow_implicit_invocation: true

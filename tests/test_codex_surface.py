@@ -9,6 +9,10 @@ from git_slop.integrations.agents.codex_surface import (
     EXPECTED_MARKETPLACE_NAME,
     EXPECTED_PLUGIN_SHA,
     EXPECTED_PLUGIN_URL,
+    GIT_SLOP_MARKETPLACE,
+    GIT_SLOP_MARKETPLACE_NAME,
+    GIT_SLOP_PLUGIN_ROOT,
+    GIT_SLOP_PLUGIN_SKILLS,
     MARKETPLACE_SOURCE_MANIFEST,
     REMOVED_LOCAL_PLUGIN_ROOT,
     ROOT_AGENTS,
@@ -61,6 +65,37 @@ class CodexSurfaceTests(unittest.TestCase):
         self.assertEqual(manifest["source_url"], EXPECTED_PLUGIN_URL)
         self.assertEqual(manifest["ref"], EXPECTED_PLUGIN_SHA)
         self.assertEqual(manifest["required_plugin"], "project-management-workflows")
+
+    def test_git_slop_marketplace_publishes_product_plugin(self) -> None:
+        marketplace = json.loads((REPO_ROOT / GIT_SLOP_MARKETPLACE).read_text(encoding="utf-8"))
+        self.assertEqual(marketplace["name"], GIT_SLOP_MARKETPLACE_NAME)
+        self.assertEqual(
+            marketplace["plugins"],
+            [
+                {
+                    "name": "git-slop",
+                    "source": {"source": "local", "path": "./plugins/git-slop"},
+                    "policy": {
+                        "installation": "AVAILABLE",
+                        "authentication": "ON_INSTALL",
+                    },
+                    "category": "Developer Tools",
+                }
+            ],
+        )
+
+    def test_git_slop_plugin_exposes_expected_skills(self) -> None:
+        plugin_root = REPO_ROOT / GIT_SLOP_PLUGIN_ROOT
+        manifest = json.loads(
+            (plugin_root / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["name"], "git-slop")
+        self.assertEqual(manifest["skills"], "./skills/")
+        skill_dirs = {
+            path.parent.name
+            for path in (plugin_root / "skills").glob("*/SKILL.md")
+        }
+        self.assertEqual(skill_dirs, GIT_SLOP_PLUGIN_SKILLS)
 
     def test_local_plugin_tree_is_removed(self) -> None:
         self.assertFalse((REPO_ROOT / REMOVED_LOCAL_PLUGIN_ROOT).exists())

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Adopt Git Slop"
+  short_description: "Adopt git-slop in a repository"
+  default_prompt: "Use $git-slop:adopt-repo to wire a repository to the canonical git-slop plugin and CLI install contract."
+
+policy:
+  allow_implicit_invocation: true

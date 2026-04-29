@@ -38,6 +38,17 @@ EXPECTED_PLUGIN_URL = "https://github.com/coreycoto/agent-plugins.git"
 EXPECTED_PLUGIN_SHA = "1cb87285df878822bcbb561bc684a57a24362a37"
 EXPECTED_MARKETPLACE_NAME = "agent-plugins-marketplace"
 MARKETPLACE_SOURCE_MANIFEST = Path(".agents/plugins/marketplace-source.json")
+GIT_SLOP_MARKETPLACE = Path(".agents/plugins/marketplace.json")
+GIT_SLOP_PLUGIN_ROOT = Path("plugins/git-slop")
+GIT_SLOP_MARKETPLACE_NAME = "git-slop-marketplace"
+GIT_SLOP_PLUGIN_NAME = "git-slop"
+GIT_SLOP_PLUGIN_SKILLS = {
+    "adopt-repo",
+    "install-update",
+    "interpret-results",
+    "plan-maintenance",
+    "run-report",
+}
 BOOTSTRAP_SCRIPT = Path("scripts/bootstrap_agent_plugins_marketplace.py")
 PLUGIN_SKILL_CATALOG = {
     "dependency-remediation",
@@ -61,7 +72,6 @@ REMOVED_LOCAL_PLUGIN_REFERENCES = (
     "manage_home_local_plugin.py",
     "smoke_home_install.py",
 )
-REMOVED_CONSUMER_MARKETPLACE = Path(".agents/plugins/marketplace.json")
 REMOVED_TESTS = {
     "tests/test_github_surface_preflight.py",
     "tests/test_plugin_home_install.py",
@@ -213,8 +223,6 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
     else:
         errors.extend(_run_execpolicy(rule_path, repo_root))
 
-    if (repo_root / REMOVED_CONSUMER_MARKETPLACE).exists():
-        errors.append(".agents/plugins/marketplace.json should not exist in consumer repos.")
     marketplace_source_path = repo_root / MARKETPLACE_SOURCE_MANIFEST
     if not marketplace_source_path.exists():
         errors.append(".agents/plugins/marketplace-source.json is missing.")
@@ -242,6 +250,47 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
 
     if not (repo_root / BOOTSTRAP_SCRIPT).exists():
         errors.append("scripts/bootstrap_agent_plugins_marketplace.py is missing.")
+
+    marketplace_path = repo_root / GIT_SLOP_MARKETPLACE
+    if not marketplace_path.exists():
+        errors.append(".agents/plugins/marketplace.json is missing for git-slop marketplace.")
+    else:
+        marketplace = json.loads(marketplace_path.read_text(encoding="utf-8"))
+        if marketplace.get("name") != GIT_SLOP_MARKETPLACE_NAME:
+            errors.append(".agents/plugins/marketplace.json must define git-slop-marketplace.")
+        plugins = marketplace.get("plugins")
+        if not isinstance(plugins, list):
+            errors.append(".agents/plugins/marketplace.json must define plugins list.")
+        else:
+            plugin_entries = [
+                plugin
+                for plugin in plugins
+                if isinstance(plugin, dict)
+                and plugin.get("name") == GIT_SLOP_PLUGIN_NAME
+            ]
+            if len(plugin_entries) != 1:
+                errors.append(
+                    ".agents/plugins/marketplace.json must define exactly one git-slop plugin."
+                )
+            else:
+                source = plugin_entries[0].get("source")
+                if not isinstance(source, dict) or source.get("path") != "./plugins/git-slop":
+                    errors.append("git-slop marketplace entry must point at ./plugins/git-slop.")
+
+    plugin_root = repo_root / GIT_SLOP_PLUGIN_ROOT
+    plugin_manifest_path = plugin_root / ".codex-plugin" / "plugin.json"
+    if not plugin_manifest_path.exists():
+        errors.append("plugins/git-slop/.codex-plugin/plugin.json is missing.")
+    else:
+        plugin_manifest = json.loads(plugin_manifest_path.read_text(encoding="utf-8"))
+        if plugin_manifest.get("name") != GIT_SLOP_PLUGIN_NAME:
+            errors.append("git-slop plugin manifest must use name git-slop.")
+        if plugin_manifest.get("skills") != "./skills/":
+            errors.append("git-slop plugin manifest must expose ./skills/.")
+    for skill_name in GIT_SLOP_PLUGIN_SKILLS:
+        skill_path = plugin_root / "skills" / skill_name / "SKILL.md"
+        if not skill_path.exists():
+            errors.append(f"plugins/git-slop skill is missing: {skill_name}.")
 
     if (repo_root / REMOVED_LOCAL_PLUGIN_ROOT).exists():
         errors.append("Local plugins/project-management-workflows/ tree should have been removed.")
@@ -307,6 +356,8 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
                 errors.append(
                     f"{relative_path} must mention .agents/plugins/marketplace-source.json."
                 )
+            if "git-slop-marketplace" not in text:
+                errors.append(f"{relative_path} must mention git-slop-marketplace.")
         for forbidden in REMOVED_LOCAL_PLUGIN_REFERENCES:
             if forbidden in text:
                 errors.append(f"{relative_path} must not reference {forbidden}.")

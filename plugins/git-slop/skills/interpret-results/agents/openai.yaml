@@ -1,0 +1,7 @@
+interface:
+  display_name: "Interpret Git Slop"
+  short_description: "Interpret git-slop report artifacts"
+  default_prompt: "Use $git-slop:interpret-results to review git-slop artifacts and separate detector evidence from actionable maintenance work."
+
+policy:
+  allow_implicit_invocation: true
