@@ -92,13 +92,17 @@ V3 begins with read-only report comparison before higher-risk integrations.
 Current V3 child slices:
 
 - trend comparisons with `git slop compare`
-- SARIF output
+- SARIF output with `git slop sarif`
 - preview-only bounded refactor loops
 - editor-facing integration research
 
 `git slop compare` consumes two existing schema-3 reports and describes file,
 folder, overlay, and queue movement. It does not rerun the detector, mutate
 `.slop/`, imply causality, or change scoring/check semantics.
+
+`git slop sarif` exports action-queue findings from an existing schema-3 report
+as SARIF 2.1.0. It preserves hotspot cost and overlay evidence as separate
+properties and does not upload results, rerun the detector, or mutate GitHub.
 
 ## Explicit Not Yet
 
