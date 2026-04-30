@@ -226,6 +226,14 @@ uv run git-slop refactor-preview \
   --format json
 ```
 
+### Editor Artifact Recipes
+
+Editor-adjacent workflows should consume existing local artifacts instead of
+adding an editor extension, language server, background detector, hosted service,
+or model runtime. See
+[Editor Artifact Consumption Recipes](docs/plans/editor-artifact-consumption-recipes.md)
+for SARIF, plan JSON, refactor-preview JSON, and VS Code task-style examples.
+
 ## Generated State
 
 Git Slop writes generated artifacts under `.slop/`:
