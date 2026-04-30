@@ -1,20 +1,6 @@
 name: Governance Reconcile
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "AGENTS.md"
-      - ".agents/**"
-      - ".codex/**"
-      - "config/github/**"
-      - "config/labels/**"
-      - "plugins/**"
-      - "scripts/validate_codex_surface.py"
-      - "src/git_slop/integrations/agents/**"
-      - ".github/codex/**"
-      - ".github/workflows/governance-reconcile.yml"
   schedule:
     - cron: "20 11 * * 1"
   workflow_dispatch:
@@ -94,7 +80,7 @@ jobs:
           output-file: .artifacts/codex/governance-reconcile.json
           codex-home: ${{ runner.temp }}/codex-home
           codex-args: >-
-            ["--profile","ci_mutation","--output-schema",".github/codex/schemas/governance-reconcile.json"]
+            ["--profile","ci_mutation","--model","gpt-5.4-mini","--effort","medium","--output-schema",".github/codex/schemas/governance-reconcile.json"]
           safety-strategy: drop-sudo
           sandbox: workspace-write
 

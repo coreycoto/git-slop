@@ -21,15 +21,109 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Preflight eligible merge candidate
+        id: merge_preflight
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PATH: ${{ github.event_path }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          event_name = os.environ["EVENT_NAME"]
+          event = json.loads(Path(os.environ["EVENT_PATH"]).read_text(encoding="utf-8"))
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+
+          def finish(eligible: bool, reason: str, pr_number: str = "") -> None:
+              with output_path.open("a", encoding="utf-8") as output:
+                  output.write(f"eligible={'true' if eligible else 'false'}\n")
+                  output.write(f"pr_number={pr_number}\n")
+              with summary_path.open("a", encoding="utf-8") as summary:
+                  summary.write(f"Merge preflight: {reason}\n")
+              print(reason)
+
+          if event_name == "workflow_dispatch":
+              finish(True, "manual dispatch requested; running merge gate")
+              sys.exit(0)
+
+          workflow_run = event.get("workflow_run") or {}
+          if workflow_run.get("conclusion") != "success":
+              finish(False, "CI workflow_run was not successful; skipping Codex merge gate")
+              sys.exit(0)
+
+          pull_requests = workflow_run.get("pull_requests") or []
+          pr_number = str(pull_requests[0].get("number")) if pull_requests else ""
+          if not pr_number and workflow_run.get("head_sha"):
+              completed = subprocess.run(
+                  [
+                      "gh",
+                      "api",
+                      "-H",
+                      "Accept: application/vnd.github+json",
+                      f"repos/{os.environ['REPOSITORY']}/commits/{workflow_run['head_sha']}/pulls",
+                  ],
+                  check=False,
+                  capture_output=True,
+                  text=True,
+              )
+              if completed.returncode == 0:
+                  associated_prs = json.loads(completed.stdout)
+                  if associated_prs:
+                      pr_number = str(associated_prs[0].get("number") or "")
+          if not pr_number:
+              finish(False, "CI workflow_run has no associated pull request; skipping Codex")
+              sys.exit(0)
+
+          completed = subprocess.run(
+              [
+                  "gh",
+                  "pr",
+                  "view",
+                  pr_number,
+                  "--repo",
+                  os.environ["REPOSITORY"],
+                  "--json",
+                  "headRefName,labels",
+              ],
+              check=False,
+              capture_output=True,
+              text=True,
+          )
+          if completed.returncode != 0:
+              finish(False, f"could not inspect PR #{pr_number}; skipping Codex")
+              sys.exit(0)
+
+          pr = json.loads(completed.stdout)
+          branch = pr.get("headRefName") or ""
+          labels = {label.get("name") for label in pr.get("labels", [])}
+          if not branch.startswith("codex/"):
+              finish(False, f"PR #{pr_number} branch is not codex/*; skipping Codex", pr_number)
+              sys.exit(0)
+          if "auto-merge" not in labels:
+              finish(False, f"PR #{pr_number} lacks auto-merge label; skipping Codex", pr_number)
+              sys.exit(0)
+
+          finish(True, f"PR #{pr_number} passed cheap eligibility preflight", pr_number)
+          PY
+
       - name: Set up Python
+        if: steps.merge_preflight.outputs.eligible == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
       - name: Install uv
+        if: steps.merge_preflight.outputs.eligible == 'true'
         run: python -m pip install --upgrade pip uv
 
       - name: Configure agent-plugins dependency access
+        if: steps.merge_preflight.outputs.eligible == 'true'
         env:
           AGENT_PLUGINS_GIT_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
         run: |
@@ -43,15 +137,19 @@ jobs:
             exit 1
           fi
       - name: Sync project
+        if: steps.merge_preflight.outputs.eligible == 'true'
         run: uv sync --group dev
 
       - name: Bootstrap agent-plugins marketplace source
+        if: steps.merge_preflight.outputs.eligible == 'true'
         run: uv run python scripts/bootstrap_agent_plugins_marketplace.py install
 
       - name: Validate Codex surface
+        if: steps.merge_preflight.outputs.eligible == 'true'
         run: uv run python scripts/validate_codex_surface.py
 
       - name: Detect Codex credentials
+        if: steps.merge_preflight.outputs.eligible == 'true'
         id: codex_preflight
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -79,7 +177,7 @@ jobs:
           output-file: .artifacts/codex/merge-on-green.json
           codex-home: ${{ runner.temp }}/codex-home
           codex-args: >-
-            ["--profile","ci_mutation","--output-schema",".github/codex/schemas/merge-on-green.json"]
+            ["--profile","ci_mutation","--model","gpt-5.4-nano","--effort","low","--output-schema",".github/codex/schemas/merge-on-green.json"]
           safety-strategy: drop-sudo
           sandbox: workspace-write
 
@@ -95,7 +193,7 @@ jobs:
           fi
 
       - name: Upload merge-gate artifacts
-        if: always()
+        if: steps.merge_preflight.outputs.eligible == 'true' && always()
         uses: actions/upload-artifact@v4
         with:
           name: merge-on-green-artifacts
