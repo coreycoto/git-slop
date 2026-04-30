@@ -56,7 +56,7 @@ def init_git_repo(repo_root: Path) -> None:
 
 class CliSmokeTests(unittest.TestCase):
     def test_package_import_exposes_version(self) -> None:
-        self.assertEqual(git_slop.__version__, "0.7.3")
+        self.assertEqual(git_slop.__version__, "0.8.0")
 
     def test_help_lists_registered_commands(self) -> None:
         completed = run_cli("--help")
@@ -77,7 +77,7 @@ class CliSmokeTests(unittest.TestCase):
         completed = run_cli("version")
 
         self.assertEqual(completed.returncode, 0)
-        self.assertEqual(completed.stdout.strip(), "git-slop 0.7.3")
+        self.assertEqual(completed.stdout.strip(), "git-slop 0.8.0")
         self.assertEqual(completed.stderr, "")
 
     def test_show_without_report_returns_usage_error(self) -> None:
