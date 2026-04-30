@@ -8,6 +8,9 @@ consumer install contracts.
 - Confirm `pyproject.toml` has the intended version.
 - Confirm the release tag does not already exist unless the release is being
   intentionally republished.
+- Add release notes at `docs/releases/v<version>.md`. The tag-driven release
+  workflow uses this file as the GitHub release notes when it exists and falls
+  back to generated artifact-only notes otherwise.
 - Run the local verification suite:
 
 ```bash
