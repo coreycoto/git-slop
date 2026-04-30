@@ -245,8 +245,13 @@ def descendant_overlay_maxima(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _overlay_mapping(overlays: dict[str, Any], name: str) -> dict[str, Any]:
+    value = overlays.get(name, {})
+    return value if isinstance(value, dict) else {}
+
+
 def strongest_pressures(overlays: dict[str, Any], *, limit: int = 3) -> list[tuple[str, float]]:
-    organization_health = overlays.get("organization_health", {})
+    organization_health = _overlay_mapping(overlays, "organization_health")
     organization_candidates = [
         ("organization.duplication", float(organization_health.get("duplication_pressure", 0.0))),
         ("organization.diffusion", float(organization_health.get("diffusion_pressure", 0.0))),
@@ -254,19 +259,30 @@ def strongest_pressures(overlays: dict[str, Any], *, limit: int = 3) -> list[tup
         ("organization.boundary", float(organization_health.get("boundary_pressure", 0.0))),
     ]
     candidates = organization_candidates + [
-        ("verification", float(overlays.get("verification", {}).get("verification_gap", 0.0))),
-        ("navigation", float(overlays.get("navigation", {}).get("navigation_pressure", 0.0))),
+        (
+            "verification",
+            float(_overlay_mapping(overlays, "verification").get("verification_gap", 0.0)),
+        ),
+        (
+            "navigation",
+            float(_overlay_mapping(overlays, "navigation").get("navigation_pressure", 0.0)),
+        ),
         (
             "blast_radius",
-            float(overlays.get("blast_radius", {}).get("blast_radius_pressure", 0.0)),
+            float(_overlay_mapping(overlays, "blast_radius").get("blast_radius_pressure", 0.0)),
         ),
         (
             "stewardship",
-            float(overlays.get("stewardship", {}).get("stewardship_pressure", 0.0)),
+            float(_overlay_mapping(overlays, "stewardship").get("stewardship_pressure", 0.0)),
         ),
         (
             "semantic_drift",
-            float(overlays.get("semantic_drift", {}).get("semantic_drift_pressure", 0.0)),
+            float(
+                _overlay_mapping(overlays, "semantic_drift").get(
+                    "semantic_drift_pressure",
+                    0.0,
+                )
+            ),
         ),
     ]
     strongest = sorted(candidates, key=lambda item: (-item[1], item[0]))
