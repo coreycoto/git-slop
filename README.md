@@ -73,7 +73,7 @@ Git Slop does not:
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 
-The Codex plugin is published from this repo as
-`git-slop@git-slop-marketplace`. It owns product-specific install, report,
-interpretation, planning, and consumer-adoption guidance. Reusable project and
-backlog workflows live in the separate `coreycoto/agent-plugins` plugin.
+The `git-slop` Codex plugin is published from this repo. It owns
+product-specific install, report, interpretation, planning, and
+consumer-adoption guidance. Reusable project and backlog workflows live in the
+separate `coreycoto/agent-plugins` plugin.

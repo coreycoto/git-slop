@@ -9,8 +9,8 @@ Use this skill when a repository should start consuming `git-slop`.
 
 ## Adoption Contract
 
-- Add `git-slop-marketplace` source metadata alongside any existing shared
-  workflow marketplace sources.
+- Add `git-slop` Codex plugin source metadata alongside any existing shared
+  workflow plugin sources.
 - Prefer a repo wrapper such as `./scripts/git_slop.sh`.
 - Require `git-slop` on `PATH`, usually installed from Homebrew.
 - Pin the expected minimum CLI version in a repo-owned tool contract when the

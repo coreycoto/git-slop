@@ -41,6 +41,7 @@ MARKETPLACE_SOURCE_MANIFEST = Path(".agents/plugins/marketplace-source.json")
 GIT_SLOP_MARKETPLACE = Path(".agents/plugins/marketplace.json")
 GIT_SLOP_PLUGIN_ROOT = Path("plugins/git-slop")
 GIT_SLOP_MARKETPLACE_NAME = "git-slop-marketplace"
+GIT_SLOP_PLUGIN_DOC_NAME = "`git-slop` Codex plugin"
 GIT_SLOP_PLUGIN_NAME = "git-slop"
 GIT_SLOP_PLUGIN_SKILLS = {
     "adopt-repo",
@@ -352,8 +353,8 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
                 errors.append(
                     f"{relative_path} must mention .agents/plugins/marketplace-source.json."
                 )
-            if "git-slop-marketplace" not in text:
-                errors.append(f"{relative_path} must mention git-slop-marketplace.")
+            if GIT_SLOP_PLUGIN_DOC_NAME not in text:
+                errors.append(f"{relative_path} must mention {GIT_SLOP_PLUGIN_DOC_NAME}.")
         for forbidden in REMOVED_LOCAL_PLUGIN_REFERENCES:
             if forbidden in text:
                 errors.append(f"{relative_path} must not reference {forbidden}.")
