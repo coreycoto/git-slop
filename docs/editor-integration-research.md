@@ -1,7 +1,5 @@
 # Editor Integration Research
 
-Issue: #24
-
 ## Recommendation
 
 Defer a first-party editor extension for now. The first editor-facing surface
@@ -97,23 +95,9 @@ Editor UI copy should describe findings as context-cost and maintenance signals.
 It must not present them as proof of bugs, correctness failures, or mandatory
 refactors.
 
-## Proposed Child Issues
-
-If the project proceeds after this research, split implementation into small
-child issues:
-
-1. Document editor consumption recipes for SARIF and JSON artifacts.
-2. Add fixture-backed examples for SARIF, plan JSON, and refactor-preview JSON.
-3. Prototype a no-runtime editor task recipe for VS Code using existing CLI
-   commands.
-4. Reassess whether a language server is warranted after recipe adoption.
-
-Do not start a first-party extension or language server until the documentation
-and examples show a real gap.
-
 ## Completion Decision
 
-Issue #24 can be closed with this decision: Git Slop should not implement a
-first-party editor extension yet. Static artifact consumption is documented in
+Git Slop should not implement a first-party editor extension yet. Static
+artifact consumption is documented in
 [Editor Artifact Consumption Recipes](editor-artifact-consumption-recipes.md),
 starting with SARIF and JSON recipe examples.

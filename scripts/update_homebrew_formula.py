@@ -101,7 +101,7 @@ def _homebrew_source(manifest: dict[str, Any]) -> dict[str, str]:
     if tag and "tag" not in source:
         source["tag"] = tag
     if "url" not in source:
-        source["url"] = "ssh://git@github.com/coreycoto/git-slop.git"
+        source["url"] = "https://github.com/coreycoto/git-slop.git"
     if "revision" not in source and source.get("tag"):
         source["revision"] = _git_revision(source["tag"])
     if not all(source.get(key) for key in ("url", "tag", "revision")):

@@ -68,7 +68,7 @@ def build_manifest(*, project_root: Path, dist_dir: Path, tag: str | None = None
         "tag": release_tag,
         "repository": REPO_FULL_NAME,
         "homebrew_source": {
-            "url": f"ssh://git@github.com/{REPO_FULL_NAME}.git",
+            "url": f"https://github.com/{REPO_FULL_NAME}.git",
             "tag": release_tag,
             "revision": _git_revision(project_root, release_tag),
         },
@@ -82,7 +82,7 @@ def build_manifest(*, project_root: Path, dist_dir: Path, tag: str | None = None
             ),
         },
         "install": {
-            "uv_release_wheel": [
+            "public_release_wheel": [
                 (
                     f"gh release download {release_tag} --repo {REPO_FULL_NAME} "
                     "--pattern 'git_slop-*.whl' --dir .artifacts/git-slop"
@@ -90,8 +90,8 @@ def build_manifest(*, project_root: Path, dist_dir: Path, tag: str | None = None
                 "shasum -a 256 .artifacts/git-slop/<wheel>",
                 "uv tool install --force .artifacts/git-slop/<wheel>",
             ],
-            "homebrew_private_tap": [
-                "brew tap coreycoto/tap git@github.com:coreycoto/homebrew-tap.git",
+            "homebrew_tap": [
+                "brew tap coreycoto/tap",
                 "brew install coreycoto/tap/git-slop",
             ],
         },

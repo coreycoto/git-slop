@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import io
 import subprocess
 import sys
@@ -15,9 +16,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_SNAPSHOT_ENTRYPOINT = (
     "from agent_plugins.github.shared.project_snapshot import main; raise SystemExit(main())"
 )
+AGENT_PLUGINS_AVAILABLE = importlib.util.find_spec("agent_plugins") is not None
 
 
 class AgentPluginsRuntimeIntegrationTests(unittest.TestCase):
+    @unittest.skipUnless(
+        AGENT_PLUGINS_AVAILABLE,
+        "agent-plugins optional dependency is unavailable.",
+    )
     def test_external_agent_plugins_runtime_is_available(self) -> None:
         completed = subprocess.run(
             [

@@ -69,14 +69,14 @@ Current overlay families:
 
 These remain evidence-first and always-on.
 
-## Active Program: V2 Follow-Through
+## Completed Program: V2 Follow-Through
 
 `git slop explain` and `git slop plan` are now shipped with additive V2 payload
 fields, prompt-pack local model handoff, and preview-only backlog handoff
-metadata. Remaining V2 work should be narrow adoption follow-through, not
+metadata. Future V2 work should be narrow adoption follow-through, not
 another feature wave.
 
-Current V2 follow-through scope:
+Completed V2 follow-through scope:
 
 - explanation quality and coverage on real repos
 - plan slice quality, ranking, and evidence summarization
@@ -88,10 +88,10 @@ Current V2 follow-through scope:
 These surfaces should continue to consume detector evidence; they should not
 redefine it.
 
-## Active Program: V3 Agentic Loop
+## Completed Program: V3 Agentic Loop
 
 V3 begins with read-only report comparison before higher-risk integrations.
-Current V3 child slices:
+Completed V3 slices:
 
 - trend comparisons with `git slop compare`
 - SARIF output with `git slop sarif`
@@ -118,8 +118,8 @@ extension and starting with documented consumption of SARIF and JSON artifacts.
 Static artifact recipes now document how editor-adjacent workflows can consume
 SARIF, plan JSON, and refactor-preview JSON without adding an extension,
 language server, watcher, hosted service, or model runtime. See
-[Editor Integration Research](plans/editor-integration-research.md) and
-[Editor Artifact Consumption Recipes](plans/editor-artifact-consumption-recipes.md).
+[Editor Integration Research](editor-integration-research.md) and
+[Editor Artifact Consumption Recipes](editor-artifact-consumption-recipes.md).
 
 ## Explicit Not Yet
 
@@ -134,7 +134,7 @@ Still out of scope for this program:
 
 ## Delivery Guidance
 
-Recommended sequence from here:
+Recommended future sequence:
 
 1. keep active-repo adoption moving
 2. refine `explain` and `plan` quality without changing detector meaning

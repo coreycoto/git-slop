@@ -20,7 +20,7 @@ proposal.
 6. Use the plan payload's preview-only `backlog_handoff` metadata as input to
    `$project-management-workflows:plan-to-backlog-preview`.
 7. For read-only editor or task-runner consumption, use
-   `docs/plans/editor-artifact-consumption-recipes.md` and preserve plan and
+   `docs/editor-artifact-consumption-recipes.md` and preserve plan and
    refactor-preview JSON boundaries.
 8. If local model summarization is useful, add `--prompt-pack <dir>` and use the
    generated prompt pack locally. Do not treat model output as detector truth.

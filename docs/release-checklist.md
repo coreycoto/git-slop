@@ -28,7 +28,7 @@ uv build
 
 - Create the local semver tag, then run the release preparation helper. The
   helper builds release artifacts, builds the release manifest with the exact
-  tag SHA, and regenerates the private Homebrew tap formula:
+  tag SHA, and regenerates the Homebrew tap formula:
 
 ```bash
 git tag v<version>
@@ -62,7 +62,7 @@ git-slop version
 - Update consumer pins only after the release assets and Homebrew formula are
   verified.
 - For each pinned consumer, verify the wrapper can use an existing `git-slop`
-  on `PATH` and can still fall back to the private release wheel when needed.
+  on `PATH` and can still fall back to the release wheel when needed.
 
 ## Close Out
 

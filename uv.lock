@@ -106,9 +106,11 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "agent-plugins" },
     { name = "pytest" },
     { name = "ruff" },
+]
+maintainer = [
+    { name = "agent-plugins" },
 ]
 
 [package.metadata]
@@ -119,10 +121,10 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "agent-plugins", git = "https://github.com/coreycoto/agent-plugins.git?rev=1cb87285df878822bcbb561bc684a57a24362a37" },
     { name = "pytest", specifier = ">=8.3.0" },
     { name = "ruff", specifier = ">=0.11.0" },
 ]
+maintainer = [{ name = "agent-plugins", git = "https://github.com/coreycoto/agent-plugins.git?rev=1cb87285df878822bcbb561bc684a57a24362a37" }]
 
 [[package]]
 name = "idna"

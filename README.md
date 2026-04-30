@@ -70,26 +70,35 @@ layer to reuse the wrong representation.
 ## Quickstart
 
 ```bash
-uv run git-slop init
-uv run git-slop find
-uv run git-slop show README.md
-uv run git-slop explain --top 5
-uv run git-slop explain --top 5 --prompt-pack .slop/prompt-packs/top
-uv run git-slop plan --path README.md
-uv run git-slop plan --path README.md --format json --prompt-pack .slop/prompt-packs/readme-plan
-uv run git-slop compare --base .slop/runs/<old>/report.json --head .slop/latest/report.json
-uv run git-slop sarif --report .slop/latest/report.json --output .slop/latest/git-slop.sarif
-uv run git-slop refactor-preview --plan .slop/latest/plan.json
-uv run git-slop check
-uv run git-slop version
-uv run git-slop --help
+git-slop init
+git-slop find
+git-slop show README.md
+git-slop explain --top 5
+git-slop explain --top 5 --prompt-pack .slop/prompt-packs/top
+git-slop plan --path README.md
+git-slop plan --path README.md --format json --prompt-pack .slop/prompt-packs/readme-plan
+git-slop compare --base .slop/runs/<old>/report.json --head .slop/latest/report.json
+git-slop sarif --report .slop/latest/report.json --output .slop/latest/git-slop.sarif
+git-slop refactor-preview --plan .slop/latest/plan.json
+git-slop check
+git-slop version
+git-slop --help
 ```
 
-## Install From Private Releases
+## Installation
 
-Tagged releases publish wheel and source artifacts plus a release manifest. For
-private `uv` installation, download the wheel and manifest with GitHub CLI,
-verify the manifest SHA256, then install the wheel:
+### Homebrew
+
+```bash
+brew tap coreycoto/tap
+brew install coreycoto/tap/git-slop
+git-slop version
+```
+
+### GitHub Release Wheel
+
+Tagged releases publish a wheel, source distribution, and
+`release-manifest.json`. To install a pinned release with `uv`:
 
 ```bash
 gh release download v0.8.1 --repo coreycoto/git-slop --pattern 'git_slop-*.whl' --pattern release-manifest.json --dir .artifacts/git-slop
@@ -98,12 +107,13 @@ uv tool install --force .artifacts/git-slop/git_slop-0.8.1-py3-none-any.whl
 git-slop version
 ```
 
-On macOS, the private Homebrew tap is the preferred operator install:
+### From Source
 
 ```bash
-brew tap coreycoto/tap git@github.com:coreycoto/homebrew-tap.git
-brew install coreycoto/tap/git-slop
-git-slop version
+git clone https://github.com/coreycoto/git-slop.git
+cd git-slop
+uv sync --group dev
+uv run git-slop version
 ```
 
 The Codex plugin is published from this repo as
@@ -152,11 +162,11 @@ The package exposes both:
 Examples:
 
 ```bash
-uv run git-slop explain --path src/git_slop/reporting.py
-uv run git-slop explain --path src/git_slop
-uv run git-slop explain --top 5
-uv run git-slop plan --path src/git_slop
-uv run git-slop plan --relationship duplicate_neighborhood-1234
+git-slop explain --path src/git_slop/reporting.py
+git-slop explain --path src/git_slop
+git-slop explain --top 5
+git-slop plan --path src/git_slop
+git-slop plan --relationship duplicate_neighborhood-1234
 ```
 
 Prompt packs are deterministic local files:
@@ -181,7 +191,7 @@ provider, rescore detector truth, mutate code, or mutate GitHub.
 Example:
 
 ```bash
-uv run git-slop compare \
+git-slop compare \
   --base .slop/runs/20260401T120000Z/report.json \
   --head .slop/latest/report.json \
   --format json
@@ -200,7 +210,7 @@ uv run git-slop compare \
 Example:
 
 ```bash
-uv run git-slop sarif \
+git-slop sarif \
   --report .slop/latest/report.json \
   --output .slop/latest/git-slop.sarif
 ```
@@ -218,10 +228,10 @@ uv run git-slop sarif \
 Example:
 
 ```bash
-uv run git-slop plan \
+git-slop plan \
   --relationship near_duplicate_neighborhood-1234 \
   --format json > .slop/latest/plan.json
-uv run git-slop refactor-preview \
+git-slop refactor-preview \
   --plan .slop/latest/plan.json \
   --format json
 ```
@@ -231,7 +241,7 @@ uv run git-slop refactor-preview \
 Editor-adjacent workflows should consume existing local artifacts instead of
 adding an editor extension, language server, background detector, hosted service,
 or model runtime. See
-[Editor Artifact Consumption Recipes](docs/plans/editor-artifact-consumption-recipes.md)
+[Editor Artifact Consumption Recipes](docs/editor-artifact-consumption-recipes.md)
 for SARIF, plan JSON, refactor-preview JSON, and VS Code task-style examples.
 
 ## Generated State
@@ -382,6 +392,7 @@ hotspots, change `check`, or fold overlays into `priority_score`.
 - [Architecture](docs/architecture.md)
 - [Scoring Model](docs/scoring-model.md)
 - [Roadmap](docs/roadmap.md)
-- [Backlog Project Config](config/github/README.md)
-- [Label Palette Config](config/labels/README.md)
-- [Codex Runtime](.codex/README.md)
+- [Release Checklist](docs/release-checklist.md)
+- [Changelog](CHANGELOG.md)
+- [Security Policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)

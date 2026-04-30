@@ -1,7 +1,5 @@
 # Editor Artifact Consumption Recipes
 
-Issue: #31
-
 ## Purpose
 
 These recipes show how to consume Git Slop's existing report artifacts from

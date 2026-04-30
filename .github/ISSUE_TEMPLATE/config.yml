@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Backlog Governance
-    url: https://github.com/coreycoto/git-slop/blob/main/config/github/README.md
-    about: Read the issue taxonomy, milestone policy, project model, and backlog rules before opening a new issue.
+  - name: Contributing Guide
+    url: https://github.com/coreycoto/git-slop/blob/main/CONTRIBUTING.md
+    about: Read setup, validation, contribution scope, and security-reporting guidance before opening a new issue.

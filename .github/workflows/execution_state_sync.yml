@@ -68,7 +68,7 @@ jobs:
             exit 1
           fi
       - name: Sync project
-        run: uv sync --group dev
+        run: uv sync --group dev --group maintainer
 
       - name: Bootstrap agent-plugins marketplace source
         run: uv run python scripts/bootstrap_agent_plugins_marketplace.py install

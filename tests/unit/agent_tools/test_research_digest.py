@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 
-from agent_plugins.research.digest import build_manifest, write_artifacts
+AGENT_PLUGINS_AVAILABLE = importlib.util.find_spec("agent_plugins") is not None
+
+if AGENT_PLUGINS_AVAILABLE:
+    from agent_plugins.research.digest import build_manifest, write_artifacts
 
 DOCX_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
@@ -19,6 +23,7 @@ DOCX_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+@unittest.skipUnless(AGENT_PLUGINS_AVAILABLE, "agent-plugins optional dependency is unavailable.")
 class ResearchDigestTests(unittest.TestCase):
     def test_digest_supports_markdown_and_docx(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

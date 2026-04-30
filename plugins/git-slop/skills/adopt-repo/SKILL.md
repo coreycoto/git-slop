@@ -14,7 +14,7 @@ Use this skill when a repository should start consuming `git-slop`.
 - Prefer a repo wrapper such as `./scripts/git_slop.sh`.
 - Pin the expected release tag, wheel name, SHA256, and minimum CLI version in a
   repo-owned tool pin file.
-- In CI, download the private release wheel with `gh`, verify SHA256, install it
+- In CI, download the release wheel with `gh`, verify SHA256, install it
   with `uv tool install`, then run the repository's warn-only report lane.
 - Keep `git-slop` observational until the repository explicitly promotes checks
   into required gates.

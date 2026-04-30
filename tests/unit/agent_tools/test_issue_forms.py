@@ -30,10 +30,10 @@ class IssueFormTests(unittest.TestCase):
                 self.assertIn(label, payload["labels"])
                 self.assertTrue(payload["body"])
 
-    def test_issue_template_config_points_to_backlog_governance_doc(self) -> None:
+    def test_issue_template_config_points_to_contributing_guide(self) -> None:
         payload = yaml.safe_load(
             (REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / "config.yml").read_text()
         )
         links = payload["contact_links"]
-        self.assertEqual(links[0]["name"], "Backlog Governance")
-        self.assertIn("config/github/README.md", links[0]["url"])
+        self.assertEqual(links[0]["name"], "Contributing Guide")
+        self.assertIn("CONTRIBUTING.md", links[0]["url"])

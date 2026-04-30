@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import unittest
 from datetime import date
 from pathlib import Path
 
-from agent_plugins.github.governance.milestone_check import build_milestone_check_payload
-from agent_plugins.github.shared.issue_catalog import load_issue_seed_catalog
-from agent_plugins.github.shared.label_palette import load_label_palette, repo_managed_labels
-from agent_plugins.github.shared.project_config import load_project_config
+AGENT_PLUGINS_AVAILABLE = importlib.util.find_spec("agent_plugins") is not None
+
+if AGENT_PLUGINS_AVAILABLE:
+    from agent_plugins.github.governance.milestone_check import build_milestone_check_payload
+    from agent_plugins.github.shared.label_palette import load_label_palette, repo_managed_labels
+    from agent_plugins.github.shared.project_config import load_project_config
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+@unittest.skipUnless(AGENT_PLUGINS_AVAILABLE, "agent-plugins optional dependency is unavailable.")
 class GovernanceConfigTests(unittest.TestCase):
     def test_project_config_declares_expected_views_and_fields(self) -> None:
         payload = load_project_config(REPO_ROOT)
@@ -29,12 +33,6 @@ class GovernanceConfigTests(unittest.TestCase):
             sorted(label["name"] for label in repo_managed_labels(payload)),
             ["epic", "maintenance"],
         )
-
-    def test_issue_seed_catalog_keeps_policy_data_repo_local(self) -> None:
-        payload = load_issue_seed_catalog(REPO_ROOT)
-        self.assertEqual([epic["priority"] for epic in payload["epics"]], ["Now", "Next", "Later"])
-        self.assertTrue(all(epic["queue_order"] is None for epic in payload["epics"]))
-        self.assertEqual(payload["queue_items"][0]["queue_order"], 10)
 
     def test_milestone_check_detects_missing_next_quarter(self) -> None:
         existing_payload_path = (

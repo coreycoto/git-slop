@@ -46,27 +46,27 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(manifest["tag"], "v0.8.1")
         self.assertEqual(
             manifest["homebrew_source"]["url"],
-            "ssh://git@github.com/coreycoto/git-slop.git",
+            "https://github.com/coreycoto/git-slop.git",
         )
         self.assertEqual(manifest["homebrew_source"]["tag"], "v0.8.1")
         self.assertEqual(manifest["homebrew_source"]["revision"], "a" * 40)
         self.assertEqual(manifest["wheel"]["name"], "git_slop-0.8.1-py3-none-any.whl")
         self.assertTrue(manifest["wheel"]["sha256"])
-        self.assertIn("uv_release_wheel", manifest["install"])
-        self.assertIn("homebrew_private_tap", manifest["install"])
+        self.assertIn("public_release_wheel", manifest["install"])
+        self.assertIn("homebrew_tap", manifest["install"])
         self.assertNotIn(
             "HOMEBREW_GITHUB_API_TOKEN",
-            "\n".join(manifest["install"]["homebrew_private_tap"]),
+            "\n".join(manifest["install"]["homebrew_tap"]),
         )
         self.assertEqual(
             {artifact["name"] for artifact in manifest["artifacts"]},
             {wheel.name, sdist.name},
         )
 
-    def test_homebrew_formula_renders_pinned_private_git_source(self) -> None:
+    def test_homebrew_formula_renders_pinned_public_git_source(self) -> None:
         manifest = {
             "homebrew_source": {
-                "url": "ssh://git@github.com/coreycoto/git-slop.git",
+                "url": "https://github.com/coreycoto/git-slop.git",
                 "tag": "v0.8.1",
                 "revision": "b" * 40,
             },
@@ -81,7 +81,7 @@ class DistributionTests(unittest.TestCase):
 
         self.assertIn("class GitSlop < Formula", formula)
         self.assertNotIn("HOMEBREW_GITHUB_API_TOKEN", formula)
-        self.assertIn('url "ssh://git@github.com/coreycoto/git-slop.git"', formula)
+        self.assertIn('url "https://github.com/coreycoto/git-slop.git"', formula)
         self.assertIn('tag:      "v0.8.1"', formula)
         self.assertIn(f'revision: "{"b" * 40}"', formula)
         self.assertIn('version "0.8.1"', formula)
