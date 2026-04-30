@@ -1,18 +1,25 @@
 # Command Guide
 
-Git Slop commands are local-first and deterministic. The detector writes
-reports; downstream commands consume those reports or saved payloads without
+Git Slop commands are local-first and deterministic. The main workflow is:
+
+```text
+init -> find -> show/explain -> plan -> check
+```
+
+The detector writes reports; downstream commands consume those reports without
 rescoring detector truth.
 
 The installed executable is `git-slop`. When it is on `PATH`, Git can also run
 it as `git slop`.
 
-## Core Detector Commands
+## Core Workflow
 
 ```bash
 git-slop init
 git-slop find
 git-slop show README.md
+git-slop explain --top 5
+git-slop plan --path src/git_slop
 git-slop check
 git-slop version
 ```
@@ -22,13 +29,13 @@ git-slop version
   `.slop/runs/<timestamp>/` copy.
 - `show` renders one file's stable costs and overlay evidence from an existing
   schema-3 report.
+- `explain` explains one file, folder, relationship, cluster, or top-N hotspot
+  selection from an existing schema-3 report.
+- `plan` proposes bounded maintenance slices from an existing schema-3 report.
 - `check` evaluates the stable detector gate. It does not use overlays.
 - `version` prints the installed CLI version.
 
 ## Explain
-
-`git slop explain` explains one file, folder, relationship, cluster, or the
-current top-N hotspots from an existing schema-3 report.
 
 ```bash
 git-slop explain --path src/git_slop/reporting.py
@@ -46,9 +53,6 @@ or refactor mandate.
 
 ## Plan
 
-`git slop plan` proposes bounded maintenance slices from an existing schema-3
-report.
-
 ```bash
 git-slop plan --path src/git_slop
 git-slop plan --relationship near_duplicate_neighborhood-1234
@@ -61,6 +65,13 @@ Plan slices include scope paths, out-of-scope paths, supporting evidence,
 evidence summaries, and preview-only backlog handoff metadata. The command does
 not edit code, mutate GitHub, invoke a model, rerun the detector, or change
 detector scoring.
+
+### Acting On A Plan
+
+Use a plan slice as human review guidance: keep edits inside its scope paths,
+respect out-of-scope paths, and let the cited evidence explain why the work is
+bounded. Git Slop does not generate patches, orchestrate refactors, commit,
+push, or mutate GitHub.
 
 ## Prompt Packs
 
@@ -82,7 +93,12 @@ A prompt pack contains:
 Prompt packs are advisory. They do not add a model dependency, call a provider,
 rescore detector truth, mutate code, or mutate GitHub.
 
-## Compare
+## Advanced Artifact Commands
+
+These commands are read-only artifact surfaces. They are useful for automation
+and integration work, but they are not part of the core cleanup workflow.
+
+### Compare
 
 `git slop compare` compares two existing schema-3 reports.
 
@@ -102,7 +118,7 @@ score movement, band movement, overlay pressure deltas, and action-queue
 movement. It never reruns the detector, writes `.slop/`, changes scoring, or
 implies causality.
 
-## SARIF
+### SARIF
 
 `git slop sarif` exports action-queue findings from an existing schema-3 report
 as SARIF 2.1.0.
@@ -116,23 +132,3 @@ git-slop sarif \
 SARIF output preserves stable hotspot cost and overlay evidence as separate
 properties. The command does not upload results, rerun the detector, change
 scoring, or mutate GitHub.
-
-## Refactor Preview
-
-`git slop refactor-preview` consumes saved `git slop plan --format json` output
-and emits bounded, non-mutating next steps.
-
-```bash
-git-slop plan \
-  --relationship near_duplicate_neighborhood-1234 \
-  --format json > .slop/latest/plan.json
-
-git-slop refactor-preview --plan .slop/latest/plan.json
-git-slop refactor-preview --plan .slop/latest/plan.json --slice slice-001
-git-slop refactor-preview --plan .slop/latest/plan.json --format json
-```
-
-Preview output includes maintainer action, scope, out-of-scope paths, evidence,
-proposed steps, review checklist items, and non-mutating patch-preview notes.
-It does not edit files, generate diffs, invoke models, commit, push, rerun the
-detector, change scoring, or mutate GitHub.

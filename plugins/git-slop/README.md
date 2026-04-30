@@ -16,5 +16,5 @@ workflows. When a reviewed `git-slop plan` should become backlog work, use the
 separate `project-management-workflows` plugin from `coreycoto/agent-plugins`.
 
 Product guidance should treat `.slop/latest/`, `.slop/runs/`, `.slop/cache/`,
-prompt packs, SARIF exports, and plan/preview JSON as generated artifacts unless
-a repository intentionally curates them as fixtures outside `.slop/`.
+prompt packs, SARIF exports, and plan JSON as generated artifacts unless a
+repository intentionally curates them as fixtures outside `.slop/`.

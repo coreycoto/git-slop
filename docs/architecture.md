@@ -104,7 +104,7 @@ Always-on overlay analyzers:
 - Markdown summary
 - terminal rendering
 - bundle writing
-- explain, plan, compare, SARIF, and refactor-preview payload rendering
+- explain, plan, compare, and SARIF payload rendering
 
 ### `integrations/`
 
@@ -234,7 +234,8 @@ Rules:
 
 ## CLI Surface
 
-The CLI exposes detector commands and read-only downstream artifact commands:
+The CLI exposes a core detector workflow and read-only advanced artifact
+commands:
 
 - `git slop init`
 - `git slop find`
@@ -244,7 +245,6 @@ The CLI exposes detector commands and read-only downstream artifact commands:
 - `git slop check`
 - `git slop compare`
 - `git slop sarif`
-- `git slop refactor-preview`
 - `git slop version`
 
 Command boundaries:
@@ -253,7 +253,6 @@ Command boundaries:
 - `show`, `explain`, `plan`, `check`, and `sarif` consume an existing schema-3
   report.
 - `compare` consumes two existing schema-3 reports.
-- `refactor-preview` consumes a saved schema-v2 `plan` payload.
 - Prompt packs are explicit local outputs from `explain` and `plan`.
 
 Downstream commands do not rescore detector truth, change `check` semantics, or

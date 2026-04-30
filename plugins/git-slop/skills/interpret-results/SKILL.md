@@ -18,5 +18,5 @@ Use this skill when reviewing `.slop/latest/report.json`,
   navigation, blast radius, stewardship, and semantic drift.
 - Prefer a targeted `git-slop explain` before turning a finding into a work item.
 - Treat `.slop/latest/`, `.slop/runs/`, `.slop/cache/`, SARIF, prompt packs,
-  plan JSON, compare JSON, and refactor-preview JSON as generated evidence.
-  Reference or upload them when useful; do not commit routine generated output.
+  plan JSON, and compare JSON as generated evidence. Reference or upload them
+  when useful; do not commit routine generated output.

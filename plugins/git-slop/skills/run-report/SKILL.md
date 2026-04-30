@@ -19,10 +19,10 @@ explanation/plan.
 - Run the gate surface: `git-slop check`
 
 Generated `.slop/latest/`, `.slop/runs/`, `.slop/cache/`, prompt packs, SARIF
-exports, plan JSON, compare JSON, and refactor-preview JSON should stay
-untracked unless a repository intentionally curates examples or fixtures outside
-the runtime `.slop/` tree. Upload generated report outputs as CI artifacts when
-review needs a durable copy.
+exports, plan JSON, and compare JSON should stay untracked unless a repository
+intentionally curates examples or fixtures outside the runtime `.slop/` tree.
+Upload generated report outputs as CI artifacts when review needs a durable
+copy.
 
 Consumer repos may provide a wrapper such as `./scripts/git_slop.sh`; prefer it
 when present because it may enforce the repo's pinned install contract.

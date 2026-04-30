@@ -57,13 +57,12 @@ The stable detector fields are:
 
 ## Downstream Payloads
 
-Downstream commands consume existing report or plan payloads:
+Downstream commands consume existing reports and emit additive payloads:
 
 - `git slop explain`: schema-v2 explain payload
 - `git slop plan`: schema-v2 plan payload
 - `git slop compare`: schema-v1 compare payload from two schema-3 reports
 - `git slop sarif`: SARIF 2.1.0 from one schema-3 report
-- `git slop refactor-preview`: schema-v1 preview payload from a schema-v2 plan
 
 These surfaces are additive. They do not rerun the detector unless explicitly
 documented, rescore detector truth, mutate `.slop/`, or change check semantics.

@@ -40,9 +40,6 @@ git-slop check
 - `git slop show`: inspect one file from an existing report
 - `git slop explain`: explain a file, folder, cluster, relationship, or top-N
 - `git slop plan`: propose bounded maintenance slices from existing evidence
-- `git slop compare`: compare two existing schema-3 reports
-- `git slop sarif`: export action-queue findings as SARIF 2.1.0
-- `git slop refactor-preview`: turn a plan payload into read-only next steps
 - `git slop check`: run the stable detector gate
 - `git slop version`: print the installed version
 

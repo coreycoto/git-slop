@@ -14,9 +14,8 @@ maintenance surfaces:
 - `git slop plan`
 - prompt-pack-only local model handoff
 - preview-only backlog handoff metadata
-- read-only trend comparison with `git slop compare`
-- read-only SARIF 2.1.0 export with `git slop sarif`
-- preview-only bounded refactor handoff with `git slop refactor-preview`
+- advanced read-only trend comparison with `git slop compare`
+- advanced read-only SARIF 2.1.0 export with `git slop sarif`
 
 The next work should bias toward adoption, documentation clarity, consumer
 contracts, and narrow improvements backed by real repository evidence.
@@ -47,8 +46,8 @@ Current overlay families:
 - semantic drift
 
 Overlays remain evidence-first and always-on. They can support explanations,
-plans, SARIF properties, and previews, but they do not redefine
-`priority_score`, `priority_band`, `context_band`, or `git slop check`.
+plans, and SARIF properties, but they do not redefine `priority_score`,
+`priority_band`, `context_band`, or `git slop check`.
 
 ## Downstream Surfaces
 
@@ -58,7 +57,6 @@ Current downstream surfaces consume existing detector artifacts:
 - `plan` consumes a schema-3 report
 - `compare` consumes two schema-3 reports
 - `sarif` consumes one schema-3 report
-- `refactor-preview` consumes a schema-v2 plan payload
 
 These commands remain read-only with respect to source code, GitHub, scoring,
 and check semantics. Prompt packs are deterministic local files for advisory
@@ -85,8 +83,7 @@ Recommended sequence:
 
 1. keep active-repo adoption moving
 2. keep release and consumer contracts easy to verify
-3. refine `explain`, `plan`, and preview quality without changing detector
-   meaning
+3. refine `explain` and `plan` quality without changing detector meaning
 4. add new integrations only when they can consume existing artifacts without
    background mutation
 5. touch detector-core only when multi-repo evidence justifies it

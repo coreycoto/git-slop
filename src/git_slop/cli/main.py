@@ -22,11 +22,6 @@ from git_slop.reports.compare import build_compare_payload, render_compare_text
 from git_slop.reports.explain import build_explain_payload, render_explain_text
 from git_slop.reports.plan import build_plan_payload, render_plan_text
 from git_slop.reports.prompt_pack import write_prompt_pack
-from git_slop.reports.refactor_preview import (
-    build_refactor_preview_payload,
-    render_refactor_preview_json,
-    render_refactor_preview_text,
-)
 from git_slop.reports.sarif import build_sarif_payload, render_sarif_json, write_sarif_file
 
 PROJECT_NAME = "git-slop"
@@ -191,24 +186,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional SARIF output path. Defaults to stdout.",
     )
     sarif_parser.set_defaults(handler=_run_sarif)
-
-    refactor_preview_parser = subparsers.add_parser(
-        "refactor-preview",
-        help="Preview bounded refactor steps from an existing git-slop plan payload.",
-    )
-    refactor_preview_parser.add_argument(
-        "--plan",
-        required=True,
-        help="Plan JSON path produced by git slop plan --format json.",
-    )
-    refactor_preview_parser.add_argument(
-        "--slice",
-        dest="slice_ids",
-        action="append",
-        help="Optional plan slice id to preview. May be repeated or comma-separated.",
-    )
-    refactor_preview_parser.add_argument("--format", choices=("text", "json"), default="text")
-    refactor_preview_parser.set_defaults(handler=_run_refactor_preview)
 
     version_parser = subparsers.add_parser("version", help="Print version information.")
     version_parser.set_defaults(handler=_run_version)
@@ -440,29 +417,6 @@ def _run_sarif(args: argparse.Namespace) -> int:
         print(f"Wrote SARIF report to {args.output}.")
     else:
         print(render_sarif_json(payload), end="")
-    return 0
-
-
-def _run_refactor_preview(args: argparse.Namespace) -> int:
-    plan_path = Path(args.plan)
-    try:
-        plan = load_report(plan_path)
-    except FileNotFoundError as exc:
-        print(f"Plan not found: {exc.filename}")
-        return 2
-    try:
-        payload = build_refactor_preview_payload(
-            plan,
-            plan_path=str(plan_path),
-            slice_ids=args.slice_ids,
-        )
-    except ValueError as exc:
-        print(str(exc))
-        return 2
-    if args.format == "json":
-        print(render_refactor_preview_json(payload), end="")
-    else:
-        print(render_refactor_preview_text(payload))
     return 0
 
 

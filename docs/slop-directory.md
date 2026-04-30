@@ -32,7 +32,6 @@ Do not commit these runtime outputs:
 - generated SARIF files
 - generated plan JSON
 - generated compare JSON
-- generated refactor-preview JSON
 
 Use CI artifacts or local scratch paths for those files. They are derived from
 the repo state and should be regenerated when needed.
