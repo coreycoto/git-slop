@@ -92,9 +92,9 @@ private `uv` installation, download the wheel and manifest with GitHub CLI,
 verify the manifest SHA256, then install the wheel:
 
 ```bash
-gh release download v0.8.0 --repo coreycoto/git-slop --pattern 'git_slop-*.whl' --pattern release-manifest.json --dir .artifacts/git-slop
-shasum -a 256 .artifacts/git-slop/git_slop-0.8.0-py3-none-any.whl
-uv tool install --force .artifacts/git-slop/git_slop-0.8.0-py3-none-any.whl
+gh release download v0.8.1 --repo coreycoto/git-slop --pattern 'git_slop-*.whl' --pattern release-manifest.json --dir .artifacts/git-slop
+shasum -a 256 .artifacts/git-slop/git_slop-0.8.1-py3-none-any.whl
+uv tool install --force .artifacts/git-slop/git_slop-0.8.1-py3-none-any.whl
 git-slop version
 ```
 
