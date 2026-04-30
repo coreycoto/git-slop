@@ -19,9 +19,9 @@ proposal.
    bounded, non-mutating next steps before editing code.
 6. Use the plan payload's preview-only `backlog_handoff` metadata as input to
    `$project-management-workflows:plan-to-backlog-preview`.
-7. For read-only editor or task-runner consumption, use
-   `docs/editor-artifact-consumption-recipes.md` and preserve plan and
-   refactor-preview JSON boundaries.
+7. Keep plan and refactor-preview JSON local or uploaded as review artifacts
+   unless the repository intentionally curates them as fixtures outside
+   `.slop/`.
 8. If local model summarization is useful, add `--prompt-pack <dir>` and use the
    generated prompt pack locally. Do not treat model output as detector truth.
 9. Do not create, update, close, label, or milestone GitHub issues from

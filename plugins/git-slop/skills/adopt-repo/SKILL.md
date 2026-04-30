@@ -14,6 +14,11 @@ Use this skill when a repository should start consuming `git-slop`.
 - Prefer a repo wrapper such as `./scripts/git_slop.sh`.
 - Pin the expected release tag, wheel name, SHA256, and minimum CLI version in a
   repo-owned tool pin file.
+- Commit `.slop/config.yaml` when the repository intentionally configures Git
+  Slop, and commit `.slop/.gitignore` so generated state stays untracked.
+- Do not commit `.slop/latest/`, `.slop/runs/`, `.slop/cache/`, prompt packs,
+  SARIF exports, plan JSON, compare JSON, or refactor-preview JSON as routine
+  adoption output.
 - In CI, download the release wheel with `gh`, verify SHA256, install it
   with `uv tool install`, then run the repository's warn-only report lane.
 - Keep `git-slop` observational until the repository explicitly promotes checks

@@ -70,24 +70,6 @@ A successful detector-refinement wave also lets a maintainer inspect:
 - ownership concentration
 - term drift across roots
 
-## Release Shape
-
-Git Slop remains intentionally staged:
-
-- **Detector program**
-  - local-first hotspot detection
-  - report contract
-  - evidence overlays
-- **Explainer / planner program**
-  - `git slop explain`
-  - `git slop plan`
-- **Agentic loop program**
-  - bounded execution
-  - verification
-  - richer integrations
-
-That staging is deliberate. Trust comes from detector quality first.
-
 ## Core Principles
 
 - Git is the source of truth for repository inventory and history.

@@ -70,25 +70,10 @@ jobs:
           if [[ ! "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             release_tag="v$(python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
           fi
-          notes_path=".artifacts/releases/${release_tag}-notes.md"
-          checked_in_notes="docs/releases/${release_tag}.md"
-          if [[ -f "$checked_in_notes" ]]; then
-            cp "$checked_in_notes" "$notes_path"
-          else
-            {
-              echo "# git-slop ${release_tag}"
-              echo
-              echo "## Artifacts"
-              echo
-              echo "- \`dist/git_slop-${release_tag#v}-py3-none-any.whl\`"
-              echo "- \`dist/git_slop-${release_tag#v}.tar.gz\`"
-              echo "- \`.artifacts/releases/release-manifest.json\`"
-            } > "$notes_path"
-          fi
           if gh release view "$release_tag" >/dev/null 2>&1; then
-            gh release edit "$release_tag" --title "$release_tag" --notes-file "$notes_path"
+            gh release edit "$release_tag" --title "$release_tag"
           else
-            gh release create "$release_tag" --title "$release_tag" --notes-file "$notes_path"
+            gh release create "$release_tag" --title "$release_tag" --generate-notes
           fi
           gh release upload "$release_tag" \
             "dist/git_slop-${release_tag#v}-py3-none-any.whl" \

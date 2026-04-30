@@ -30,7 +30,6 @@ dependencies = [
 Homepage = "https://github.com/coreycoto/git-slop"
 Repository = "https://github.com/coreycoto/git-slop"
 Issues = "https://github.com/coreycoto/git-slop/issues"
-Changelog = "https://github.com/coreycoto/git-slop/blob/main/CHANGELOG.md"
 
 [project.scripts]
 git-slop = "git_slop.cli:main"
@@ -71,7 +70,6 @@ include = [
     "/LICENSE",
     "/SECURITY.md",
     "/CODE_OF_CONDUCT.md",
-    "/CHANGELOG.md",
     "/pyproject.toml",
 ]
 
