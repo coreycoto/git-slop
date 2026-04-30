@@ -90,8 +90,8 @@ def prepare_release(
         f"Push release tag: git push origin {tag}",
         "Watch release workflow: "
         "gh run list --repo coreycoto/git-slop --workflow release-publish.yml --limit 1",
-        "Verify release assets: gh release view "
-        f"{tag} --repo coreycoto/git-slop --json url,assets",
+        "Verify GitHub Release: gh release view "
+        f"{tag} --repo coreycoto/git-slop --json url,tagName",
         f"Verify tap formula: cd {formula_path.parents[1]} && brew style Formula/git-slop.rb",
         "Fetch formula: brew fetch --force coreycoto/tap/git-slop",
         "Install formula: brew reinstall coreycoto/tap/git-slop",

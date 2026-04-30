@@ -21,6 +21,10 @@ Good first contribution areas:
 
 ## Local Setup
 
+Use the local setup below for development and contributions. For normal CLI
+usage, install Git Slop with Homebrew as described in
+[docs/install.md](docs/install.md).
+
 Requirements:
 
 - Python 3.13

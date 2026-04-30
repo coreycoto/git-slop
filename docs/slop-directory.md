@@ -44,7 +44,7 @@ examples or fixtures outside the runtime `.slop/` tree. Common examples:
 
 - `tests/fixtures/...`
 - documentation snippets with small hand-edited samples
-- release assets attached to GitHub Releases, not committed to Git
+- versioned files attached to GitHub Releases, not committed to Git
 
 If a consumer repo needs stable evidence for review, prefer an uploaded CI
 artifact or a link to a GitHub Release asset over committing `.slop/latest/`.

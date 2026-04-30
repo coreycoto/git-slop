@@ -24,18 +24,17 @@ using standard `git` and `gh` flows only.
   only.
 - Do not assume Marketplace-installed connectors are available on the runner.
 - Do not use the GitHub Git Data API.
-- Build and attach release artifacts from the checked-out repo when needed,
-  including `.artifacts/releases/release-manifest.json` when present.
+- Build the package as a validation smoke when needed.
 - Never create or move tags in this workflow; the tag already exists.
 
 ## Workflow
 
 1. Determine the current tag and collect the release scope from the repo.
-2. Build release artifacts if they are not already present.
-3. Draft or update release notes in a file under `.artifacts/releases/`.
+2. Build the package if packaging validation is needed.
+3. Draft or update GitHub Release notes through `gh`.
 4. Publish the GitHub release with `gh release create` or update the existing
    release if it already exists.
-5. Attach the built wheel, sdist, and release manifest.
-6. Report the release URL and the artifact paths that were uploaded.
+5. Report the release URL. `artifact_paths` may be an empty list when no
+   release files are uploaded.
 
 Your final response must satisfy the structured output schema for this workflow.
