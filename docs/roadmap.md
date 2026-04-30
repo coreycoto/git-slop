@@ -112,6 +112,10 @@ non-mutating patch-preview notes. It does not edit files, generate diffs, invoke
 models, commit or push changes, rerun the detector, rescore detector truth, or
 mutate GitHub.
 
+Editor-facing integration research recommends deferring a first-party editor
+extension and starting with documented consumption of SARIF and JSON artifacts.
+See [Editor Integration Research](plans/editor-integration-research.md).
+
 ## Explicit Not Yet
 
 Still out of scope for this program:
