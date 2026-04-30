@@ -1,6 +1,22 @@
 from __future__ import annotations
 
-from agent_plugins.contracts.skills import ActionSpec, SkillSpec
+from dataclasses import dataclass
+
+try:
+    from agent_plugins.contracts.skills import ActionSpec, SkillSpec
+except ModuleNotFoundError:
+
+    @dataclass(frozen=True)
+    class ActionSpec:  # type: ignore[no-redef]
+        name: str
+        description: str
+        command: tuple[str, ...]
+
+    @dataclass(frozen=True)
+    class SkillSpec:  # type: ignore[no-redef]
+        name: str
+        description: str
+        actions: tuple[str, ...]
 
 ACTION_SPECS: dict[str, ActionSpec] = {
     "repo": ActionSpec(

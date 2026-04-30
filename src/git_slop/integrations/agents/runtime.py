@@ -7,17 +7,49 @@ import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from agent_plugins.contracts.skills import (
-    ActionSpec,
-    SkillSpec,
-    get_action_spec,
-    get_action_spec_for_any_skill,
-    get_skill_spec,
-)
-
 from git_slop.core.repository import resolve_repo_root
 
-from .skills import ACTION_SPECS, SKILL_SPECS
+from .skills import ACTION_SPECS, SKILL_SPECS, ActionSpec, SkillSpec
+
+try:
+    from agent_plugins.contracts.skills import (
+        get_action_spec,
+        get_action_spec_for_any_skill,
+        get_skill_spec,
+    )
+except ModuleNotFoundError:
+
+    def get_skill_spec(
+        skill_specs: Mapping[str, SkillSpec],
+        skill_name: str,
+    ) -> SkillSpec:
+        try:
+            return skill_specs[skill_name]
+        except KeyError as error:
+            raise ValueError(f"Unknown skill: {skill_name}") from error
+
+    def get_action_spec(
+        skill_specs: Mapping[str, SkillSpec],
+        action_specs: Mapping[str, ActionSpec],
+        skill_name: str,
+        action_name: str,
+    ) -> ActionSpec:
+        skill_spec = get_skill_spec(skill_specs, skill_name)
+        if action_name not in skill_spec.actions:
+            raise ValueError(f"Skill {skill_name} does not support action: {action_name}")
+        try:
+            return action_specs[action_name]
+        except KeyError as error:
+            raise ValueError(f"Unknown action: {action_name}") from error
+
+    def get_action_spec_for_any_skill(
+        action_specs: Mapping[str, ActionSpec],
+        action_name: str,
+    ) -> ActionSpec:
+        try:
+            return action_specs[action_name]
+        except KeyError as error:
+            raise ValueError(f"Unknown action: {action_name}") from error
 
 
 def _render_supported_actions(
