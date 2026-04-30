@@ -16,6 +16,9 @@ This keeps V3 local-first and report-based. It avoids introducing a long-lived
 editor process, file watchers, language server state, or background detector
 runs before the report contracts have more adoption evidence.
 
+The follow-up recipe work is documented in
+[Editor Artifact Consumption Recipes](editor-artifact-consumption-recipes.md).
+
 ## Evaluation
 
 ### SARIF / Code Scanning
@@ -111,5 +114,6 @@ and examples show a real gap.
 ## Completion Decision
 
 Issue #24 can be closed with this decision: Git Slop should not implement a
-first-party editor extension yet. The next step is documentation for static
-artifact consumption, starting with SARIF and JSON recipe examples.
+first-party editor extension yet. Static artifact consumption is documented in
+[Editor Artifact Consumption Recipes](editor-artifact-consumption-recipes.md),
+starting with SARIF and JSON recipe examples.

@@ -18,5 +18,9 @@ explanation/plan.
 - Export SARIF locally: `git-slop sarif --report <report.json> --output <path.sarif>`
 - Run the gate surface: `git-slop check`
 
+For editor-adjacent workflows, point maintainers at
+`docs/plans/editor-artifact-consumption-recipes.md` and keep SARIF consumption
+local and explicit.
+
 Consumer repos may provide a wrapper such as `./scripts/git_slop.sh`; prefer it
 when present because it may enforce the repo's pinned install contract.

@@ -97,6 +97,7 @@ Current V3 child slices:
 - SARIF output with `git slop sarif`
 - preview-only bounded refactor loops with `git slop refactor-preview`
 - editor-facing integration research
+- editor-adjacent artifact consumption recipes
 
 `git slop compare` consumes two existing schema-3 reports and describes file,
 folder, overlay, and queue movement. It does not rerun the detector, mutate
@@ -114,7 +115,11 @@ mutate GitHub.
 
 Editor-facing integration research recommends deferring a first-party editor
 extension and starting with documented consumption of SARIF and JSON artifacts.
-See [Editor Integration Research](plans/editor-integration-research.md).
+Static artifact recipes now document how editor-adjacent workflows can consume
+SARIF, plan JSON, and refactor-preview JSON without adding an extension,
+language server, watcher, hosted service, or model runtime. See
+[Editor Integration Research](plans/editor-integration-research.md) and
+[Editor Artifact Consumption Recipes](plans/editor-artifact-consumption-recipes.md).
 
 ## Explicit Not Yet
 

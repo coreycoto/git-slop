@@ -19,7 +19,10 @@ proposal.
    bounded, non-mutating next steps before editing code.
 6. Use the plan payload's preview-only `backlog_handoff` metadata as input to
    `$project-management-workflows:plan-to-backlog-preview`.
-7. If local model summarization is useful, add `--prompt-pack <dir>` and use the
+7. For read-only editor or task-runner consumption, use
+   `docs/plans/editor-artifact-consumption-recipes.md` and preserve plan and
+   refactor-preview JSON boundaries.
+8. If local model summarization is useful, add `--prompt-pack <dir>` and use the
    generated prompt pack locally. Do not treat model output as detector truth.
-8. Do not create, update, close, label, or milestone GitHub issues from
+9. Do not create, update, close, label, or milestone GitHub issues from
    `git-slop`; live mutation remains outside this product-specific skill.
