@@ -5,15 +5,12 @@ on:
     branches:
       - main
     paths:
-      - "AGENTS.md"
       - ".agents/**"
       - ".codex/**"
       - "config/**"
-      - "plugins/**"
-      - "README.md"
-      - "CONTRIBUTING.md"
-      - ".github/workflows/docs-taxonomy.yml"
+      - "plugins/git-slop/skills/**"
       - ".github/codex/**"
+      - ".github/workflows/docs-taxonomy.yml"
   schedule:
     - cron: "50 11 * * 3"
   workflow_dispatch:
@@ -96,7 +93,7 @@ jobs:
           output-file: .artifacts/codex/docs-taxonomy.json
           codex-home: ${{ runner.temp }}/codex-home
           codex-args: >-
-            ["--profile","ci_mutation","--output-schema",".github/codex/schemas/docs-taxonomy.json"]
+            ["--profile","ci_mutation","--model","gpt-5.4-nano","--effort","low","--output-schema",".github/codex/schemas/docs-taxonomy.json"]
           safety-strategy: drop-sudo
           sandbox: workspace-write
 
