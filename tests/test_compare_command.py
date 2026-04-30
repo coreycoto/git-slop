@@ -67,6 +67,38 @@ class CompareCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "base report must use schema 3"):
             build_compare_payload({"schema_version": 2}, load_fixture("compare_head_report.json"))
 
+    def test_compare_treats_null_overlay_family_as_absent_evidence(self) -> None:
+        report = {
+            "schema_version": 3,
+            "files": [
+                {
+                    "path": "src/null_overlay.py",
+                    "priority_score": 10.0,
+                    "priority_band": "watchlist",
+                    "context_band": "healthy",
+                    "costs": {"load": {"load_pressure": 0.1, "file_token_count": 100}},
+                    "overlays": {
+                        "organization_health": None,
+                        "verification": None,
+                        "navigation": {"navigation_pressure": 0.0},
+                    },
+                }
+            ],
+            "folders": [],
+            "action_queue": [{"path": "src/null_overlay.py"}],
+        }
+
+        payload = build_compare_payload(
+            report,
+            report,
+            base_path="base.json",
+            head_path="head.json",
+        )
+
+        delta = payload["file_deltas"][0]
+        self.assertEqual(delta["status"], "unchanged")
+        self.assertEqual(delta["overlay_deltas"], [])
+
     def test_compare_cli_text_and_json_outputs(self) -> None:
         base = FIXTURE_DIR / "compare_base_report.json"
         head = FIXTURE_DIR / "compare_head_report.json"
