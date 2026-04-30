@@ -93,7 +93,7 @@ jobs:
           output-file: .artifacts/codex/docs-taxonomy.json
           codex-home: ${{ runner.temp }}/codex-home
           codex-args: >-
-            ["--profile","ci_mutation","--model","gpt-5.4-nano","--effort","low","--output-schema",".github/codex/schemas/docs-taxonomy.json"]
+            ["--profile","ci_mutation","--model","gpt-5.4-nano","--output-schema",".github/codex/schemas/docs-taxonomy.json"]
           safety-strategy: drop-sudo
           sandbox: workspace-write
 

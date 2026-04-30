@@ -177,7 +177,7 @@ jobs:
           output-file: .artifacts/codex/merge-on-green.json
           codex-home: ${{ runner.temp }}/codex-home
           codex-args: >-
-            ["--profile","ci_mutation","--model","gpt-5.4-nano","--effort","low","--output-schema",".github/codex/schemas/merge-on-green.json"]
+            ["--profile","ci_mutation","--model","gpt-5.4-nano","--output-schema",".github/codex/schemas/merge-on-green.json"]
           safety-strategy: drop-sudo
           sandbox: workspace-write
 
