@@ -67,7 +67,6 @@ Git Slop does not:
 - [.slop Directory Policy](docs/slop-directory.md)
 - [Architecture](docs/architecture.md)
 - [Scoring Model](docs/scoring-model.md)
-- [Roadmap](docs/roadmap.md)
 - [Vision](docs/vision.md)
 - [Release Checklist](docs/release-checklist.md)
 - [Security Policy](SECURITY.md)

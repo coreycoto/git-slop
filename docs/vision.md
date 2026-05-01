@@ -79,3 +79,11 @@ A successful detector-refinement wave also lets a maintainer inspect:
 - JSON is the machine contract; Markdown is the human summary.
 - The default workflow remains local-first and offline-friendly.
 - Structural and operational findings are evidence, not semantic proof.
+
+## Future Work
+
+Future integrations should consume existing Git Slop artifacts rather than add
+background mutation. Prefer work that is backed by real repository evidence,
+keeps scoring and check semantics stable, and avoids hosted services,
+background detectors, first-party editor extensions, language servers, and
+autonomous refactoring loops unless those become explicit new product goals.

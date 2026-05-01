@@ -1,5 +1,5 @@
 name: Epic
-description: Multi-issue workstream under the Git Slop roadmap.
+description: Larger multi-issue Git Slop workstream.
 title: "Epic: "
 labels:
   - epic
@@ -9,7 +9,7 @@ body:
       value: |
         Use this form for a narrower multi-issue workstream. Prefer actionable child issues over queueing the epic itself.
 
-        For `git-slop`, roadmap tracks such as `Epic: V1 detector`, `Epic: V2 explainer and planner`, and `Epic: V3 agentic loop` belong here.
+        For `git-slop`, larger workstreams belong here when they need actionable child issues rather than one broad implementation issue.
   - type: input
     id: outcome
     attributes:

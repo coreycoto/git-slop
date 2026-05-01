@@ -240,7 +240,8 @@ This layer is explicitly experimental and evidence-first.
 
 - `context_band` remains a raw size signal.
 - `slop_band` remains a composite maintenance-pressure signal.
-- Overlay evidence remains separate from `slop_score`.
+- Overlay evidence remains separate from `slop_score` and must not redefine
+  `slop_band`, `context_band`, or `git slop check` semantics.
 - `git slop check` ignores overlays entirely.
 - LLMs must not mutate detector scores.
 - Thresholds and weights remain adjustable defaults, not sacred constants.
