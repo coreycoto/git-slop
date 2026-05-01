@@ -35,7 +35,7 @@ class OrganizationHealthAnalyzer(OverlayAnalyzer):
         candidate_limit = int(organization_config["candidate_file_limit"])
         candidate_records = sorted(
             candidate_records,
-            key=lambda item: (-int(item["tokens"]), -float(item["priority_score"]), item["path"]),
+            key=lambda item: (-int(item["tokens"]), -float(item["slop_score"]), item["path"]),
         )[:candidate_limit]
         return _build_organization_health(
             facts.repo_root,

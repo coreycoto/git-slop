@@ -3,20 +3,44 @@ name = "git-slop"
 version = "0.8.1"
 description = "Local-first hotspot detection for AI-era repositories."
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.13"
+authors = [
+    { name = "Corey Coto" },
+]
+keywords = ["git", "cli", "repository", "static-analysis", "developer-tools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Typing :: Typed",
+]
 dependencies = [
     "PyYAML>=6.0.2",
     "tiktoken>=0.9.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/coreycoto/git-slop"
+Repository = "https://github.com/coreycoto/git-slop"
+Issues = "https://github.com/coreycoto/git-slop/issues"
 
 [project.scripts]
 git-slop = "git_slop.cli:main"
 
 [dependency-groups]
 dev = [
-    "agent-plugins @ git+https://github.com/coreycoto/agent-plugins.git@1cb87285df878822bcbb561bc684a57a24362a37",
     "pytest>=8.3.0",
     "ruff>=0.11.0",
+]
+maintainer = [
+    "agent-plugins @ git+https://github.com/coreycoto/agent-plugins.git@1cb87285df878822bcbb561bc684a57a24362a37",
 ]
 
 [tool.pytest.ini_options]
@@ -39,15 +63,13 @@ include = [
     "/tests",
     "/docs",
     "/man",
-    "/config",
     "/scripts",
-    "/.agents",
-    "/.codex",
-    "/.github",
     "/plugins",
-    "/AGENTS.md",
     "/README.md",
     "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/SECURITY.md",
+    "/CODE_OF_CONDUCT.md",
     "/pyproject.toml",
 ]
 

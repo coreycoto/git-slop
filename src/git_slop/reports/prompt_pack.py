@@ -58,7 +58,7 @@ def _readme_for(command: str) -> str:
             "- This pack is advisory only.",
             "- Local model output must not mutate code, GitHub, or detector truth.",
             "- Local model output must not rescore detector truth, including",
-            "  `priority_score`, `priority_band`,",
+            "  `slop_score`, `slop_band`,",
             "  `context_band`, or `git slop check` semantics.",
             "- Keep hotspot cost separate from overlay evidence.",
             "",

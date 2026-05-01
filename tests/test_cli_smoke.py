@@ -70,8 +70,17 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("check", completed.stdout)
         self.assertIn("compare", completed.stdout)
         self.assertIn("sarif", completed.stdout)
-        self.assertIn("refactor-preview", completed.stdout)
         self.assertIn("version", completed.stdout)
+        removed_command = "refactor" + "-preview"
+        self.assertNotIn(removed_command, completed.stdout)
+
+    def test_removed_preview_command_is_not_registered(self) -> None:
+        removed_command = "refactor" + "-preview"
+        completed = run_cli(removed_command)
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("invalid choice", completed.stderr)
+        self.assertIn(removed_command, completed.stderr)
 
     def test_version_command_works_via_python_module(self) -> None:
         completed = run_cli("version")
@@ -93,6 +102,13 @@ class CliSmokeTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 2)
         self.assertIn("Report not found:", completed.stdout)
         self.assertEqual(completed.stderr, "")
+
+    def test_check_rejects_removed_priority_band_flag(self) -> None:
+        completed = run_cli("check", "--fail-on-priority-band", "critical")
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("unrecognized arguments", completed.stderr)
+        self.assertIn("--fail-on-priority-band", completed.stderr)
 
     def test_explain_without_report_returns_usage_error(self) -> None:
         completed = run_cli("explain", "--path", "README.md", "--report", "tmp/missing-report.json")

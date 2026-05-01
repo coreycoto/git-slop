@@ -137,8 +137,8 @@ def _build_file_payload(
             "kind": "path",
             "path": record["path"],
             "record_type": record["record_type"],
-            "priority_score": record.get("priority_score"),
-            "priority_band": record.get("priority_band"),
+            "slop_score": record.get("slop_score"),
+            "slop_band": record.get("slop_band"),
             "context_band": record.get("context_band"),
             "reason_codes": record.get("reason_codes", []),
         },
@@ -177,8 +177,8 @@ def _build_folder_payload(
             "kind": "path",
             "path": record["path"],
             "record_type": record["record_type"],
-            "priority_score": record.get("priority_score"),
-            "priority_band": record.get("priority_band"),
+            "slop_score": record.get("slop_score"),
+            "slop_band": record.get("slop_band"),
             "context_band": record.get("context_band"),
             "reason_codes": record.get("reason_codes", []),
         },
@@ -237,7 +237,7 @@ def _build_cluster_payload(report: dict[str, Any], cluster_id: str) -> dict[str,
     member_records = sorted(
         member_records,
         key=lambda item: (
-            -(float(item.get("priority_score") or 0.0)),
+            -(float(item.get("slop_score") or 0.0)),
             item["path"],
         ),
     )
@@ -481,8 +481,8 @@ def _render_file_entry(payload: dict[str, Any]) -> str:
         "",
         "Hotspot Cost",
         (
-            "- priority: "
-            f"{target.get('priority_band')} ({target.get('priority_score')}) "
+            "- slop: "
+            f"{target.get('slop_band')} ({target.get('slop_score')}) "
             f"context={target.get('context_band')} "
             f"reasons={_format_reason_codes(target.get('reason_codes', []))}"
         ),
@@ -534,8 +534,8 @@ def _render_folder_entry(payload: dict[str, Any]) -> str:
         "",
         "Hotspot Cost",
         (
-            "- priority: "
-            f"{target.get('priority_band')} ({target.get('priority_score')}) "
+            "- slop: "
+            f"{target.get('slop_band')} ({target.get('slop_score')}) "
             f"context={target.get('context_band')} "
             f"reasons={_format_reason_codes(target.get('reason_codes', []))}"
         ),
@@ -563,8 +563,8 @@ def _render_folder_entry(payload: dict[str, Any]) -> str:
     lines.extend(
         [
             (
-                f"  - {item['path']} priority={item.get('priority_band')} "
-                f"score={item.get('priority_score')} context={item.get('context_band')}"
+                f"  - {item['path']} slop={item.get('slop_band')} "
+                f"slop_score={item.get('slop_score')} context={item.get('context_band')}"
             )
             for item in descendant_hotspots
         ]
@@ -612,13 +612,13 @@ def _render_relationship_entry(payload: dict[str, Any]) -> str:
         "Hotspot Cost",
         (
             f"- source={target['source_path']} "
-            f"priority={cost_summary.get('source', {}).get('priority_band')} "
-            f"score={cost_summary.get('source', {}).get('priority_score')}"
+            f"slop={cost_summary.get('source', {}).get('slop_band')} "
+            f"slop_score={cost_summary.get('source', {}).get('slop_score')}"
         ),
         (
             f"- target={target['target_path']} "
-            f"priority={cost_summary.get('target', {}).get('priority_band')} "
-            f"score={cost_summary.get('target', {}).get('priority_score')}"
+            f"slop={cost_summary.get('target', {}).get('slop_band')} "
+            f"slop_score={cost_summary.get('target', {}).get('slop_score')}"
         ),
         "",
         "Overlay Evidence",
@@ -662,8 +662,8 @@ def _render_cluster_entry(payload: dict[str, Any]) -> str:
     lines.extend(
         [
             (
-                f"  - {item['path']} priority={item.get('priority_band')} "
-                f"score={item.get('priority_score')} context={item.get('context_band')}"
+                f"  - {item['path']} slop={item.get('slop_band')} "
+                f"slop_score={item.get('slop_score')} context={item.get('context_band')}"
             )
             for item in member_hotspots
         ]
@@ -718,8 +718,8 @@ def _render_top_item(payload: dict[str, Any], *, ordinal: int) -> str:
     return "\n".join(
         [
             (
-                f"{ordinal}. {target['path']} [{target.get('priority_band')}] "
-                f"score={target.get('priority_score')} context={target.get('context_band')}"
+                f"{ordinal}. {target['path']} [{target.get('slop_band')}] "
+                f"slop_score={target.get('slop_score')} context={target.get('context_band')}"
             ),
             (
                 "   cost: "

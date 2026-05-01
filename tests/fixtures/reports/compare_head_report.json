@@ -25,8 +25,8 @@
         }
       },
       "path": "src/a.py",
-      "priority_band": "should_refactor",
-      "priority_score": 70.0,
+      "slop_band": "high",
+      "slop_score": 70.0,
       "reason_codes": [],
       "tokens": 160
     },
@@ -44,8 +44,8 @@
         }
       },
       "path": "src/b.py",
-      "priority_band": "watchlist",
-      "priority_score": 30.0,
+      "slop_band": "low",
+      "slop_score": 30.0,
       "reason_codes": [],
       "tokens": 150
     },
@@ -59,8 +59,8 @@
       },
       "overlays": {},
       "path": "src/new.py",
-      "priority_band": "watchlist",
-      "priority_score": 10.0,
+      "slop_band": "low",
+      "slop_score": 10.0,
       "reason_codes": [],
       "tokens": 20
     }
@@ -76,8 +76,8 @@
       },
       "overlays": {},
       "path": "src",
-      "priority_band": "should_refactor",
-      "priority_score": 70.0,
+      "slop_band": "high",
+      "slop_score": 70.0,
       "reason_codes": []
     }
   ],
@@ -85,7 +85,7 @@
     "head_sha": "head-sha",
     "repo_name": "compare-fixture"
   },
-  "schema_version": 3,
+  "schema_version": 4,
   "stats": {},
   "summary": {
     "generated_at": "2026-04-02T00:00:00Z"

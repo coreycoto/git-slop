@@ -104,6 +104,7 @@ Always-on overlay analyzers:
 - Markdown summary
 - terminal rendering
 - bundle writing
+- explain, plan, compare, and SARIF payload rendering
 
 ### `integrations/`
 
@@ -155,7 +156,7 @@ analysis.
 
 Current machine report:
 
-- `schema_version: 3`
+- `schema_version: 4`
 
 Canonical top-level shape:
 
@@ -220,9 +221,9 @@ compatibility cycle.
 Required cache namespaces:
 
 - `.slop/cache/history/`
-- `.slop/cache/tokens/`
-- `.slop/cache/structure/`
-- `.slop/cache/graphs/`
+- `.slop/cache/tokens/context/`
+- `.slop/cache/tokens/structural/`
+- `.slop/cache/organization-health/`
 
 Rules:
 
@@ -233,13 +234,26 @@ Rules:
 
 ## CLI Surface
 
-The CLI stays unchanged:
+The CLI exposes a core detector workflow and read-only advanced artifact
+commands:
 
 - `git slop init`
 - `git slop find`
 - `git slop show`
+- `git slop explain`
+- `git slop plan`
 - `git slop check`
+- `git slop compare`
+- `git slop sarif`
 - `git slop version`
 
-`show` now renders from nested `costs` and `overlays`, while compatibility
-fields still remain present in JSON output for one release cycle.
+Command boundaries:
+
+- `find` runs the detector and writes `.slop/latest/` plus `.slop/runs/`.
+- `show`, `explain`, `plan`, `check`, and `sarif` consume an existing schema-4
+  report.
+- `compare` consumes two existing schema-4 reports.
+- Prompt packs are explicit local outputs from `explain` and `plan`.
+
+Downstream commands do not rescore detector truth, change `check` semantics, or
+mutate GitHub.

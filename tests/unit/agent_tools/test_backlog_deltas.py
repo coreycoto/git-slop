@@ -1,19 +1,24 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import unittest
 from pathlib import Path
 
-from agent_plugins.github.governance.validate_backlog_mutations import (
-    normalize_backlog_mutation_payload,
-)
-from agent_plugins.github.planning.build_quarter_plan_delta import build_quarter_plan_delta
-from agent_plugins.github.planning.validate_quarter_plan import normalize_quarter_plan_payload
-from agent_plugins.github.reviews.review_to_backlog import build_review_backlog_delta
+AGENT_PLUGINS_AVAILABLE = importlib.util.find_spec("agent_plugins") is not None
+
+if AGENT_PLUGINS_AVAILABLE:
+    from agent_plugins.github.governance.validate_backlog_mutations import (
+        normalize_backlog_mutation_payload,
+    )
+    from agent_plugins.github.planning.build_quarter_plan_delta import build_quarter_plan_delta
+    from agent_plugins.github.planning.validate_quarter_plan import normalize_quarter_plan_payload
+    from agent_plugins.github.reviews.review_to_backlog import build_review_backlog_delta
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+@unittest.skipUnless(AGENT_PLUGINS_AVAILABLE, "agent-plugins optional dependency is unavailable.")
 class BacklogDeltaTests(unittest.TestCase):
     def test_backlog_mutation_validation_normalizes_titles(self) -> None:
         payload = json.loads(

@@ -27,11 +27,11 @@ def _validate_report(report: dict[str, Any]) -> None:
 
 
 def _level_for_record(record: dict[str, Any]) -> str:
-    priority_band = record.get("priority_band")
+    slop_band = record.get("slop_band")
     context_band = record.get("context_band")
-    if priority_band == "must_refactor" or context_band == "critical":
+    if slop_band == "critical" or context_band == "critical":
         return "error"
-    if priority_band in {"should_refactor", "needs_refactor"} or context_band == "warning":
+    if slop_band in {"high", "moderate"} or context_band == "warning":
         return "warning"
     return "note"
 
@@ -41,8 +41,8 @@ def _record_for_queue_item(report: dict[str, Any], item: dict[str, Any]) -> dict
     if record is None:
         return dict(item)
     payload = dict(record)
-    payload.setdefault("priority_score", item.get("priority_score"))
-    payload.setdefault("priority_band", item.get("priority_band"))
+    payload.setdefault("slop_score", item.get("slop_score"))
+    payload.setdefault("slop_band", item.get("slop_band"))
     payload.setdefault("context_band", item.get("context_band"))
     payload.setdefault("reason_codes", item.get("reason_codes", []))
     return payload
@@ -52,8 +52,8 @@ def _message_for_record(record: dict[str, Any]) -> str:
     reason_codes = record.get("reason_codes") or []
     reasons = ", ".join(reason_codes) if reason_codes else "no reason codes"
     return (
-        f"{record.get('path')} is ranked {record.get('priority_band')} "
-        f"with score {record.get('priority_score')} and context "
+        f"{record.get('path')} is ranked {record.get('slop_band')} "
+        f"with slop_score {record.get('slop_score')} and context "
         f"{record.get('context_band')} ({reasons})."
     )
 
@@ -82,8 +82,8 @@ def _result_for_record(record: dict[str, Any], *, rank: int) -> dict[str, Any]:
         "properties": {
             "git_slop": {
                 "rank": rank,
-                "priority_score": record.get("priority_score"),
-                "priority_band": record.get("priority_band"),
+                "slop_score": record.get("slop_score"),
+                "slop_band": record.get("slop_band"),
                 "context_band": record.get("context_band"),
                 "reason_codes": record.get("reason_codes", []),
                 "costs": record.get("costs", {}),

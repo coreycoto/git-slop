@@ -5,11 +5,11 @@ from typing import Any
 
 from git_slop.tokenization import context_band_for_tokens, context_pressure_for_tokens
 
-PRIORITY_BAND_ORDER = {
-    "watchlist": 0,
-    "needs_refactor": 1,
-    "should_refactor": 2,
-    "must_refactor": 3,
+SLOP_BAND_ORDER = {
+    "low": 0,
+    "moderate": 1,
+    "high": 2,
+    "critical": 3,
 }
 
 CONTEXT_BAND_ORDER = {
@@ -28,14 +28,14 @@ def _p95(values: list[float]) -> float:
     return sorted_values[index]
 
 
-def priority_band_for_score(score: float) -> str:
+def slop_band_for_score(score: float) -> str:
     if score >= 85:
-        return "must_refactor"
+        return "critical"
     if score >= 65:
-        return "should_refactor"
+        return "high"
     if score >= 50:
-        return "needs_refactor"
-    return "watchlist"
+        return "moderate"
+    return "low"
 
 
 def age_pressure(age_days: int, config: dict[str, Any]) -> float:
@@ -76,7 +76,7 @@ def apply_scoring(records: list[dict[str, Any]], config: dict[str, Any]) -> list
             1.0, float(record["relative_churn_window"]) / relative_churn_denom
         )
         churn_pressure = (0.6 * revision_norm) + (0.4 * relative_churn_norm)
-        priority_score = 100 * (
+        slop_score = 100 * (
             (float(scoring_config["context_weight"]) * float(record["context_pressure"]))
             + (float(scoring_config["age_weight"]) * age_component)
             + (float(scoring_config["churn_weight"]) * churn_pressure)
@@ -86,9 +86,9 @@ def apply_scoring(records: list[dict[str, Any]], config: dict[str, Any]) -> list
         enriched_record["revision_norm"] = round(revision_norm, 6)
         enriched_record["relative_churn_norm"] = round(relative_churn_norm, 6)
         enriched_record["churn_pressure"] = round(churn_pressure, 6)
-        enriched_record["priority_score"] = round(priority_score, 1)
-        enriched_record["priority_band"] = priority_band_for_score(
-            enriched_record["priority_score"]
+        enriched_record["slop_score"] = round(slop_score, 1)
+        enriched_record["slop_band"] = slop_band_for_score(
+            enriched_record["slop_score"]
         )
         enriched_record["reason_codes"] = reason_codes_for_record(enriched_record)
         enriched.append(enriched_record)
@@ -103,7 +103,7 @@ def build_folder_record(
 ) -> dict[str, Any]:
     sorted_descendants = sorted(
         descendants,
-        key=lambda item: (-item["priority_score"], -item["tokens"], item["path"]),
+        key=lambda item: (-item["slop_score"], -item["tokens"], item["path"]),
     )
     top_record = sorted_descendants[0]
     reason_codes: list[str] = []
@@ -120,8 +120,8 @@ def build_folder_record(
         "tokens": total_tokens,
         "context_band": context_band_for_tokens(total_tokens, config),
         "context_pressure": round(context_pressure_for_tokens(total_tokens, config), 6),
-        "priority_score": top_record["priority_score"],
-        "priority_band": top_record["priority_band"],
+        "slop_score": top_record["slop_score"],
+        "slop_band": top_record["slop_band"],
         "reason_codes": reason_codes,
         "top_file_path": top_record["path"],
     }

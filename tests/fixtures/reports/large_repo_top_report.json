@@ -3,22 +3,22 @@
     {
       "context_band": "healthy",
       "path": "tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py",
-      "priority_band": "needs_refactor",
-      "priority_score": 54.2,
+      "slop_band": "moderate",
+      "slop_score": 54.2,
       "reason_codes": []
     },
     {
       "context_band": "healthy",
       "path": "tests/unit/consumer_maintainers/github/reviews/test_apply_review_backlog_delta.py",
-      "priority_band": "needs_refactor",
-      "priority_score": 50.9,
+      "slop_band": "moderate",
+      "slop_score": 50.9,
       "reason_codes": []
     },
     {
       "context_band": "healthy",
       "path": "schemas/shared.schema.json",
-      "priority_band": "needs_refactor",
-      "priority_score": 50.8,
+      "slop_band": "moderate",
+      "slop_score": 50.8,
       "reason_codes": [
         "high_revision_frequency"
       ]
@@ -26,8 +26,8 @@
     {
       "context_band": "healthy",
       "path": "tests/unit/consumer_maintainers/testing/test_slow_test_audit_validation.py",
-      "priority_band": "needs_refactor",
-      "priority_score": 50.7,
+      "slop_band": "moderate",
+      "slop_score": 50.7,
       "reason_codes": [
         "high_revision_frequency",
         "high_relative_churn"
@@ -36,8 +36,8 @@
     {
       "context_band": "healthy",
       "path": "tests/unit/consumer_app/cli/test_doctor.py",
-      "priority_band": "needs_refactor",
-      "priority_score": 50.1,
+      "slop_band": "moderate",
+      "slop_score": 50.1,
       "reason_codes": [
         "high_revision_frequency",
         "high_relative_churn"
@@ -113,8 +113,8 @@
         }
       },
       "path": "tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py",
-      "priority_band": "needs_refactor",
-      "priority_score": 54.2,
+      "slop_band": "moderate",
+      "slop_score": 54.2,
       "reason_codes": []
     },
     {
@@ -175,8 +175,8 @@
         }
       },
       "path": "tests/unit/consumer_maintainers/github/reviews/test_apply_review_backlog_delta.py",
-      "priority_band": "needs_refactor",
-      "priority_score": 50.9,
+      "slop_band": "moderate",
+      "slop_score": 50.9,
       "reason_codes": []
     },
     {
@@ -237,8 +237,8 @@
         }
       },
       "path": "schemas/shared.schema.json",
-      "priority_band": "needs_refactor",
-      "priority_score": 50.8,
+      "slop_band": "moderate",
+      "slop_score": 50.8,
       "reason_codes": [
         "high_revision_frequency"
       ]
@@ -303,8 +303,8 @@
         }
       },
       "path": "tests/unit/consumer_maintainers/testing/test_slow_test_audit_validation.py",
-      "priority_band": "needs_refactor",
-      "priority_score": 50.7,
+      "slop_band": "moderate",
+      "slop_score": 50.7,
       "reason_codes": [
         "high_revision_frequency",
         "high_relative_churn"
@@ -368,8 +368,8 @@
         }
       },
       "path": "tests/unit/consumer_app/cli/test_doctor.py",
-      "priority_band": "needs_refactor",
-      "priority_score": 50.1,
+      "slop_band": "moderate",
+      "slop_score": 50.1,
       "reason_codes": [
         "high_revision_frequency",
         "high_relative_churn"
@@ -460,5 +460,5 @@
   "repo": {
     "repo_name": "large-validation-repo"
   },
-  "schema_version": 3
+  "schema_version": 4
 }

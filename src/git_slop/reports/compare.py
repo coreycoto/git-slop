@@ -15,11 +15,10 @@ BAND_ORDER = {
     "compact": 0,
     "healthy": 1,
     "warning": 2,
+    "low": 0,
+    "moderate": 1,
+    "high": 2,
     "critical": 3,
-    "watchlist": 0,
-    "needs_refactor": 1,
-    "should_refactor": 2,
-    "must_refactor": 3,
 }
 
 
@@ -50,7 +49,7 @@ def _records_by_path(report: dict[str, Any], collection: str) -> dict[str, dict[
 def _score(record: dict[str, Any] | None) -> float | None:
     if record is None:
         return None
-    value = record.get("priority_score")
+    value = record.get("slop_score")
     return round(float(value), 6) if value is not None else None
 
 
@@ -128,7 +127,7 @@ def _delta_status(base: dict[str, Any] | None, head: dict[str, Any] | None) -> s
         and _token_count(base) == _token_count(head)
         and _load_pressure(base) == _load_pressure(head)
         and _band(base, "context_band") == _band(head, "context_band")
-        and _band(base, "priority_band") == _band(head, "priority_band")
+        and _band(base, "slop_band") == _band(head, "slop_band")
         and not _overlay_delta(base, head)
     ):
         return "unchanged"
@@ -148,14 +147,14 @@ def _record_delta(
     head_load = _load_pressure(head)
     base_context = _band(base, "context_band")
     head_context = _band(head, "context_band")
-    base_priority = _band(base, "priority_band")
-    head_priority = _band(head, "priority_band")
+    base_slop = _band(base, "slop_band")
+    head_slop = _band(head, "slop_band")
     return {
         "path": path,
         "status": _delta_status(base, head),
-        "base_priority_score": base_score,
-        "head_priority_score": head_score,
-        "priority_score_delta": (
+        "base_slop_score": base_score,
+        "head_slop_score": head_score,
+        "slop_score_delta": (
             round((head_score or 0.0) - (base_score or 0.0), 6)
             if base_score is not None or head_score is not None
             else None
@@ -177,9 +176,9 @@ def _record_delta(
         "base_context_band": base_context,
         "head_context_band": head_context,
         "context_band_delta": _band_delta(base_context, head_context),
-        "base_priority_band": base_priority,
-        "head_priority_band": head_priority,
-        "priority_band_delta": _band_delta(base_priority, head_priority),
+        "base_slop_band": base_slop,
+        "head_slop_band": head_slop,
+        "slop_band_delta": _band_delta(base_slop, head_slop),
         "overlay_deltas": _overlay_delta(base, head),
     }
 
@@ -269,10 +268,10 @@ def _summary(
         "files": _counts(file_deltas),
         "folders": _counts(folder_deltas),
         "worsened_file_count": sum(
-            1 for item in file_deltas if float(item.get("priority_score_delta") or 0.0) > 0.0
+            1 for item in file_deltas if float(item.get("slop_score_delta") or 0.0) > 0.0
         ),
         "improved_file_count": sum(
-            1 for item in file_deltas if float(item.get("priority_score_delta") or 0.0) < 0.0
+            1 for item in file_deltas if float(item.get("slop_score_delta") or 0.0) < 0.0
         ),
     }
 
@@ -328,14 +327,14 @@ def _rank_by_score_delta(items: list[dict[str, Any]], *, reverse: bool) -> list[
             item
             for item in items
             if item["status"] != "unchanged"
-            and item.get("priority_score_delta") is not None
-            and float(item["priority_score_delta"]) != 0.0
+            and item.get("slop_score_delta") is not None
+            and float(item["slop_score_delta"]) != 0.0
         ],
         key=lambda item: (
             (
-                -float(item["priority_score_delta"])
+                -float(item["slop_score_delta"])
                 if reverse
-                else float(item["priority_score_delta"])
+                else float(item["slop_score_delta"])
             ),
             item["path"],
         ),
@@ -367,7 +366,7 @@ def render_compare_text(payload: dict[str, Any], *, top: int = 10) -> str:
             f"unchanged={folder_counts.get('unchanged', 0)}"
         ),
         (
-            "- score movement: "
+            "- slop score movement: "
             f"worsened_files={summary.get('worsened_file_count', 0)}, "
             f"improved_files={summary.get('improved_file_count', 0)}"
         ),
@@ -379,8 +378,8 @@ def render_compare_text(payload: dict[str, Any], *, top: int = 10) -> str:
         [
             (
                 f"- {item['path']}: "
-                f"{item['base_priority_score']} -> {item['head_priority_score']} "
-                f"(delta={item['priority_score_delta']})"
+                f"{item['base_slop_score']} -> {item['head_slop_score']} "
+                f"(delta={item['slop_score_delta']})"
             )
             for item in worsened
         ]
@@ -392,8 +391,8 @@ def render_compare_text(payload: dict[str, Any], *, top: int = 10) -> str:
         [
             (
                 f"- {item['path']}: "
-                f"{item['base_priority_score']} -> {item['head_priority_score']} "
-                f"(delta={item['priority_score_delta']})"
+                f"{item['base_slop_score']} -> {item['head_slop_score']} "
+                f"(delta={item['slop_score_delta']})"
             )
             for item in improved
         ]

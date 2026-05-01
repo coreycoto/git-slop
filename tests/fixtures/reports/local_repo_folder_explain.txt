@@ -1,16 +1,16 @@
 Explain: path src/git_slop [folder]
 
 Hotspot Cost
-- priority: should_refactor (66.0) context=critical reasons=critical_token_cost, high_revision_frequency, high_relative_churn
+- slop: high (66.0) context=critical reasons=critical_token_cost, high_revision_frequency, high_relative_churn
 - load: max_file_tokens=10549, folder_tokens=24674, pressure=1.000
 - volatility: commits=28.0, relative_token_churn=5.389, pressure=0.562
 - coordination: diffusion=0.910, degree=92.428571, pressure=0.900
 - descendant hotspots:
-  - src/git_slop/organization.py priority=should_refactor score=66.0 context=critical
-  - src/git_slop/reporting.py priority=needs_refactor score=59.0 context=healthy
-  - src/git_slop/history.py priority=watchlist score=46.7 context=healthy
-  - src/git_slop/__init__.py priority=watchlist score=18.1 context=compact
-  - src/git_slop/cli.py priority=watchlist score=14.2 context=compact
+  - src/git_slop/organization.py slop=high slop_score=66.0 context=critical
+  - src/git_slop/reporting.py slop=moderate slop_score=59.0 context=healthy
+  - src/git_slop/history.py slop=low slop_score=46.7 context=healthy
+  - src/git_slop/__init__.py slop=low slop_score=18.1 context=compact
+  - src/git_slop/cli.py slop=low slop_score=14.2 context=compact
 
 Overlay Evidence
 - organization_health: duplication=0.000, diffusion=0.800, coupling=0.200, boundary=0.300, clusters=4

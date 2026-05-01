@@ -39,7 +39,7 @@ jobs:
             exit 1
           fi
       - name: Sync project
-        run: uv sync --group dev
+        run: uv sync --group dev --group maintainer
 
       - name: Run detector
         run: uv run git-slop find

@@ -18,9 +18,11 @@ explanation/plan.
 - Export SARIF locally: `git-slop sarif --report <report.json> --output <path.sarif>`
 - Run the gate surface: `git-slop check`
 
-For editor-adjacent workflows, point maintainers at
-`docs/plans/editor-artifact-consumption-recipes.md` and keep SARIF consumption
-local and explicit.
+Generated `.slop/latest/`, `.slop/runs/`, `.slop/cache/`, prompt packs, SARIF
+exports, plan JSON, and compare JSON should stay untracked unless a repository
+intentionally curates examples or fixtures outside the runtime `.slop/` tree.
+Upload generated report outputs as CI artifacts when review needs a durable
+copy.
 
 Consumer repos may provide a wrapper such as `./scripts/git_slop.sh`; prefer it
 when present because it may enforce the repo's pinned install contract.

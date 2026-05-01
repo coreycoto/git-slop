@@ -1,7 +1,7 @@
 {
   "name": "git-slop-marketplace",
   "interface": {
-    "displayName": "git-slop Marketplace"
+    "displayName": "git-slop Codex Plugin"
   },
   "plugins": [
     {

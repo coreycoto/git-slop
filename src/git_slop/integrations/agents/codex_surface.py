@@ -41,6 +41,7 @@ MARKETPLACE_SOURCE_MANIFEST = Path(".agents/plugins/marketplace-source.json")
 GIT_SLOP_MARKETPLACE = Path(".agents/plugins/marketplace.json")
 GIT_SLOP_PLUGIN_ROOT = Path("plugins/git-slop")
 GIT_SLOP_MARKETPLACE_NAME = "git-slop-marketplace"
+GIT_SLOP_PLUGIN_DOC_NAME = "`git-slop` Codex plugin"
 GIT_SLOP_PLUGIN_NAME = "git-slop"
 GIT_SLOP_PLUGIN_SKILLS = {
     "adopt-repo",
@@ -333,10 +334,6 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
         for forbidden in REMOVED_LOCAL_PLUGIN_REFERENCES:
             if forbidden in prompt_text:
                 errors.append(f"{assets['prompt']} must not reference {forbidden}.")
-        if "agent-tools" in prompt_text or "agent_tools" in prompt_text:
-            errors.append(
-                f"{assets['prompt']} must use agent_plugins runtime APIs, not agent-tools."
-            )
 
     for relative_path in (
         "AGENTS.md",
@@ -356,8 +353,8 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
                 errors.append(
                     f"{relative_path} must mention .agents/plugins/marketplace-source.json."
                 )
-            if "git-slop-marketplace" not in text:
-                errors.append(f"{relative_path} must mention git-slop-marketplace.")
+            if GIT_SLOP_PLUGIN_DOC_NAME not in text:
+                errors.append(f"{relative_path} must mention {GIT_SLOP_PLUGIN_DOC_NAME}.")
         for forbidden in REMOVED_LOCAL_PLUGIN_REFERENCES:
             if forbidden in text:
                 errors.append(f"{relative_path} must not reference {forbidden}.")
@@ -391,8 +388,6 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
             errors.append(
                 f"{workflow_name} must bootstrap the pinned agent-plugins marketplace source."
             )
-        if "AGENT_TOOLS_READ_TOKEN" in workflow_text or "agent-tools.git" in workflow_text:
-            errors.append(f"{workflow_name} must not configure agent-tools dependency access.")
         if workflow_name == "ci.yml" and "scripts/smoke_plugin_consumer.py" not in workflow_text:
             errors.append("ci.yml must run scripts/smoke_plugin_consumer.py.")
         if "openai/codex-action@v1" in workflow_text:

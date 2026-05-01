@@ -16,7 +16,6 @@ The relevant shared references there are:
 ## Files
 
 - `project_config.json`: canonical GitHub Project identity, fields, and views
-- `issue_seed_catalog.json`: repo-owned issue seed catalog for roadmap epics and queue seeds
 
 ## Local Overlay
 
@@ -38,10 +37,5 @@ Issue taxonomy for this repo:
 - `Bug:`
 - `Maintenance:`
 
-Current roadmap epics are seeded from `issue_seed_catalog.json`:
-
-- `Epic: V1 detector`
-- `Epic: V2 explainer and planner`
-- `Epic: V3 agentic loop`
-
-Issue forms should stay aligned with that local taxonomy.
+Issue forms should stay aligned with that local taxonomy. Historical roadmap
+seed catalogs are intentionally not kept in the public repository.

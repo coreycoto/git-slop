@@ -68,8 +68,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "check": {
         "fail_on_context_band": "critical",
-        "fail_on_priority_band": "must_refactor",
+        "fail_on_slop_band": "critical",
     },
+}
+
+LEGACY_SLOP_BAND_LABELS = {
+    "watchlist": "low",
+    "needs_refactor": "moderate",
+    "should_refactor": "high",
+    "must_refactor": "critical",
 }
 
 DEFAULT_SLOP_GITIGNORE = "/latest/\n/runs/\n/cache/\n"
@@ -131,6 +138,22 @@ def _legacy_to_v2_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+def _migrate_check_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    migrated = deepcopy(payload)
+    check_payload = migrated.get("check")
+    if not isinstance(check_payload, dict):
+        return migrated
+    check_payload = dict(check_payload)
+    legacy_band = check_payload.pop("fail_on_priority_band", None)
+    if "fail_on_slop_band" not in check_payload and legacy_band is not None:
+        check_payload["fail_on_slop_band"] = LEGACY_SLOP_BAND_LABELS.get(
+            str(legacy_band),
+            legacy_band,
+        )
+    migrated["check"] = check_payload
+    return migrated
+
+
 def _add_legacy_aliases(config: dict[str, Any]) -> dict[str, Any]:
     aliased = deepcopy(config)
     aliased["tokenizer"] = {"name": aliased["tokenization"]["context_tokenizer_name"]}
@@ -146,6 +169,7 @@ def normalize_config_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     schema_version = payload.get("schema_version", 1)
     if schema_version == 1:
         payload = _legacy_to_v2_payload(payload)
+    payload = _migrate_check_payload(payload)
     merged = _merge_nested(DEFAULT_CONFIG, payload)
     if merged.get("schema_version") != 2:
         raise ValueError("config.yaml must declare schema_version: 1 or schema_version: 2.")

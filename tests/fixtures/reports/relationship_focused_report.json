@@ -110,8 +110,8 @@
         }
       },
       "path": "src/consumer_toolkit/github/current_repo.py",
-      "priority_band": "watchlist",
-      "priority_score": 12.6,
+      "slop_band": "low",
+      "slop_score": 12.6,
       "reason_codes": [
         "high_relative_churn"
       ]
@@ -179,8 +179,8 @@
         }
       },
       "path": "src/consumer_toolkit/github/shared/current_repo.py",
-      "priority_band": "watchlist",
-      "priority_score": 12.6,
+      "slop_band": "low",
+      "slop_score": 12.6,
       "reason_codes": [
         "high_relative_churn"
       ]
@@ -263,8 +263,8 @@
         }
       },
       "path": "src/consumer_toolkit/github",
-      "priority_band": "watchlist",
-      "priority_score": 23.1,
+      "slop_band": "low",
+      "slop_score": 23.1,
       "reason_codes": [
         "high_relative_churn"
       ]
@@ -342,8 +342,8 @@
         }
       },
       "path": "src/consumer_toolkit/github/shared",
-      "priority_band": "watchlist",
-      "priority_score": 19.5,
+      "slop_band": "low",
+      "slop_score": 19.5,
       "reason_codes": [
         "high_relative_churn"
       ]
@@ -466,5 +466,5 @@
   "repo": {
     "repo_name": "consumer-toolkit-repo"
   },
-  "schema_version": 3
+  "schema_version": 4
 }

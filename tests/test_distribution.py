@@ -25,14 +25,10 @@ RELEASE_PREPARE = _load_script("release_prepare.py")
 
 
 class DistributionTests(unittest.TestCase):
-    def test_release_manifest_records_artifact_hashes_and_install_commands(self) -> None:
+    def test_release_manifest_records_homebrew_source_and_install_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             dist_dir = Path(tmp_dir) / "dist"
             dist_dir.mkdir()
-            wheel = dist_dir / "git_slop-0.8.1-py3-none-any.whl"
-            sdist = dist_dir / "git_slop-0.8.1.tar.gz"
-            wheel.write_bytes(b"wheel")
-            sdist.write_bytes(b"sdist")
 
             with mock.patch.object(BUILD_MANIFEST, "_git_revision", return_value="a" * 40):
                 manifest = BUILD_MANIFEST.build_manifest(
@@ -46,42 +42,33 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(manifest["tag"], "v0.8.1")
         self.assertEqual(
             manifest["homebrew_source"]["url"],
-            "ssh://git@github.com/coreycoto/git-slop.git",
+            "https://github.com/coreycoto/git-slop.git",
         )
         self.assertEqual(manifest["homebrew_source"]["tag"], "v0.8.1")
         self.assertEqual(manifest["homebrew_source"]["revision"], "a" * 40)
-        self.assertEqual(manifest["wheel"]["name"], "git_slop-0.8.1-py3-none-any.whl")
-        self.assertTrue(manifest["wheel"]["sha256"])
-        self.assertIn("uv_release_wheel", manifest["install"])
-        self.assertIn("homebrew_private_tap", manifest["install"])
+        self.assertNotIn("wheel", manifest)
+        self.assertNotIn("artifacts", manifest)
+        self.assertIn("homebrew_tap", manifest["install"])
         self.assertNotIn(
             "HOMEBREW_GITHUB_API_TOKEN",
-            "\n".join(manifest["install"]["homebrew_private_tap"]),
-        )
-        self.assertEqual(
-            {artifact["name"] for artifact in manifest["artifacts"]},
-            {wheel.name, sdist.name},
+            "\n".join(manifest["install"]["homebrew_tap"]),
         )
 
-    def test_homebrew_formula_renders_pinned_private_git_source(self) -> None:
+    def test_homebrew_formula_renders_pinned_public_git_source(self) -> None:
         manifest = {
             "homebrew_source": {
-                "url": "ssh://git@github.com/coreycoto/git-slop.git",
+                "url": "https://github.com/coreycoto/git-slop.git",
                 "tag": "v0.8.1",
                 "revision": "b" * 40,
             },
             "version": "0.8.1",
-            "wheel": {
-                "url": "https://github.com/coreycoto/git-slop/releases/download/v0.8.1/git_slop-0.8.1-py3-none-any.whl",
-                "sha256": "0" * 64,
-            }
         }
 
         formula = UPDATE_FORMULA.render_formula(manifest)
 
         self.assertIn("class GitSlop < Formula", formula)
         self.assertNotIn("HOMEBREW_GITHUB_API_TOKEN", formula)
-        self.assertIn('url "ssh://git@github.com/coreycoto/git-slop.git"', formula)
+        self.assertIn('url "https://github.com/coreycoto/git-slop.git"', formula)
         self.assertIn('tag:      "v0.8.1"', formula)
         self.assertIn(f'revision: "{"b" * 40}"', formula)
         self.assertIn('version "0.8.1"', formula)
@@ -95,9 +82,9 @@ class DistributionTests(unittest.TestCase):
         self.assertNotIn(".TH GIT-SLOP 1", formula)
         self.assertIn('assert_match "git-slop"', formula)
 
-    def test_homebrew_formula_requires_wheel_payload(self) -> None:
+    def test_homebrew_formula_requires_source_payload(self) -> None:
         with self.assertRaises(ValueError):
-            UPDATE_FORMULA.render_formula({"wheel": {"url": None, "sha256": None}})
+            UPDATE_FORMULA.render_formula({"version": "0.8.1"})
 
     def test_release_prepare_requires_matching_project_version(self) -> None:
         with self.assertRaisesRegex(ValueError, "pyproject.toml version"):

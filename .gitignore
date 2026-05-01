@@ -12,9 +12,6 @@ htmlcov/
 
 # Local research source material
 docs/plans/
-!docs/plans/
-docs/plans/*
-!docs/plans/*.md
 
 # Generated Git Slop state
 .slop/latest/

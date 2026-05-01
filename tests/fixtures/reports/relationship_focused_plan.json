@@ -25,7 +25,7 @@
         "proposed_issue_title": "Maintenance: Inspect relationship near_duplicate_neighborhood-35e7fad1c4e0",
         "source": {
           "command": "git slop plan",
-          "report_schema_version": 3,
+          "report_schema_version": 4,
           "selector": {
             "kind": "relationship",
             "value": "near_duplicate_neighborhood-35e7fad1c4e0"
@@ -57,9 +57,9 @@
     "anchor_first": true,
     "max_slice_files": 5,
     "relationship_slices_before_cluster_slices": true,
-    "secondary_sort": "relationship-count, cluster-count, out-of-scope-count, top-three-priority-sum, path"
+    "secondary_sort": "relationship-count, cluster-count, out-of-scope-count, top-three-slop-score-sum, path"
   },
-  "report_schema_version": 3,
+  "report_schema_version": 4,
   "schema_version": 2,
   "selector": {
     "kind": "relationship",

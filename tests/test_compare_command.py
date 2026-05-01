@@ -52,10 +52,10 @@ class CompareCommandTests(unittest.TestCase):
         self.assertEqual(file_statuses["src/new.py"], "added")
         self.assertEqual(file_statuses["src/removed.py"], "removed")
         a_delta = next(item for item in payload["file_deltas"] if item["path"] == "src/a.py")
-        self.assertEqual(a_delta["priority_score_delta"], 50.0)
+        self.assertEqual(a_delta["slop_score_delta"], 50.0)
         self.assertEqual(a_delta["token_delta"], 60)
         self.assertEqual(a_delta["context_band_delta"], 2)
-        self.assertEqual(a_delta["priority_band_delta"], 2)
+        self.assertEqual(a_delta["slop_band_delta"], 2)
         self.assertEqual(a_delta["overlay_deltas"][0]["label"], "verification")
         self.assertEqual(a_delta["overlay_deltas"][0]["delta"], 0.6)
         movement = {item["path"]: item["status"] for item in payload["queue_movement"]}
@@ -63,18 +63,18 @@ class CompareCommandTests(unittest.TestCase):
         self.assertEqual(movement["src/a.py"], "moved_down")
         self.assertEqual(movement["src/b.py"], "moved_down")
 
-    def test_compare_rejects_non_schema3_reports(self) -> None:
-        with self.assertRaisesRegex(ValueError, "base report must use schema 3"):
+    def test_compare_rejects_non_schema4_reports(self) -> None:
+        with self.assertRaisesRegex(ValueError, "base report must use schema 4"):
             build_compare_payload({"schema_version": 2}, load_fixture("compare_head_report.json"))
 
     def test_compare_treats_null_overlay_family_as_absent_evidence(self) -> None:
         report = {
-            "schema_version": 3,
+            "schema_version": 4,
             "files": [
                 {
                     "path": "src/null_overlay.py",
-                    "priority_score": 10.0,
-                    "priority_band": "watchlist",
+                    "slop_score": 10.0,
+                    "slop_band": "low",
                     "context_band": "healthy",
                     "costs": {"load": {"load_pressure": 0.1, "file_token_count": 100}},
                     "overlays": {
@@ -148,7 +148,7 @@ class CompareCommandTests(unittest.TestCase):
         self.assertEqual(missing_completed.returncode, 2)
         self.assertIn("Report not found:", missing_completed.stdout)
         self.assertEqual(invalid_completed.returncode, 2)
-        self.assertIn("base report must use schema 3", invalid_completed.stdout)
+        self.assertIn("base report must use schema 4", invalid_completed.stdout)
 
     def test_compare_cli_requires_base_and_head(self) -> None:
         completed = run_cli("compare", "--base", str(FIXTURE_DIR / "compare_base_report.json"))
