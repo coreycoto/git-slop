@@ -1,4 +1,4 @@
-# Git Slop
+# 🧑‍💻🤖🫟 Git Slop
 
 Find the files that cost too much context.
 
