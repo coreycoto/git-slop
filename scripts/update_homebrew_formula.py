@@ -55,7 +55,6 @@ RESOURCES = [
 
 def render_formula(manifest: dict[str, Any]) -> str:
     homebrew_source = _homebrew_source(manifest)
-    version = manifest.get("version") or homebrew_source["tag"].removeprefix("v")
     resource_blocks = "\n\n".join(
         "\n".join(
             [
@@ -75,11 +74,13 @@ def render_formula(manifest: dict[str, Any]) -> str:
         f'  url "{homebrew_source["url"]}",\n'
         f'      tag:      "{homebrew_source["tag"]}",\n'
         f'      revision: "{homebrew_source["revision"]}"\n'
-        f'  version "{version}"\n'
         '  license "MIT"\n\n'
         '  depends_on "rust" => :build\n\n'
         '  depends_on "libyaml"\n'
         '  depends_on "python@3.13"\n\n'
+        "  on_macos do\n"
+        "    depends_on arch: :arm64\n"
+        "  end\n\n"
         f"{resource_blocks}\n\n"
         "  def install\n"
         '    virtualenv_install_with_resources using: "python3.13"\n'
