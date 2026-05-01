@@ -13,7 +13,7 @@ from .config import latest_dir, runs_dir
 from .costs.organization import top_organization_file_overlays
 from .graphs.clusters import clusters_for_path, folder_clusters_for_prefix
 from .graphs.relationships import folder_relationships_for_prefix, relationships_for_path
-from .scoring import CONTEXT_BAND_ORDER, PRIORITY_BAND_ORDER, build_folder_record
+from .scoring import CONTEXT_BAND_ORDER, SLOP_BAND_ORDER, build_folder_record
 from .tokenization import context_band_for_tokens, context_pressure_for_tokens
 
 
@@ -275,15 +275,15 @@ def build_action_queue(
 ) -> list[dict[str, Any]]:
     sorted_records = sorted(
         file_records,
-        key=lambda record: (-record["priority_score"], -record["tokens"], record["path"]),
+        key=lambda record: (-record["slop_score"], -record["tokens"], record["path"]),
     )
     queue = []
     for record in sorted_records[:limit]:
         queue.append(
             {
                 "path": record["path"],
-                "priority_score": record["priority_score"],
-                "priority_band": record["priority_band"],
+                "slop_score": record["slop_score"],
+                "slop_band": record["slop_band"],
                 "context_band": record["context_band"],
                 "tokens": record["tokens"],
                 "age_days": record["age_days"],
@@ -385,9 +385,11 @@ def build_report(
     skipped: dict[str, int],
     generated_at: str,
 ) -> dict[str, Any]:
-    critical_count = sum(1 for record in file_records if record["context_band"] == "critical")
-    must_refactor_count = sum(
-        1 for record in file_records if record["priority_band"] == "must_refactor"
+    critical_context_count = sum(
+        1 for record in file_records if record["context_band"] == "critical"
+    )
+    critical_slop_count = sum(
+        1 for record in file_records if record["slop_band"] == "critical"
     )
 
     canonical_overlays = {
@@ -454,7 +456,7 @@ def build_report(
     }
 
     report = {
-        "schema_version": 3,
+        "schema_version": 4,
         "generated_at": generated_at,
         "summary": _summary_block(action_queue=action_queue, overlays=canonical_overlays),
         "repo": repo,
@@ -470,8 +472,8 @@ def build_report(
             "skipped_missing_count": skipped["missing"],
             "skipped_binary_count": skipped["binary"],
             "skipped_undecodable_count": skipped["undecodable"],
-            "critical_context_file_count": critical_count,
-            "must_refactor_file_count": must_refactor_count,
+            "critical_context_file_count": critical_context_count,
+            "critical_slop_file_count": critical_slop_count,
         },
         "files": files_payload,
         "folders": folder_records,
@@ -490,13 +492,13 @@ def render_terminal_table(action_queue: list[dict[str, Any]]) -> str:
         return "No hotspot records found."
     path_width = max(len("Path"), min(64, max(len(item["path"]) for item in action_queue)))
     header = (
-        f"{'Path':<{path_width}}  {'Priority':<14}  {'Context':<8}  "
-        f"{'Score':>6}  {'Tokens':>8}  {'Age':>5}  {'Revs':>5}  {'Churn':>6}  {'Signal':<12}"
+        f"{'Path':<{path_width}}  {'Slop':<8}  {'Context':<8}  "
+        f"{'SlopScore':>9}  {'Tokens':>8}  {'Age':>5}  {'Revs':>5}  {'Churn':>6}  {'Signal':<12}"
     )
     lines = [
         header,
         (
-            f"{'-' * path_width}  {'-' * 14}  {'-' * 8}  {'-' * 6}  "
+            f"{'-' * path_width}  {'-' * 8}  {'-' * 8}  {'-' * 9}  "
             f"{'-' * 8}  {'-' * 5}  {'-' * 5}  {'-' * 6}  {'-' * 12}"
         ),
     ]
@@ -508,9 +510,9 @@ def render_terminal_table(action_queue: list[dict[str, Any]]) -> str:
         )
         lines.append(
             f"{path:<{path_width}}  "
-            f"{item['priority_band']:<14}  "
+            f"{item['slop_band']:<8}  "
             f"{item['context_band']:<8}  "
-            f"{item['priority_score']:>6.1f}  "
+            f"{item['slop_score']:>9.1f}  "
             f"{item['tokens']:>8}  "
             f"{item['age_days']:>5}  "
             f"{item['revisions_window']:>5}  "
@@ -666,17 +668,17 @@ def render_summary(report: dict[str, Any]) -> str:
         f"- Skipped binary: {report['stats']['skipped_binary_count']}",
         f"- Skipped undecodable: {report['stats']['skipped_undecodable_count']}",
         f"- Critical context files: {report['stats']['critical_context_file_count']}",
-        f"- Must-refactor files: {report['stats']['must_refactor_file_count']}",
+        f"- Critical slop files: {report['stats']['critical_slop_file_count']}",
         "",
         "## Top Hotspots",
         "",
-        "| Path | Priority | Context | Score | Tokens | Age | Revs | Churn | Signal | Reasons |",
+        "| Path | Slop | Context | Slop Score | Tokens | Age | Revs | Churn | Signal | Reasons |",
         "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for item in report["action_queue"]:
         lines.append(
-            f"| `{item['path']}` | `{item['priority_band']}` | `{item['context_band']}` | "
-            f"{item['priority_score']:.1f} | {item['tokens']} | {item['age_days']} | "
+            f"| `{item['path']}` | `{item['slop_band']}` | `{item['context_band']}` | "
+            f"{item['slop_score']:.1f} | {item['tokens']} | {item['age_days']} | "
             f"{item['revisions_window']} | {item['churn_pressure']:.3f} | "
             f"`{_signal_label(item)}` | {', '.join(item['reason_codes']) or '_none_'} |"
         )
@@ -756,8 +758,8 @@ def render_summary(report: dict[str, Any]) -> str:
         for index, item in enumerate(report["action_queue"], start=1):
             lines.append(
                 f"{index}. `{item['path']}` "
-                f"({item['priority_band']}, {item['context_band']}, "
-                f"score {item['priority_score']:.1f}, {item['tokens']} tokens, "
+                f"({item['slop_band']}, {item['context_band']}, "
+                f"slop_score {item['slop_score']:.1f}, {item['tokens']} tokens, "
                 f"{_signal_label(item)})"
             )
     else:
@@ -868,7 +870,7 @@ def failing_records(
     report: dict[str, Any],
     *,
     fail_on_context_band: str | None,
-    fail_on_priority_band: str | None,
+    fail_on_slop_band: str | None,
 ) -> list[dict[str, Any]]:
     failures: list[dict[str, Any]] = []
     for record in report["files"]:
@@ -878,16 +880,16 @@ def failing_records(
                 CONTEXT_BAND_ORDER[record["context_band"]]
                 >= CONTEXT_BAND_ORDER[fail_on_context_band]
             )
-        if fail_on_priority_band is not None:
+        if fail_on_slop_band is not None:
             failed = failed or (
-                PRIORITY_BAND_ORDER[record["priority_band"]]
-                >= PRIORITY_BAND_ORDER[fail_on_priority_band]
+                SLOP_BAND_ORDER[record["slop_band"]]
+                >= SLOP_BAND_ORDER[fail_on_slop_band]
             )
         if failed:
             failures.append(record)
     return sorted(
         failures,
-        key=lambda record: (-record["priority_score"], -record["tokens"], record["path"]),
+        key=lambda record: (-record["slop_score"], -record["tokens"], record["path"]),
     )
 
 

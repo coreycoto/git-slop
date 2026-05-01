@@ -7,7 +7,7 @@ human conveniences built from the same report data.
 
 Current report schema:
 
-- `schema_version: 3`
+- `schema_version: 4`
 
 Canonical top-level sections:
 
@@ -48,12 +48,14 @@ Consumers should prefer the canonical `costs` and `overlays` sections.
 
 The stable detector fields are:
 
-- `priority_score`
-- `priority_band`
+- `slop_score`
+- `slop_band`
 - `context_band`
 - `action_queue`
 
 `git slop check` uses stable detector costs only. It ignores overlays.
+`slop_score` is a deterministic maintenance-pressure score from stable costs,
+not an overall quality score.
 
 ## Downstream Payloads
 
@@ -61,8 +63,8 @@ Downstream commands consume existing reports and emit additive payloads:
 
 - `git slop explain`: schema-v2 explain payload
 - `git slop plan`: schema-v2 plan payload
-- `git slop compare`: schema-v1 compare payload from two schema-3 reports
-- `git slop sarif`: SARIF 2.1.0 from one schema-3 report
+- `git slop compare`: schema-v1 compare payload from two schema-4 reports
+- `git slop sarif`: SARIF 2.1.0 from one schema-4 report
 
 These surfaces are additive. They do not rerun the detector unless explicitly
 documented, rescore detector truth, mutate `.slop/`, or change check semantics.
@@ -91,6 +93,7 @@ Important defaults:
 
 - organization-health stays always-on
 - no user-facing overlay enable/disable switch
+- `check.fail_on_slop_band: critical`
 - deterministic candidate limiting is allowed internally for performance
 - `history.follow_renames: true` remains opt-in
 

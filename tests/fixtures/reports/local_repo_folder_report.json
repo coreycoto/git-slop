@@ -3,8 +3,8 @@
     {
       "context_band": "critical",
       "path": "src/git_slop/organization.py",
-      "priority_band": "should_refactor",
-      "priority_score": 66.0,
+      "slop_band": "high",
+      "slop_score": 66.0,
       "reason_codes": [
         "critical_token_cost"
       ]
@@ -12,8 +12,8 @@
     {
       "context_band": "healthy",
       "path": "src/git_slop/reporting.py",
-      "priority_band": "needs_refactor",
-      "priority_score": 59.0,
+      "slop_band": "moderate",
+      "slop_score": 59.0,
       "reason_codes": [
         "high_revision_frequency"
       ]
@@ -21,8 +21,8 @@
     {
       "context_band": "healthy",
       "path": "src/git_slop/history.py",
-      "priority_band": "watchlist",
-      "priority_score": 46.7,
+      "slop_band": "low",
+      "slop_score": 46.7,
       "reason_codes": [
         "high_revision_frequency"
       ]
@@ -30,8 +30,8 @@
     {
       "context_band": "compact",
       "path": "src/git_slop/__init__.py",
-      "priority_band": "watchlist",
-      "priority_score": 18.1,
+      "slop_band": "low",
+      "slop_score": 18.1,
       "reason_codes": [
         "high_revision_frequency"
       ]
@@ -39,8 +39,8 @@
     {
       "context_band": "compact",
       "path": "src/git_slop/cli.py",
-      "priority_band": "watchlist",
-      "priority_score": 14.2,
+      "slop_band": "low",
+      "slop_score": 14.2,
       "reason_codes": [
         "high_relative_churn"
       ]
@@ -395,8 +395,8 @@
         }
       },
       "path": "src/git_slop/organization.py",
-      "priority_band": "should_refactor",
-      "priority_score": 66.0,
+      "slop_band": "high",
+      "slop_score": 66.0,
       "reason_codes": [
         "critical_token_cost"
       ]
@@ -460,8 +460,8 @@
         }
       },
       "path": "src/git_slop/reporting.py",
-      "priority_band": "needs_refactor",
-      "priority_score": 59.0,
+      "slop_band": "moderate",
+      "slop_score": 59.0,
       "reason_codes": [
         "high_revision_frequency"
       ]
@@ -529,8 +529,8 @@
         }
       },
       "path": "src/git_slop/history.py",
-      "priority_band": "watchlist",
-      "priority_score": 46.7,
+      "slop_band": "low",
+      "slop_score": 46.7,
       "reason_codes": [
         "high_revision_frequency"
       ]
@@ -594,8 +594,8 @@
         }
       },
       "path": "src/git_slop/__init__.py",
-      "priority_band": "watchlist",
-      "priority_score": 18.1,
+      "slop_band": "low",
+      "slop_score": 18.1,
       "reason_codes": [
         "high_revision_frequency"
       ]
@@ -659,8 +659,8 @@
         }
       },
       "path": "src/git_slop/cli.py",
-      "priority_band": "watchlist",
-      "priority_score": 14.2,
+      "slop_band": "low",
+      "slop_score": 14.2,
       "reason_codes": [
         "high_relative_churn"
       ]
@@ -727,8 +727,8 @@
         }
       },
       "path": "src/git_slop/git.py",
-      "priority_band": "watchlist",
-      "priority_score": 12.1,
+      "slop_band": "low",
+      "slop_score": 12.1,
       "reason_codes": []
     },
     {
@@ -790,8 +790,8 @@
         }
       },
       "path": "src/git_slop/inventory.py",
-      "priority_band": "watchlist",
-      "priority_score": 8.6,
+      "slop_band": "low",
+      "slop_score": 8.6,
       "reason_codes": []
     },
     {
@@ -857,8 +857,8 @@
         }
       },
       "path": "tests/test_cli_smoke.py",
-      "priority_band": "watchlist",
-      "priority_score": 20.6,
+      "slop_band": "low",
+      "slop_score": 20.6,
       "reason_codes": [
         "high_revision_frequency"
       ]
@@ -926,8 +926,8 @@
         }
       },
       "path": "tests/test_agent_tools_integration.py",
-      "priority_band": "watchlist",
-      "priority_score": 9.5,
+      "slop_band": "low",
+      "slop_score": 9.5,
       "reason_codes": []
     },
     {
@@ -993,8 +993,8 @@
         }
       },
       "path": "docs/architecture.md",
-      "priority_band": "watchlist",
-      "priority_score": 17.7,
+      "slop_band": "low",
+      "slop_score": 17.7,
       "reason_codes": []
     }
   ],
@@ -1070,8 +1070,8 @@
         }
       },
       "path": "src/git_slop",
-      "priority_band": "should_refactor",
-      "priority_score": 66.0,
+      "slop_band": "high",
+      "slop_score": 66.0,
       "reason_codes": [
         "critical_token_cost",
         "high_revision_frequency",
@@ -1521,5 +1521,5 @@
   "repo": {
     "repo_name": "git-slop"
   },
-  "schema_version": 3
+  "schema_version": 4
 }

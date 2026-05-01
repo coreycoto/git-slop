@@ -13,7 +13,7 @@ from git_slop.graphs.clusters import CLUSTER_KEYS
 from git_slop.graphs.relationships import RELATIONSHIP_KEYS
 from git_slop.reporting import build_show_payload
 
-EXPECTED_REPORT_SCHEMA_VERSION = 3
+EXPECTED_REPORT_SCHEMA_VERSION = 4
 
 
 def relationship_sections(report: dict[str, Any]) -> dict[str, Any]:
@@ -104,8 +104,8 @@ def record_summary(record: dict[str, Any] | None) -> dict[str, Any] | None:
         return None
     summary: dict[str, Any] = {
         "path": record["path"],
-        "priority_score": record.get("priority_score"),
-        "priority_band": record.get("priority_band"),
+        "slop_score": record.get("slop_score"),
+        "slop_band": record.get("slop_band"),
         "context_band": record.get("context_band"),
         "reason_codes": record.get("reason_codes", []),
     }
@@ -140,7 +140,7 @@ def descendant_file_records(report: dict[str, Any], folder_path: str) -> list[di
     ]
     return sorted(
         records,
-        key=lambda item: (-float(item.get("priority_score", 0.0)), item["path"]),
+        key=lambda item: (-float(item.get("slop_score", 0.0)), item["path"]),
     )
 
 

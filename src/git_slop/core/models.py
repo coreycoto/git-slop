@@ -78,8 +78,8 @@ class BaselineFacts:
 @dataclass(frozen=True)
 class HotspotScore:
     path: str
-    priority_score: float
-    priority_band: str
+    slop_score: float
+    slop_band: str
     context_band: str
     reason_codes: list[str]
 

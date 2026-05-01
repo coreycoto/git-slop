@@ -31,11 +31,11 @@ def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def make_file_record(path: str, priority_score: float) -> dict[str, object]:
+def make_file_record(path: str, slop_score: float) -> dict[str, object]:
     return {
         "path": path,
-        "priority_score": priority_score,
-        "priority_band": "watchlist",
+        "slop_score": slop_score,
+        "slop_band": "low",
         "context_band": "healthy",
         "reason_codes": [],
         "costs": {},
@@ -43,11 +43,11 @@ def make_file_record(path: str, priority_score: float) -> dict[str, object]:
     }
 
 
-def make_folder_record(path: str, priority_score: float) -> dict[str, object]:
+def make_folder_record(path: str, slop_score: float) -> dict[str, object]:
     return {
         "path": path,
-        "priority_score": priority_score,
-        "priority_band": "watchlist",
+        "slop_score": slop_score,
+        "slop_band": "low",
         "context_band": "healthy",
         "reason_codes": [],
         "costs": {},
@@ -83,7 +83,7 @@ class PlanCommandTests(unittest.TestCase):
             completed = run_cli("plan", "--report", str(report_path), "--path", "README.md")
 
             self.assertEqual(completed.returncode, 2)
-            self.assertIn("requires report schema 3", completed.stdout)
+            self.assertIn("requires report schema 4", completed.stdout)
 
     def test_plan_folder_fixture_is_deterministic_and_bounded(self) -> None:
         report = FIXTURE_DIR / "local_repo_folder_report.json"
@@ -168,7 +168,7 @@ class PlanCommandTests(unittest.TestCase):
 
     def test_folder_selector_suppresses_weak_subset_slices(self) -> None:
         report = {
-            "schema_version": 3,
+            "schema_version": 4,
             "files": [
                 make_file_record("src/pkg/a.py", 60.0),
                 make_file_record("src/pkg/b.py", 59.0),
@@ -219,7 +219,7 @@ class PlanCommandTests(unittest.TestCase):
     def test_relationship_selector_skips_spill_heavy_cluster_followups(self) -> None:
         member_paths = [f"src/pkg/{name}.py" for name in "abcdefghijkl"]
         report = {
-            "schema_version": 3,
+            "schema_version": 4,
             "files": [
                 make_file_record(path, 100.0 - index)
                 for index, path in enumerate(member_paths)
@@ -275,12 +275,12 @@ class PlanCommandTests(unittest.TestCase):
 
     def test_broad_cluster_plan_starts_with_tight_relationship_backed_slice(self) -> None:
         report = {
-            "schema_version": 3,
+            "schema_version": 4,
             "files": [
                 {
                     "path": "src/focus/a.py",
-                    "priority_score": 50.0,
-                    "priority_band": "needs_refactor",
+                    "slop_score": 50.0,
+                    "slop_band": "moderate",
                     "context_band": "healthy",
                     "reason_codes": [],
                     "costs": {},
@@ -288,8 +288,8 @@ class PlanCommandTests(unittest.TestCase):
                 },
                 {
                     "path": "src/focus/b.py",
-                    "priority_score": 49.0,
-                    "priority_band": "watchlist",
+                    "slop_score": 49.0,
+                    "slop_band": "low",
                     "context_band": "healthy",
                     "reason_codes": [],
                     "costs": {},
@@ -297,8 +297,8 @@ class PlanCommandTests(unittest.TestCase):
                 },
                 {
                     "path": "src/focus/c.py",
-                    "priority_score": 48.0,
-                    "priority_band": "watchlist",
+                    "slop_score": 48.0,
+                    "slop_band": "low",
                     "context_band": "healthy",
                     "reason_codes": [],
                     "costs": {},
@@ -306,8 +306,8 @@ class PlanCommandTests(unittest.TestCase):
                 },
                 {
                     "path": "src/focus/d.py",
-                    "priority_score": 47.0,
-                    "priority_band": "watchlist",
+                    "slop_score": 47.0,
+                    "slop_band": "low",
                     "context_band": "healthy",
                     "reason_codes": [],
                     "costs": {},
@@ -315,8 +315,8 @@ class PlanCommandTests(unittest.TestCase):
                 },
                 {
                     "path": "src/focus/e.py",
-                    "priority_score": 46.0,
-                    "priority_band": "watchlist",
+                    "slop_score": 46.0,
+                    "slop_band": "low",
                     "context_band": "healthy",
                     "reason_codes": [],
                     "costs": {},
@@ -324,8 +324,8 @@ class PlanCommandTests(unittest.TestCase):
                 },
                 {
                     "path": "src/focus/f.py",
-                    "priority_score": 45.0,
-                    "priority_band": "watchlist",
+                    "slop_score": 45.0,
+                    "slop_band": "low",
                     "context_band": "healthy",
                     "reason_codes": [],
                     "costs": {},
@@ -451,7 +451,7 @@ class PlanCommandTests(unittest.TestCase):
             },
         )
         self.assertEqual(payload["schema_version"], 2)
-        self.assertEqual(payload["report_schema_version"], 3)
+        self.assertEqual(payload["report_schema_version"], 4)
         self.assertEqual(payload["backlog_handoff"]["mutation_policy"], "preview_only")
         self.assertEqual(
             payload["backlog_handoff"]["target_plugin_skill"],
@@ -510,5 +510,5 @@ class PlanCommandTests(unittest.TestCase):
             "src/consumer_toolkit/github/current_repo.py",
         )
         self.assertEqual(cluster_payload["target"]["id"], "duplicate_set-ce293b441009")
-        self.assertEqual(file_payload["report_schema_version"], 3)
-        self.assertEqual(cluster_payload["report_schema_version"], 3)
+        self.assertEqual(file_payload["report_schema_version"], 4)
+        self.assertEqual(cluster_payload["report_schema_version"], 4)

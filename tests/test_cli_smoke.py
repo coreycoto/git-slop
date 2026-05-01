@@ -103,6 +103,13 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("Report not found:", completed.stdout)
         self.assertEqual(completed.stderr, "")
 
+    def test_check_rejects_removed_priority_band_flag(self) -> None:
+        completed = run_cli("check", "--fail-on-priority-band", "critical")
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("unrecognized arguments", completed.stderr)
+        self.assertIn("--fail-on-priority-band", completed.stderr)
+
     def test_explain_without_report_returns_usage_error(self) -> None:
         completed = run_cli("explain", "--path", "README.md", "--report", "tmp/missing-report.json")
 

@@ -58,8 +58,8 @@ class SarifCommandTests(unittest.TestCase):
         self.assertIn("strongest_overlays", first["properties"]["git_slop"])
         self.assertIn("boundary_note", run["properties"]["git_slop"])
 
-    def test_sarif_rejects_non_schema3_reports(self) -> None:
-        with self.assertRaisesRegex(ValueError, "requires report schema 3"):
+    def test_sarif_rejects_non_schema4_reports(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires report schema 4"):
             build_sarif_payload({"schema_version": 2})
 
     def test_sarif_cli_stdout_and_output_file(self) -> None:
@@ -105,7 +105,7 @@ class SarifCommandTests(unittest.TestCase):
         self.assertEqual(missing_completed.returncode, 2)
         self.assertIn("Report not found:", missing_completed.stdout)
         self.assertEqual(invalid_completed.returncode, 2)
-        self.assertIn("requires report schema 3", invalid_completed.stdout)
+        self.assertIn("requires report schema 4", invalid_completed.stdout)
         self.assertEqual(bad_top_completed.returncode, 2)
         self.assertIn("--top must be greater than zero", bad_top_completed.stdout)
 

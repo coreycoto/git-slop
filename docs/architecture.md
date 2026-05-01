@@ -156,7 +156,7 @@ analysis.
 
 Current machine report:
 
-- `schema_version: 3`
+- `schema_version: 4`
 
 Canonical top-level shape:
 
@@ -250,9 +250,9 @@ commands:
 Command boundaries:
 
 - `find` runs the detector and writes `.slop/latest/` plus `.slop/runs/`.
-- `show`, `explain`, `plan`, `check`, and `sarif` consume an existing schema-3
+- `show`, `explain`, `plan`, `check`, and `sarif` consume an existing schema-4
   report.
-- `compare` consumes two existing schema-3 reports.
+- `compare` consumes two existing schema-4 reports.
 - Prompt packs are explicit local outputs from `explain` and `plan`.
 
 Downstream commands do not rescore detector truth, change `check` semantics, or

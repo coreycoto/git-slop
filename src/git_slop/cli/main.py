@@ -145,16 +145,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the config default fail threshold for context_band.",
     )
     check_parser.add_argument(
-        "--fail-on-priority-band",
-        choices=("watchlist", "needs_refactor", "should_refactor", "must_refactor"),
+        "--fail-on-slop-band",
+        choices=("low", "moderate", "high", "critical"),
         default=None,
-        help="Override the config default fail threshold for priority_band.",
+        help="Override the config default fail threshold for slop_band.",
     )
     check_parser.set_defaults(handler=_run_check)
 
     compare_parser = subparsers.add_parser(
         "compare",
-        help="Compare two existing schema-3 reports without rerunning the detector.",
+        help="Compare two existing schema-4 reports without rerunning the detector.",
     )
     compare_parser.add_argument("--base", required=True, help="Base report.json path.")
     compare_parser.add_argument("--head", required=True, help="Head report.json path.")
@@ -169,7 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sarif_parser = subparsers.add_parser(
         "sarif",
-        help="Export action-queue findings from an existing schema-3 report as SARIF.",
+        help="Export action-queue findings from an existing schema-4 report as SARIF.",
     )
     sarif_parser.add_argument(
         "--report",
@@ -346,30 +346,30 @@ def _run_check(args: argparse.Namespace) -> int:
         return 2
     config = load_config(repo_root)
     fail_on_context_band = args.fail_on_context_band or config["check"]["fail_on_context_band"]
-    fail_on_priority_band = args.fail_on_priority_band or config["check"]["fail_on_priority_band"]
+    fail_on_slop_band = args.fail_on_slop_band or config["check"]["fail_on_slop_band"]
     failures = failing_records(
         report,
         fail_on_context_band=fail_on_context_band,
-        fail_on_priority_band=fail_on_priority_band,
+        fail_on_slop_band=fail_on_slop_band,
     )
     if not failures:
         print(
             "Check passed: "
             f"no file records met or exceeded context={fail_on_context_band} "
-            f"or priority={fail_on_priority_band}."
+            f"or slop={fail_on_slop_band}."
         )
         return 0
     print(
         "Check failed: "
         f"{len(failures)} file records met or exceeded context={fail_on_context_band} "
-        f"or priority={fail_on_priority_band}."
+        f"or slop={fail_on_slop_band}."
     )
     for failure in failures[:10]:
         print(
             f"- {failure['path']} "
-            f"(priority={failure['priority_band']}, "
+            f"(slop={failure['slop_band']}, "
             f"context={failure['context_band']}, "
-            f"score={failure['priority_score']})"
+            f"slop_score={failure['slop_score']})"
         )
     return 1
 

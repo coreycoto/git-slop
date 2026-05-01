@@ -28,10 +28,10 @@ git-slop version
 - `find` analyzes tracked files and writes `.slop/latest/` plus a timestamped
   `.slop/runs/<timestamp>/` copy.
 - `show` renders one file's stable costs and overlay evidence from an existing
-  schema-3 report.
+  schema-4 report.
 - `explain` explains one file, folder, relationship, cluster, or top-N hotspot
-  selection from an existing schema-3 report.
-- `plan` proposes bounded maintenance slices from an existing schema-3 report.
+  selection from an existing schema-4 report.
+- `plan` proposes bounded maintenance slices from an existing schema-4 report.
 - `check` evaluates the stable detector gate. It does not use overlays.
 - `version` prints the installed CLI version.
 
@@ -57,7 +57,7 @@ or refactor mandate.
 git-slop plan --path src/git_slop
 git-slop plan --relationship near_duplicate_neighborhood-1234
 git-slop plan --cluster concept_cluster-1234
-git-slop plan --top 3
+git-slop plan --path src/git_slop --max-slices 3
 git-slop plan --path src/git_slop --format json > .slop/latest/plan.json
 ```
 
@@ -100,7 +100,7 @@ and integration work, but they are not part of the core cleanup workflow.
 
 ### Compare
 
-`git slop compare` compares two existing schema-3 reports.
+`git slop compare` compares two existing schema-4 reports.
 
 ```bash
 git-slop compare \
@@ -113,14 +113,14 @@ git-slop compare \
   --format json
 ```
 
-It reports added, removed, changed, and unchanged file/folder records, hotspot
-score movement, band movement, overlay pressure deltas, and action-queue
+It reports added, removed, changed, and unchanged file/folder records,
+`slop_score` movement, band movement, overlay pressure deltas, and action-queue
 movement. It never reruns the detector, writes `.slop/`, changes scoring, or
 implies causality.
 
 ### SARIF
 
-`git slop sarif` exports action-queue findings from an existing schema-3 report
+`git slop sarif` exports action-queue findings from an existing schema-4 report
 as SARIF 2.1.0.
 
 ```bash

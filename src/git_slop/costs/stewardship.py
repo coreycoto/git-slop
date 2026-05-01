@@ -71,7 +71,7 @@ class StewardshipOverlayAnalyzer(OverlayAnalyzer):
             recent_diversity = len(recent_authors) / max(1, len(counts))
             stewardship_pressure = min(
                 1.0,
-                (float(record["priority_score"]) / 100.0)
+                (float(record["slop_score"]) / 100.0)
                 * top_author_share
                 * (1.0 - min(1.0, recent_diversity)),
             )

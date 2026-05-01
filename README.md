@@ -57,7 +57,7 @@ Git Slop does not:
 - send repo data anywhere
 - use an LLM for scoring
 - treat detector findings as correctness proofs
-- fold overlays into `priority_score`
+- fold overlays into `slop_score`
 
 ## Documentation
 

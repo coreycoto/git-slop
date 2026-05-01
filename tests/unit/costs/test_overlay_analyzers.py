@@ -105,13 +105,13 @@ def _build_repository_facts() -> RepositoryFacts:
             {
                 "path": "src/app.py",
                 "tokens": 20,
-                "priority_score": 70.0,
+                "slop_score": 70.0,
                 "churn_pressure": 0.7,
             },
             {
                 "path": "tests/test_app.py",
                 "tokens": 18,
-                "priority_score": 30.0,
+                "slop_score": 30.0,
                 "churn_pressure": 0.2,
             },
         ],

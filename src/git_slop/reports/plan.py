@@ -42,9 +42,9 @@ def _slug(value: str) -> str:
     )
 
 
-def _record_priority_score(report: dict[str, Any], path: str) -> float:
+def _record_slop_score(report: dict[str, Any], path: str) -> float:
     record = resolve_path(report, path)
-    return float((record or {}).get("priority_score") or 0.0)
+    return float((record or {}).get("slop_score") or 0.0)
 
 
 def _sort_paths_by_severity(
@@ -62,7 +62,7 @@ def _sort_paths_by_severity(
             key=lambda item: (
                 0 if item[0] in anchor_order else 1,
                 anchor_order.get(item[0], 10_000),
-                -float((item[1] or {}).get("priority_score") or 0.0),
+                -float((item[1] or {}).get("slop_score") or 0.0),
                 item[0],
             ),
         )
@@ -119,8 +119,8 @@ def _build_path_target(record: dict[str, Any]) -> dict[str, Any]:
         "kind": "path",
         "path": record["path"],
         "record_type": record["record_type"],
-        "priority_score": record.get("priority_score"),
-        "priority_band": record.get("priority_band"),
+        "slop_score": record.get("slop_score"),
+        "slop_band": record.get("slop_band"),
         "context_band": record.get("context_band"),
         "reason_codes": record.get("reason_codes", []),
     }
@@ -249,8 +249,8 @@ def _cluster_same_root_anchor_paths(report: dict[str, Any], cluster: dict[str, A
     ranked_roots = sorted(
         candidate_roots,
         key=lambda root: (
-            -sum(_record_priority_score(report, path) for path in groups[root][:2]),
-            -_record_priority_score(report, groups[root][0]),
+            -sum(_record_slop_score(report, path) for path in groups[root][:2]),
+            -_record_slop_score(report, groups[root][0]),
             root,
         ),
     )
@@ -299,7 +299,7 @@ def _slice_payload(
 
 
 def _priority_hint_for_slice(report: dict[str, Any], scope_paths: list[str]) -> str:
-    top_score = max((_record_priority_score(report, path) for path in scope_paths), default=0.0)
+    top_score = max((_record_slop_score(report, path) for path in scope_paths), default=0.0)
     if top_score >= 75.0:
         return "Now"
     if top_score >= 40.0:
@@ -419,11 +419,10 @@ def _build_anchor_slice(report: dict[str, Any], context: dict[str, Any]) -> dict
     target = context["target"]
     selector_kind = context["selector"]["kind"]
     candidate_paths = _cluster_anchor_candidate_paths(report, context)
-    anchor_priority = candidate_paths
     scope_paths, out_of_scope_paths = _build_scope(
         report,
         candidate_paths=candidate_paths,
-        anchor_paths=anchor_priority,
+        anchor_paths=candidate_paths,
     )
     if selector_kind == "path" and target["record_type"] == "folder":
         title = f"Focus descendant hotspots in {target['path']}"
@@ -677,21 +676,33 @@ def _merge_slices_by_scope(slices: list[dict[str, Any]]) -> list[dict[str, Any]]
     return merged
 
 
-def _top_priority_sum(report: dict[str, Any], paths: list[str]) -> float:
+def _top_slop_score_sum(report: dict[str, Any], paths: list[str]) -> float:
     scores = sorted(
-        (_record_priority_score(report, path) for path in paths),
+        (_record_slop_score(report, path) for path in paths),
         reverse=True,
     )
     return sum(scores[:3])
 
 
-def _slice_rank(report: dict[str, Any], slice_payload: dict[str, Any]) -> tuple[Any, ...]:
+def _slice_rank(
+    report: dict[str, Any],
+    slice_payload: dict[str, Any],
+    *,
+    selector_kind: str,
+) -> tuple[Any, ...]:
+    if selector_kind == "path":
+        return (
+            0 if slice_payload["_selector_class"] == 0 else 1,
+            -_top_slop_score_sum(report, slice_payload["scope_paths"]),
+            len(slice_payload["out_of_scope_paths"]),
+            tuple(slice_payload["scope_paths"]),
+        )
     return (
         slice_payload["_selector_class"],
         -len(slice_payload["supporting_relationship_ids"]),
         -len(slice_payload["supporting_cluster_ids"]),
         len(slice_payload["out_of_scope_paths"]),
-        -_top_priority_sum(report, slice_payload["scope_paths"]),
+        -_top_slop_score_sum(report, slice_payload["scope_paths"]),
         tuple(slice_payload["scope_paths"]),
     )
 
@@ -760,7 +771,14 @@ def build_plan_payload(
         slices = _build_relationship_candidates(report, context)
 
     merged = _merge_slices_by_scope(slices)
-    ranked = sorted(merged, key=lambda item: _slice_rank(report, item))
+    ranked = sorted(
+        merged,
+        key=lambda item: _slice_rank(
+            report,
+            item,
+            selector_kind=context["selector"]["kind"],
+        ),
+    )
     suppressed = _suppress_weaker_subsets(ranked)
     public_slices = [
         _enrich_public_slice(report, context, item)
@@ -776,11 +794,15 @@ def build_plan_payload(
         "proposed_slices": public_slices,
         "ranking_basis": {
             "anchor_first": True,
-            "relationship_slices_before_cluster_slices": True,
+            "relationship_slices_before_cluster_slices": context["selector"]["kind"] != "path",
             "max_slice_files": MAX_SLICE_FILES,
             "secondary_sort": (
-                "relationship-count, cluster-count, out-of-scope-count, "
-                "top-three-priority-sum, path"
+                "top-three-slop-score-sum, out-of-scope-count, path"
+                if context["selector"]["kind"] == "path"
+                else (
+                    "relationship-count, cluster-count, out-of-scope-count, "
+                    "top-three-slop-score-sum, path"
+                )
             ),
         },
         "backlog_handoff": {

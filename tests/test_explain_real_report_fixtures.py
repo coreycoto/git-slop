@@ -33,12 +33,12 @@ def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
 class ExplainRealReportFixtureTests(unittest.TestCase):
     def test_folder_explain_prefers_tight_local_clusters_over_broad_memberships(self) -> None:
         report = {
-            "schema_version": 3,
+            "schema_version": 4,
             "files": [
                 {
                     "path": "src/focus/a.py",
-                    "priority_score": 50.0,
-                    "priority_band": "needs_refactor",
+                    "slop_score": 50.0,
+                    "slop_band": "moderate",
                     "context_band": "healthy",
                     "reason_codes": [],
                     "costs": {},
@@ -46,8 +46,8 @@ class ExplainRealReportFixtureTests(unittest.TestCase):
                 },
                 {
                     "path": "src/focus/b.py",
-                    "priority_score": 49.0,
-                    "priority_band": "watchlist",
+                    "slop_score": 49.0,
+                    "slop_band": "low",
                     "context_band": "healthy",
                     "reason_codes": [],
                     "costs": {},
@@ -55,8 +55,8 @@ class ExplainRealReportFixtureTests(unittest.TestCase):
                 },
                 {
                     "path": "src/other/z.py",
-                    "priority_score": 10.0,
-                    "priority_band": "watchlist",
+                    "slop_score": 10.0,
+                    "slop_band": "low",
                     "context_band": "compact",
                     "reason_codes": [],
                     "costs": {},
@@ -66,8 +66,8 @@ class ExplainRealReportFixtureTests(unittest.TestCase):
             "folders": [
                 {
                     "path": "src/focus",
-                    "priority_score": 50.0,
-                    "priority_band": "needs_refactor",
+                    "slop_score": 50.0,
+                    "slop_band": "moderate",
                     "context_band": "critical",
                     "reason_codes": [],
                     "costs": {},
@@ -216,13 +216,13 @@ class ExplainRealReportFixtureTests(unittest.TestCase):
 
     def test_relationship_text_tolerates_missing_endpoint_overlays(self) -> None:
         report = {
-            "schema_version": 3,
+            "schema_version": 4,
             "files": [
                 {
                     "path": "src/a.py",
                     "record_type": "file",
-                    "priority_score": 42.0,
-                    "priority_band": "watchlist",
+                    "slop_score": 42.0,
+                    "slop_band": "low",
                     "context_band": "healthy",
                     "reason_codes": [],
                     "costs": {},
@@ -231,8 +231,8 @@ class ExplainRealReportFixtureTests(unittest.TestCase):
                 {
                     "path": "src/b.py",
                     "record_type": "file",
-                    "priority_score": 41.0,
-                    "priority_band": "watchlist",
+                    "slop_score": 41.0,
+                    "slop_band": "low",
                     "context_band": "healthy",
                     "reason_codes": [],
                     "costs": {},

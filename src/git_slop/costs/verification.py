@@ -51,13 +51,13 @@ class VerificationOverlayAnalyzer(OverlayAnalyzer):
             adjacency = min(1.0, len(nearby_tests) / 2) if nearby_tests else 0.0
             commit_count = max(1, len(commits_by_path.get(path, [])))
             test_cochange_ratio = test_cochanges.get(path, 0) / commit_count
-            hotspot_without_nearby_tests = bool(record["priority_score"] >= 65 and adjacency == 0.0)
+            hotspot_without_nearby_tests = bool(record["slop_score"] >= 65 and adjacency == 0.0)
             churn_without_test_churn = bool(
                 record["churn_pressure"] >= 0.6 and test_cochange_ratio < 0.25
             )
             verification_gap = min(
                 1.0,
-                (float(record["priority_score"]) / 100.0)
+                (float(record["slop_score"]) / 100.0)
                 * (1.0 - adjacency)
                 * (1.0 - test_cochange_ratio),
             )

@@ -86,8 +86,8 @@ class DetectorIntegrationTests(unittest.TestCase):
 
             report = json.loads(report_json.read_text(encoding="utf-8"))
             yaml_report = yaml.safe_load(report_yaml.read_text(encoding="utf-8"))
-            self.assertEqual(report["schema_version"], 3)
-            self.assertEqual(yaml_report["schema_version"], 3)
+            self.assertEqual(report["schema_version"], 4)
+            self.assertEqual(yaml_report["schema_version"], 4)
             self.assertEqual(report["repo"]["repo_name"], repo_root.name)
             self.assertIn("summary", report)
             self.assertIn("files", report)
@@ -115,7 +115,7 @@ class DetectorIntegrationTests(unittest.TestCase):
             self.assertIn("Next Action Queue", summary_contents)
             self.assertIn(
                 (
-                    "| Path | Priority | Context | Score | Tokens | Age | Revs | "
+                    "| Path | Slop | Context | Slop Score | Tokens | Age | Revs | "
                     "Churn | Signal | Reasons |"
                 ),
                 summary_contents,
@@ -143,7 +143,7 @@ class DetectorIntegrationTests(unittest.TestCase):
             show_completed = run_cli(repo_root, "show", "src/app.py")
             self.assertEqual(show_completed.returncode, 0, show_completed.stderr)
             self.assertIn("path: src/app.py", show_completed.stdout)
-            self.assertIn("priority_band:", show_completed.stdout)
+            self.assertIn("slop_band:", show_completed.stdout)
             self.assertIn("costs:", show_completed.stdout)
             self.assertIn("overlays:", show_completed.stdout)
             self.assertIn("organization_health:", show_completed.stdout)
@@ -166,6 +166,10 @@ class DetectorIntegrationTests(unittest.TestCase):
             fail_completed = run_cli(repo_root, "check", "--fail-on-context-band", "compact")
             self.assertEqual(fail_completed.returncode, 1, fail_completed.stderr)
             self.assertIn("Check failed:", fail_completed.stdout)
+
+            slop_fail_completed = run_cli(repo_root, "check", "--fail-on-slop-band", "low")
+            self.assertEqual(slop_fail_completed.returncode, 1, slop_fail_completed.stderr)
+            self.assertIn("slop=low", slop_fail_completed.stdout)
 
     def test_explain_supports_path_top_cluster_and_relationship_selectors(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

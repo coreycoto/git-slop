@@ -12,7 +12,7 @@ Use this skill when reviewing `.slop/latest/report.json`,
 
 - Treat `git-slop` as a detector and evidence surface, not a correctness oracle.
 - Keep hotspot costs separate from overlay evidence.
-- Use `priority_score`, `priority_band`, and `context_band` for the stable
+- Use `slop_score`, `slop_band`, and `context_band` for the stable
   hotspot queue.
 - Use overlays for supporting evidence about organization, verification,
   navigation, blast radius, stewardship, and semantic drift.

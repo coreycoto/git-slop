@@ -17,6 +17,7 @@ proposal.
 4. Keep the proposal narrow and evidence-backed.
 5. Treat plan slice scope, out-of-scope paths, and evidence summary as human
    review guidance. Do not treat the plan as a patch or autonomous refactor loop.
+   Do not treat overlay evidence as a rescore of `slop_score` or `slop_band`.
 6. Use the plan payload's preview-only `backlog_handoff` metadata as input to
    `$project-management-workflows:plan-to-backlog-preview`.
 7. Keep plan JSON local or uploaded as a review artifact unless the repository

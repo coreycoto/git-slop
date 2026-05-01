@@ -5,7 +5,7 @@
 Git Slop has shipped the detector foundation and the first downstream
 maintenance surfaces:
 
-- schema-3 detector reports with explicit `costs` and `overlays`
+- schema-4 detector reports with explicit `costs` and `overlays`
 - config schema 2 with migration from schema 1
 - stable hotspot scoring and `git slop check`
 - always-on overlay analyzers
@@ -46,17 +46,17 @@ Current overlay families:
 - semantic drift
 
 Overlays remain evidence-first and always-on. They can support explanations,
-plans, and SARIF properties, but they do not redefine `priority_score`,
-`priority_band`, `context_band`, or `git slop check`.
+plans, and SARIF properties, but they do not redefine `slop_score`,
+`slop_band`, `context_band`, or `git slop check`.
 
 ## Downstream Surfaces
 
 Current downstream surfaces consume existing detector artifacts:
 
-- `explain` consumes a schema-3 report
-- `plan` consumes a schema-3 report
-- `compare` consumes two schema-3 reports
-- `sarif` consumes one schema-3 report
+- `explain` consumes a schema-4 report
+- `plan` consumes a schema-4 report
+- `compare` consumes two schema-4 reports
+- `sarif` consumes one schema-4 report
 
 These commands remain read-only with respect to source code, GitHub, scoring,
 and check semantics. Prompt packs are deterministic local files for advisory

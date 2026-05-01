@@ -9,8 +9,8 @@ Git Slop now distinguishes two categories of cost:
 
 Stable hotspot costs drive:
 
-- `priority_score`
-- `priority_band`
+- `slop_score`
+- `slop_band`
 - `context_band`
 - `git slop check`
 
@@ -33,20 +33,20 @@ Default bands:
 | `8001-10000` | `warning` | Expensive but still workable |
 | `>10000` | `critical` | Too costly for routine context loading |
 
-### `priority_band`
+### `slop_band`
 
-`priority_band` answers:
+`slop_band` answers:
 
-> How urgently should this file be refactored?
+> What deterministic maintenance-pressure band does this file fall into?
 
 Default mapping:
 
-| Score | Priority band |
+| Score | Slop band |
 | --- | --- |
-| `<50` | `watchlist` |
-| `50-64` | `needs_refactor` |
-| `65-84` | `should_refactor` |
-| `>=85` | `must_refactor` |
+| `<50` | `low` |
+| `50-64` | `moderate` |
+| `65-84` | `high` |
+| `>=85` | `critical` |
 
 ## Stable Pressure Components
 
@@ -59,7 +59,7 @@ The stable detector still uses:
 Default weighting:
 
 ```text
-priority_score =
+slop_score =
   100 * (
     0.60 * context_pressure +
     0.20 * age_pressure +
@@ -67,7 +67,9 @@ priority_score =
   )
 ```
 
-This remains the stable hotspot contract.
+This remains the stable hotspot contract. `slop_score` is a deterministic
+maintenance-pressure score from stable costs, not an overall correctness or
+quality score.
 
 ## Stable Cost Outputs
 
@@ -116,7 +118,7 @@ Git Slop emits these as stable explicit costs in the report:
 - `coordination_pressure`
 
 The hotspot queue still means context cost. Coordination evidence is exposed in
-the report; it does not silently inflate `priority_score`.
+the report; it does not silently inflate `slop_score`.
 
 ## Structural Context / Organization Health
 
@@ -165,7 +167,7 @@ is wrong.
 The organization-health layer is:
 
 - not a cleanliness oracle
-- not a fourth weight in `priority_score`
+- not a fourth weight in `slop_score`
 - not an LLM-based judgment system
 
 ## Additional Always-On Overlays
@@ -178,7 +180,7 @@ Canonical overlay namespaces:
 - `overlays.stewardship`
 - `overlays.semantic_drift`
 
-These are all evidence-oriented and remain outside `priority_score`.
+These are all evidence-oriented and remain outside `slop_score`.
 
 ### Verification
 
@@ -237,8 +239,8 @@ This layer is explicitly experimental and evidence-first.
 ## Model Rules
 
 - `context_band` remains a raw size signal.
-- `priority_band` remains a composite urgency signal.
-- Overlay evidence remains separate from `priority_score`.
+- `slop_band` remains a composite maintenance-pressure signal.
+- Overlay evidence remains separate from `slop_score`.
 - `git slop check` ignores overlays entirely.
 - LLMs must not mutate detector scores.
 - Thresholds and weights remain adjustable defaults, not sacred constants.
