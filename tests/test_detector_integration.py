@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -18,6 +19,12 @@ if str(SRC_DIR) not in sys.path:
 
 from git_slop import history, reporting  # noqa: E402
 from git_slop.detector import run_detector  # noqa: E402
+
+REFERENCE_NOW = datetime.now(timezone.utc)
+
+
+def timestamp_days_ago(days: int) -> str:
+    return (REFERENCE_NOW - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def run_cli(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -348,19 +355,35 @@ class DetectorIntegrationTests(unittest.TestCase):
             legacy_path = repo_root / "src" / "legacy.py"
             legacy_path.parent.mkdir(parents=True, exist_ok=True)
             legacy_path.write_text("print('legacy')\n", encoding="utf-8")
-            commit_all(repo_root, message="add legacy file", timestamp="2025-10-01T00:00:00Z")
+            commit_all(
+                repo_root,
+                message="add legacy file",
+                timestamp=timestamp_days_ago(300),
+            )
 
             legacy_path.write_text("print('legacy')\nprint('still legacy')\n", encoding="utf-8")
-            commit_all(repo_root, message="update legacy file", timestamp="2026-02-01T00:00:00Z")
+            commit_all(
+                repo_root,
+                message="update legacy file",
+                timestamp=timestamp_days_ago(150),
+            )
 
             renamed_path = repo_root / "src" / "renamed.py"
             run_git(repo_root, "mv", "src/legacy.py", "src/renamed.py")
-            commit_all(repo_root, message="rename legacy file", timestamp="2026-03-01T00:00:00Z")
+            commit_all(
+                repo_root,
+                message="rename legacy file",
+                timestamp=timestamp_days_ago(80),
+            )
             renamed_path.write_text(
                 "print('legacy')\nprint('still legacy')\nprint('rename pass')\n",
                 encoding="utf-8",
             )
-            commit_all(repo_root, message="update renamed file", timestamp="2026-04-01T00:00:00Z")
+            commit_all(
+                repo_root,
+                message="update renamed file",
+                timestamp=timestamp_days_ago(30),
+            )
 
             no_follow_find = run_cli(repo_root, "find")
             self.assertEqual(no_follow_find.returncode, 0, no_follow_find.stderr)
@@ -655,13 +678,17 @@ class DetectorIntegrationTests(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            commit_all(repo_root, message="initial structure", timestamp="2025-12-01T00:00:00Z")
+            commit_all(
+                repo_root,
+                message="initial structure",
+                timestamp=timestamp_days_ago(150),
+            )
 
             for index, timestamp in enumerate(
                 [
-                    "2026-01-01T00:00:00Z",
-                    "2026-02-01T00:00:00Z",
-                    "2026-03-01T00:00:00Z",
+                    timestamp_days_ago(120),
+                    timestamp_days_ago(90),
+                    timestamp_days_ago(60),
                 ],
                 start=1,
             ):
@@ -677,11 +704,11 @@ class DetectorIntegrationTests(unittest.TestCase):
 
             for index, timestamp in enumerate(
                 [
-                    "2026-03-10T00:00:00Z",
-                    "2026-03-20T00:00:00Z",
-                    "2026-03-30T00:00:00Z",
-                    "2026-04-05T00:00:00Z",
-                    "2026-04-10T00:00:00Z",
+                    timestamp_days_ago(50),
+                    timestamp_days_ago(40),
+                    timestamp_days_ago(30),
+                    timestamp_days_ago(20),
+                    timestamp_days_ago(10),
                 ],
                 start=1,
             ):
