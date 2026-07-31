@@ -1,0 +1,48 @@
+Explain: relationship near_duplicate_neighborhood-35e7fad1c4e0 [near_duplicate_neighborhood]
+
+Hotspot Cost
+- source=src/consumer_toolkit/github/current_repo.py slop=low slop_score=12.6 context=compact
+  - load: tokens=490, folder_tokens=497, pressure=0.049
+  - volatility: commits=1, relative_token_churn=1.000, pressure=0.477
+  - coordination: diffusion=0.991, degree=29, pressure=0.706
+- target=src/consumer_toolkit/github/shared/current_repo.py slop=low slop_score=12.6 context=compact
+  - load: tokens=489, folder_tokens=4119, pressure=0.049
+  - volatility: commits=1, relative_token_churn=1.000, pressure=0.477
+  - coordination: diffusion=0.956, degree=37, pressure=0.701
+
+Overlay Evidence
+- organization_health: evidence_score=1140.594, crosses_top_level_boundary=False
+- source overlays:
+- organization_health: duplication=1.000, diffusion=0.333, coupling=0.000, boundary=0.000, clusters=2
+- verification: gap=0.000, adjacency=0.000, test_cochange=1.000, hotspot_without_nearby_tests=False
+- navigation: pressure=0.335, ambiguity=0.591, path_depth=3
+- blast_radius: pressure=0.595, degree=29, cross_folder=0.414
+- stewardship: pressure=0.000, authors=1, top_author_share=1.000
+- semantic_drift: pressure=1.000, terms=args, argv, def, if, none
+- target overlays:
+- organization_health: duplication=1.000, diffusion=0.333, coupling=0.000, boundary=0.000, clusters=2
+- verification: gap=0.000, adjacency=0.000, test_cochange=1.000, hotspot_without_nearby_tests=False
+- navigation: pressure=0.463, ambiguity=0.591, path_depth=4
+- blast_radius: pressure=0.607, degree=37, cross_folder=0.297
+- stewardship: pressure=0.000, authors=1, top_author_share=1.000
+- semantic_drift: pressure=1.000, terms=args, argv, def, if, none
+
+Supporting Relationships
+- near_duplicate_neighborhood-35e7fad1c4e0 [near_duplicate_neighborhood] src/consumer_toolkit/github/current_repo.py -> src/consumer_toolkit/github/shared/current_repo.py (score=1140.594)
+
+Supporting Clusters
+- duplicate_set-ce293b441009 [duplicate_set] members=2 roots=src candidate_type=consolidate_duplicate_knowledge
+
+Evidence Summary
+- strongest detector costs: coordination pressure 0.000 from degree 0; load pressure 0.000 from 0 file tokens; volatility pressure 0.000 from 0 commits
+- strongest overlays: none
+- supporting relationships: near_duplicate_neighborhood-35e7fad1c4e0
+- supporting clusters: duplicate_set-ce293b441009
+- interpretation: Relationship explanation is based on detector report evidence only; it does not prove correctness or require a refactor.
+
+Next Commands
+- Inspect source: git-slop show 'src/consumer_toolkit/github/current_repo.py'
+- Inspect target: git-slop show 'src/consumer_toolkit/github/shared/current_repo.py'
+- Draft a bounded plan: git-slop plan --relationship 'near_duplicate_neighborhood-35e7fad1c4e0'
+
+Interpretation boundary: this is structural evidence, not proof that an abstraction, boundary, or refactor is correct.

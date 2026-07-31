@@ -1,7 +1,7 @@
 [project]
-name = "git-slop"
-version = "0.8.1"
-description = "Local-first hotspot detection for AI-era repositories."
+name = "git-slop-maintainer"
+version = "0.9.0"
+description = "Internal compatibility and plugin tooling for the Rust git-slop CLI."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.13"
@@ -30,9 +30,6 @@ dependencies = [
 Homepage = "https://github.com/coreycoto/git-slop"
 Repository = "https://github.com/coreycoto/git-slop"
 Issues = "https://github.com/coreycoto/git-slop/issues"
-
-[project.scripts]
-git-slop = "git_slop.cli:main"
 
 [dependency-groups]
 dev = [

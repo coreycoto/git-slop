@@ -1,66 +1,191 @@
-.TH GIT-SLOP 1
+.TH GIT-SLOP 1 "2026-07-30" "git-slop 0.9.0" "General Commands Manual"
 .SH NAME
-git-slop \- find files that cost too much context
+git-slop \- deterministic repository health and maintenance-pressure analysis
 .SH SYNOPSIS
 .B git-slop
-.RI [ -h | --help ]
 .I command
-.RI [ args... ]
+.RI [ options ]
 .br
 .B git slop
-.RI [ -h ]
 .I command
-.RI [ args... ]
+.RI [ options ]
 .SH DESCRIPTION
 .B git-slop
-scans a repository for files and folders that create high context cost for
-AI-assisted maintenance. It reports hotspots, explains selected findings, and
-plans bounded maintenance slices from detector output.
+is a native, local-first analyzer for tracked files in a Git repository.
+It measures context cost and maintenance pressure, adds structural and
+operational evidence, and writes machine-readable and human-readable reports.
+Scoring does not require a hosted API or model provider.
 .PP
-When installed on
+When the executable is on
 .BR PATH ,
-Git can run the command as
+Git can run it as
 .BR "git slop" .
-Git handles
-.B "git slop --help"
-as a request for this manual page. Use
-.B "git slop -h"
-or
-.B "git-slop --help"
-for the concise command-line help.
 .SH COMMANDS
 .TP
 .B init
 Scaffold
-.BR .slop/
-configuration, ignore rules, and state directories.
+.BR .slop/config.yaml ,
+.BR .slop/.gitignore ,
+and generated-state directories. Use
+.B --force
+to overwrite generated config files.
 .TP
 .B find
-Scan the repository and generate hotspot reports.
+Analyze tracked files and local Git history. Write
+.BR report.json ,
+.BR report.yaml ,
+.BR summary.md ,
+and
+.B health.md
+to
+.B .slop/latest/
+and a timestamped directory under
+.BR .slop/runs/ .
 .TP
 .B show
-Show metrics and reasons for one file or folder.
+Show one file or folder from an existing report.
+The positional argument is a repository-relative path.
+Options are
+.BI --report " path"
+and
+.BI --format " text|json" .
 .TP
 .B explain
-Explain why selected hotspots or structural findings are expensive.
+Explain a selected file, folder, relationship, cluster, or top-N action-queue
+entries. Select with
+.BI --path " path" ,
+.BI --relationship " id" ,
+.BI --cluster " id" ,
+or
+.BI --top " count" .
+With no selector, the top five entries are used.
+Additional options are
+.BI --report " path" ,
+.BI --format " text|json" ,
+and
+.BI --prompt-pack " directory" .
 .TP
 .B plan
-Propose bounded maintenance slices from the current detector report.
+Propose bounded maintenance slices from existing evidence.
+Exactly one of
+.BI --path " path" ,
+.BI --relationship " id" ,
+or
+.BI --cluster " id"
+is required.
+Additional options are
+.BI --report " path" ,
+.BI --max-slices " count" ,
+.BI --format " text|json" ,
+and
+.BI --prompt-pack " directory" .
 .TP
 .B check
-Evaluate an existing report against CI thresholds.
+Evaluate existing file records against stable detector thresholds.
+Options are
+.BI --report " path" ,
+.BI --fail-on-context-band " compact|healthy|warning|critical" ,
+and
+.BI --fail-on-slop-band " low|moderate|high|critical" .
+Overlays and health rollups do not affect this gate.
+.TP
+.B compare
+Compare two existing schema-4 reports without rerunning the detector.
+.BI --base " path"
+and
+.BI --head " path"
+are required.
+Optional arguments are
+.BI --top " count"
+and
+.BI --format " text|json" .
+.TP
+.B sarif
+Export action-queue findings from an existing schema-4 report as SARIF 2.1.0.
+Options are
+.BI --report " path" ,
+.BI --top " count" ,
+and
+.BI --output " path" .
+Without
+.B --output
+the document is written to standard output.
+.TP
+.B health
+Render additive repository-health evidence from an existing schema-4 report.
+Options are
+.BI --report " path" ,
+.BI --format " markdown|github|json" ,
+and
+.BI --max-annotations " count" .
+The GitHub format emits bounded workflow-command annotations.
 .TP
 .B version
-Print version information.
+Print
+.B git-slop
+and the installed package version.
+.SH REPORT FILES
+Unless overridden with
+.BR --report ,
+report-consuming commands read
+.BR .slop/latest/report.json .
+The current machine contract is report schema 4.
+.PP
+.B summary.md
+contains detailed detector and overlay evidence.
+.B health.md
+contains status bands, token distributions, review candidates, watchlists,
+actionable findings, and profile/language rollups for humans and CI.
 .SH EXAMPLES
 .TP
+.B git slop init
+Create repository-local config and generated-state boundaries.
+.TP
 .B git slop find
-Generate the default detector report for the current repository.
+Generate a schema-4 report bundle for the current repository.
 .TP
-.B git slop show README.md
-Show detector metrics and reasons for a specific path.
+.B git slop health
+Render the repository-health dashboard from the latest report.
 .TP
-.B git slop plan --path src/git_slop
-Propose bounded maintenance slices for a selected path.
+.B git slop health --format github --max-annotations 10
+Emit at most ten GitHub workflow annotations.
+.TP
+.B git slop explain --path src/report.rs
+Explain stable cost and additive evidence for one path.
+.TP
+.B git slop plan --path src --max-slices 3
+Propose up to three bounded maintenance slices.
+.TP
+.B git slop check --fail-on-context-band warning
+Fail when any file is at or above the warning context band.
+.TP
+.B git slop compare --base old.json --head new.json
+Compare two previously generated reports.
+.SH EXIT STATUS
+.B check
+returns 0 when no file meets either threshold, 1 when findings meet a
+threshold, and 2 for invalid report or command input.
+Other commands return 0 on success and a nonzero status for invalid input or
+runtime failure.
+.SH FILES
+.TP
+.B .slop/config.yaml
+Repository-owned config schema 2.
+.TP
+.B .slop/.gitignore
+Ignore rules for routine generated state.
+.TP
+.B .slop/latest/
+Latest four-file report bundle.
+.TP
+.B .slop/runs/
+Timestamped report bundles.
+.TP
+.B .slop/cache/
+Disposable generated cache state.
+.SH BOUNDARIES
+Git Slop does not rewrite code, mutate GitHub, invoke a hosted model, or treat
+findings as correctness proofs. Stable costs, overlays, and health projections
+remain separate.
 .SH SEE ALSO
 .BR git (1)

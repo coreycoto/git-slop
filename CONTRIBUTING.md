@@ -27,18 +27,34 @@ usage, install Git Slop with Homebrew as described in
 
 Requirements:
 
-- Python 3.13
-- `uv`
+- Rust 1.85 or newer
+- Cargo
 - Git
 
 ```bash
 git clone https://github.com/coreycoto/git-slop.git
 cd git-slop
-uv sync --group dev
-uv run git-slop version
+cargo build --locked
+cargo run --locked -- version
 ```
 
-Optional maintainer-agent tests use the `maintainer` dependency group:
+The public runtime lives in the Rust modules under `src/` (including focused
+submodules under `src/health/`, `src/overlays/`, `src/report/`, and
+`src/report_ops/`). The retained `git-slop-maintainer` Python project under
+`src/git_slop/` and its tests serve
+as a compatibility oracle and support repo-local maintainer automation during
+the migration. It has no `git-slop` console entry point and is not included in
+the Cargo package or native release archives.
+
+Python-facing validation requires Python 3.13 and `uv`:
+
+```bash
+uv sync --group dev
+uv run ruff check
+uv run pytest
+```
+
+Optional maintainer-agent tests add the `maintainer` dependency group:
 
 ```bash
 uv sync --group dev --group maintainer
@@ -51,14 +67,17 @@ Those tests are skipped when `agent-plugins` is not available.
 Run these before submitting a pull request:
 
 ```bash
-uv run ruff check
-uv run pytest
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo test --all-targets --all-features --locked
 ```
 
-For packaging or release-script changes, also run:
+If the change touches compatibility Python, maintainer scripts, plugin
+validation, or workflow-contract tests, also run:
 
 ```bash
-uv build
+uv run ruff check
+uv run pytest
 ```
 
 For plugin or maintainer workflow changes, also run:
@@ -67,6 +86,16 @@ For plugin or maintainer workflow changes, also run:
 uv run python scripts/validate_codex_surface.py
 uv run python scripts/smoke_plugin_consumer.py
 ```
+
+For packaging or release-script changes, also run:
+
+```bash
+cargo package --locked
+cargo publish --dry-run --locked
+```
+
+The dry run validates package readiness; it does not mean a crates.io version
+has been published.
 
 ## Project Boundaries
 
@@ -78,6 +107,7 @@ Keep `git-slop` local-first and deterministic:
 - no automatic code mutation, commits, or pushes
 - no GitHub mutation from the public CLI
 - no broad report schema changes without tests and docs
+- no new product behavior added only to the retained Python oracle
 
 Validation and dogfood may use private or external repositories, but committed
 repo content must not name them. Use neutral labels such as `local repo`,

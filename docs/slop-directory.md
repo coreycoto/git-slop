@@ -7,7 +7,16 @@ Git Slop writes repository-local state under `.slop/`.
   config.yaml
   .gitignore
   latest/
+    report.json
+    report.yaml
+    summary.md
+    health.md
   runs/
+    <timestamp>/
+      report.json
+      report.yaml
+      summary.md
+      health.md
   cache/
 ```
 
@@ -36,6 +45,16 @@ Do not commit these runtime outputs:
 Use CI artifacts or local scratch paths for those files. They are derived from
 the repo state and should be regenerated when needed.
 
+The GitHub Action follows a bounded upload policy instead of uploading either
+runtime directory:
+
+- default `summary`: `health.md` only
+- opt-in `report`: `health.md` and `report.json`
+- opt-in `full`: the four allowlisted files from `.slop/latest/`
+
+The default artifact retention is 14 days. Prefer the default unless a machine
+consumer needs schema-4 JSON or a reviewer explicitly needs the full bundle.
+
 ## Exceptions
 
 Only check in generated-looking artifacts when they are deliberately curated as
@@ -50,5 +69,17 @@ artifact or a link to a GitHub Release asset over committing `.slop/latest/`.
 
 ## Cache Notes
 
-`.slop/cache/` is an optimization only. It is safe to delete. Cold and warm runs
-on the same repo snapshot and config should produce the same report content.
+`.slop/cache/` is generated state reserved for deterministic performance
+optimizations. It is safe to delete and must never be required for correctness.
+
+## Bundle Notes
+
+`find` writes the complete four-file bundle to both destinations. The latest
+bundle is replaced atomically so consumers do not observe a partially updated
+report set. Timestamped run directories are immutable snapshots of individual
+detector runs.
+
+`health`, `show`, `explain`, `plan`, `check`, and `sarif` read an existing
+report. `compare` reads two. They do not create another detector run; only
+explicit prompt-pack, SARIF output, or redirected command output writes
+additional generated files.

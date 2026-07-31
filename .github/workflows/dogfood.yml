@@ -5,68 +5,62 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   dogfood:
     name: Run Git Slop On Git Slop
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install uv
-        run: python -m pip install --upgrade pip uv
-
-      - name: Configure agent-plugins dependency access
-        env:
-          AGENT_PLUGINS_GIT_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
-        run: |
-          if [ -n "$AGENT_PLUGINS_GIT_TOKEN" ]; then
-            git config --global url."https://x-access-token:${AGENT_PLUGINS_GIT_TOKEN}@github.com/coreycoto/agent-plugins.git".insteadOf "https://github.com/coreycoto/agent-plugins.git"
-          elif GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/coreycoto/agent-plugins.git >/dev/null 2>&1; then
-            echo "agent-plugins is publicly readable; no extra git auth configured."
-          else
-            echo "coreycoto/agent-plugins is private and cannot be fetched from CI without a token." >&2
-            echo "Set AGENT_PLUGINS_READ_TOKEN with read access to coreycoto/agent-plugins, or make the repo public." >&2
-            exit 1
-          fi
-      - name: Sync project
-        run: uv sync --group dev --group maintainer
+      - name: Build release binary
+        run: cargo build --release --locked
 
       - name: Run detector
-        run: uv run git-slop find
+        shell: bash
+        run: |
+          set -euo pipefail
+          detector_log="$RUNNER_TEMP/git-slop-find.log"
+          if ! target/release/git-slop find >"$detector_log" 2>&1; then
+            echo "Git Slop detector failed. Raw output is suppressed because repository paths are untrusted." >&2
+            exit 1
+          fi
+          echo "Git Slop detector completed; publishing the escaped health report."
 
       - name: Publish summary
         if: always()
         run: |
-          if [ -f .slop/latest/summary.md ]; then
-            cat .slop/latest/summary.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f .slop/latest/health.md ]; then
+            cat .slop/latest/health.md >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Git Slop did not produce .slop/latest/summary.md." >> "$GITHUB_STEP_SUMMARY"
+            echo "Git Slop did not produce .slop/latest/health.md." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload dogfood artifacts
+      - name: Upload dogfood health report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: git-slop-dogfood
-          path: .slop/latest/summary.md
+          path: .slop/latest/health.md
           if-no-files-found: warn
           retention-days: 14
+          include-hidden-files: true
 
       - name: Warn-first threshold check
         if: always()
         run: |
           if [ -f .slop/latest/report.json ]; then
-            uv run git-slop check || true
+            target/release/git-slop check || true
           else
             echo "Skipping threshold check because no report was generated."
           fi

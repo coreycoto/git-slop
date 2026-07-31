@@ -1,6 +1,6 @@
 ---
 name: adopt-repo
-description: Add git-slop to a consumer repository using the canonical plugin, Homebrew, wrapper, and warn-only CI contract.
+description: Add git-slop to a consumer repository using the canonical plugin, native CLI, and advisory GitHub Action contract.
 ---
 
 # Adopt Git Slop In A Repository
@@ -11,15 +11,33 @@ Use this skill when a repository should start consuming `git-slop`.
 
 - Add `git-slop` Codex plugin source metadata alongside any existing shared
   workflow plugin sources.
-- Prefer a repo wrapper such as `./scripts/git_slop.sh`.
-- Require `git-slop` on `PATH`, usually installed from Homebrew.
+- For local use, prefer a repo wrapper such as `./scripts/git_slop.sh` and
+  require the native `git-slop` executable on `PATH`, usually from Homebrew.
 - Pin the expected minimum CLI version in a repo-owned tool contract when the
   consumer needs an explicit version gate.
 - Commit `.slop/config.yaml` when the repository intentionally configures Git
   Slop, and commit `.slop/.gitignore` so generated state stays untracked.
 - Do not commit `.slop/latest/`, `.slop/runs/`, `.slop/cache/`, prompt packs,
   SARIF exports, plan JSON, or compare JSON as routine adoption output.
-- In CI, install or provide `git-slop` before running the repository's warn-only
-  report lane.
+- In GitHub Actions, check out full history with `fetch-depth: 0`, then use the
+  immutable `coreycoto/git-slop@v0.9.0` Action reference.
+- Keep the Action at its safe defaults initially: advisory policy, at most 10
+  annotations, `health.md`-only artifact, 14-day retention, and no pull request
+  comment.
+- Opt into `artifact-contents: report` only for schema-4 automation. Do not
+  upload `.slop/latest/` or `.slop/runs/` as broad directories.
 - Keep `git-slop` observational until the repository explicitly promotes checks
-  into required gates.
+  into required gates with `policy: enforce`.
+
+Minimal CI adoption:
+
+```yaml
+permissions:
+  contents: read
+
+steps:
+  - uses: actions/checkout@v6
+    with:
+      fetch-depth: 0
+  - uses: coreycoto/git-slop@v0.9.0
+```

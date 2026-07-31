@@ -96,8 +96,8 @@ wheels = [
 ]
 
 [[package]]
-name = "git-slop"
-version = "0.8.1"
+name = "git-slop-maintainer"
+version = "0.9.0"
 source = { editable = "." }
 dependencies = [
     { name = "pyyaml" },
