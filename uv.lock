@@ -5,7 +5,7 @@ requires-python = ">=3.13"
 [[package]]
 name = "agent-plugins"
 version = "0.1.0"
-source = { git = "https://github.com/coreycoto/agent-plugins.git?rev=03f3724e4ff41376b4f0d10d83c9ec335fcdac3d#03f3724e4ff41376b4f0d10d83c9ec335fcdac3d" }
+source = { git = "https://github.com/coreycoto/agent-plugins.git?rev=ec3c5b169550f309b45fb2d86c406fe487ff42d8#ec3c5b169550f309b45fb2d86c406fe487ff42d8" }
 dependencies = [
     { name = "jsonschema" },
     { name = "openai" },
@@ -92,7 +92,7 @@ dev = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "ruff", specifier = ">=0.11.0" },
 ]
-maintainer = [{ name = "agent-plugins", git = "https://github.com/coreycoto/agent-plugins.git?rev=03f3724e4ff41376b4f0d10d83c9ec335fcdac3d" }]
+maintainer = [{ name = "agent-plugins", git = "https://github.com/coreycoto/agent-plugins.git?rev=ec3c5b169550f309b45fb2d86c406fe487ff42d8" }]
 
 [[package]]
 name = "h11"

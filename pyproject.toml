@@ -34,7 +34,7 @@ dev = [
     "ruff>=0.11.0",
 ]
 maintainer = [
-    "agent-plugins @ git+https://github.com/coreycoto/agent-plugins.git@03f3724e4ff41376b4f0d10d83c9ec335fcdac3d",
+    "agent-plugins @ git+https://github.com/coreycoto/agent-plugins.git@ec3c5b169550f309b45fb2d86c406fe487ff42d8",
 ]
 
 [tool.pytest.ini_options]

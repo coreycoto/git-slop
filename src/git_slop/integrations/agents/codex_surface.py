@@ -23,7 +23,13 @@ CI_PROFILE_SANDBOX_MODES = {
     "ci_mutation": "workspace-write",
     "ci_release": "workspace-write",
 }
-CODEX_PROFILE_COPY_COMMAND = 'cp .codex/*.config.toml "$RUNNER_TEMP/codex-home/"'
+CODEX_PROFILE_COPY_COMMAND = (
+    'cp .codex/*.config.toml "$RUNNER_TEMP/codex-runtime/.codex/"'
+)
+CODEX_CONFIG_COPY_COMMAND = (
+    'cp .codex/config.toml "$RUNNER_TEMP/codex-runtime/.codex/config.toml"'
+)
+CODEX_HOME_INPUT = "codex-home: ${{ runner.temp }}/codex-runtime/.codex"
 
 
 def _installed_skill(skill_name: str) -> str:
@@ -43,7 +49,7 @@ AGENT_SKILL_REFERENCES = {
 }
 
 EXPECTED_PLUGIN_URL = "https://github.com/coreycoto/agent-plugins.git"
-EXPECTED_PLUGIN_SHA = "03f3724e4ff41376b4f0d10d83c9ec335fcdac3d"
+EXPECTED_PLUGIN_SHA = "ec3c5b169550f309b45fb2d86c406fe487ff42d8"
 EXPECTED_MARKETPLACE_NAME = "agent-plugins-marketplace"
 MARKETPLACE_SOURCE_MANIFEST = Path(".agents/plugins/marketplace-source.json")
 GIT_SLOP_MARKETPLACE = Path(".agents/plugins/marketplace.json")
@@ -58,7 +64,7 @@ GIT_SLOP_PLUGIN_SKILLS = {
     "plan-maintenance",
     "run-report",
 }
-BOOTSTRAP_SCRIPT = Path("scripts/bootstrap_agent_plugins_marketplace.py")
+BOOTSTRAP_COMMAND = "python -m agent_plugins.marketplace.bootstrap install"
 REMOVED_LOCAL_PLUGIN_ROOT = Path("plugins/project-management-workflows")
 REMOVED_LOCAL_PLUGIN_REFERENCES = (
     "plugins/project-management-workflows/",
@@ -68,6 +74,16 @@ REMOVED_LOCAL_PLUGIN_REFERENCES = (
 REMOVED_TESTS = {
     "tests/test_github_surface_preflight.py",
     "tests/test_plugin_home_install.py",
+    "tests/test_agent_tools_integration.py",
+    "tests/test_plugin_consumer_smoke.py",
+    "tests/unit/agent_tools/test_backlog_deltas.py",
+    "tests/unit/agent_tools/test_governance_config.py",
+    "tests/unit/agent_tools/test_issue_forms.py",
+    "tests/unit/agent_tools/test_research_digest.py",
+}
+REMOVED_CONSUMER_RUNTIME_FILES = {
+    "scripts/bootstrap_agent_plugins_marketplace.py",
+    "scripts/smoke_plugin_consumer.py",
 }
 WORKFLOW_ASSETS = {
     "dependency-remediation.yml": {
@@ -255,9 +271,6 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
                 "Consumer bootstrap manifest must require the project-management-workflows plugin."
             )
 
-    if not (repo_root / BOOTSTRAP_SCRIPT).exists():
-        errors.append("scripts/bootstrap_agent_plugins_marketplace.py is missing.")
-
     marketplace_path = repo_root / GIT_SLOP_MARKETPLACE
     if not marketplace_path.exists():
         errors.append(".agents/plugins/marketplace.json is missing for git-slop marketplace.")
@@ -304,6 +317,11 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
     for removed_test in REMOVED_TESTS:
         if (repo_root / removed_test).exists():
             errors.append(f"{removed_test} should have been removed from the consumer repo.")
+    for removed_file in REMOVED_CONSUMER_RUNTIME_FILES:
+        if (repo_root / removed_file).exists():
+            errors.append(
+                f"{removed_file} should be owned by the agent-plugins publisher, not git-slop."
+            )
 
     for agent_name, relative_path in ROOT_AGENTS.items():
         agent_path = repo_root / relative_path
@@ -363,12 +381,7 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
             if forbidden in text:
                 errors.append(f"{relative_path} must not reference {forbidden}.")
 
-    smoke_script = repo_root / "scripts" / "smoke_plugin_consumer.py"
-    if not smoke_script.exists():
-        errors.append("scripts/smoke_plugin_consumer.py is missing.")
-
     agent_plugin_workflows = (
-        "ci.yml",
         "dependency-remediation.yml",
         "docs-taxonomy.yml",
         "governance-reconcile.yml",
@@ -384,19 +397,14 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
             errors.append(f"{workflow_name} must configure AGENT_PLUGINS_GIT_TOKEN access.")
         if EXPECTED_PLUGIN_URL not in workflow_text:
             errors.append(f"{workflow_name} must reference the agent-plugins repo URL.")
-        if (
-            workflow_name != "ci.yml"
-            and "scripts/bootstrap_agent_plugins_marketplace.py install" not in workflow_text
-        ):
+        if BOOTSTRAP_COMMAND not in workflow_text:
             errors.append(
-                f"{workflow_name} must bootstrap the pinned agent-plugins marketplace source."
+                f"{workflow_name} must use the publisher-owned pinned marketplace bootstrap."
             )
-        if workflow_name == "ci.yml" and "scripts/smoke_plugin_consumer.py" not in workflow_text:
-            errors.append("ci.yml must run scripts/smoke_plugin_consumer.py.")
         if "openai/codex-action@v1" in workflow_text:
-            if "$RUNNER_TEMP/codex-home" not in workflow_text:
+            if "$RUNNER_TEMP/codex-runtime/.codex" not in workflow_text:
                 errors.append(f"{workflow_name} must prepare a temporary isolated Codex home.")
-            if 'cp .codex/config.toml "$RUNNER_TEMP/codex-home/config.toml"' not in workflow_text:
+            if CODEX_CONFIG_COPY_COMMAND not in workflow_text:
                 errors.append(
                     f"{workflow_name} must copy repo Codex config into the isolated Codex home."
                 )
@@ -405,7 +413,7 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
                     f"{workflow_name} must copy standalone Codex profiles into the isolated "
                     "Codex home."
                 )
-            if "codex-home: ${{ runner.temp }}/codex-home" not in workflow_text:
+            if CODEX_HOME_INPUT not in workflow_text:
                 errors.append(f"{workflow_name} must pass the isolated Codex home to codex-action.")
 
     release_workflow = repo_root / ".github" / "workflows" / "release-publish.yml"
