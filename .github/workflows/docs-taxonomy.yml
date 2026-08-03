@@ -110,9 +110,13 @@ jobs:
           fi
 
       - name: Upload docs-taxonomy artifacts
-        if: always()
+        if: ${{ always() && steps.codex_preflight.outputs.enabled == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: docs-taxonomy-artifacts
-          path: .artifacts
-          if-no-files-found: warn
+          path: |
+            .artifacts/codex/docs-taxonomy.json
+            .artifacts/docs-taxonomy/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

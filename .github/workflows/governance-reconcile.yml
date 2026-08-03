@@ -97,9 +97,13 @@ jobs:
           fi
 
       - name: Upload governance artifacts
-        if: always()
+        if: ${{ always() && steps.codex_preflight.outputs.enabled == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: governance-reconcile-artifacts
-          path: .artifacts
-          if-no-files-found: warn
+          path: |
+            .artifacts/codex/governance-reconcile.json
+            .artifacts/github-governance/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

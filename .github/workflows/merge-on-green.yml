@@ -194,9 +194,11 @@ jobs:
           fi
 
       - name: Upload merge-gate artifacts
-        if: steps.merge_preflight.outputs.eligible == 'true' && always()
+        if: ${{ always() && steps.merge_preflight.outputs.eligible == 'true' && steps.codex_preflight.outputs.enabled == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: merge-on-green-artifacts
-          path: .artifacts
-          if-no-files-found: warn
+          path: .artifacts/codex/merge-on-green.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

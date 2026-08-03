@@ -196,3 +196,6 @@ jobs:
         with:
           name: execution-state
           path: ${{ steps.artifact-root.outputs.path }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
