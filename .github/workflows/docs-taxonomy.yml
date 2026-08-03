@@ -82,6 +82,7 @@ jobs:
         run: |
           mkdir -p .artifacts/codex .artifacts/docs-taxonomy "$RUNNER_TEMP/codex-home"
           cp .codex/config.toml "$RUNNER_TEMP/codex-home/config.toml"
+          cp .codex/*.config.toml "$RUNNER_TEMP/codex-home/"
 
       - name: Run Codex docs taxonomy audit
         if: steps.codex_preflight.outputs.enabled == 'true'

@@ -22,15 +22,3 @@ default_tools_enabled = true
 default_tools_approval_mode = "prompt"
 open_world_enabled = true
 destructive_enabled = true
-
-[profiles.ci_readonly]
-approval_policy = "never"
-sandbox_mode = "read-only"
-
-[profiles.ci_mutation]
-approval_policy = "never"
-sandbox_mode = "workspace-write"
-
-[profiles.ci_release]
-approval_policy = "never"
-sandbox_mode = "workspace-write"

@@ -17,6 +17,14 @@ ROOT_AGENTS = {
 
 INSTALLED_PLUGIN_NAME = "project-management-workflows"
 
+CODEX_CONFIG_PATH = Path(".codex/config.toml")
+CI_PROFILE_SANDBOX_MODES = {
+    "ci_readonly": "read-only",
+    "ci_mutation": "workspace-write",
+    "ci_release": "workspace-write",
+}
+CODEX_PROFILE_COPY_COMMAND = 'cp .codex/*.config.toml "$RUNNER_TEMP/codex-home/"'
+
 
 def _installed_skill(skill_name: str) -> str:
     return f"${INSTALLED_PLUGIN_NAME}:{skill_name}"
@@ -179,6 +187,47 @@ def _is_sha(value: object) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value) is not None
 
 
+def _validate_codex_config(repo_root: Path) -> list[str]:
+    errors: list[str] = []
+    config_path = repo_root / CODEX_CONFIG_PATH
+    if not config_path.exists():
+        errors.append(".codex/config.toml is missing.")
+    else:
+        payload = _load_toml(config_path)
+        if payload.get("approval_policy") != "on-request":
+            errors.append(".codex/config.toml must default approval_policy to on-request.")
+        if payload.get("sandbox_mode") != "workspace-write":
+            errors.append(".codex/config.toml must default sandbox_mode to workspace-write.")
+        if "profile" in payload:
+            errors.append(
+                ".codex/config.toml must not define the legacy profile selector; "
+                "select a standalone profile with --profile."
+            )
+        if "profiles" in payload:
+            errors.append(
+                ".codex/config.toml must not define legacy [profiles.*] tables; "
+                "use standalone .codex/<profile>.config.toml files."
+            )
+
+    for profile_name, sandbox_mode in CI_PROFILE_SANDBOX_MODES.items():
+        relative_path = Path(".codex") / f"{profile_name}.config.toml"
+        profile_path = repo_root / relative_path
+        if not profile_path.exists():
+            errors.append(f"{relative_path.as_posix()} is missing.")
+            continue
+        payload = _load_toml(profile_path)
+        if payload.get("approval_policy") != "never":
+            errors.append(
+                f"{relative_path.as_posix()} must set top-level approval_policy to never."
+            )
+        if payload.get("sandbox_mode") != sandbox_mode:
+            errors.append(
+                f"{relative_path.as_posix()} must set top-level sandbox_mode to {sandbox_mode}."
+            )
+
+    return errors
+
+
 def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) -> list[str]:
     errors: list[str] = []
 
@@ -192,29 +241,7 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
         if not (repo_root / relative_path).exists():
             errors.append(f"{relative_path} is missing.")
 
-    config_path = repo_root / ".codex" / "config.toml"
-    if not config_path.exists():
-        errors.append(".codex/config.toml is missing.")
-    else:
-        payload = _load_toml(config_path)
-        if payload.get("approval_policy") != "on-request":
-            errors.append(".codex/config.toml must default approval_policy to on-request.")
-        if payload.get("sandbox_mode") != "workspace-write":
-            errors.append(".codex/config.toml must default sandbox_mode to workspace-write.")
-        profiles = payload.get("profiles")
-        if not isinstance(profiles, dict):
-            errors.append(".codex/config.toml must define profiles.")
-        else:
-            for profile_name in ("ci_readonly", "ci_mutation", "ci_release"):
-                profile = profiles.get(profile_name)
-                if not isinstance(profile, dict):
-                    errors.append(f".codex/config.toml missing profile {profile_name}.")
-                    continue
-                if profile.get("approval_policy") != "never":
-                    errors.append(
-                        ".codex/config.toml profile "
-                        f"{profile_name} must set approval_policy to never."
-                    )
+    errors.extend(_validate_codex_config(repo_root))
 
     rule_path = repo_root / ".codex" / "rules" / "git.rules"
     if not rule_path.exists():
@@ -388,6 +415,11 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
             if 'cp .codex/config.toml "$RUNNER_TEMP/codex-home/config.toml"' not in workflow_text:
                 errors.append(
                     f"{workflow_name} must copy repo Codex config into the isolated Codex home."
+                )
+            if CODEX_PROFILE_COPY_COMMAND not in workflow_text:
+                errors.append(
+                    f"{workflow_name} must copy standalone Codex profiles into the isolated "
+                    "Codex home."
                 )
             if "codex-home: ${{ runner.temp }}/codex-home" not in workflow_text:
                 errors.append(f"{workflow_name} must pass the isolated Codex home to codex-action.")
