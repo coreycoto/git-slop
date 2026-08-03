@@ -4,81 +4,308 @@ on:
   push:
     tags:
       - "v*.*.*"
-  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish tagged release
-    runs-on: ubuntu-latest
+  validate:
+    name: Validate tagged Rust package
+    runs-on: ubuntu-24.04
     permissions:
-      contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
+      contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout tag
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
         with:
-          python-version: "3.13"
+          node-version: "24"
 
-      - name: Install uv
-        run: python -m pip install --upgrade pip uv
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
 
-      - name: Configure git author
-        run: |
-          git config user.name "codex[bot]"
-          git config user.email "codex[bot]@users.noreply.github.com"
+      - name: Validate tag and Cargo version
+        shell: bash
+        run: python3 scripts/release_prepare.py --version "${GITHUB_REF_NAME#v}" --check-only
 
-      - name: Configure agent-plugins dependency access
-        env:
-          AGENT_PLUGINS_GIT_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
-        run: |
-          if [ -n "$AGENT_PLUGINS_GIT_TOKEN" ]; then
-            git config --global url."https://x-access-token:${AGENT_PLUGINS_GIT_TOKEN}@github.com/coreycoto/agent-plugins.git".insteadOf "https://github.com/coreycoto/agent-plugins.git"
-          elif GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/coreycoto/agent-plugins.git >/dev/null 2>&1; then
-            echo "agent-plugins is publicly readable; no extra git auth configured."
-          else
-            echo "coreycoto/agent-plugins is private and cannot be fetched from CI without a token." >&2
-            echo "Set AGENT_PLUGINS_READ_TOKEN with read access to coreycoto/agent-plugins, or make the repo public." >&2
-            exit 1
-          fi
-      - name: Sync project
-        run: uv sync --group dev --group maintainer
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-      - name: Bootstrap agent-plugins marketplace source
-        run: uv run python scripts/bootstrap_agent_plugins_marketplace.py install
+      - name: Lint
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
 
-      - name: Validate Codex surface
-        run: uv run python scripts/validate_codex_surface.py
+      - name: Test
+        run: cargo test --all-targets --all-features --locked
 
-      - name: Build package
-        run: uv build
+      - name: Validate Cargo package
+        run: cargo package --locked
 
-      - name: Publish GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Validate crates.io publication without credentials
+        run: cargo publish --dry-run --locked
+
+      - name: Test GitHub Action
+        run: node --test action/*.test.mjs
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            archive: tar.gz
+          - os: macos-15
+            target: aarch64-apple-darwin
+            archive: tar.gz
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+            archive: zip
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v7
+
+      - name: Set up Rust target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --locked --target "${{ matrix.target }}"
+
+      - name: Package and smoke Unix archive
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           set -euo pipefail
-          release_tag="${GITHUB_REF_NAME}"
-          if [[ ! "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            release_tag="v$(python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
-          fi
-          if gh release view "$release_tag" >/dev/null 2>&1; then
-            gh release edit "$release_tag" --title "$release_tag"
+          asset="git-slop-${RELEASE_TAG}-${TARGET}"
+          archive="git-slop-${RELEASE_TAG}-${TARGET}.tar.gz"
+          mkdir -p "staging/${asset}" dist smoke
+          cp "target/${TARGET}/release/git-slop" "staging/${asset}/git-slop"
+          cp LICENSE README.md "staging/${asset}/"
+          cp man/git-slop.1 "staging/${asset}/"
+          chmod +x "staging/${asset}/git-slop"
+          tar -C staging -czf "dist/${archive}" "${asset}"
+          tar -C smoke -xzf "dist/${archive}"
+          actual="$("smoke/${asset}/git-slop" version)"
+          test "$actual" = "git-slop ${RELEASE_TAG#v}"
+
+      - name: Package and smoke Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $asset = "git-slop-${env:RELEASE_TAG}-${env:TARGET}"
+          $archive = "git-slop-${env:RELEASE_TAG}-${env:TARGET}.zip"
+          $stage = Join-Path "staging" $asset
+          New-Item -ItemType Directory -Force -Path $stage, "dist", "smoke" | Out-Null
+          Copy-Item "target\$env:TARGET\release\git-slop.exe" "$stage\git-slop.exe"
+          Copy-Item "LICENSE" $stage
+          Copy-Item "README.md" $stage
+          Copy-Item "man\git-slop.1" $stage
+          Compress-Archive -Path $stage -DestinationPath "dist\$archive"
+          Expand-Archive -Path "dist\$archive" -DestinationPath "smoke"
+          $actual = & "smoke\$asset\git-slop.exe" version
+          if ($actual -ne "git-slop $($env:RELEASE_TAG.TrimStart('v'))") {
+            throw "Unexpected packaged binary version: $actual"
+          }
+
+      - name: Upload target archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download target archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Build and verify release manifest
+        run: |
+          python3 scripts/build_release_manifest.py \
+            --dist-dir dist \
+            --output dist/release-manifest.json \
+            --checksum-output dist/SHA256SUMS \
+            --tag "$GITHUB_REF_NAME"
+          cd dist
+          sha256sum --check SHA256SUMS
+
+      - name: Inspect existing release state
+        id: release-state
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}"
+          mkdir -p release-verification
+          if gh api "$endpoint" > release-verification/release.json \
+            2> release-verification/release-error.txt; then
+            if test "$(jq -r '.draft' release-verification/release.json)" = "true"; then
+              echo "state=draft" >> "$GITHUB_OUTPUT"
+              echo "published=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            mkdir -p release-verification/published-assets \
+              release-verification/regenerated
+            gh release download "$GITHUB_REF_NAME" \
+              --dir release-verification/published-assets
+            cat > release-verification/expected-assets.txt <<EOF
+          SHA256SUMS
+          git-slop-${GITHUB_REF_NAME}-aarch64-apple-darwin.tar.gz
+          git-slop-${GITHUB_REF_NAME}-aarch64-pc-windows-msvc.zip
+          git-slop-${GITHUB_REF_NAME}-aarch64-unknown-linux-gnu.tar.gz
+          git-slop-${GITHUB_REF_NAME}-x86_64-pc-windows-msvc.zip
+          git-slop-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz
+          release-manifest.json
+          EOF
+            jq -r '.assets[].name' release-verification/release.json \
+              | LC_ALL=C sort > release-verification/actual-assets.txt
+            diff -u \
+              release-verification/expected-assets.txt \
+              release-verification/actual-assets.txt
+            (
+              cd release-verification/published-assets
+              sha256sum --check SHA256SUMS
+            )
+            python3 scripts/build_release_manifest.py \
+              --dist-dir release-verification/published-assets \
+              --output release-verification/regenerated/release-manifest.json \
+              --checksum-output release-verification/regenerated/SHA256SUMS \
+              --tag "$GITHUB_REF_NAME"
+            cmp \
+              release-verification/published-assets/release-manifest.json \
+              release-verification/regenerated/release-manifest.json
+            cmp \
+              release-verification/published-assets/SHA256SUMS \
+              release-verification/regenerated/SHA256SUMS
+            echo "Published release already exists and exactly verifies; no mutation will run."
+            echo "state=published" >> "$GITHUB_OUTPUT"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          elif grep -q "HTTP 404" release-verification/release-error.txt; then
+            echo "state=missing" >> "$GITHUB_OUTPUT"
+            echo "published=false" >> "$GITHUB_OUTPUT"
           else
-            gh release create "$release_tag" --title "$release_tag" --generate-notes
+            cat release-verification/release-error.txt >&2
+            exit 1
           fi
 
-      - name: Upload build outputs
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Attest release assets
+        if: steps.release-state.outputs.published != 'true'
+        uses: actions/attest@v4
         with:
-          name: release-publish-build-output
-          path: |
-            dist
-            .artifacts
-          if-no-files-found: warn
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS
+            dist/release-manifest.json
+
+      - name: Create or refresh draft release assets
+        if: steps.release-state.outputs.published != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="$GITHUB_REF_NAME"
+          if test "${{ steps.release-state.outputs.state }}" = "missing"; then
+            gh release create "$release_tag" \
+              --draft \
+              --generate-notes \
+              --title "$release_tag" \
+              --verify-tag
+          fi
+          endpoint="repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}"
+          release_json="$(gh api "$endpoint")"
+          test "$(jq -r '.draft' <<< "$release_json")" = "true"
+          while IFS= read -r asset_name; do
+            gh release delete-asset "$release_tag" "$asset_name" --yes
+          done < <(jq -r '.assets[].name' <<< "$release_json")
+          gh release upload "$release_tag" \
+            dist/*.tar.gz \
+            dist/*.zip \
+            dist/SHA256SUMS \
+            dist/release-manifest.json
+          cat > expected-draft-assets.txt <<EOF
+          SHA256SUMS
+          git-slop-${release_tag}-aarch64-apple-darwin.tar.gz
+          git-slop-${release_tag}-aarch64-pc-windows-msvc.zip
+          git-slop-${release_tag}-aarch64-unknown-linux-gnu.tar.gz
+          git-slop-${release_tag}-x86_64-pc-windows-msvc.zip
+          git-slop-${release_tag}-x86_64-unknown-linux-gnu.tar.gz
+          release-manifest.json
+          EOF
+          gh api "$endpoint" --jq '.assets[].name' \
+            | LC_ALL=C sort > actual-draft-assets.txt
+          diff -u expected-draft-assets.txt actual-draft-assets.txt
+
+      # This intentionally runs for an exact published no-op and for a refreshed draft.
+      - name: Verify the Action installer against published or draft assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_temp="${RUNNER_TEMP}/git-slop-release-installer"
+          mkdir -p "$install_temp"
+          export GIT_SLOP_ACTION_VERSION="${GITHUB_REF_NAME#v}"
+          export GIT_SLOP_RELEASE_REPOSITORY="$GITHUB_REPOSITORY"
+          export GIT_SLOP_GITHUB_TOKEN="$GH_TOKEN"
+          export GITHUB_OUTPUT="${install_temp}/output"
+          export GITHUB_PATH="${install_temp}/path"
+          export RUNNER_TEMP="$install_temp"
+          node action/install.mjs
+          binary_path="$(
+            find "$install_temp" -type f -name git-slop -perm -111 -print -quit
+          )"
+          test -n "$binary_path"
+          test "$("$binary_path" version)" = "git-slop ${GITHUB_REF_NAME#v}"
+
+      - name: Publish verified draft
+        if: steps.release-state.outputs.published != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="$GITHUB_REF_NAME"
+          endpoint="repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}"
+          test "$(gh api "$endpoint" --jq '.draft')" = "true"
+          gh release edit "$release_tag" --draft=false

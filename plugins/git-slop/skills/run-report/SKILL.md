@@ -1,6 +1,6 @@
 ---
 name: run-report
-description: Run git-slop report, explain, plan, and check commands in a repository while preserving its local artifact and warn-only conventions.
+description: Run git-slop report, health, explain, plan, and check commands while preserving local artifact and advisory CI conventions.
 ---
 
 # Run Git Slop Reports
@@ -12,17 +12,24 @@ explanation/plan.
 
 - Initialize repo state when needed: `git-slop init`
 - Generate artifacts: `git-slop find`
+- Render the human health dashboard: `git-slop health`
+- Emit bounded CI annotations: `git-slop health --format github --max-annotations 10`
 - Explain current evidence: `git-slop explain --top 5` or `git-slop explain --path <path>`
 - Propose bounded work: `git-slop plan --path <path>` or `git-slop plan --relationship <id>`
 - Compare existing reports: `git-slop compare --base <old-report.json> --head <new-report.json>`
 - Export SARIF locally: `git-slop sarif --report <report.json> --output <path.sarif>`
 - Run the gate surface: `git-slop check`
 
+One successful `find` writes `report.json`, `report.yaml`, `summary.md`, and
+`health.md` to both `.slop/latest/` and a timestamped `.slop/runs/` directory.
+`health` and the other downstream commands consume those reports; do not rerun
+`find` merely to change the presentation.
+
 Generated `.slop/latest/`, `.slop/runs/`, `.slop/cache/`, prompt packs, SARIF
 exports, plan JSON, and compare JSON should stay untracked unless a repository
 intentionally curates examples or fixtures outside the runtime `.slop/` tree.
-Upload generated report outputs as CI artifacts when review needs a durable
-copy.
+Upload a bounded generated artifact when review needs a durable copy. Prefer
+`health.md` alone; add `report.json` only when automation needs schema-4 data.
 
 Consumer repos may provide a wrapper such as `./scripts/git_slop.sh`; prefer it
 when present because it may enforce the repo's pinned install contract.

@@ -12,6 +12,9 @@ scatter, weak verification, navigation friction, blast radius, stewardship
 pressure, and semantic drift. Those overlays support review, but they do not
 inflate the stable hotspot score.
 
+The public CLI is a native Rust executable. It needs Git, but it does not need
+Python, a package-manager runtime, a hosted API, or a model provider.
+
 ## Install
 
 ```bash
@@ -22,6 +25,27 @@ git-slop version
 
 See [Installation](docs/install.md) for install policy and contributor setup.
 
+## GitHub Actions
+
+Add a complete checkout and the Git Slop Action to get a detailed repository
+health summary, bounded annotations, and a small review artifact:
+
+```yaml
+permissions:
+  contents: read
+
+steps:
+  - uses: actions/checkout@v7
+    with:
+      fetch-depth: 0
+  - uses: coreycoto/git-slop@v0.9.0
+```
+
+The Action is advisory by default. It verifies a prebuilt native binary, writes
+`health.md` to the job summary, emits at most 10 annotations, and uploads only
+`health.md` for 14 days. Enforcement, report-sized artifacts, and pull request
+comments are explicit opt-ins. See [GitHub Action](docs/github-action.md).
+
 ## Quick Start
 
 ```bash
@@ -29,9 +53,18 @@ git-slop init
 git-slop find
 git-slop show README.md
 git-slop explain --top 5
-git-slop plan --path src/git_slop
+git-slop plan --path src
+git-slop health
 git-slop check
 ```
+
+`find` writes a complete bundle to `.slop/latest/` and a timestamped copy under
+`.slop/runs/`:
+
+- `report.json`: schema-4 automation contract
+- `report.yaml`: equivalent machine data for YAML consumers
+- `summary.md`: detailed detector and overlay evidence
+- `health.md`: concise repository-health dashboard for humans and CI
 
 ## Commands
 
@@ -41,6 +74,9 @@ git-slop check
 - `git slop explain`: explain a file, folder, cluster, relationship, or top-N
 - `git slop plan`: propose bounded maintenance slices from existing evidence
 - `git slop check`: run the stable detector gate
+- `git slop compare`: compare two existing schema-4 reports
+- `git slop sarif`: export action-queue findings as SARIF 2.1.0
+- `git slop health`: render Markdown, GitHub annotations, or health JSON
 - `git slop version`: print the installed version
 
 The installed executable is `git-slop`. When it is on `PATH`, Git also accepts
@@ -50,7 +86,7 @@ See [Command Guide](docs/commands.md) for options and examples.
 
 ## Boundaries
 
-Git Slop does not:
+The local `git-slop` CLI does not:
 
 - rewrite code automatically
 - require hosted APIs
@@ -67,10 +103,16 @@ Git Slop does not:
 - [.slop Directory Policy](docs/slop-directory.md)
 - [Architecture](docs/architecture.md)
 - [Scoring Model](docs/scoring-model.md)
+- [GitHub Action](docs/github-action.md)
 - [Vision](docs/vision.md)
 - [Release Checklist](docs/release-checklist.md)
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
+
+Version 0.9.0 moves the product runtime to Rust while retaining report schema 4,
+config schema 2, and the existing `check` threshold semantics. The repository
+still contains Python compatibility tests and maintainer workflow helpers; they
+are not part of the native CLI or Cargo release package.
 
 The `git-slop` Codex plugin is published from this repo. It owns
 product-specific install, report, interpretation, planning, and

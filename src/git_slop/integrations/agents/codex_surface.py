@@ -35,7 +35,7 @@ AGENT_SKILL_REFERENCES = {
 }
 
 EXPECTED_PLUGIN_URL = "https://github.com/coreycoto/agent-plugins.git"
-EXPECTED_PLUGIN_SHA = "1cb87285df878822bcbb561bc684a57a24362a37"
+EXPECTED_PLUGIN_SHA = "03f3724e4ff41376b4f0d10d83c9ec335fcdac3d"
 EXPECTED_MARKETPLACE_NAME = "agent-plugins-marketplace"
 MARKETPLACE_SOURCE_MANIFEST = Path(".agents/plugins/marketplace-source.json")
 GIT_SLOP_MARKETPLACE = Path(".agents/plugins/marketplace.json")
@@ -231,22 +231,17 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
         manifest = json.loads(marketplace_source_path.read_text(encoding="utf-8"))
         if manifest.get("marketplace_name") != EXPECTED_MARKETPLACE_NAME:
             errors.append(
-                "Consumer bootstrap manifest must use the "
-                "agent-plugins marketplace name."
+                "Consumer bootstrap manifest must use the agent-plugins marketplace name."
             )
         if manifest.get("source_url") != EXPECTED_PLUGIN_URL:
             errors.append("Consumer bootstrap manifest must point at coreycoto/agent-plugins.git.")
         if not _is_sha(manifest.get("ref")):
             errors.append("Consumer bootstrap manifest must pin an immutable 40-character sha.")
         elif manifest.get("ref") != EXPECTED_PLUGIN_SHA:
-            errors.append(
-                "Consumer bootstrap manifest must pin the expected "
-                "agent-plugins commit."
-            )
+            errors.append("Consumer bootstrap manifest must pin the expected agent-plugins commit.")
         if manifest.get("required_plugin") != INSTALLED_PLUGIN_NAME:
             errors.append(
-                "Consumer bootstrap manifest must require the "
-                "project-management-workflows plugin."
+                "Consumer bootstrap manifest must require the project-management-workflows plugin."
             )
 
     if not (repo_root / BOOTSTRAP_SCRIPT).exists():
@@ -266,8 +261,7 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
             plugin_entries = [
                 plugin
                 for plugin in plugins
-                if isinstance(plugin, dict)
-                and plugin.get("name") == GIT_SLOP_PLUGIN_NAME
+                if isinstance(plugin, dict) and plugin.get("name") == GIT_SLOP_PLUGIN_NAME
             ]
             if len(plugin_entries) != 1:
                 errors.append(
@@ -345,8 +339,7 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
         text = (repo_root / relative_path).read_text(encoding="utf-8")
         if EXPECTED_PLUGIN_URL not in text and "agent-plugins" not in text:
             errors.append(
-                f"{relative_path} must point readers to the agent-plugins "
-                "source of truth."
+                f"{relative_path} must point readers to the agent-plugins source of truth."
             )
         if relative_path in {"AGENTS.md", ".agents/README.md", ".codex/README.md"}:
             if "marketplace-source.json" not in text:
@@ -363,15 +356,14 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
     if not smoke_script.exists():
         errors.append("scripts/smoke_plugin_consumer.py is missing.")
 
-    ci_workflows = (
+    agent_plugin_workflows = (
         "ci.yml",
         "dependency-remediation.yml",
         "docs-taxonomy.yml",
         "governance-reconcile.yml",
         "merge-on-green.yml",
-        "release-publish.yml",
     )
-    for workflow_name in ci_workflows:
+    for workflow_name in agent_plugin_workflows:
         workflow_path = repo_root / ".github" / "workflows" / workflow_name
         if not workflow_path.exists():
             errors.append(f"Missing workflow file {workflow_name}.")
@@ -398,8 +390,26 @@ def validate_codex_surface(repo_root: Path, *, require_codex_cli: bool = False) 
                     f"{workflow_name} must copy repo Codex config into the isolated Codex home."
                 )
             if "codex-home: ${{ runner.temp }}/codex-home" not in workflow_text:
-                errors.append(
-                    f"{workflow_name} must pass the isolated Codex home to codex-action."
-                )
+                errors.append(f"{workflow_name} must pass the isolated Codex home to codex-action.")
+
+    release_workflow = repo_root / ".github" / "workflows" / "release-publish.yml"
+    if not release_workflow.exists():
+        errors.append("Missing workflow file release-publish.yml.")
+    else:
+        release_text = release_workflow.read_text(encoding="utf-8")
+        if "AGENT_PLUGINS_GIT_TOKEN" in release_text:
+            errors.append(
+                "release-publish.yml must keep Rust artifact publication "
+                "decoupled from agent-plugins credentials."
+            )
+        for required in (
+            "cargo publish --dry-run --locked",
+            "scripts/build_release_manifest.py",
+            "dist/SHA256SUMS",
+            "dist/release-manifest.json",
+            "gh release upload",
+        ):
+            if required not in release_text:
+                errors.append(f"release-publish.yml must include {required}.")
 
     return errors

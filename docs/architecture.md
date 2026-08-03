@@ -2,163 +2,176 @@
 
 ## Design Goals
 
-The architecture should stay deterministic, inspectable, and boring enough to
-run locally without mystery.
+Git Slop is a native Rust CLI built to remain deterministic, inspectable, and
+local-first. The product runtime:
 
-The scaling rule is simple:
+- inventories only files tracked by Git
+- derives context, history, and structural facts locally
+- keeps stable hotspot costs separate from additive overlay evidence
+- writes one versioned machine contract and several derived human surfaces
+- never needs a hosted API or model provider to analyze a repository
 
-- `core/` gathers facts
-- `costs/` interprets facts
-- `graphs/` builds relationship structures
-- `scoring/` owns stable hotspot scoring
-- `reports/` renders output
-- `integrations/` keeps detector-adjacent extras out of the core path
+Git itself is the only required runtime dependency.
 
 ## Runtime Pipeline
 
 ```text
-Git repository
-  -> inventory facts
-  -> token facts
-  -> history facts
+Git worktree
+  -> tracked-file inventory
+  -> context and structural tokens
+  -> Git history facts
   -> stable hotspot scoring
-  -> overlay analyzers
-  -> report assembly
-  -> bundle writing
-  -> CLI / CI / agent-readable outputs
+  -> additive overlay analyzers
+  -> repository-health rollups
+  -> schema-4 report assembly
+  -> atomic latest and timestamped bundles
+  -> terminal / Markdown / JSON / YAML / SARIF / GitHub annotations
 ```
 
-## Internal Layout
+`find` owns the pipeline. All other analysis commands consume an existing
+schema-4 report and do not rerun or rescore the detector.
+
+## Rust Module Layout
 
 ```text
-src/git_slop/
-  cli/
-  core/
-  costs/
-  graphs/
-  reports/
-  scoring/
-  integrations/
+src/
+  main.rs
+  lib.rs
+  cli.rs
+  analyze.rs
+  config.rs
+  git.rs
+  inventory.rs
+  history.rs
+  scoring.rs
+  overlays.rs
+  overlays/
+    common.rs
+    coordination.rs
+    relationships.rs
+    clusters.rs
+    folders.rs
+  health.rs
+  health/
+    model.rs
+    rollup.rs
+    render.rs
+    tests.rs
+  report.rs
+  report/
+    assembly.rs
+    render.rs
+    support.rs
+    write.rs
+  report_ops.rs
+  report_ops/
+    compare.rs
+    explain/
+      mod.rs
+      render.rs
+    github.rs
+    plan/
+      mod.rs
+      rank.rs
+    sarif.rs
+  model.rs
 ```
 
-### `core/`
+### Entry Point And CLI
 
-`core/` is the fact-gathering layer.
+- `main.rs` delegates to the library CLI and returns its process exit code.
+- `cli.rs` defines the `clap` command surface, validates selectors and
+  thresholds, resolves report paths, and dispatches read-only artifact
+  operations.
+- `lib.rs` exposes the product modules and the Cargo package version.
 
-Important modules:
+### Detector Pipeline
 
-- `core/config.py`
-- `core/repository.py`
-- `core/inventory.py`
-- `core/token_facts.py`
-- `core/history_facts.py`
-- `core/cache.py`
-- `core/models.py`
-- `core/pipeline.py`
+- `analyze.rs` orchestrates one detector run, initializes the
+  `cl100k_base` tokenizer, assembles file facts, applies scoring and overlays,
+  derives health rollups, and writes the report bundle.
+- `git.rs` resolves repository metadata, lists tracked files, and provides
+  bounded Git queries.
+- `inventory.rs` reads tracked text files, applies configured ignore globs,
+  rejects binary or undecodable files, classifies paths, and counts lines.
+- `history.rs` mines deterministic age, revision, churn, authorship, and
+  co-change facts from local Git history.
+- `scoring.rs` owns context bands, stable maintenance-pressure scoring, reason
+  codes, and folder aggregation.
+- `overlays.rs` orchestrates organization, verification, navigation,
+  blast-radius, stewardship, and semantic-drift evidence without changing
+  `slop_score`; focused analyzers live under `overlays/`.
 
-Responsibilities:
+### Reports And Read-Only Operations
 
-- repo root resolution
-- tracked-file inventory
-- binary/decode filtering
-- config normalization and migration
-- context-token facts
-- structural-token facts
-- Git history mining
-- cache-key construction
-- typed fact objects
+- `health.rs` exposes repository-health analysis; typed rollups and Markdown,
+  annotation, and JSON rendering live under `health/`.
+- `report.rs` exposes report construction and persistence; focused schema
+  assembly, rendering, and atomic bundle writing live under `report/`.
+- `report_ops.rs` owns shared report readers and selectors; focused
+  `compare`, `explain`, `plan`, `sarif`, and GitHub projections live under
+  `report_ops/`.
+- `config.rs` loads and normalizes config schema 2, including the one-cycle
+  schema-1 compatibility path, and owns `.slop/` state paths.
+- `model.rs` contains typed facts shared by pipeline stages.
 
-### `costs/`
+## Facts And Token Systems
 
-`costs/` owns analyzers.
+The pipeline keeps two token representations:
 
-Stable cost analyzers:
+### Context Tokens
 
-- `LoadCostAnalyzer`
-- `VolatilityCostAnalyzer`
-- `CoordinationCostAnalyzer`
+Context-token counts use the Rust `tiktoken-rs` implementation of
+`cl100k_base`. They drive load pressure, file context bands, health bands, and
+folder token rollups.
 
-Always-on overlay analyzers:
+### Structural Tokens
 
-- `OrganizationHealthAnalyzer`
-- `VerificationOverlayAnalyzer`
-- `NavigationOverlayAnalyzer`
-- `BlastRadiusOverlayAnalyzer`
-- `StewardshipOverlayAnalyzer`
-- `SemanticDriftOverlayAnalyzer`
+Structural tokens use deterministic lexical and path normalization:
 
-### `graphs/`
-
-`graphs/` builds reusable relationship structures:
-
-- co-change graph
-- token-similarity helpers
-- relationship selectors
-- cluster selectors
-
-### `reports/`
-
-`reports/` owns schema shaping and human surfaces:
-
-- machine report assembly
-- Markdown summary
-- terminal rendering
-- bundle writing
-- explain, plan, compare, and SARIF payload rendering
-
-### `integrations/`
-
-Maintainer-only detector-adjacent code lives under `integrations/`, not the
-core detector pipeline.
-
-## Facts Model
-
-Typed pipeline objects now include:
-
-- `RepositoryFacts`
-- `InventoryFacts`
-- `FileFacts`
-- `TokenFacts`
-- `HistoryFacts`
-- `ChangeSetFacts`
-- `BaselineFacts`
-- `HotspotScore`
-- `OverlayFinding`
-- `Relationship`
-- `Cluster`
-
-Analyzers consume facts. They should not shell out to Git or re-tokenize files
-independently.
-
-## Token Pipelines
-
-Git Slop now keeps two token systems:
-
-### Context tokens
-
-- `tiktoken`-aligned
-- used for load and context-band math
-
-### Structural tokens
-
-Deterministic lexical/path normalization:
-
-- lowercase
-- camelCase and snake_case splitting
+- Unicode NFKC normalization
+- camel-case, separator, and path-segment splitting
 - number normalization
 - quoted-string normalization
-- path-segment normalization
+- lowercase term extraction
 
-These structural tokens drive duplication, cohesion, navigation, and drift
-analysis.
+They support duplication, cohesion, navigation, coupling, and drift evidence.
+They never replace context-token counts in stable scoring.
+
+## Stable Costs And Additive Evidence
+
+The stable cost families are:
+
+- load
+- volatility
+- coordination
+
+They produce `slop_score`, `slop_band`, `context_band`, reason codes, and the
+action queue.
+
+Always-on overlay families are:
+
+- organization health
+- verification
+- navigation
+- blast radius
+- stewardship
+- semantic drift
+
+Overlays explain adjacent risk and maintenance pressure. They do not inflate
+`slop_score`, alter `slop_band`, or silently change `git slop check`.
+
+Repository-health rollups are also additive. They turn the same report facts
+into distribution tables, watchlists, and next-command recommendations for
+humans and CI.
 
 ## Report Contract
 
-Current machine report:
+The current machine report uses:
 
 - `schema_version: 4`
 
-Canonical top-level shape:
+Canonical top-level sections are:
 
 - `summary`
 - `repo`
@@ -169,37 +182,24 @@ Canonical top-level shape:
 - `action_queue`
 - `costs`
 - `overlays`
+- `health`
 
-Canonical stable cost blocks:
+For one compatibility cycle, reports also emit top-level
+`organization_metrics`, `relationships`, and `clusters` mirrors. Consumers
+should use canonical sections for new integrations.
 
-- `costs.load`
-- `costs.volatility`
-- `costs.coordination`
+`find` writes the same report as JSON and YAML, plus two Markdown projections:
 
-Canonical overlay blocks:
-
-- `overlays.organization_health`
-- `overlays.verification`
-- `overlays.navigation`
-- `overlays.blast_radius`
-- `overlays.stewardship`
-- `overlays.semantic_drift`
-
-For one compatibility cycle, Git Slop also emits:
-
-- `organization_metrics`
-- `relationships`
-- `clusters`
-
-`git slop check` ignores overlays entirely.
+- `summary.md` for detailed detector and overlay evidence
+- `health.md` for a concise repository-health dashboard
 
 ## Config Contract
 
-`.slop/config.yaml` now writes:
+`.slop/config.yaml` uses:
 
 - `schema_version: 2`
 
-Current namespaces:
+Current namespaces are:
 
 - `inventory`
 - `tokenization`
@@ -211,31 +211,23 @@ Current namespaces:
 - `blast_radius`
 - `stewardship`
 - `semantic_drift`
+- `health`
 - `check`
 
-Legacy `schema_version: 1` configs are still auto-normalized for one
-compatibility cycle.
+Legacy schema-1 configs are normalized in memory for one compatibility cycle.
 
-## Caching
+## State And Caching
 
-Required cache namespaces:
+`git slop init` creates `.slop/latest/`, `.slop/runs/`, and `.slop/cache/`.
+`find` atomically replaces the latest four-file bundle and writes a timestamped
+copy under `.slop/runs/`.
 
-- `.slop/cache/history/`
-- `.slop/cache/tokens/context/`
-- `.slop/cache/tokens/structural/`
-- `.slop/cache/organization-health/`
+`.slop/cache/` is reserved for deterministic performance optimizations. Cache
+contents are generated state and must never be required for correctness.
 
-Rules:
+## CLI And CI Boundaries
 
-- cache is never required for correctness
-- stale cache is ignored automatically
-- cold and warm runs on the same HEAD/config should be byte-identical
-- candidate limiting must be deterministic
-
-## CLI Surface
-
-The CLI exposes a core detector workflow and read-only advanced artifact
-commands:
+The CLI exposes:
 
 - `git slop init`
 - `git slop find`
@@ -245,15 +237,24 @@ commands:
 - `git slop check`
 - `git slop compare`
 - `git slop sarif`
+- `git slop health`
 - `git slop version`
 
-Command boundaries:
+`find` is the only command that performs detector analysis. `show`, `explain`,
+`plan`, `check`, `sarif`, and `health` consume one report; `compare` consumes
+two. Prompt packs are explicit local outputs from `explain` and `plan`.
 
-- `find` runs the detector and writes `.slop/latest/` plus `.slop/runs/`.
-- `show`, `explain`, `plan`, `check`, and `sarif` consume an existing schema-4
-  report.
-- `compare` consumes two existing schema-4 reports.
-- Prompt packs are explicit local outputs from `explain` and `plan`.
+The composite GitHub Action installs a checksummed prebuilt binary, runs `find`
+once, publishes `health.md` to the job summary, and then optionally renders
+annotations, uploads an allowlisted artifact, comments on a pull request, or
+applies the stable `check` gate.
 
-Downstream commands do not rescore detector truth, change `check` semantics, or
-mutate GitHub.
+## Retained Python Compatibility Surface
+
+The public runtime and release artifacts are Rust. The repository temporarily
+retains the separately named `git-slop-maintainer` Python project under
+`src/git_slop/`, Python fixtures/tests, and Python maintainer scripts as a
+compatibility oracle for accepted report, CLI, plugin, and distribution
+contracts. It has no public CLI entry point, and Cargo excludes that tree from
+the product package. New runtime behavior must be implemented and tested in
+Rust; the compatibility surface is not a second public implementation.

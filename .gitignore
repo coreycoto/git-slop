@@ -9,6 +9,7 @@ __pycache__/
 build/
 dist/
 htmlcov/
+/target/
 
 # Local research source material
 docs/plans/

@@ -5,30 +5,142 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   workflow-lint:
     name: Workflow lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Lint workflows
         uses: rhysd/actionlint@v1.7.12
 
-  plugin-runtime-smoke:
-    name: Plugin runtime smoke
-    runs-on: ubuntu-latest
+  rust-quality:
+    name: Rust quality and packaging
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --all-targets --all-features --locked
+
+      - name: Validate Cargo package
+        run: cargo package --locked
+
+      - name: Validate crates.io publication
+        run: cargo publish --dry-run --locked
+
+      - name: Test distribution helpers
+        run: |
+          python3 -m unittest discover -s tests -p "test_distribution.py"
+          python3 -m unittest discover -s tests -p "test_workflow_contracts.py"
+
+      - name: Test GitHub Action
+        run: node --test action/*.test.mjs
+
+  maintainer-compatibility:
+    name: Python maintainer compatibility
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install --upgrade pip uv
+
+      - name: Sync compatibility dependencies
+        run: uv sync --group dev
+
+      - name: Compile compatibility sources
+        run: uv run python -m compileall src tests scripts
+
+      - name: Lint compatibility sources
+        run: uv run ruff check
+
+      - name: Smoke compatibility entry point
+        run: uv run python -m git_slop version
+
+      - name: Test compatibility and maintainer contracts
+        run: uv run pytest
+
+  platform-smoke:
+    name: Native smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2025
+          - windows-11-arm
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run tests
+        run: cargo test --all-targets --all-features --locked
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Smoke release binary
+        if: runner.os != 'Windows'
+        run: ./target/release/git-slop version
+
+      - name: Smoke release binary on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\target\release\git-slop.exe version
+
+  plugin-runtime-smoke:
+    name: Plugin runtime smoke
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
@@ -50,7 +162,8 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "Optional agent-plugins runtime smoke skipped because coreycoto/agent-plugins is not readable in this run." >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Sync project
+
+      - name: Sync plugin test dependencies
         if: steps.agent-plugins.outputs.available == 'true'
         run: uv sync --group dev --group maintainer
 
@@ -61,38 +174,3 @@ jobs:
       - name: Validate Codex surface
         if: steps.agent-plugins.outputs.available == 'true'
         run: uv run python scripts/validate_codex_surface.py
-
-  smoke:
-    name: CLI smoke tests
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-
-      - name: Install uv
-        run: python -m pip install --upgrade pip uv
-
-      - name: Sync project
-        run: uv sync --group dev
-
-      - name: Compile sources
-        run: uv run python -m compileall src tests scripts
-
-      - name: Lint
-        run: uv run ruff check
-
-      - name: Smoke version command
-        run: uv run git-slop version
-
-      - name: Validate Codex surface
-        run: uv run python scripts/validate_codex_surface.py
-
-      - name: Run smoke tests
-        run: uv run pytest

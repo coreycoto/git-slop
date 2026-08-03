@@ -1,13 +1,13 @@
 # Command Guide
 
-Git Slop commands are local-first and deterministic. The main workflow is:
+Git Slop commands are local-first and deterministic. A typical workflow is:
 
 ```text
-init -> find -> show/explain -> plan -> check
+init -> find -> health/show/explain -> plan -> check
 ```
 
-The detector writes reports; downstream commands consume those reports without
-rescoring detector truth.
+`find` runs the detector. The other analysis commands consume existing report
+artifacts without rescoring detector truth.
 
 The installed executable is `git-slop`. When it is on `PATH`, Git can also run
 it as `git slop`.
@@ -17,70 +17,156 @@ it as `git slop`.
 ```bash
 git-slop init
 git-slop find
+git-slop health
 git-slop show README.md
 git-slop explain --top 5
-git-slop plan --path src/git_slop
+git-slop plan --path src
 git-slop check
 git-slop version
 ```
 
-- `init` writes `.slop/config.yaml` and `.slop/.gitignore`.
-- `find` analyzes tracked files and writes `.slop/latest/` plus a timestamped
-  `.slop/runs/<timestamp>/` copy.
-- `show` renders one file's stable costs and overlay evidence from an existing
-  schema-4 report.
-- `explain` explains one file, folder, relationship, cluster, or top-N hotspot
-  selection from an existing schema-4 report.
-- `plan` proposes bounded maintenance slices from an existing schema-4 report.
-- `check` evaluates the stable detector gate. It does not use overlays.
-- `version` prints the installed CLI version.
+### Init
 
-## Explain
+`init` writes `.slop/config.yaml`, `.slop/.gitignore`, and ensures the generated
+state directories exist:
 
 ```bash
-git-slop explain --path src/git_slop/reporting.py
-git-slop explain --path src/git_slop
+git-slop init
+git-slop init --force
+```
+
+Existing generated config files are kept unless `--force` is supplied.
+
+### Find
+
+`find` analyzes tracked files in the current Git worktree:
+
+```bash
+git-slop find
+```
+
+It writes the same four-file bundle to `.slop/latest/` and to one timestamped
+directory under `.slop/runs/`:
+
+- `report.json`
+- `report.yaml`
+- `summary.md`
+- `health.md`
+
+Run from a full-history checkout when history-derived age, churn, coupling, and
+stewardship evidence matters. `stats.history_complete` records whether the
+repository was shallow.
+
+### Health
+
+`health` projects repository-health evidence from an existing schema-4 report.
+It does not rerun the detector:
+
+```bash
+git-slop health
+git-slop health --report .slop/latest/report.json
+git-slop health --format json
+git-slop health --format github --max-annotations 10
+```
+
+Formats:
+
+- `markdown`: the repository-health dashboard used by `health.md`
+- `github`: bounded GitHub workflow-command annotations
+- `json`: an automation payload containing the additive health section
+
+The default report is `.slop/latest/report.json`. GitHub annotations include a
+specific next command such as `git-slop explain --path <path>`.
+
+### Show
+
+`show` renders one file or folder record:
+
+```bash
+git-slop show README.md
+git-slop show src --format json
+git-slop show README.md --report path/to/report.json
+```
+
+The default format is text-compatible YAML; `--format json` emits JSON.
+
+### Explain
+
+`explain` accepts one file/folder path, relationship ID, cluster ID, or top-N
+selection:
+
+```bash
+git-slop explain
+git-slop explain --path src/report.rs
+git-slop explain --path src
 git-slop explain --relationship near_duplicate_neighborhood-1234
 git-slop explain --cluster concept_cluster-1234
 git-slop explain --top 5
 git-slop explain --top 5 --format json
 ```
 
-The output keeps detector cost and overlay context separate. It should help a
-maintainer understand why an item is important, which evidence is strongest,
-which evidence is adjacent only, and why the finding is not a correctness proof
-or refactor mandate.
+With no selector, `explain` uses the top five action-queue entries. Its output
+keeps stable detector costs separate from overlay context. Findings are
+evidence, not correctness proofs or refactor mandates.
 
-## Plan
+### Plan
+
+`plan` requires exactly one path, relationship, or cluster selector:
 
 ```bash
-git-slop plan --path src/git_slop
+git-slop plan --path src
 git-slop plan --relationship near_duplicate_neighborhood-1234
 git-slop plan --cluster concept_cluster-1234
-git-slop plan --path src/git_slop --max-slices 3
-git-slop plan --path src/git_slop --format json > .slop/latest/plan.json
+git-slop plan --path src --max-slices 3
+git-slop plan --path src --format json > .slop/latest/plan.json
 ```
 
 Plan slices include scope paths, out-of-scope paths, supporting evidence,
 evidence summaries, and preview-only backlog handoff metadata. The command does
-not edit code, mutate GitHub, invoke a model, rerun the detector, or change
-detector scoring.
+not edit code, invoke a model, mutate GitHub, rerun the detector, or change
+scoring.
 
-### Acting On A Plan
+Use a plan slice as human review guidance: keep edits inside its scope, respect
+out-of-scope paths, and review the cited evidence before acting.
 
-Use a plan slice as human review guidance: keep edits inside its scope paths,
-respect out-of-scope paths, and let the cited evidence explain why the work is
-bounded. Git Slop does not generate patches, orchestrate refactors, commit,
-push, or mutate GitHub.
+### Check
+
+`check` applies the stable file-level threshold gate to an existing report:
+
+```bash
+git-slop check
+git-slop check --report .slop/latest/report.json
+git-slop check --fail-on-context-band warning
+git-slop check --fail-on-slop-band high
+```
+
+Threshold overrides are evaluated at or above the selected band. Without
+overrides, the values come from `.slop/config.yaml`.
+
+Exit codes:
+
+- `0`: no file met either threshold
+- `1`: one or more files met a threshold
+- `2`: a report, selector, or command input was invalid
+
+Overlay and health evidence do not affect this gate.
+
+### Version
+
+```bash
+git-slop version
+```
+
+The output has the stable form `git-slop <version>`.
 
 ## Prompt Packs
 
-`explain` and `plan` can write deterministic prompt packs for local model
-summarization.
+`explain` and `plan` can write deterministic prompt packs for optional local
+model summarization:
 
 ```bash
 git-slop explain --top 5 --prompt-pack .slop/prompt-packs/top
-git-slop plan --path src/git_slop --format json \
+git-slop plan --path src --format json \
   --prompt-pack .slop/prompt-packs/src-plan
 ```
 
@@ -90,17 +176,16 @@ A prompt pack contains:
 - `prompt.md`: local-model instructions
 - `README.md`: boundary rules
 
-Prompt packs are advisory. They do not add a model dependency, call a provider,
-rescore detector truth, mutate code, or mutate GitHub.
+Prompt packs do not add a model dependency, call a provider, rescore detector
+truth, mutate code, or mutate GitHub.
 
 ## Advanced Artifact Commands
 
-These commands are read-only artifact surfaces. They are useful for automation
-and integration work, but they are not part of the core cleanup workflow.
+These commands are read-only projections of existing reports.
 
 ### Compare
 
-`git slop compare` compares two existing schema-4 reports.
+`compare` consumes two schema-4 reports:
 
 ```bash
 git-slop compare \
@@ -108,27 +193,36 @@ git-slop compare \
   --head .slop/latest/report.json
 
 git-slop compare \
-  --base .slop/runs/20260401T120000Z/report.json \
-  --head .slop/latest/report.json \
+  --base path/to/base.json \
+  --head path/to/head.json \
+  --top 20 \
   --format json
 ```
 
-It reports added, removed, changed, and unchanged file/folder records,
-`slop_score` movement, band movement, overlay pressure deltas, and action-queue
-movement. It never reruns the detector, writes `.slop/`, changes scoring, or
-implies causality.
+It reports added, removed, changed, and unchanged file/folder records, stable
+score and band movement, overlay pressure deltas, and action-queue movement. It
+does not rerun the detector, write `.slop/`, change scoring, or imply causality.
 
 ### SARIF
 
-`git slop sarif` exports action-queue findings from an existing schema-4 report
-as SARIF 2.1.0.
+`sarif` exports action-queue findings as SARIF 2.1.0:
 
 ```bash
+git-slop sarif
+git-slop sarif --top 10
 git-slop sarif \
   --report .slop/latest/report.json \
   --output .slop/latest/git-slop.sarif
 ```
 
-SARIF output preserves stable hotspot cost and overlay evidence as separate
-properties. The command does not upload results, rerun the detector, change
-scoring, or mutate GitHub.
+Without `--output`, SARIF is written to standard output. The export preserves
+stable hotspot cost and overlay evidence as separate properties. It does not
+upload results, rerun the detector, change scoring, or mutate GitHub.
+
+## GitHub Action
+
+The repository's composite Action wraps the native release for CI: it verifies
+the selected archive, runs `find` once, publishes `health.md`, and optionally
+adds bounded annotations, report artifacts, a pull request comment, or the
+stable `check` gate. See [GitHub Action](github-action.md) for the supported
+inputs and safe defaults.

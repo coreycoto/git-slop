@@ -6,6 +6,6 @@ __all__ = ["__version__"]
 
 
 try:
-    __version__ = version("git-slop")
+    __version__ = version("git-slop-maintainer")
 except PackageNotFoundError:
-    __version__ = "0.8.1"
+    __version__ = "0.9.0"

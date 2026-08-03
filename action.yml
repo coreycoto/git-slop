@@ -1,0 +1,247 @@
+name: Git Slop Repository Health
+description: Analyze repository health with a verified, prebuilt git-slop binary.
+author: Corey Coto
+
+branding:
+  icon: activity
+  color: purple
+
+inputs:
+  version:
+    description: Git Slop release version to install, with or without a leading v.
+    required: false
+    default: "0.9.0"
+  release-repository:
+    description: GitHub repository that owns the versioned release assets.
+    required: false
+    default: coreycoto/git-slop
+  github-token:
+    description: Token used to download release assets and, when enabled, update a pull request comment.
+    required: false
+    default: ""
+  working-directory:
+    description: Directory inside the Git worktree; analysis resolves and runs at that worktree's top level.
+    required: false
+    default: "."
+  policy:
+    description: Advisory publishes findings without failing; enforce runs git-slop check after publication.
+    required: false
+    default: advisory
+  fail-on-context-band:
+    description: Optional context-band override passed to git-slop check when policy is enforce.
+    required: false
+    default: ""
+  fail-on-slop-band:
+    description: Optional slop-band override passed to git-slop check when policy is enforce.
+    required: false
+    default: ""
+  annotations:
+    description: Emit bounded GitHub workflow annotations from the generated health report.
+    required: false
+    default: "true"
+  max-annotations:
+    description: Maximum number of GitHub workflow annotations to emit, from 0 through 50.
+    required: false
+    default: "10"
+  upload-artifact:
+    description: Upload a bounded artifact after analysis.
+    required: false
+    default: "true"
+  artifact-name:
+    description: Name of the uploaded workflow artifact.
+    required: false
+    default: git-slop
+  artifact-contents:
+    description: "Bounded artifact set: summary, report, or full."
+    required: false
+    default: summary
+  retention-days:
+    description: Workflow artifact retention in days, from 1 through 90.
+    required: false
+    default: "14"
+  pr-comment:
+    description: Update one marker-based pull request comment. Disabled by default and requires write permission.
+    required: false
+    default: "false"
+
+outputs:
+  status:
+    description: Final Action status (advisory, pass, findings, or error).
+    value: ${{ steps.finalize.outputs.status }}
+  version:
+    description: Installed Git Slop version.
+    value: ${{ steps.install.outputs.version }}
+  target:
+    description: Installed Rust target triple.
+    value: ${{ steps.install.outputs.target }}
+  binary-path:
+    description: Absolute path to the verified git-slop executable.
+    value: ${{ steps.install.outputs.binary-path }}
+  asset-sha256:
+    description: Verified SHA-256 digest of the installed release archive.
+    value: ${{ steps.install.outputs.sha256 }}
+  analysis-exit-code:
+    description: Exit code from the one git-slop find invocation.
+    value: ${{ steps.analyze.outputs.analysis-exit-code }}
+  policy-exit-code:
+    description: Exit code from git-slop check, or zero in advisory mode.
+    value: ${{ steps.finalize.outputs.policy-exit-code }}
+  finding-count:
+    description: Number of actionable findings in the generated health report.
+    value: ${{ steps.analyze.outputs.finding-count }}
+  annotation-count:
+    description: Number of requested GitHub annotations, bounded by max-annotations.
+    value: ${{ steps.annotate.outputs.annotation-count || '0' }}
+  health-path:
+    description: Absolute path to health.md.
+    value: ${{ steps.analyze.outputs.health-path }}
+  report-path:
+    description: Absolute path to report.json.
+    value: ${{ steps.analyze.outputs.report-path }}
+  report-yaml-path:
+    description: Absolute path to report.yaml.
+    value: ${{ steps.analyze.outputs.report-yaml-path }}
+  summary-path:
+    description: Absolute path to the legacy-compatible summary.md.
+    value: ${{ steps.analyze.outputs.summary-path }}
+  artifact-id:
+    description: GitHub Actions artifact ID when upload-artifact is enabled.
+    value: ${{ steps.upload.outputs.artifact-id }}
+  artifact-url:
+    description: GitHub Actions artifact URL when upload-artifact is enabled.
+    value: ${{ steps.upload.outputs.artifact-url }}
+  artifact-digest:
+    description: GitHub Actions artifact digest when upload-artifact is enabled.
+    value: ${{ steps.upload.outputs.artifact-digest }}
+  comment-url:
+    description: Pull request comment URL when pr-comment is enabled.
+    value: ${{ steps.comment.outputs.comment-url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install verified Git Slop binary
+      id: install
+      continue-on-error: true
+      shell: bash
+      env:
+        GIT_SLOP_ACTION_VERSION: ${{ inputs.version }}
+        GIT_SLOP_RELEASE_REPOSITORY: ${{ inputs.release-repository }}
+        GIT_SLOP_GITHUB_TOKEN: ${{ inputs.github-token || github.token }}
+      run: node "${{ github.action_path }}/action/install.mjs"
+
+    - name: Analyze repository and publish job summary
+      id: analyze
+      if: ${{ always() }}
+      shell: bash
+      env:
+        GIT_SLOP_BINARY: ${{ steps.install.outputs.binary-path }}
+        GIT_SLOP_INSTALL_OUTCOME: ${{ steps.install.outcome }}
+        GIT_SLOP_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        GIT_SLOP_POLICY: ${{ inputs.policy }}
+        GIT_SLOP_FAIL_ON_CONTEXT_BAND: ${{ inputs.fail-on-context-band }}
+        GIT_SLOP_FAIL_ON_SLOP_BAND: ${{ inputs.fail-on-slop-band }}
+        GIT_SLOP_ANNOTATIONS: ${{ inputs.annotations }}
+        GIT_SLOP_MAX_ANNOTATIONS: ${{ inputs.max-annotations }}
+        GIT_SLOP_UPLOAD_ARTIFACT: ${{ inputs.upload-artifact }}
+        GIT_SLOP_ARTIFACT_CONTENTS: ${{ inputs.artifact-contents }}
+        GIT_SLOP_RETENTION_DAYS: ${{ inputs.retention-days }}
+        GIT_SLOP_PR_COMMENT: ${{ inputs.pr-comment }}
+      run: node "${{ github.action_path }}/action/runner.mjs" analyze
+
+    - name: Emit bounded repository-health annotations
+      id: annotate
+      if: ${{ always() && steps.analyze.outputs.analysis-exit-code == '0' && steps.analyze.outputs.annotations-enabled == 'true' }}
+      shell: bash
+      env:
+        GIT_SLOP_BINARY: ${{ steps.install.outputs.binary-path }}
+        GIT_SLOP_REPORT_PATH: ${{ steps.analyze.outputs.report-path }}
+        GIT_SLOP_FINDING_COUNT: ${{ steps.analyze.outputs.finding-count }}
+        GIT_SLOP_MAX_ANNOTATIONS: ${{ steps.analyze.outputs.max-annotations }}
+        GIT_SLOP_WORKING_DIRECTORY_RESOLVED: ${{ steps.analyze.outputs.working-directory }}
+      run: node "${{ github.action_path }}/action/runner.mjs" annotate
+
+    - name: Select bounded artifact files
+      id: artifact-files
+      if: ${{ always() && steps.analyze.outputs.upload-enabled == 'true' }}
+      shell: bash
+      env:
+        GIT_SLOP_ARTIFACT_CONTENTS: ${{ steps.analyze.outputs.artifact-contents }}
+        GIT_SLOP_HEALTH_PATH: ${{ steps.analyze.outputs.health-path }}
+        GIT_SLOP_REPORT_PATH: ${{ steps.analyze.outputs.report-path }}
+        GIT_SLOP_REPORT_YAML_PATH: ${{ steps.analyze.outputs.report-yaml-path }}
+        GIT_SLOP_SUMMARY_PATH: ${{ steps.analyze.outputs.summary-path }}
+      run: node "${{ github.action_path }}/action/runner.mjs" artifacts
+
+    - name: Upload bounded Git Slop artifact
+      id: upload
+      if: ${{ always() && steps.analyze.outputs.upload-enabled == 'true' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.artifact-files.outputs.paths }}
+        if-no-files-found: error
+        retention-days: ${{ steps.analyze.outputs.retention-days }}
+        compression-level: 6
+        overwrite: false
+        # Paths come from runner.mjs's exact allowlist. This must be true because
+        # every report lives below the intentionally hidden .slop directory.
+        include-hidden-files: true
+
+    - name: Update pull request health comment
+      id: comment
+      if: ${{ always() && steps.analyze.outputs.analysis-exit-code == '0' && steps.analyze.outputs.comment-enabled == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/github-script@v9
+      env:
+        GIT_SLOP_HEALTH_PATH: ${{ steps.analyze.outputs.health-path }}
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const fs = require("fs");
+          const marker = "<!-- git-slop-repository-health -->";
+          const report = fs.readFileSync(process.env.GIT_SLOP_HEALTH_PATH, "utf8");
+          const maximumBodyLength = 60_000;
+          const suffix = "\n\n_Report truncated in the pull request comment; use the job summary or artifact for the complete analysis._";
+          const available = maximumBodyLength - marker.length - suffix.length - 2;
+          const body = report.length > available
+            ? `${marker}\n${report.slice(0, available)}${suffix}`
+            : `${marker}\n${report}`;
+          const comments = await github.paginate(github.rest.issues.listComments, {
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            per_page: 100,
+          });
+          const existing = comments.find((comment) => comment.body?.includes(marker));
+          const response = existing
+            ? await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              })
+            : await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+          core.setOutput("comment-url", response.data.html_url);
+
+    - name: Apply optional policy gate
+      id: finalize
+      if: ${{ always() }}
+      shell: bash
+      env:
+        GIT_SLOP_BINARY: ${{ steps.install.outputs.binary-path }}
+        GIT_SLOP_ANALYSIS_EXIT_CODE: ${{ steps.analyze.outputs.analysis-exit-code }}
+        GIT_SLOP_POLICY: ${{ steps.analyze.outputs.policy }}
+        GIT_SLOP_FAIL_ON_CONTEXT_BAND: ${{ steps.analyze.outputs.fail-on-context-band }}
+        GIT_SLOP_FAIL_ON_SLOP_BAND: ${{ steps.analyze.outputs.fail-on-slop-band }}
+        GIT_SLOP_REPORT_PATH: ${{ steps.analyze.outputs.report-path }}
+        GIT_SLOP_WORKING_DIRECTORY_RESOLVED: ${{ steps.analyze.outputs.working-directory }}
+        GIT_SLOP_ANNOTATE_OUTCOME: ${{ steps.annotate.outcome }}
+        GIT_SLOP_ARTIFACT_SELECTION_OUTCOME: ${{ steps.artifact-files.outcome }}
+        GIT_SLOP_UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
+        GIT_SLOP_COMMENT_OUTCOME: ${{ steps.comment.outcome }}
+      run: node "${{ github.action_path }}/action/runner.mjs" finalize
