@@ -51,6 +51,21 @@ The default is advisory:
 - findings do not fail the job, but installation, shallow-history, detector, or
   renderer errors do.
 
+The publication sequence is explicit:
+
+1. Run `git-slop find` once, producing the persisted four-file bundle.
+2. Append the persisted `.slop/latest/health.md` to `GITHUB_STEP_SUMMARY`.
+3. When annotations are enabled, run `git-slop health --report
+   .slop/latest/report.json --format github --max-annotations <count>` and emit
+   its standard output as bounded workflow annotations. This projection does
+   not rewrite `health.md`.
+4. Publish the selected artifact and optional pull request comment, then, only
+   for `policy: enforce`, run `git-slop check` against the same `report.json`.
+
+The dashboard and annotation findings are advisory projections. A successful
+`health` render exits 0 even when findings are present; `check` is the step that
+turns configured stable thresholds into an enforcing exit status.
+
 The Action supports GitHub-hosted Linux x64/ARM64, macOS Apple Silicon, and
 Windows x64/ARM64 runners. The release must contain the matching
 `git-slop-v<version>-<target>` archive and a `SHA256SUMS` file.

@@ -17,6 +17,8 @@ Use this skill when reviewing `.slop/latest/report.json`,
   hotspot queue.
 - Use health file/folder bands, distributions, watchlists, and concentration
   metrics as human-facing rollups of existing facts, not as a new score.
+- Treat health output as advisory: findings do not change the command's success
+  status or the stable `check` gate.
 - Use overlays for supporting evidence about organization, verification,
   navigation, blast radius, stewardship, and semantic drift.
 - Follow a health finding's deterministic `next_command` to inspect the exact
