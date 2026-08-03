@@ -28,6 +28,14 @@ class WorkflowContractTests(unittest.TestCase):
                 )
                 self.assertIn('"--profile","ci_mutation"', workflow)
 
+    def test_codex_nano_workflows_use_tool_capable_luna_model(self) -> None:
+        for workflow_name in ("docs-taxonomy.yml", "merge-on-green.yml"):
+            workflow = (WORKFLOWS / workflow_name).read_text(encoding="utf-8")
+
+            with self.subTest(workflow=workflow_name):
+                self.assertNotIn("gpt-5.4-nano", workflow)
+                self.assertIn('"--model","gpt-5.6-luna"', workflow)
+
     def test_github_artifact_actions_use_node_24_runtime(self) -> None:
         action_surfaces = [REPO_ROOT / "action.yml", *sorted(WORKFLOWS.glob("*.yml"))]
 
