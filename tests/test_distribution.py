@@ -54,6 +54,35 @@ def _release_manifest(revision: str = "b" * 40) -> dict[str, object]:
 
 class DistributionTests(unittest.TestCase):
     def test_release_manifest_records_cross_platform_artifacts_and_checksums(self) -> None:
+        expected_targets = {
+            "x86_64-unknown-linux-gnu": {
+                "os": "linux",
+                "arch": "x86_64",
+                "archive": "tar.gz",
+            },
+            "aarch64-unknown-linux-gnu": {
+                "os": "linux",
+                "arch": "aarch64",
+                "archive": "tar.gz",
+            },
+            "aarch64-apple-darwin": {
+                "os": "macos",
+                "arch": "aarch64",
+                "archive": "tar.gz",
+            },
+            "x86_64-pc-windows-msvc": {
+                "os": "windows",
+                "arch": "x86_64",
+                "archive": "zip",
+            },
+            "aarch64-pc-windows-msvc": {
+                "os": "windows",
+                "arch": "aarch64",
+                "archive": "zip",
+            },
+        }
+        self.assertEqual(BUILD_MANIFEST.TARGETS, expected_targets)
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             dist_dir = Path(tmp_dir) / "dist"
             dist_dir.mkdir()
@@ -127,7 +156,7 @@ class DistributionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             dist_dir = Path(tmp_dir)
             _write_release_archives(dist_dir)
-            (dist_dir / "git-slop-v0.9.0-aarch64-apple-darwin.tar.gz").unlink()
+            (dist_dir / "git-slop-v0.9.0-aarch64-pc-windows-msvc.zip").unlink()
 
             with self.assertRaisesRegex(ValueError, "missing required release artifact"):
                 BUILD_MANIFEST.build_manifest(

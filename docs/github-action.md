@@ -51,8 +51,8 @@ The default is advisory:
 - findings do not fail the job, but installation, shallow-history, detector, or
   renderer errors do.
 
-The Action supports GitHub-hosted Linux x64/ARM64, macOS Intel/Apple Silicon,
-and Windows x64 runners. The release must contain the matching
+The Action supports GitHub-hosted Linux x64/ARM64, macOS Apple Silicon, and
+Windows x64/ARM64 runners. The release must contain the matching
 `git-slop-v<version>-<target>` archive and a `SHA256SUMS` file.
 
 `working-directory` may point anywhere inside a worktree. Git Slop resolves

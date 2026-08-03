@@ -104,6 +104,7 @@ jobs:
           - ubuntu-24.04
           - macos-15
           - windows-2025
+          - windows-11-arm
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read

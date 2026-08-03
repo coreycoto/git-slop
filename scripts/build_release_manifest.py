@@ -26,11 +26,6 @@ TARGETS: dict[str, dict[str, str]] = {
         "arch": "aarch64",
         "archive": "tar.gz",
     },
-    "x86_64-apple-darwin": {
-        "os": "macos",
-        "arch": "x86_64",
-        "archive": "tar.gz",
-    },
     "aarch64-apple-darwin": {
         "os": "macos",
         "arch": "aarch64",
@@ -39,6 +34,11 @@ TARGETS: dict[str, dict[str, str]] = {
     "x86_64-pc-windows-msvc": {
         "os": "windows",
         "arch": "x86_64",
+        "archive": "zip",
+    },
+    "aarch64-pc-windows-msvc": {
+        "os": "windows",
+        "arch": "aarch64",
         "archive": "zip",
     },
 }

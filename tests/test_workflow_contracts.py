@@ -36,6 +36,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("ubuntu-24.04", workflow)
         self.assertIn("macos-15", workflow)
         self.assertIn("windows-2025", workflow)
+        self.assertIn("windows-11-arm", workflow)
+        self.assertNotIn("macos-15-intel", workflow)
         self.assertNotIn("uv build", workflow)
 
     def test_release_builds_and_publishes_every_supported_archive(self) -> None:
@@ -44,14 +46,22 @@ class WorkflowContractTests(unittest.TestCase):
         for target in (
             "x86_64-unknown-linux-gnu",
             "aarch64-unknown-linux-gnu",
-            "x86_64-apple-darwin",
             "aarch64-apple-darwin",
             "x86_64-pc-windows-msvc",
+            "aarch64-pc-windows-msvc",
         ):
             self.assertIn(target, workflow)
+        self.assertNotIn("x86_64-apple-darwin", workflow)
         self.assertIn("git-slop-${RELEASE_TAG}-${TARGET}.tar.gz", workflow)
         self.assertIn("git-slop-${env:RELEASE_TAG}-${env:TARGET}.zip", workflow)
         self.assertIn("os: ubuntu-22.04-arm", workflow)
+        self.assertIn(
+            "          - os: windows-11-arm\n"
+            "            target: aarch64-pc-windows-msvc\n"
+            "            archive: zip",
+            workflow,
+        )
+        self.assertNotIn("os: macos-15-intel", workflow)
         self.assertNotIn("os: ubuntu-24.04-arm", workflow)
         self.assertIn("dist/SHA256SUMS", workflow)
         self.assertIn("dist/release-manifest.json", workflow)

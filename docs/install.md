@@ -33,9 +33,9 @@ Each semver GitHub Release publishes checksummed archives for:
 | --- | --- | --- |
 | Linux x86-64 | `x86_64-unknown-linux-gnu` | `.tar.gz` |
 | Linux ARM64 | `aarch64-unknown-linux-gnu` | `.tar.gz` |
-| macOS Intel | `x86_64-apple-darwin` | `.tar.gz` |
 | macOS Apple Silicon | `aarch64-apple-darwin` | `.tar.gz` |
 | Windows x86-64 | `x86_64-pc-windows-msvc` | `.zip` |
+| Windows ARM64 | `aarch64-pc-windows-msvc` | `.zip` |
 
 Archive names follow this stable contract:
 

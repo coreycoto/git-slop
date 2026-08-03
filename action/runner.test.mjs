@@ -257,7 +257,9 @@ test("metadata and installer pin bounded secure defaults and supported targets",
   assert.match(installer, /createHash\("sha256"\)/u);
   assert.match(installer, /x86_64-unknown-linux-gnu/u);
   assert.match(installer, /aarch64-apple-darwin/u);
-  assert.match(installer, /x86_64-pc-windows-msvc/u);
+  assert.match(installer, /"win32:x64": "x86_64-pc-windows-msvc"/u);
+  assert.match(installer, /"win32:arm64": "aarch64-pc-windows-msvc"/u);
+  assert.doesNotMatch(installer, /"darwin:x64"/u);
   assert.match(installer, /process\.platform === "win32" \? "zip" : "tar\.gz"/u);
   assert.match(installer, /output !== `git-slop \$\{version\}`/u);
 });

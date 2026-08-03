@@ -28,6 +28,16 @@ fn assert_close(actual: f64, expected: f64) {
     );
 }
 
+fn assert_stdout_matches_golden(output: &std::process::Output, expected: &str) {
+    assert!(
+        output.status.success(),
+        "command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let actual = std::str::from_utf8(&output.stdout).expect("command stdout is UTF-8");
+    assert_eq!(actual.replace("\r\n", "\n"), expected);
+}
+
 fn round6(value: f64) -> f64 {
     (value * 1_000_000.0).round() / 1_000_000.0
 }
@@ -334,7 +344,7 @@ fn relationship_plan_matches_json_and_text_goldens() {
 
     let expected_text =
         fs::read_to_string(fixture("relationship_focused_plan.txt")).expect("golden text");
-    cargo_bin_cmd!("git-slop")
+    let text_output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
         .args([
             "plan",
@@ -345,9 +355,9 @@ fn relationship_plan_matches_json_and_text_goldens() {
             "--format",
             "text",
         ])
-        .assert()
-        .success()
-        .stdout(expected_text);
+        .output()
+        .expect("run text plan");
+    assert_stdout_matches_golden(&text_output, &expected_text);
 }
 
 #[test]
@@ -385,7 +395,7 @@ fn relationship_explain_matches_rich_text_golden_without_changing_json_contract(
     let expected_text =
         fs::read_to_string(fixture("relationship_focused_explain.txt")).expect("golden text");
 
-    cargo_bin_cmd!("git-slop")
+    let text_output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
         .args([
             "explain",
@@ -396,9 +406,9 @@ fn relationship_explain_matches_rich_text_golden_without_changing_json_contract(
             "--format",
             "text",
         ])
-        .assert()
-        .success()
-        .stdout(expected_text);
+        .output()
+        .expect("run text relationship explain");
+    assert_stdout_matches_golden(&text_output, &expected_text);
 
     let output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
@@ -437,7 +447,7 @@ fn cluster_explain_uses_cluster_kind_and_matches_rich_text_golden() {
     let expected_text =
         fs::read_to_string(fixture("cluster_focused_explain.txt")).expect("golden text");
 
-    cargo_bin_cmd!("git-slop")
+    let text_output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
         .args([
             "explain",
@@ -448,9 +458,9 @@ fn cluster_explain_uses_cluster_kind_and_matches_rich_text_golden() {
             "--format",
             "text",
         ])
-        .assert()
-        .success()
-        .stdout(expected_text);
+        .output()
+        .expect("run text cluster explain");
+    assert_stdout_matches_golden(&text_output, &expected_text);
 
     let output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())

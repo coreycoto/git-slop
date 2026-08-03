@@ -64,9 +64,9 @@ binary—not only `target/release`—for:
 
 - `x86_64-unknown-linux-gnu`
 - `aarch64-unknown-linux-gnu`
-- `x86_64-apple-darwin`
 - `aarch64-apple-darwin`
 - `x86_64-pc-windows-msvc`
+- `aarch64-pc-windows-msvc`
 
 The GitHub Release is incomplete until it contains all five archives plus:
 
@@ -161,7 +161,8 @@ Python, libyaml, or Python package resources.
 - Exercise the GitHub Action against a clean Linux consumer repository.
 - Confirm the Action verifies `SHA256SUMS` before running the executable.
 - Confirm existing Homebrew consumers upgrade in place.
-- Confirm Windows and macOS archive installs can run `git-slop version`.
+- Confirm the Windows x64, Windows ARM64, and macOS Apple Silicon archive
+  installs can each run `git-slop version`.
 - Update consumer minimum-version pins only after GitHub Release, Homebrew, and
   any crates.io publication are independently verified.
 

@@ -69,14 +69,14 @@ jobs:
           - os: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
             archive: tar.gz
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            archive: tar.gz
           - os: macos-15
             target: aarch64-apple-darwin
             archive: tar.gz
           - os: windows-2025
             target: x86_64-pc-windows-msvc
+            archive: zip
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
             archive: zip
     runs-on: ${{ matrix.os }}
     permissions:
@@ -196,8 +196,8 @@ jobs:
             cat > release-verification/expected-assets.txt <<EOF
           SHA256SUMS
           git-slop-${GITHUB_REF_NAME}-aarch64-apple-darwin.tar.gz
+          git-slop-${GITHUB_REF_NAME}-aarch64-pc-windows-msvc.zip
           git-slop-${GITHUB_REF_NAME}-aarch64-unknown-linux-gnu.tar.gz
-          git-slop-${GITHUB_REF_NAME}-x86_64-apple-darwin.tar.gz
           git-slop-${GITHUB_REF_NAME}-x86_64-pc-windows-msvc.zip
           git-slop-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz
           release-manifest.json
@@ -270,8 +270,8 @@ jobs:
           cat > expected-draft-assets.txt <<EOF
           SHA256SUMS
           git-slop-${release_tag}-aarch64-apple-darwin.tar.gz
+          git-slop-${release_tag}-aarch64-pc-windows-msvc.zip
           git-slop-${release_tag}-aarch64-unknown-linux-gnu.tar.gz
-          git-slop-${release_tag}-x86_64-apple-darwin.tar.gz
           git-slop-${release_tag}-x86_64-pc-windows-msvc.zip
           git-slop-${release_tag}-x86_64-unknown-linux-gnu.tar.gz
           release-manifest.json

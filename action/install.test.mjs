@@ -22,7 +22,6 @@ function targetTriple() {
   const target = {
     "linux:x64": "x86_64-unknown-linux-gnu",
     "linux:arm64": "aarch64-unknown-linux-gnu",
-    "darwin:x64": "x86_64-apple-darwin",
     "darwin:arm64": "aarch64-apple-darwin",
   }[`${process.platform}:${process.arch}`];
   if (!target) {
@@ -73,7 +72,11 @@ function runNode(script, environment) {
 
 test(
   "installer downloads the exact target archive and verifies its checksum and version",
-  { skip: process.platform === "win32" },
+  {
+    skip:
+      process.platform === "win32" ||
+      (process.platform === "darwin" && process.arch === "x64"),
+  },
   async () => {
     const root = mkdtempSync(join(tmpdir(), "git-slop-installer-test-"));
     const version = "0.9.0";
