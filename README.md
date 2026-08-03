@@ -111,8 +111,9 @@ The local `git-slop` CLI does not:
 
 Version 0.9.0 moves the product runtime to Rust while retaining report schema 4,
 config schema 2, and the existing `check` threshold semantics. The repository
-still contains Python compatibility tests and maintainer workflow helpers; they
-are not part of the native CLI or Cargo release package.
+still contains a small Python maintainer package that validates Codex, plugin,
+workflow, and release wiring; it is not part of the native CLI or Cargo release
+package.
 
 The `git-slop` Codex plugin is published from this repo. It owns
 product-specific install, report, interpretation, planning, and

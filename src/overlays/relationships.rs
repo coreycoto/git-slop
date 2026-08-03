@@ -51,10 +51,12 @@ pub(super) fn build_relationships(
                 continue;
             }
             let similarity = jaccard(&left.structural_tokens, &right.structural_tokens);
-            if similarity < min_similarity {
+            let exact = !left.content_fingerprint.is_empty()
+                && left.content_fingerprint == right.content_fingerprint;
+            if !exact && similarity < min_similarity {
                 continue;
             }
-            let exact = left.structural_tokens == right.structural_tokens;
+            let relationship_similarity = if exact { 1.0 } else { similarity };
             let kind = if exact {
                 "duplicate_neighborhood"
             } else {
@@ -71,8 +73,8 @@ pub(super) fn build_relationships(
                 "kind": kind,
                 "source_path": source,
                 "target_path": target,
-                "evidence_score": round6(similarity),
-                "similarity": round6(similarity),
+                "evidence_score": round6(relationship_similarity),
+                "similarity": round6(relationship_similarity),
                 "crosses_top_level_boundary": top_level_root(source) != top_level_root(target)
             });
             relationship_ids
@@ -232,6 +234,7 @@ mod tests {
             tokens: 500,
             context_band: "compact".to_string(),
             context_pressure: 0.1,
+            content_fingerprint: format!("fingerprint-{index}"),
             structural_tokens: vec![format!("unique-{index}")],
             structural_token_count: 300,
             top_structural_terms: vec!["shared".to_string()],
@@ -324,5 +327,49 @@ mod tests {
 
         assert_eq!(relationships["analysis_status"], "experimental");
         assert_eq!(relationships["analysis_version"], 2);
+    }
+
+    #[test]
+    fn content_identity_is_exact_even_when_public_tokens_include_distinct_paths() {
+        let mut files: Vec<FileAnalysis> = (0..2).map(test_file).collect();
+        files[0].content_fingerprint = "same-content".to_string();
+        files[1].content_fingerprint = "same-content".to_string();
+        files[0].structural_tokens = vec!["shared".to_string(), "root000".to_string()];
+        files[1].structural_tokens = vec!["shared".to_string(), "root001".to_string()];
+        assert_ne!(files[0].structural_tokens, files[1].structural_tokens);
+
+        let serialized = serde_json::to_value(&files[0]).expect("serialize file analysis");
+        assert!(serialized.get("content_fingerprint").is_none());
+        assert!(serialized.get("structural_tokens").is_some());
+
+        let coordination = coordination_facts(&files, &[]);
+        let config = json!({
+            "organization": {
+                "candidate_file_limit": 2,
+                "min_file_tokens": 0,
+                "max_file_tokens": 50_000,
+                "min_similarity": 1.0,
+                "max_pairs_per_file": 20,
+                "min_cochange_support": 3
+            }
+        });
+        let (relationships, _, _) = build_relationships(&files, &coordination, &config);
+
+        assert_eq!(
+            relationships["duplicate_neighborhoods"]
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            relationships["duplicate_neighborhoods"][0]["similarity"],
+            1.0
+        );
+        assert_eq!(
+            relationships["near_duplicate_neighborhoods"]
+                .as_array()
+                .map(Vec::len),
+            Some(0)
+        );
     }
 }

@@ -22,7 +22,7 @@ Include:
 This policy covers the native Rust `git-slop` CLI, Cargo source package,
 checksummed release archives, Homebrew formula, GitHub Action installer and
 runner, and checked-in plugin guidance. It also covers retained Python
-compatibility and maintainer tooling when that code participates in repository
+maintainer and release tooling when that code participates in repository
 validation or release automation.
 
 Out of scope:

@@ -171,6 +171,7 @@ fn finding_humanizes_stable_reason_codes() {
         tokens: 10_001,
         context_band: "critical".to_string(),
         context_pressure: 1.0,
+        content_fingerprint: String::new(),
         structural_tokens: vec![],
         structural_token_count: 0,
         top_structural_terms: vec![],

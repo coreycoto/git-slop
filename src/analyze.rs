@@ -6,6 +6,7 @@ use anyhow::{Context, Result, bail};
 use chrono::{SecondsFormat, Utc};
 use regex::Regex;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use tiktoken_rs::{
     CoreBPE, cl100k_base, o200k_base, o200k_harmony, p50k_base, p50k_edit, r50k_base,
 };
@@ -73,6 +74,10 @@ fn structural_tokens(path: &str, text: &str) -> Vec<String> {
             .map(ToOwned::to_owned),
     );
     tokens
+}
+
+fn content_fingerprint(text: &str) -> String {
+    hex::encode(Sha256::digest(text.as_bytes()))
 }
 
 fn top_terms(tokens: &[String]) -> Vec<String> {
@@ -166,11 +171,17 @@ pub fn run_find_in(repo_root: &Path) -> Result<FindResult> {
     for file in &inventory_files {
         let count = encoder.encode_ordinary(&file.text).len();
         let structural = structural_tokens(&file.path, &file.text);
+        let fingerprint = content_fingerprint(&file.text);
         token_counts.insert(file.path.clone(), count);
         line_counts.insert(file.path.clone(), file.lines);
         token_data.insert(
             file.path.clone(),
-            (structural.len(), top_terms(&structural), structural),
+            (
+                structural.len(),
+                top_terms(&structural),
+                structural,
+                fingerprint,
+            ),
         );
     }
     let analyzed_paths: Vec<String> = inventory_files
@@ -189,9 +200,10 @@ pub fn run_find_in(repo_root: &Path) -> Result<FindResult> {
     let mut files = Vec::with_capacity(inventory_files.len());
     for file in inventory_files {
         let tokens = token_counts.get(&file.path).copied().unwrap_or_default();
-        let (structural_token_count, top_structural_terms, structural_tokens) = token_data
-            .remove(&file.path)
-            .unwrap_or_else(|| (0, Vec::new(), Vec::new()));
+        let (structural_token_count, top_structural_terms, structural_tokens, content_fingerprint) =
+            token_data
+                .remove(&file.path)
+                .unwrap_or_else(|| (0, Vec::new(), Vec::new(), String::new()));
         let history = history_by_path.get(&file.path).cloned().unwrap_or_default();
         files.push(FileAnalysis {
             path: file.path,
@@ -206,6 +218,7 @@ pub fn run_find_in(repo_root: &Path) -> Result<FindResult> {
             tokens,
             context_band: scoring::context_band_for_tokens(tokens, &loaded_config),
             context_pressure: scoring::context_pressure_for_tokens(tokens, &loaded_config),
+            content_fingerprint,
             structural_tokens,
             structural_token_count,
             top_structural_terms,
@@ -289,6 +302,7 @@ mod tests {
             tokens: 100,
             context_band: "compact".to_string(),
             context_pressure: 0.0,
+            content_fingerprint: String::new(),
             structural_tokens: Vec::new(),
             structural_token_count: 0,
             top_structural_terms: Vec::new(),

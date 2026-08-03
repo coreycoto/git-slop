@@ -80,6 +80,8 @@ pub struct FileAnalysis {
     pub tokens: usize,
     pub context_band: String,
     pub context_pressure: f64,
+    #[serde(skip)]
+    pub content_fingerprint: String,
     pub structural_tokens: Vec<String>,
     pub structural_token_count: usize,
     pub top_structural_terms: Vec<String>,

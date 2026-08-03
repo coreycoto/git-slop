@@ -29,6 +29,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class CodexSurfaceTests(unittest.TestCase):
+    def test_python_package_contains_only_maintainer_surfaces(self) -> None:
+        package_root = REPO_ROOT / "src" / "git_slop"
+        python_sources = {
+            path.relative_to(package_root).as_posix() for path in package_root.rglob("*.py")
+        }
+        self.assertEqual(
+            python_sources,
+            {
+                "__init__.py",
+                "integrations/__init__.py",
+                "integrations/agents/__init__.py",
+                "integrations/agents/codex_surface.py",
+            },
+        )
+
+        project = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertNotIn("tiktoken", project)
+
     def test_codex_surface_validation_passes(self) -> None:
         self.assertEqual(validate_codex_surface(REPO_ROOT), [])
 

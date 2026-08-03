@@ -27,9 +27,9 @@ Supporting Relationships
 - temporal_coupling_edge-65471a7a1195 [temporal_coupling_edge] docs/architecture.md -> src/git_slop/history.py (score=7.500)
 
 Supporting Clusters
-- boundary_leakage_cluster-cedd37539fe8 [extract_boundary] members=3 roots=src, tests
-- scattered_concept-64dcda20d417 [reduce_scattered_concept] members=10 roots=src, tests
-- boundary_leakage_cluster-e509eb2f17d5 [extract_boundary] members=7 roots=README.md, docs, src
+- boundary_leakage_cluster-cedd37539fe8 [boundary_leakage_cluster] members=3 roots=src, tests candidate_type=extract_boundary
+- scattered_concept-64dcda20d417 [scattered_concept] members=10 roots=src, tests candidate_type=reduce_scattered_concept
+- boundary_leakage_cluster-e509eb2f17d5 [boundary_leakage_cluster] members=7 roots=README.md, docs, src candidate_type=extract_boundary
 
 Evidence Summary
 - strongest detector costs: load pressure 1.000 from 10549 file tokens; coordination pressure 0.900 from degree 92; volatility pressure 0.562 from 28 commits

@@ -249,12 +249,15 @@ once, publishes `health.md` to the job summary, and then optionally renders
 annotations, uploads an allowlisted artifact, comments on a pull request, or
 applies the stable `check` gate.
 
-## Retained Python Compatibility Surface
+## Python Maintainer Surface
 
-The public runtime and release artifacts are Rust. The repository temporarily
-retains the separately named `git-slop-maintainer` Python project under
-`src/git_slop/`, Python fixtures/tests, and Python maintainer scripts as a
-compatibility oracle for accepted report, CLI, plugin, and distribution
-contracts. It has no public CLI entry point, and Cargo excludes that tree from
-the product package. New runtime behavior must be implemented and tested in
-Rust; the compatibility surface is not a second public implementation.
+The public runtime and release artifacts are Rust. Accepted analyzer, CLI,
+report, explain, plan, comparison, and SARIF behavior is covered by native Rust
+tests and language-neutral historical report fixtures. The duplicated Python
+engine was retired before the 0.9.0 release.
+
+The separately named `git-slop-maintainer` Python project under `src/git_slop/`
+now contains only repo-local Codex, plugin, workflow, and release-contract
+validation. It has no public CLI entry point or workflow implementation, and
+Cargo excludes that tree from the product package. New product runtime behavior
+must be implemented and tested in Rust.
