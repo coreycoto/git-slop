@@ -8,7 +8,7 @@
 - `.agents/plugins/marketplace.json`: local publication manifest for the `git-slop` Codex plugin
 - installed `project-management-workflows` plugin from `coreycoto/agent-plugins`: reusable workflow contract and metadata
 - local `git-slop` plugin under `plugins/git-slop`: product-specific usage, install, report, interpretation, planning, and adoption guidance
-- `config/github/README.md`: repo-owned backlog/project overlay and seed data
+- `config/github/README.md`: repo-owned backlog/project overlay
 - `config/labels/README.md`: repo-owned label palette overlay
 
 ## Publication Rules

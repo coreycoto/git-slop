@@ -45,6 +45,48 @@ class WorkflowContractTests(unittest.TestCase):
                 self.assertNotIn("actions/upload-artifact@v4", contents)
                 self.assertNotIn("actions/upload-artifact@v5", contents)
 
+    def test_hidden_artifact_uploads_are_exact_fail_closed_and_bounded(self) -> None:
+        codex_artifacts = {
+            "dependency-remediation.yml": (
+                ".artifacts/codex/dependency-remediation.json",
+                ".artifacts/dependency-remediation/",
+            ),
+            "docs-taxonomy.yml": (
+                ".artifacts/codex/docs-taxonomy.json",
+                ".artifacts/docs-taxonomy/",
+            ),
+            "governance-reconcile.yml": (
+                ".artifacts/codex/governance-reconcile.json",
+                ".artifacts/github-governance/",
+            ),
+            "merge-on-green.yml": (".artifacts/codex/merge-on-green.json",),
+        }
+
+        for workflow_name, expected_paths in codex_artifacts.items():
+            workflow = (WORKFLOWS / workflow_name).read_text(encoding="utf-8")
+            upload_step = workflow.split("      - name: Upload ", maxsplit=1)[1]
+
+            with self.subTest(workflow=workflow_name):
+                self.assertIn("steps.codex_preflight.outputs.enabled == 'true'", upload_step)
+                self.assertIn("always()", upload_step)
+                self.assertIn("include-hidden-files: true", upload_step)
+                self.assertIn("if-no-files-found: error", upload_step)
+                self.assertIn("retention-days: 14", upload_step)
+                self.assertNotIn("          path: .artifacts\n", upload_step)
+                for expected_path in expected_paths:
+                    self.assertIn(expected_path, upload_step)
+                if workflow_name == "merge-on-green.yml":
+                    self.assertIn("steps.merge_preflight.outputs.eligible == 'true'", upload_step)
+
+        execution_state = (WORKFLOWS / "execution_state_sync.yml").read_text(encoding="utf-8")
+        execution_upload = execution_state.split(
+            "      - name: Upload execution artifacts", maxsplit=1
+        )[1]
+        self.assertIn("path: ${{ steps.artifact-root.outputs.path }}", execution_upload)
+        self.assertIn("include-hidden-files: true", execution_upload)
+        self.assertIn("if-no-files-found: error", execution_upload)
+        self.assertIn("retention-days: 14", execution_upload)
+
     def test_dogfood_uses_rust_and_keeps_summary_artifact_bounded(self) -> None:
         workflow = (WORKFLOWS / "dogfood.yml").read_text(encoding="utf-8")
 
@@ -53,6 +95,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("cat .slop/latest/health.md", workflow)
         self.assertIn("path: .slop/latest/health.md", workflow)
         self.assertNotIn("path: .slop/latest\n", workflow)
+        self.assertIn("include-hidden-files: true", workflow)
         self.assertIn("retention-days: 14", workflow)
         self.assertNotIn("uv run git-slop", workflow)
 

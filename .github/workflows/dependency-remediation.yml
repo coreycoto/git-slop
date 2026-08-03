@@ -106,9 +106,13 @@ jobs:
           fi
 
       - name: Upload remediation artifacts
-        if: always()
+        if: ${{ always() && steps.codex_preflight.outputs.enabled == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: dependency-remediation-artifacts
-          path: .artifacts
-          if-no-files-found: warn
+          path: |
+            .artifacts/codex/dependency-remediation.json
+            .artifacts/dependency-remediation/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
