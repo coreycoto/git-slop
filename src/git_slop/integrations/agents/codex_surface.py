@@ -35,7 +35,7 @@ AGENT_SKILL_REFERENCES = {
 }
 
 EXPECTED_PLUGIN_URL = "https://github.com/coreycoto/agent-plugins.git"
-EXPECTED_PLUGIN_SHA = "1cb87285df878822bcbb561bc684a57a24362a37"
+EXPECTED_PLUGIN_SHA = "e2d239030650e6493121436bab096c3ab88feafe"
 EXPECTED_MARKETPLACE_NAME = "agent-plugins-marketplace"
 MARKETPLACE_SOURCE_MANIFEST = Path(".agents/plugins/marketplace-source.json")
 GIT_SLOP_MARKETPLACE = Path(".agents/plugins/marketplace.json")

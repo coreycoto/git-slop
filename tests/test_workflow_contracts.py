@@ -8,6 +8,15 @@ WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 
 
 class WorkflowContractTests(unittest.TestCase):
+    def test_github_artifact_actions_use_node_24_runtime(self) -> None:
+        action_surfaces = [REPO_ROOT / "action.yml", *sorted(WORKFLOWS.glob("*.yml"))]
+
+        for path in action_surfaces:
+            contents = path.read_text(encoding="utf-8")
+            with self.subTest(path=path.relative_to(REPO_ROOT)):
+                self.assertNotIn("actions/upload-artifact@v4", contents)
+                self.assertNotIn("actions/upload-artifact@v5", contents)
+
     def test_dogfood_uses_rust_and_keeps_summary_artifact_bounded(self) -> None:
         workflow = (WORKFLOWS / "dogfood.yml").read_text(encoding="utf-8")
 

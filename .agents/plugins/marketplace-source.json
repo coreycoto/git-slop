@@ -1,6 +1,6 @@
 {
   "marketplace_name": "agent-plugins-marketplace",
   "source_url": "https://github.com/coreycoto/agent-plugins.git",
-  "ref": "1cb87285df878822bcbb561bc684a57a24362a37",
+  "ref": "e2d239030650e6493121436bab096c3ab88feafe",
   "required_plugin": "project-management-workflows"
 }
