@@ -519,6 +519,7 @@ mod tests {
             tokens,
             context_band: "compact".to_string(),
             context_pressure: 0.0,
+            content_fingerprint: String::new(),
             structural_tokens: Vec::new(),
             structural_token_count: 0,
             top_structural_terms: Vec::new(),

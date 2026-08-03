@@ -19,7 +19,7 @@ include = [
     "/LICENSE",
     "/docs/*.md",
     "/man/git-slop.1",
-    "/tests/rust_cli.rs",
+    "/tests/*.rs",
     "/tests/fixtures/reports/*",
 ]
 

@@ -145,8 +145,9 @@ fn normalize_legacy(mut payload: Value) -> Result<Value> {
         }
     }
     if let Some(check) = object.get_mut("check").and_then(Value::as_object_mut) {
+        let legacy = check.remove("fail_on_priority_band");
         if !check.contains_key("fail_on_slop_band") {
-            if let Some(legacy) = check.remove("fail_on_priority_band") {
+            if let Some(legacy) = legacy {
                 let mapped = match legacy.as_str().unwrap_or_default() {
                     "watchlist" => "low",
                     "needs_refactor" => "moderate",
@@ -265,4 +266,99 @@ pub fn pointer_strings(value: &Value, pointer: &str) -> Vec<String> {
         .filter_map(Value::as_str)
         .map(ToOwned::to_owned)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use serde_json::{Value, json};
+    use tempfile::tempdir;
+
+    use super::{config_path, default_config, load};
+
+    fn load_payload(payload: Value) -> Value {
+        let repository = tempdir().expect("temporary repository");
+        let path = config_path(repository.path());
+        fs::create_dir_all(path.parent().expect("config parent")).expect("config directory");
+        fs::write(
+            &path,
+            serde_yaml::to_string(&payload).expect("serialize config"),
+        )
+        .expect("write config");
+        load(repository.path()).expect("load config")
+    }
+
+    #[test]
+    fn default_config_uses_the_schema_two_contract() {
+        let config = default_config();
+
+        assert_eq!(config["schema_version"], 2);
+        assert_eq!(config["check"]["fail_on_slop_band"], "critical");
+        assert!(config["check"].get("fail_on_priority_band").is_none());
+        for section in ["tokenization", "organization", "verification"] {
+            assert!(config.get(section).is_some(), "missing default {section}");
+        }
+    }
+
+    #[test]
+    fn schema_one_payload_defaults_and_aliases_are_normalized_to_schema_two() {
+        let normalized = load_payload(json!({
+            "tokenizer": {"name": "r50k_base"},
+            "context_bands": {"warning_max_tokens": 9_000},
+            "history": {"follow_renames": true}
+        }));
+
+        assert_eq!(normalized["schema_version"], 2);
+        assert_eq!(
+            normalized["tokenization"]["context_tokenizer_name"],
+            "r50k_base"
+        );
+        assert_eq!(
+            normalized["tokenization"]["context_bands"]["warning_max_tokens"],
+            9_000
+        );
+        assert_eq!(
+            normalized["tokenization"]["context_bands"]["compact_max_tokens"],
+            3_072
+        );
+        assert_eq!(normalized["history"]["follow_renames"], true);
+        assert_eq!(normalized["tokenizer"]["name"], "r50k_base");
+        assert_eq!(normalized["context_bands"]["warning_max_tokens"], 9_000);
+    }
+
+    #[test]
+    fn every_legacy_priority_band_maps_to_its_slop_band() {
+        for (legacy, expected) in [
+            ("watchlist", "low"),
+            ("needs_refactor", "moderate"),
+            ("should_refactor", "high"),
+            ("must_refactor", "critical"),
+        ] {
+            let normalized = load_payload(json!({
+                "schema_version": 2,
+                "check": {"fail_on_priority_band": legacy}
+            }));
+
+            assert_eq!(normalized["check"]["fail_on_slop_band"], expected);
+            assert!(
+                normalized["check"].get("fail_on_priority_band").is_none(),
+                "legacy key survived normalization for {legacy}"
+            );
+        }
+    }
+
+    #[test]
+    fn new_slop_band_wins_and_the_legacy_key_is_always_removed() {
+        let normalized = load_payload(json!({
+            "schema_version": 2,
+            "check": {
+                "fail_on_priority_band": "must_refactor",
+                "fail_on_slop_band": "moderate"
+            }
+        }));
+
+        assert_eq!(normalized["check"]["fail_on_slop_band"], "moderate");
+        assert!(normalized["check"].get("fail_on_priority_band").is_none());
+    }
 }

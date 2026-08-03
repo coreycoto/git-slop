@@ -1,0 +1,258 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use assert_cmd::cargo::cargo_bin_cmd;
+use predicates::prelude::*;
+use serde_json::Value;
+use tempfile::TempDir;
+
+fn manifest_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn fixture(name: &str) -> PathBuf {
+    manifest_dir().join("tests/fixtures/reports").join(name)
+}
+
+fn git(repository: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .current_dir(repository)
+        .args(args)
+        .output()
+        .expect("run git");
+    assert!(
+        output.status.success(),
+        "git {} failed: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn read_json(path: &Path) -> Value {
+    serde_json::from_slice(&fs::read(path).expect("read JSON file")).expect("parse JSON file")
+}
+
+fn assert_prompt_pack_safety(pack: &Path) -> Value {
+    assert!(pack.join("prompt.md").is_file(), "missing prompt.md");
+    assert!(pack.join("README.md").is_file(), "missing README.md");
+
+    let context = read_json(&pack.join("context.json"));
+    assert_eq!(context["prompt_pack_version"], 1);
+    assert_eq!(context["report_excerpt"]["schema_version"], 4);
+
+    let boundary = context["boundary"].as_str().expect("prompt-pack boundary");
+    assert!(boundary.contains("advisory only"));
+    assert!(boundary.contains("must not rescore detector truth"));
+    assert!(boundary.contains("mutate code, GitHub, or report data"));
+
+    let prompt = fs::read_to_string(pack.join("prompt.md")).expect("read prompt.md");
+    assert!(prompt.contains("Use only the facts in context.json"));
+    assert!(prompt.contains("do not rescore detector truth"));
+    assert!(prompt.contains("instead of inventing context"));
+
+    let readme = fs::read_to_string(pack.join("README.md")).expect("read README.md");
+    assert!(readme.contains("must not mutate code, GitHub, or detector truth"));
+    assert!(readme.contains("must not rescore detector truth"));
+
+    context
+}
+
+#[test]
+fn help_lists_the_current_command_surface_only() {
+    let output = cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .arg("--help")
+        .output()
+        .expect("run help");
+    assert!(
+        output.status.success(),
+        "help failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("help is UTF-8");
+    for command in [
+        "init", "find", "show", "explain", "plan", "check", "compare", "sarif", "health", "version",
+    ] {
+        assert!(
+            stdout.contains(&format!("\n  {command}")),
+            "help omitted {command}:\n{stdout}"
+        );
+    }
+    assert!(!stdout.contains("refactor-preview"));
+}
+
+#[test]
+fn removed_refactor_preview_subcommand_is_rejected_by_clap() {
+    cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .arg("refactor-preview")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("unrecognized subcommand"))
+        .stderr(predicate::str::contains("refactor-preview"));
+}
+
+#[test]
+fn report_consumers_preserve_missing_report_exit_two() {
+    let temporary = TempDir::new().expect("temporary directory");
+    let missing = temporary.path().join("missing-report.json");
+    let missing_display = missing.to_string_lossy().into_owned();
+
+    for args in [
+        vec!["show", "README.md", "--report", &missing_display],
+        vec!["check", "--report", &missing_display],
+        vec![
+            "explain",
+            "--path",
+            "README.md",
+            "--report",
+            &missing_display,
+        ],
+        vec!["plan", "--path", "README.md", "--report", &missing_display],
+    ] {
+        cargo_bin_cmd!("git-slop")
+            .current_dir(manifest_dir())
+            .args(&args)
+            .assert()
+            .code(2)
+            .stdout(predicate::str::contains(format!(
+                "Report not found: {missing_display}"
+            )));
+    }
+}
+
+#[test]
+fn check_rejects_the_removed_priority_band_flag() {
+    cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .args(["check", "--fail-on-priority-band", "critical"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("unexpected argument"))
+        .stderr(predicate::str::contains("--fail-on-priority-band"));
+}
+
+#[test]
+fn explain_prompt_pack_carries_the_native_payload_and_safety_boundary() {
+    let temporary = TempDir::new().expect("temporary directory");
+    let pack = temporary.path().join("explain-pack");
+    let report = fixture("local_repo_folder_report.json");
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .args([
+            "explain",
+            "--report",
+            report.to_str().expect("fixture path"),
+            "--path",
+            "src/git_slop",
+            "--prompt-pack",
+            pack.to_str().expect("prompt-pack path"),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+
+    let context = assert_prompt_pack_safety(&pack);
+    assert_eq!(context["command"], "explain");
+    assert_eq!(context["payload"]["schema_version"], 2);
+    assert_eq!(context["payload"]["target"]["path"], "src/git_slop");
+}
+
+#[test]
+fn plan_prompt_pack_keeps_backlog_handoff_preview_only() {
+    let temporary = TempDir::new().expect("temporary directory");
+    let pack = temporary.path().join("plan-pack");
+    let report = fixture("relationship_focused_report.json");
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .args([
+            "plan",
+            "--report",
+            report.to_str().expect("fixture path"),
+            "--relationship",
+            "near_duplicate_neighborhood-35e7fad1c4e0",
+            "--prompt-pack",
+            pack.to_str().expect("prompt-pack path"),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+
+    let context = assert_prompt_pack_safety(&pack);
+    assert_eq!(context["command"], "plan");
+    assert_eq!(context["payload"]["schema_version"], 2);
+    assert_eq!(
+        context["payload"]["backlog_handoff"]["mutation_policy"],
+        "preview_only"
+    );
+}
+
+#[test]
+fn prompt_pack_rejects_an_existing_file_target() {
+    let temporary = TempDir::new().expect("temporary directory");
+    let pack = temporary.path().join("not-a-directory");
+    fs::write(&pack, "occupied\n").expect("write occupied target");
+    let report = fixture("local_repo_folder_report.json");
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .args([
+            "explain",
+            "--report",
+            report.to_str().expect("fixture path"),
+            "--top",
+            "1",
+            "--prompt-pack",
+            pack.to_str().expect("prompt-pack path"),
+        ])
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains(format!(
+            "Prompt pack path is not a directory: {}",
+            pack.display()
+        )));
+}
+
+#[test]
+fn init_writes_schema_two_config_ignore_rules_and_state_directories() {
+    let repository = TempDir::new().expect("temporary repository");
+    git(repository.path(), &["init", "-b", "main"]);
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Initialized .slop/config.yaml (written).",
+        ))
+        .stdout(predicate::str::contains(
+            "Ensured .slop/latest/, .slop/runs/, and .slop/cache/ exist.",
+        ));
+
+    let slop = repository.path().join(".slop");
+    let config_path = slop.join("config.yaml");
+    let gitignore_path = slop.join(".gitignore");
+    assert!(config_path.is_file(), "missing config.yaml");
+    assert!(gitignore_path.is_file(), "missing .gitignore");
+    for directory in ["latest", "runs", "cache"] {
+        assert!(slop.join(directory).is_dir(), "missing {directory}/");
+    }
+
+    let config: Value =
+        serde_yaml::from_str(&fs::read_to_string(config_path).expect("read generated config.yaml"))
+            .expect("parse generated config.yaml");
+    assert_eq!(config["schema_version"], 2);
+    assert!(config["tokenization"].is_object());
+
+    assert_eq!(
+        fs::read_to_string(gitignore_path).expect("read generated .gitignore"),
+        "/latest/\n/runs/\n/cache/\n"
+    );
+}

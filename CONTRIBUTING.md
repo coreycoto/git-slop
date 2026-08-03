@@ -41,10 +41,10 @@ cargo run --locked -- version
 The public runtime lives in the Rust modules under `src/` (including focused
 submodules under `src/health/`, `src/overlays/`, `src/report/`, and
 `src/report_ops/`). The retained `git-slop-maintainer` Python project under
-`src/git_slop/` and its tests serve
-as a compatibility oracle and support repo-local maintainer automation during
-the migration. It has no `git-slop` console entry point and is not included in
-the Cargo package or native release archives.
+`src/git_slop/` validates repo-local Codex, plugin, workflow, and release
+wiring. It has no `git-slop` console entry point, contains no analyzer or
+workflow implementation, and is not included in the Cargo package or native
+release archives.
 
 Python-facing validation requires Python 3.13 and `uv`:
 
@@ -72,7 +72,7 @@ cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo test --all-targets --all-features --locked
 ```
 
-If the change touches compatibility Python, maintainer scripts, plugin
+If the change touches Python maintainer tooling, maintainer scripts, plugin
 validation, or workflow-contract tests, also run:
 
 ```bash
@@ -107,7 +107,7 @@ Keep `git-slop` local-first and deterministic:
 - no automatic code mutation, commits, or pushes
 - no GitHub mutation from the public CLI
 - no broad report schema changes without tests and docs
-- no new product behavior added only to the retained Python oracle
+- no product detector, report, explain, plan, or CLI behavior in Python
 
 Validation and dogfood may use private or external repositories, but committed
 repo content must not name them. Use neutral labels such as `local repo`,

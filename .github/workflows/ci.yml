@@ -63,8 +63,8 @@ jobs:
       - name: Test GitHub Action
         run: node --test action/*.test.mjs
 
-  maintainer-compatibility:
-    name: Python maintainer compatibility
+  maintainer-tooling:
+    name: Python maintainer tooling
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -80,19 +80,16 @@ jobs:
       - name: Install uv
         run: python -m pip install --upgrade pip uv
 
-      - name: Sync compatibility dependencies
-        run: uv sync --group dev
+      - name: Sync maintainer dependencies
+        run: uv sync --locked --group dev
 
-      - name: Compile compatibility sources
-        run: uv run python -m compileall src tests scripts
+      - name: Compile maintainer sources
+        run: uv run python -m compileall src/git_slop scripts tests
 
-      - name: Lint compatibility sources
+      - name: Lint maintainer sources
         run: uv run ruff check
 
-      - name: Smoke compatibility entry point
-        run: uv run python -m git_slop version
-
-      - name: Test compatibility and maintainer contracts
+      - name: Test maintainer contracts
         run: uv run pytest
 
   platform-smoke:
@@ -165,7 +162,11 @@ jobs:
 
       - name: Sync plugin test dependencies
         if: steps.agent-plugins.outputs.available == 'true'
-        run: uv sync --group dev --group maintainer
+        run: uv sync --locked --group dev --group maintainer
+
+      - name: Test agent plugin contracts
+        if: steps.agent-plugins.outputs.available == 'true'
+        run: uv run pytest tests/test_agent_tools_integration.py tests/unit/agent_tools
 
       - name: Run consumer plugin smoke
         if: steps.agent-plugins.outputs.available == 'true'

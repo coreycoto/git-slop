@@ -59,22 +59,6 @@ GIT_SLOP_PLUGIN_SKILLS = {
     "run-report",
 }
 BOOTSTRAP_SCRIPT = Path("scripts/bootstrap_agent_plugins_marketplace.py")
-PLUGIN_SKILL_CATALOG = {
-    "dependency-remediation",
-    "docs-taxonomy",
-    "ensure-quarter-milestones",
-    "github-backlog-mutate",
-    "intake",
-    "intake-preview",
-    "label-palette-design",
-    "merge-on-green",
-    "plan-quarter-apply",
-    "plan-quarter-preview",
-    "plan-to-backlog-preview",
-    "release-publish",
-    "review-to-backlog-apply",
-    "review-to-backlog-preview",
-}
 REMOVED_LOCAL_PLUGIN_ROOT = Path("plugins/project-management-workflows")
 REMOVED_LOCAL_PLUGIN_REFERENCES = (
     "plugins/project-management-workflows/",
