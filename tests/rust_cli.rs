@@ -35,7 +35,7 @@ fn assert_stdout_matches_golden(output: &std::process::Output, expected: &str) {
         String::from_utf8_lossy(&output.stderr)
     );
     let actual = std::str::from_utf8(&output.stdout).expect("command stdout is UTF-8");
-    assert_eq!(actual.replace("\r\n", "\n"), expected);
+    assert_eq!(actual.replace("\r\n", "\n"), expected.replace("\r\n", "\n"));
 }
 
 fn round6(value: f64) -> f64 {
