@@ -77,6 +77,7 @@ jobs:
         run: |
           mkdir -p .artifacts/codex .artifacts/dependency-remediation "$RUNNER_TEMP/codex-home"
           cp .codex/config.toml "$RUNNER_TEMP/codex-home/config.toml"
+          cp .codex/*.config.toml "$RUNNER_TEMP/codex-home/"
 
       - name: Run Codex dependency remediation
         if: steps.codex_preflight.outputs.enabled == 'true'

@@ -166,6 +166,7 @@ jobs:
         run: |
           mkdir -p .artifacts/codex "$RUNNER_TEMP/codex-home"
           cp .codex/config.toml "$RUNNER_TEMP/codex-home/config.toml"
+          cp .codex/*.config.toml "$RUNNER_TEMP/codex-home/"
 
       - name: Run Codex merge gate
         if: steps.codex_preflight.outputs.enabled == 'true'

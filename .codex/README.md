@@ -5,7 +5,8 @@ This directory defines the repo-local Codex runtime surface for `git-slop`.
 Use the runtime layers like this:
 
 - `AGENTS.md`: always-on repo-global execution rules
-- `.codex/config.toml`: project-scoped defaults, app permissions, and CI profiles
+- `.codex/config.toml`: project-scoped defaults and app permissions
+- `.codex/ci_*.config.toml`: standalone non-interactive profiles loaded by `--profile`
 - `.codex/rules/*.rules`: interactive approval prompts for sensitive shell commands
 - `.codex/agents/*.toml`: custom execution roles
 - `.agents/plugins/marketplace-source.json`: pinned marketplace source manifest
@@ -20,6 +21,11 @@ Use the runtime layers like this:
 Interactive local sessions should default to `approval_policy = "on-request"`.
 Non-interactive CI profiles should use `approval_policy = "never"` and rely on
 explicit workflow permissions instead of fresh approvals.
+
+Codex profiles are standalone files named `<profile>.config.toml`. Workflows
+copy both the base config and these profile files into their isolated
+`CODEX_HOME`; do not restore legacy `[profiles.<name>]` tables to
+`.codex/config.toml`.
 
 Publication rules:
 

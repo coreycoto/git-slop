@@ -8,6 +8,26 @@ WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 
 
 class WorkflowContractTests(unittest.TestCase):
+    def test_codex_workflows_materialize_standalone_profiles(self) -> None:
+        for workflow_name in (
+            "dependency-remediation.yml",
+            "docs-taxonomy.yml",
+            "governance-reconcile.yml",
+            "merge-on-green.yml",
+        ):
+            workflow = (WORKFLOWS / workflow_name).read_text(encoding="utf-8")
+
+            with self.subTest(workflow=workflow_name):
+                self.assertIn(
+                    'cp .codex/config.toml "$RUNNER_TEMP/codex-home/config.toml"',
+                    workflow,
+                )
+                self.assertIn(
+                    'cp .codex/*.config.toml "$RUNNER_TEMP/codex-home/"',
+                    workflow,
+                )
+                self.assertIn('"--profile","ci_mutation"', workflow)
+
     def test_github_artifact_actions_use_node_24_runtime(self) -> None:
         action_surfaces = [REPO_ROOT / "action.yml", *sorted(WORKFLOWS.glob("*.yml"))]
 
