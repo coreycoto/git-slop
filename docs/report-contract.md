@@ -175,6 +175,12 @@ Downstream commands consume existing reports and emit additive payloads:
 `git slop health --format github` emits a bounded set of workflow-command
 annotations and accepts `--max-annotations`.
 
+All three `health` formats write to standard output. They do not rewrite
+`.slop/latest/health.md` or any timestamped report bundle; `find` is the command
+that persists `health.md`. Health findings are advisory, so successful
+rendering exits 0 even when findings are present. Use `git slop check` to apply
+the stable threshold gate.
+
 These commands do not rerun the detector, rescore detector truth, or change
 `check` semantics. `explain` and `plan` write local prompt packs only when the
 caller explicitly supplies `--prompt-pack`; `sarif` writes a file only when the
@@ -201,12 +207,30 @@ Current config namespaces are:
 - `health`
 - `check`
 
+The `health` namespace has these schema-2 defaults:
+
+| Key | Default | Purpose |
+| --- | ---: | --- |
+| `health.data_context_min_bytes` | `262144` | Size threshold used with supported data extensions when assigning the `data_context` profile |
+| `health.folder_bands.compact_max_direct_tokens` | `31999` | Inclusive compact direct-token ceiling |
+| `health.folder_bands.healthy_max_direct_tokens` | `128000` | Inclusive healthy direct-token ceiling |
+| `health.folder_bands.warning_max_direct_tokens` | `256000` | Inclusive warning direct-token ceiling |
+| `health.folder_bands.warning_max_direct_files` | `17` | Inclusive direct-file ceiling before warning |
+| `health.folder_bands.refactor_required_max_direct_files` | `37` | Inclusive direct-file ceiling before `refactor_required` |
+| `health.summary_top_files` | `10` | File rows retained in rendered dashboard sections |
+| `health.summary_top_folders` | `10` | Folder rows retained in rendered dashboard sections |
+
+File health bands project the existing
+`tokenization.context_bands.compact_max_tokens: 3072`,
+`healthy_max_tokens: 8000`, and `warning_max_tokens: 10000` defaults. Folder
+bands use direct `agent_context` tokens and files: values above the healthy
+token or warning file ceiling are `warning`; values above the warning token or
+refactor-required file ceiling are `refactor_required`.
+
 Important defaults:
 
 - context tokenization uses `cl100k_base`
 - organization-health and other overlay evidence remain always on
-- file context bands use 3,072, 8,000, and 10,000 token boundaries
-- folder health bands use direct tokens and direct file counts
 - `check.fail_on_context_band: critical`
 - `check.fail_on_slop_band: critical`
 - deterministic candidate limiting is allowed internally for performance

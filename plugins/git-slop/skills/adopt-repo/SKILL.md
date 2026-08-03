@@ -24,6 +24,12 @@ Use this skill when a repository should start consuming `git-slop`.
 - Keep the Action at its safe defaults initially: advisory policy, at most 10
   annotations, `health.md`-only artifact, 14-day retention, and no pull request
   comment.
+- Preserve the Action sequence: install the verified binary; run `find` once;
+  append its generated `health.md` to the job summary; render bounded
+  annotations with `health --format github`; upload allowlisted artifacts and
+  optionally update one pull request comment; then run `check` only when
+  `policy: enforce`. Advisory findings do not fail, but setup, analysis,
+  rendering, or publication failures do.
 - Opt into `artifact-contents: report` only for schema-4 automation. Do not
   upload `.slop/latest/` or `.slop/runs/` as broad directories.
 - Keep `git-slop` observational until the repository explicitly promotes checks
@@ -36,7 +42,7 @@ permissions:
   contents: read
 
 steps:
-  - uses: actions/checkout@v6
+  - uses: actions/checkout@v7
     with:
       fetch-depth: 0
   - uses: coreycoto/git-slop@v0.9.0

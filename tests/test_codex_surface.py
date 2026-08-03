@@ -178,9 +178,87 @@ class CodexSurfaceTests(unittest.TestCase):
             (plugin_root / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(manifest["name"], "git-slop")
+        self.assertEqual(manifest["version"], "0.2.1")
         self.assertEqual(manifest["skills"], "./skills/")
         skill_dirs = {path.parent.name for path in (plugin_root / "skills").glob("*/SKILL.md")}
         self.assertEqual(skill_dirs, GIT_SLOP_PLUGIN_SKILLS)
+
+    def test_git_slop_plugin_documents_health_command_contract(self) -> None:
+        plugin_root = REPO_ROOT / GIT_SLOP_PLUGIN_ROOT
+        run_report = (plugin_root / "skills" / "run-report" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        health_reference = (
+            plugin_root / "skills" / "run-report" / "references" / "health.md"
+        ).read_text(encoding="utf-8")
+        adopt_repo = (plugin_root / "skills" / "adopt-repo" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        interpret_results = (plugin_root / "skills" / "interpret-results" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        run_report_contract = " ".join(run_report.split())
+        health_contract = " ".join(health_reference.split())
+        adoption_contract = " ".join(adopt_repo.split())
+        interpretation_contract = " ".join(interpret_results.split())
+
+        for expected in (
+            "git-slop health --report <report.json>",
+            "git-slop health --format json",
+            "writes its selected rendering to stdout",
+            "does not rewrite `health.md`",
+            "Use `check`",
+            "references/health.md",
+        ):
+            self.assertIn(expected, run_report_contract)
+
+        for expected in (
+            "Every format writes to stdout",
+            "does not rewrite that file",
+            "Exit `0` means the selected report rendered successfully",
+            "run `git-slop find` exactly once",
+            "git-slop health --report path/to/report.json --format json",
+            "git-slop health --report",
+            "git-slop check --report",
+            "does not modify report artifacts",
+        ):
+            self.assertIn(expected, health_contract)
+
+        self.assertIn("actions/checkout@v7", adoption_contract)
+        self.assertNotIn("actions/checkout@v6", adoption_contract)
+        self.assertIn("run `find` once", adoption_contract)
+        self.assertIn("Treat health output as advisory", interpretation_contract)
+
+    def test_public_docs_explain_health_rendering_and_enforcement(self) -> None:
+        command_guide = (REPO_ROOT / "docs" / "commands.md").read_text(encoding="utf-8")
+        report_contract = (REPO_ROOT / "docs" / "report-contract.md").read_text(encoding="utf-8")
+        action_guide = (REPO_ROOT / "docs" / "github-action.md").read_text(encoding="utf-8")
+        command_contract = " ".join(command_guide.split())
+        report_schema_contract = " ".join(report_contract.split())
+        action_contract = " ".join(action_guide.split())
+
+        for expected in (
+            "Every format writes to standard output",
+            "never rewrites `.slop/latest/health.md`",
+            "successful rendering exits 0",
+            "Use `git-slop check`",
+            "# Repository Health",
+            "git-slop explain --path src/parser.rs",
+        ):
+            self.assertIn(expected, command_contract)
+
+        for expected in (
+            "All three `health` formats write to standard output",
+            "do not rewrite `.slop/latest/health.md`",
+            "health.data_context_min_bytes",
+            "health.folder_bands.refactor_required_max_direct_files",
+            "health.summary_top_folders",
+        ):
+            self.assertIn(expected, report_schema_contract)
+
+        self.assertIn("Run `git-slop find` once", action_contract)
+        self.assertIn("git-slop health --report", action_contract)
+        self.assertIn("`health` render exits 0", action_contract)
 
     def test_local_plugin_tree_is_removed(self) -> None:
         self.assertFalse((REPO_ROOT / REMOVED_LOCAL_PLUGIN_ROOT).exists())

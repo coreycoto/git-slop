@@ -75,8 +75,30 @@ Formats:
 - `github`: bounded GitHub workflow-command annotations
 - `json`: an automation payload containing the additive health section
 
-The default report is `.slop/latest/report.json`. GitHub annotations include a
-specific next command such as `git-slop explain --path <path>`.
+The default report is `.slop/latest/report.json`, the default format is
+`markdown`, and the default annotation cap is 10. Every format writes to
+standard output. `health` never rewrites `.slop/latest/health.md`; only `find`
+writes the persisted report bundle. GitHub annotations include a specific next
+command such as `git-slop explain --path <path>`.
+
+An abridged Markdown dashboard looks like this:
+
+```markdown
+# Repository Health
+
+❌ **Review required** — 1 file(s) and 0 folder(s) exceed configured refactor thresholds.
+
+## Actionable Findings
+
+| Severity | Path | Why it surfaced | Next step |
+| --- | --- | --- | --- |
+| `error` | `src/parser.rs` | exceeds the configured context budget | `git-slop explain --path src/parser.rs` |
+```
+
+The headline is a repository rollup, the finding identifies review evidence,
+and `Next step` is a deterministic drill-down command. These findings are
+advisory: successful rendering exits 0 even when the dashboard contains
+warnings or errors. Use `git-slop check` when findings should enforce policy.
 
 ### Show
 
@@ -222,7 +244,8 @@ upload results, rerun the detector, change scoring, or mutate GitHub.
 ## GitHub Action
 
 The repository's composite Action wraps the native release for CI: it verifies
-the selected archive, runs `find` once, publishes `health.md`, and optionally
-adds bounded annotations, report artifacts, a pull request comment, or the
-stable `check` gate. See [GitHub Action](github-action.md) for the supported
-inputs and safe defaults.
+the selected archive, runs `find` once, appends the persisted `health.md` to the
+job summary, renders optional bounded annotations from that report, and only
+then applies the optional stable `check` gate. It can also publish bounded
+report artifacts or one pull request comment. See [GitHub
+Action](github-action.md) for the supported inputs and safe defaults.

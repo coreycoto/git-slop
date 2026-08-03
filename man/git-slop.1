@@ -118,7 +118,16 @@ Options are
 .BI --format " markdown|github|json" ,
 and
 .BI --max-annotations " count" .
+The default format is
+.B markdown
+and the default annotation cap is 10.
+All formats write to standard output and do not rewrite
+.BR .slop/latest/health.md .
 The GitHub format emits bounded workflow-command annotations.
+Findings are advisory: successful rendering returns 0 even when findings are
+present. Use
+.B check
+to enforce stable detector thresholds.
 .TP
 .B version
 Print
@@ -145,7 +154,9 @@ Create repository-local config and generated-state boundaries.
 Generate a schema-4 report bundle for the current repository.
 .TP
 .B git slop health
-Render the repository-health dashboard from the latest report.
+Render the repository-health dashboard from the latest report to standard
+output without rewriting
+.BR health.md .
 .TP
 .B git slop health --format github --max-annotations 10
 Emit at most ten GitHub workflow annotations.
@@ -162,6 +173,10 @@ Fail when any file is at or above the warning context band.
 .B git slop compare --base old.json --head new.json
 Compare two previously generated reports.
 .SH EXIT STATUS
+.B health
+returns 0 after successful rendering even when findings are present. Invalid
+input or a runtime failure returns a nonzero status.
+.PP
 .B check
 returns 0 when no file meets either threshold, 1 when findings meet a
 threshold, and 2 for invalid report or command input.

@@ -13,6 +13,8 @@ explanation/plan.
 - Initialize repo state when needed: `git-slop init`
 - Generate artifacts: `git-slop find`
 - Render the human health dashboard: `git-slop health`
+- Render a selected report: `git-slop health --report <report.json>`
+- Emit the health payload for automation: `git-slop health --format json`
 - Emit bounded CI annotations: `git-slop health --format github --max-annotations 10`
 - Explain current evidence: `git-slop explain --top 5` or `git-slop explain --path <path>`
 - Propose bounded work: `git-slop plan --path <path>` or `git-slop plan --relationship <id>`
@@ -22,8 +24,13 @@ explanation/plan.
 
 One successful `find` writes `report.json`, `report.yaml`, `summary.md`, and
 `health.md` to both `.slop/latest/` and a timestamped `.slop/runs/` directory.
-`health` and the other downstream commands consume those reports; do not rerun
-`find` merely to change the presentation.
+`health` and the other downstream commands consume those reports. `health`
+writes its selected rendering to stdout; it does not rewrite `health.md` or
+rerun `find`. Health findings are advisory and a successful rendering exits
+zero. Use `check` when the repository explicitly wants an enforcement gate.
+
+Read [the health command reference](references/health.md) when selecting a
+format, interpreting health evidence, or reproducing the GitHub Action flow.
 
 Generated `.slop/latest/`, `.slop/runs/`, `.slop/cache/`, prompt packs, SARIF
 exports, plan JSON, and compare JSON should stay untracked unless a repository
