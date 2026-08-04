@@ -40,14 +40,6 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
 
-      - name: Prepare pinned agent-plugins runtime
-        env:
-          AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
-        run: scripts/with-agent-plugins.sh --prepare
-
-      - name: Verify pinned agent-plugins runtime
-        run: scripts/with-agent-plugins.sh --verify
-
       - name: Prepare artifact root
         id: artifact-root
         shell: bash
@@ -56,6 +48,14 @@ jobs:
           root=".artifacts/execution-state/$stamp"
           mkdir -p "$root"
           echo "path=$root" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare pinned agent-plugins runtime
+        env:
+          AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
+        run: scripts/with-agent-plugins.sh --prepare
+
+      - name: Verify pinned agent-plugins runtime
+        run: scripts/with-agent-plugins.sh --verify
 
       - name: Resolve backlog project identity
         id: project
@@ -175,7 +175,7 @@ jobs:
         run: cat "${{ steps.artifact-root.outputs.path }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload execution artifacts
-        if: ${{ failure() || github.event_name == 'workflow_dispatch' }}
+        if: ${{ (failure() || github.event_name == 'workflow_dispatch') && steps.artifact-root.outputs.path != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: execution-state

@@ -236,21 +236,35 @@ fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
     }
 
     if let Some(text) = read(&workflows.join("execution_state_sync.yml"), errors) {
-        let upload = text
-            .split_once("      - name: Upload execution artifacts")
-            .map(|(_, tail)| tail);
-        let Some(upload) = upload else {
-            errors.push("execution_state_sync.yml must define its artifact upload.".into());
-            return;
-        };
-        for expected in [
-            "path: ${{ steps.artifact-root.outputs.path }}",
-            "include-hidden-files: true",
-            "if-no-files-found: error",
-            "retention-days: 14",
-        ] {
-            require(upload, expected, "execution_state_sync.yml", errors);
-        }
+        validate_execution_state_artifacts(&text, errors);
+    }
+}
+
+fn validate_execution_state_artifacts(text: &str, errors: &mut Vec<String>) {
+    let name = "execution_state_sync.yml";
+    let artifact_root = text.find("      - name: Prepare artifact root");
+    let runtime_prepare = text.find("      - name: Prepare pinned agent-plugins runtime");
+    if !matches!((artifact_root, runtime_prepare), (Some(root), Some(runtime)) if root < runtime) {
+        errors.push(format!(
+            "{name} must create its artifact root before private runtime preparation."
+        ));
+    }
+
+    let upload = text
+        .split_once("      - name: Upload execution artifacts")
+        .map(|(_, tail)| tail);
+    let Some(upload) = upload else {
+        errors.push(format!("{name} must define its artifact upload."));
+        return;
+    };
+    for expected in [
+        "if: ${{ (failure() || github.event_name == 'workflow_dispatch') && steps.artifact-root.outputs.path != '' }}",
+        "path: ${{ steps.artifact-root.outputs.path }}",
+        "include-hidden-files: true",
+        "if-no-files-found: error",
+        "retention-days: 14",
+    ] {
+        require(upload, expected, name, errors);
     }
 }
 
@@ -443,6 +457,48 @@ mod tests {
             errors
                 .iter()
                 .any(|error| error.contains("rust-quality job must run"))
+        );
+    }
+
+    #[test]
+    fn execution_state_artifacts_require_early_root_and_guarded_upload() {
+        let valid = r#"jobs:
+  sync:
+    steps:
+      - name: Prepare artifact root
+      - name: Prepare pinned agent-plugins runtime
+      - name: Upload execution artifacts
+        if: ${{ (failure() || github.event_name == 'workflow_dispatch') && steps.artifact-root.outputs.path != '' }}
+        with:
+          path: ${{ steps.artifact-root.outputs.path }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+"#;
+        let mut errors = Vec::new();
+        validate_execution_state_artifacts(valid, &mut errors);
+        assert_eq!(errors, Vec::<String>::new());
+
+        let late_and_unguarded = valid
+            .replace(
+                "      - name: Prepare artifact root\n      - name: Prepare pinned agent-plugins runtime",
+                "      - name: Prepare pinned agent-plugins runtime\n      - name: Prepare artifact root",
+            )
+            .replace(
+                "if: ${{ (failure() || github.event_name == 'workflow_dispatch') && steps.artifact-root.outputs.path != '' }}",
+                "if: ${{ failure() }}",
+            );
+        let mut errors = Vec::new();
+        validate_execution_state_artifacts(&late_and_unguarded, &mut errors);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("before private runtime preparation"))
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("artifact-root.outputs.path != ''"))
         );
     }
 }
