@@ -21,9 +21,10 @@ Include:
 
 This policy covers the native Rust `git-slop` CLI, Cargo source package,
 checksummed release archives, Homebrew formula, GitHub Action installer and
-runner, and checked-in plugin guidance. It also covers retained Python
-maintainer and release tooling when that code participates in repository
-validation or release automation.
+runner, checked-in plugin guidance, and the private standalone Rust `xtask`
+validation and release tooling. Workflow use of the manifest-pinned external
+`agent-plugins` Python runtime is also in scope at this repository's invocation
+boundary; its implementation is maintained in the publisher repository.
 
 Out of scope:
 

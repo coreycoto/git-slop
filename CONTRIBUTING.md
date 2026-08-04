@@ -34,63 +34,61 @@ Requirements:
 ```bash
 git clone https://github.com/coreycoto/git-slop.git
 cd git-slop
-cargo build --locked
-cargo run --locked -- version
+cargo build -p git-slop --locked
+cargo run -p git-slop --locked -- version
 ```
 
 The public runtime lives in the Rust modules under `src/` (including focused
 submodules under `src/health/`, `src/overlays/`, `src/report/`, and
-`src/report_ops/`). The retained `git-slop-maintainer` Python project under
-`src/git_slop/` validates repo-local Codex, plugin, workflow, and release
-wiring. It has no `git-slop` console entry point, contains no analyzer or
-workflow implementation, and is not included in the Cargo package or native
-release archives.
-
-Python-facing validation requires Python 3.13 and `uv`:
-
-```bash
-uv sync --group dev
-uv run ruff check
-uv run pytest
-```
+`src/report_ops/`). Repo-local Codex, plugin, workflow, repository, and release
+contracts live in the private standalone Rust workspace under `xtask/`. The
+root workspace excludes it, and the public `git-slop` package and native
+release archives do not contain it. Its committed `xtask/Cargo.lock` keeps
+maintainer validation reproducible independently of the public dependency graph.
 
 Reusable `agent_plugins` behavior tests, marketplace bootstrap tests, and
 clean-room plugin consumer smoke run in the `coreycoto/agent-plugins`
-publisher repository. They are intentionally not duplicated here.
+publisher repository. They are intentionally not duplicated here. The
+`scripts/with-agent-plugins.sh` wrapper uses `jq` and `uv` to resolve that
+external Python package from the exact URL and 40-character revision in
+`.agents/plugins/marketplace-source.json`; it does not create or sync a Python
+project in this repository.
 
 ## Validation
 
 Run these before submitting a pull request:
 
 ```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features --locked -- -D warnings
-cargo test --all-targets --all-features --locked
+cargo fmt -p git-slop -- --check
+cargo clippy -p git-slop --all-targets --all-features --locked -- -D warnings
+cargo test -p git-slop --all-targets --all-features --locked
+cargo fmt --manifest-path xtask/Cargo.toml --all -- --check
+cargo clippy --manifest-path xtask/Cargo.toml --all-targets --all-features --locked -- -D warnings
+cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
+cargo xtask validate
 ```
 
-If the change touches Python maintainer tooling, maintainer scripts, plugin
-validation, or workflow-contract tests, also run:
+For focused maintainer-contract changes, the corresponding commands are:
 
 ```bash
-uv run ruff check
-uv run pytest
+cargo xtask validate-codex
+cargo xtask validate-workflows
+cargo xtask check-issue-forms
+cargo xtask check-distribution
 ```
 
-For local plugin or maintainer workflow wiring changes, also run:
-
-```bash
-uv run python scripts/validate_codex_surface.py
-```
-
-To exercise a pinned workflow runtime itself, sync the publisher dependency
-with `uv sync --group dev --group maintainer` and use the
-`agent_plugins.marketplace.bootstrap` module named in the workflow.
+Use `cargo xtask validate-codex --require-codex-cli` when the local check must
+also prove that the Codex CLI is installed. To exercise a pinned publisher
+runtime itself, invoke its Python entry point through
+`scripts/with-agent-plugins.sh`; do not add repository-owned Python or a local
+Python environment.
 
 For packaging or release-script changes, also run:
 
 ```bash
-cargo package --locked
-cargo publish --dry-run --locked
+cargo xtask check-distribution
+cargo package -p git-slop --locked
+cargo publish -p git-slop --dry-run --locked
 ```
 
 The dry run validates package readiness; it does not mean a crates.io version
@@ -106,7 +104,9 @@ Keep `git-slop` local-first and deterministic:
 - no automatic code mutation, commits, or pushes
 - no GitHub mutation from the public CLI
 - no broad report schema changes without tests and docs
-- no product detector, report, explain, plan, or CLI behavior in Python
+- no repository-owned Python; the pinned external `agent-plugins` runtime is
+  the only Python used by maintainer workflows
+- no product detector, report, explain, plan, or CLI behavior outside Rust
 
 Validation and dogfood may use private or external repositories, but committed
 repo content must not name them. Use neutral labels such as `local repo`,

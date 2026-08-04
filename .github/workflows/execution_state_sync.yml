@@ -67,9 +67,6 @@ jobs:
             echo "Set AGENT_PLUGINS_READ_TOKEN with read access to coreycoto/agent-plugins, or make the repo public." >&2
             exit 1
           fi
-      - name: Sync project
-        run: uv sync --locked --group dev --group maintainer
-
       - name: Resolve backlog project identity
         id: project
         shell: bash
@@ -86,7 +83,7 @@ jobs:
           snapshot_path="${{ steps.artifact-root.outputs.path }}/project-access-preflight.json"
           stderr_path="${{ steps.artifact-root.outputs.path }}/project-access.stderr"
           set +e
-          uv run python -c "from agent_plugins.github.shared.project_snapshot import main; raise SystemExit(main())" \
+          scripts/with-agent-plugins.sh python -c "from agent_plugins.github.shared.project_snapshot import main; raise SystemExit(main())" \
             --require-live \
             --json-path "$snapshot_path" \
             > /dev/null \
@@ -139,7 +136,7 @@ jobs:
           fi
           stderr_path="${{ steps.artifact-root.outputs.path }}/execution-state.stderr"
           set +e
-          uv run python -c "from agent_plugins.github.governance.execution_state import main; raise SystemExit(main())" "${args[@]}" 2> "$stderr_path"
+          scripts/with-agent-plugins.sh python -c "from agent_plugins.github.governance.execution_state import main; raise SystemExit(main())" "${args[@]}" 2> "$stderr_path"
           status=$?
           set -e
           if [ "$status" -eq 0 ]; then

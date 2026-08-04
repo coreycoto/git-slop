@@ -52,3 +52,9 @@ tempfile = "3.23"
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+[workspace]
+members = ["."]
+default-members = ["."]
+exclude = ["xtask"]
+resolver = "3"

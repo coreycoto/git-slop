@@ -20,8 +20,11 @@ using standard `git` and `gh` flows only.
 
 ## Boundaries
 
-- Use checked-out repo files, `gh`, GitHub tokens, `uv`, and local CLI tooling
-  only.
+- Use checked-out repo files, Cargo and the private `xtask`, `gh`, GitHub
+  tokens, and local CLI tooling only.
+- If the pinned external `agent-plugins` Python runtime is needed, invoke it
+  through `scripts/with-agent-plugins.sh`; do not add or sync a repository
+  Python project.
 - Do not assume Marketplace-installed connectors are available on the runner.
 - Do not use the GitHub Git Data API.
 - Build the package as a validation smoke when needed.

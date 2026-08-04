@@ -15,9 +15,16 @@ Use these surfaces:
 
 `git-slop` consumes the `project-management-workflows` plugin from
 `coreycoto/agent-plugins` through this pinned manifest. The publisher-owned
-`agent_plugins.marketplace.bootstrap` module installs into isolated Codex homes;
-bootstrap implementation, reusable behavior tests, and clean-room consumer
-smoke coverage stay in `agent-plugins`, not this consumer repository.
+`agent_plugins.marketplace.bootstrap` module installs into isolated Codex homes
+through `scripts/with-agent-plugins.sh`. That wrapper resolves the exact URL and
+40-character source revision from the manifest with an isolated
+`uv run --no-project`; bootstrap implementation, reusable behavior tests, and
+clean-room consumer smoke coverage stay in `agent-plugins`, not this consumer
+repository.
+
+Repo-owned validation belongs to the private standalone Rust `xtask/` workspace. Do not add
+a consumer Python project, project dependency sync, or duplicated publisher
+implementation here.
 
 `git-slop` also publishes its repo-local Codex plugin from `plugins/git-slop`.
 That plugin owns product-specific guidance for installing, running,

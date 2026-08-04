@@ -15,10 +15,14 @@ Use the runtime layers like this:
 - `plugins/git-slop`: product-owned plugin for installing, running, interpreting, and adopting `git-slop`
 - `.github/codex/prompts/*`: workflow prompts that explicitly name the custom agents to use
 - `.github/codex/schemas/*`: structured-output schemas for Codex-driven workflows
+- `xtask/`: private standalone Rust validation and release automation for repo-owned contracts
+- `scripts/with-agent-plugins.sh`: isolated launcher for the manifest-pinned external Python runtime
 
 The consumer-owned boundary is the immutable marketplace-source manifest and
 workflow invocation. The `agent-plugins` publisher owns marketplace bootstrap
 implementation, reusable runtime behavior tests, and clean-room consumer smoke.
+Repo-owned validation stays in the private standalone Rust `xtask/` workspace; this
+repository does not carry a Python project.
 
 ## Approval And Publication
 
@@ -29,7 +33,9 @@ explicit workflow permissions instead of fresh approvals.
 Codex profiles are standalone files named `<profile>.config.toml`. Workflows
 copy both the base config and these profile files into their isolated
 `CODEX_HOME`, then install the pinned marketplace with the publisher-owned
-`agent_plugins.marketplace.bootstrap` module. Do not restore legacy
+`agent_plugins.marketplace.bootstrap` module through
+`scripts/with-agent-plugins.sh`. Do not restore project `uv sync`,
+repository-owned Python, or legacy
 `[profiles.<name>]` tables to `.codex/config.toml`.
 
 Publication rules:
@@ -68,3 +74,8 @@ Codex-driven GitHub Actions should keep their task contract in checked-in
 prompt and schema files. The schema files are workflow-owned assets. They are
 not auto-discovered by Codex or by custom agents; workflows must pass them
 explicitly via `--output-schema`.
+
+Run `cargo xtask validate-codex` after changing this surface and
+`cargo xtask validate-workflows` after changing workflow wiring. Use
+`--require-codex-cli` only when the validation environment is expected to have
+the Codex CLI installed.

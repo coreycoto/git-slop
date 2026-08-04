@@ -111,12 +111,15 @@ The local `git-slop` CLI does not:
 
 Version 0.9.0 moves the product runtime to Rust while retaining report schema 4,
 config schema 2, and the existing `check` threshold semantics. The repository
-still contains a small Python maintainer package that validates Codex, plugin,
-workflow, and release wiring; it is not part of the native CLI or Cargo release
-package.
+uses a private, non-publishable Rust `xtask` workspace to validate Codex,
+plugin, workflow, repository, and release wiring. It is excluded from the
+public workspace and is not part of the native CLI or `git-slop` Cargo package.
 
 The `git-slop` Codex plugin is published from this repo. It owns
 product-specific install, report, interpretation, planning, and
 consumer-adoption guidance. Reusable project and backlog workflows live in the
 separate `coreycoto/agent-plugins` plugin, which also owns its runtime behavior
 tests, pinned marketplace bootstrap, and clean-room consumer smoke coverage.
+When a workflow needs that external Python runtime, it resolves the exact
+manifest-pinned revision through `scripts/with-agent-plugins.sh`; this repo does
+not carry a Python project of its own.

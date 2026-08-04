@@ -249,15 +249,22 @@ once, publishes `health.md` to the job summary, and then optionally renders
 annotations, uploads an allowlisted artifact, comments on a pull request, or
 applies the stable `check` gate.
 
-## Python Maintainer Surface
+## Rust Maintainer Surface
 
 The public runtime and release artifacts are Rust. Accepted analyzer, CLI,
 report, explain, plan, comparison, and SARIF behavior is covered by native Rust
 tests and language-neutral historical report fixtures. The duplicated Python
 engine was retired before the 0.9.0 release.
 
-The separately named `git-slop-maintainer` Python project under `src/git_slop/`
-now contains only repo-local Codex, plugin, workflow, and release-contract
-validation. It has no public CLI entry point or workflow implementation, and
-Cargo excludes that tree from the product package. New product runtime behavior
-must be implemented and tested in Rust.
+The private, non-publishable standalone Rust workspace under `xtask/` owns
+repo-local Codex, plugin, workflow, repository, and release-contract
+validation. The root workspace excludes it, and the public `git-slop` package
+and native archives do not contain it. Its separate committed lockfile pins the
+maintainer dependency graph. New product runtime behavior and repository-owned
+maintainer automation must be implemented and tested in Rust.
+
+The only retained Python execution is the separately published, manifest-pinned
+`agent-plugins` runtime used by maintainer workflows. The
+`scripts/with-agent-plugins.sh` wrapper resolves its exact source revision in an
+isolated `uv run --no-project` environment; no Python project or implementation
+is stored in this repository.

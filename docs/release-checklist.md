@@ -12,11 +12,15 @@ Codex plugin install contract, and preserve existing Homebrew upgrades.
 - Run the release validation locally:
 
 ```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features --locked -- -D warnings
-cargo test --all-targets --all-features --locked
-cargo package --locked
-cargo publish --dry-run --locked
+cargo fmt -p git-slop -- --check
+cargo clippy -p git-slop --all-targets --all-features --locked -- -D warnings
+cargo test -p git-slop --all-targets --all-features --locked
+cargo fmt --manifest-path xtask/Cargo.toml --all -- --check
+cargo clippy --manifest-path xtask/Cargo.toml --all-targets --all-features --locked -- -D warnings
+cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
+cargo xtask validate
+cargo package -p git-slop --locked
+cargo publish -p git-slop --dry-run --locked
 ```
 
 `cargo publish --dry-run` is required even when the release will not publish to
@@ -46,7 +50,7 @@ the exact tag and revision:
 
 ```bash
 git tag v<version>
-python3 scripts/release_prepare.py --version <version> --tap ../homebrew-tap
+cargo xtask release-prepare --version <version> --tap ../homebrew-tap
 ```
 
 Do not commit or merge the tap update until the GitHub Release assets exist.
@@ -104,7 +108,7 @@ publication requires a crates.io owner credential and must be performed
 deliberately from the exact tagged commit:
 
 ```bash
-cargo publish --locked
+cargo publish -p git-slop --locked
 ```
 
 Use a Cargo credential provider or a short-lived, narrowly scoped token; never
