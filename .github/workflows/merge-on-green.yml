@@ -27,96 +27,80 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_PATH: ${{ github.event_path }}
           REPOSITORY: ${{ github.repository }}
+        shell: bash
         run: |
-          python3 <<'PY'
-          import json
-          import os
-          import subprocess
-          import sys
-          from pathlib import Path
+          set -euo pipefail
 
-          event_name = os.environ["EVENT_NAME"]
-          event = json.loads(Path(os.environ["EVENT_PATH"]).read_text(encoding="utf-8"))
-          output_path = Path(os.environ["GITHUB_OUTPUT"])
-          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          finish() {
+            local eligible="$1"
+            local reason="$2"
+            local pr_number="${3:-}"
+            {
+              echo "eligible=$eligible"
+              echo "pr_number=$pr_number"
+            } >> "$GITHUB_OUTPUT"
+            echo "Merge preflight: $reason" >> "$GITHUB_STEP_SUMMARY"
+            echo "$reason"
+          }
 
-          def finish(eligible: bool, reason: str, pr_number: str = "") -> None:
-              with output_path.open("a", encoding="utf-8") as output:
-                  output.write(f"eligible={'true' if eligible else 'false'}\n")
-                  output.write(f"pr_number={pr_number}\n")
-              with summary_path.open("a", encoding="utf-8") as summary:
-                  summary.write(f"Merge preflight: {reason}\n")
-              print(reason)
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            finish true "manual dispatch requested; running merge gate"
+            exit 0
+          fi
 
-          if event_name == "workflow_dispatch":
-              finish(True, "manual dispatch requested; running merge gate")
-              sys.exit(0)
+          if [ "$(jq -r '.workflow_run.conclusion // ""' "$EVENT_PATH")" != "success" ]; then
+            finish false "CI workflow_run was not successful; skipping Codex merge gate"
+            exit 0
+          fi
 
-          workflow_run = event.get("workflow_run") or {}
-          if workflow_run.get("conclusion") != "success":
-              finish(False, "CI workflow_run was not successful; skipping Codex merge gate")
-              sys.exit(0)
+          pr_number="$(jq -r '.workflow_run.pull_requests[0].number // empty' "$EVENT_PATH")"
+          head_sha="$(jq -r '.workflow_run.head_sha // empty' "$EVENT_PATH")"
+          if [ -z "$pr_number" ] && [ -n "$head_sha" ]; then
+            associated_prs=""
+            if associated_prs="$(
+              gh api \
+                -H "Accept: application/vnd.github+json" \
+                "repos/${REPOSITORY}/commits/${head_sha}/pulls"
+            )"; then
+              pr_number="$(jq -r '.[0].number // empty' <<< "$associated_prs")"
+            fi
+          fi
+          if [ -z "$pr_number" ]; then
+            finish false "CI workflow_run has no associated pull request; skipping Codex"
+            exit 0
+          fi
 
-          pull_requests = workflow_run.get("pull_requests") or []
-          pr_number = str(pull_requests[0].get("number")) if pull_requests else ""
-          if not pr_number and workflow_run.get("head_sha"):
-              completed = subprocess.run(
-                  [
-                      "gh",
-                      "api",
-                      "-H",
-                      "Accept: application/vnd.github+json",
-                      f"repos/{os.environ['REPOSITORY']}/commits/{workflow_run['head_sha']}/pulls",
-                  ],
-                  check=False,
-                  capture_output=True,
-                  text=True,
-              )
-              if completed.returncode == 0:
-                  associated_prs = json.loads(completed.stdout)
-                  if associated_prs:
-                      pr_number = str(associated_prs[0].get("number") or "")
-          if not pr_number:
-              finish(False, "CI workflow_run has no associated pull request; skipping Codex")
-              sys.exit(0)
+          if ! pr_json="$(
+            gh pr view "$pr_number" \
+              --repo "$REPOSITORY" \
+              --json headRefName,labels
+          )"; then
+            finish false "could not inspect PR #${pr_number}; skipping Codex"
+            exit 0
+          fi
 
-          completed = subprocess.run(
-              [
-                  "gh",
-                  "pr",
-                  "view",
-                  pr_number,
-                  "--repo",
-                  os.environ["REPOSITORY"],
-                  "--json",
-                  "headRefName,labels",
-              ],
-              check=False,
-              capture_output=True,
-              text=True,
-          )
-          if completed.returncode != 0:
-              finish(False, f"could not inspect PR #{pr_number}; skipping Codex")
-              sys.exit(0)
+          branch="$(jq -r '.headRefName // ""' <<< "$pr_json")"
+          if [[ "$branch" != codex/* ]]; then
+            finish false "PR #${pr_number} branch is not codex/*; skipping Codex" "$pr_number"
+            exit 0
+          fi
+          if ! jq -e '(.labels // []) | any(.name == "auto-merge")' \
+            <<< "$pr_json" >/dev/null; then
+            finish false "PR #${pr_number} lacks auto-merge label; skipping Codex" "$pr_number"
+            exit 0
+          fi
 
-          pr = json.loads(completed.stdout)
-          branch = pr.get("headRefName") or ""
-          labels = {label.get("name") for label in pr.get("labels", [])}
-          if not branch.startswith("codex/"):
-              finish(False, f"PR #{pr_number} branch is not codex/*; skipping Codex", pr_number)
-              sys.exit(0)
-          if "auto-merge" not in labels:
-              finish(False, f"PR #{pr_number} lacks auto-merge label; skipping Codex", pr_number)
-              sys.exit(0)
-
-          finish(True, f"PR #{pr_number} passed cheap eligibility preflight", pr_number)
-          PY
+          finish true "PR #${pr_number} passed cheap eligibility preflight" "$pr_number"
 
       - name: Set up Python
         if: steps.merge_preflight.outputs.eligible == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+
+      - name: Set up Rust
+        if: steps.merge_preflight.outputs.eligible == 'true'
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
       - name: Install uv
         if: steps.merge_preflight.outputs.eligible == 'true'
@@ -136,13 +120,9 @@ jobs:
             echo "Set AGENT_PLUGINS_READ_TOKEN with read access to coreycoto/agent-plugins, or make the repo public." >&2
             exit 1
           fi
-      - name: Sync project
-        if: steps.merge_preflight.outputs.eligible == 'true'
-        run: uv sync --locked --group dev --group maintainer
-
       - name: Validate Codex surface
         if: steps.merge_preflight.outputs.eligible == 'true'
-        run: uv run python scripts/validate_codex_surface.py
+        run: cargo xtask validate-codex
 
       - name: Detect Codex credentials
         if: steps.merge_preflight.outputs.eligible == 'true'
@@ -163,7 +143,7 @@ jobs:
           mkdir -p .artifacts/codex "$RUNNER_TEMP/codex-runtime/.codex"
           cp .codex/config.toml "$RUNNER_TEMP/codex-runtime/.codex/config.toml"
           cp .codex/*.config.toml "$RUNNER_TEMP/codex-runtime/.codex/"
-          uv run python -m agent_plugins.marketplace.bootstrap install \
+          scripts/with-agent-plugins.sh python -m agent_plugins.marketplace.bootstrap install \
             --manifest .agents/plugins/marketplace-source.json \
             --home "$RUNNER_TEMP/codex-runtime"
 
@@ -187,7 +167,7 @@ jobs:
           if [ -f .artifacts/codex/merge-on-green.json ]; then
             {
               echo '```json'
-              python -m json.tool .artifacts/codex/merge-on-green.json
+              jq . .artifacts/codex/merge-on-green.json
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi

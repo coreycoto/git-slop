@@ -10,6 +10,7 @@ build/
 dist/
 htmlcov/
 /target/
+/xtask/target/
 
 # Local research source material
 docs/plans/
