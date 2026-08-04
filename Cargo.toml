@@ -8,9 +8,11 @@ license = "MIT"
 readme = "README.md"
 repository = "https://github.com/coreycoto/git-slop"
 homepage = "https://github.com/coreycoto/git-slop"
+publish = ["crates-io"]
 keywords = ["git", "static-analysis", "repository", "developer-tools", "ci"]
 categories = ["command-line-utilities", "development-tools"]
 include = [
+    "/build.rs",
     "/Cargo.toml",
     "/Cargo.lock",
     "/src/*.rs",
@@ -22,6 +24,7 @@ include = [
     "/tests/*.rs",
     "/tests/fixtures/reports/*",
 ]
+build = "build.rs"
 
 [[bin]]
 name = "git-slop"
@@ -47,6 +50,9 @@ unicode-normalization = "0.1"
 assert_cmd = "2.1"
 predicates = "3.1"
 tempfile = "3.23"
+
+[build-dependencies]
+serde_json = "1.0"
 
 [profile.release]
 lto = "thin"

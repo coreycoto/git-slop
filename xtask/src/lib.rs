@@ -1,4 +1,5 @@
 pub mod codex;
+pub mod crates_io;
 pub mod distribution;
 pub mod homebrew;
 pub mod issue_forms;

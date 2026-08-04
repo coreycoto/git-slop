@@ -23,6 +23,7 @@ git-slop explain --top 5
 git-slop plan --path src
 git-slop check
 git-slop version
+git-slop build-info --format json
 ```
 
 ### Init
@@ -181,6 +182,20 @@ git-slop version
 
 The output has the stable form `git-slop <version>`.
 
+### Build Info
+
+`build-info` prints the machine-readable package and source-build identity used
+by release, Action, and Homebrew verification:
+
+```bash
+git-slop build-info --format json
+```
+
+The schema-1 object contains `project`, `version`, `source_revision`, and
+`source_dirty`. Verified release builds contain the full 40-character tag
+revision and `source_dirty: false`. Local or source builds that cannot prove Git
+identity keep the nullable provenance fields instead of inventing a revision.
+
 ## Prompt Packs
 
 `explain` and `plan` can write deterministic prompt packs for optional local
@@ -244,8 +259,10 @@ upload results, rerun the detector, change scoring, or mutate GitHub.
 ## GitHub Action
 
 The repository's composite Action wraps the native release for CI: it verifies
-the selected archive, runs `find` once, appends the persisted `health.md` to the
-job summary, renders optional bounded annotations from that report, and only
-then applies the optional stable `check` gate. It can also publish bounded
-report artifacts or one pull request comment. See [GitHub
-Action](github-action.md) for the supported inputs and safe defaults.
+the selected archive, exact tag revision, schema-3 manifest, canonical crate
+digest, and installed `build-info`; runs `find` once; appends the persisted
+`health.md` to the job summary; renders optional bounded annotations from that
+report; and only then applies the optional stable `check` gate. It exposes the
+source revision and crate/manifest digests for downstream provenance records.
+It can also publish bounded report artifacts or one pull request comment. See
+[GitHub Action](github-action.md) for the supported inputs and safe defaults.

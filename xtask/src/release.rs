@@ -2,10 +2,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
 
-use crate::homebrew::write_formula;
 use crate::manifest::{
-    CommandRunner, CommandSpec, ReleaseIdentity, SystemCommandRunner, git_revision_with_runner,
-    is_strict_semver, project_version, resolve_project_path,
+    CommandRunner, CommandSpec, SystemCommandRunner, is_strict_semver, project_version,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -18,19 +16,13 @@ pub struct ReleaseState {
 pub struct PrepareReleaseOptions {
     pub project_root: PathBuf,
     pub version: String,
-    pub tap: PathBuf,
 }
 
 impl PrepareReleaseOptions {
-    pub fn new(
-        project_root: impl Into<PathBuf>,
-        version: impl Into<String>,
-        tap: impl Into<PathBuf>,
-    ) -> Self {
+    pub fn new(project_root: impl Into<PathBuf>, version: impl Into<String>) -> Self {
         Self {
             project_root: project_root.into(),
             version: version.into(),
-            tap: tap.into(),
         }
     }
 }
@@ -38,7 +30,6 @@ impl PrepareReleaseOptions {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PrepareReleaseResult {
     pub state: ReleaseState,
-    pub formula_path: PathBuf,
     pub commands: Vec<CommandSpec>,
     pub messages: Vec<String>,
 }
@@ -52,19 +43,6 @@ pub fn validate_project_version(project_root: &Path, expected_version: &str) -> 
         bail!("Cargo.toml version is {actual_version}; expected {expected_version}.");
     }
     Ok(())
-}
-
-pub fn tag_revision(project_root: &Path, tag: &str) -> Result<String> {
-    tag_revision_with_runner(project_root, tag, &mut SystemCommandRunner)
-}
-
-pub fn tag_revision_with_runner(
-    project_root: &Path,
-    tag: &str,
-    runner: &mut impl CommandRunner,
-) -> Result<String> {
-    git_revision_with_runner(project_root, tag, runner)
-        .map_err(|error| anyhow::anyhow!("release tag {tag} does not exist: {error}"))
 }
 
 pub fn head_revision(project_root: &Path) -> Result<String> {
@@ -81,6 +59,10 @@ pub fn head_revision_with_runner(
     )
 }
 
+/// Validate a release candidate without requiring or creating its future tag.
+///
+/// Exact tag-to-revision identity is enforced later by `release-manifest`, after
+/// publication has supplied the canonical crates.io package metadata.
 pub fn validate_release_state(project_root: &Path, version: &str) -> Result<ReleaseState> {
     validate_release_state_with_runner(project_root, version, &mut SystemCommandRunner)
 }
@@ -91,14 +73,28 @@ pub fn validate_release_state_with_runner(
     runner: &mut impl CommandRunner,
 ) -> Result<ReleaseState> {
     validate_project_version(project_root, version)?;
+    let revision = head_revision_with_runner(project_root, runner)?;
+    if !crate::manifest::is_full_revision(&revision) {
+        bail!("release candidate HEAD must be a full commit id");
+    }
     let tag = format!("v{version}");
-    let revision = tag_revision_with_runner(project_root, &tag, runner)?;
-    let head = head_revision_with_runner(project_root, runner)?;
-    if revision != head {
-        bail!(
-            "release tag {tag} resolves to {revision}, but HEAD is {head}; prepare and publish \
-             from the exact tagged commit."
-        );
+    let tag_output = runner.output(
+        project_root,
+        &CommandSpec::new(
+            "git",
+            [
+                "for-each-ref".to_owned(),
+                "--format=%(*objectname)%09%(objectname)".to_owned(),
+                format!("refs/tags/{tag}"),
+            ],
+        ),
+    )?;
+    if let Some(tag_revision) = tag_output.split_whitespace().next() {
+        if tag_revision != revision {
+            bail!(
+                "existing release tag {tag} resolves to {tag_revision}, but candidate HEAD is {revision}"
+            );
+        }
     }
     Ok(ReleaseState { tag, revision })
 }
@@ -106,8 +102,9 @@ pub fn validate_release_state_with_runner(
 /// Commands run by release preparation, in execution order.
 ///
 /// The public crate and private xtask are deliberately separate workspaces, so
-/// each gate names its intended manifest or package. `cargo fmt` has no locked
-/// mode; all dependency-resolving private gates use the xtask lockfile.
+/// each gate names its intended manifest or package. The only publication
+/// command is credential-free `--dry-run`; preparation never tags, publishes,
+/// or writes another repository.
 pub fn release_validation_commands() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("cargo", ["fmt", "--all", "--", "--check"]),
@@ -194,56 +191,27 @@ pub fn prepare_release_with_runner(
     for command in &commands {
         runner.run(&options.project_root, command)?;
     }
-
-    let relative_formula = options.tap.join("Formula/git-slop.rb");
-    let formula_path = resolve_project_path(&options.project_root, &relative_formula)?;
-    let identity =
-        ReleaseIdentity::new(&options.version, state.tag.clone(), state.revision.clone());
-    write_formula(&options.project_root, &formula_path, &identity)?;
-
-    let messages = release_messages(&state, &formula_path);
+    let messages = release_messages(&state);
     Ok(PrepareReleaseResult {
         state,
-        formula_path,
         commands,
         messages,
     })
 }
 
-pub fn release_messages(state: &ReleaseState, formula_path: &Path) -> Vec<String> {
-    let tap_root = formula_path
-        .parent()
-        .and_then(Path::parent)
-        .unwrap_or(formula_path);
+pub fn release_messages(state: &ReleaseState) -> Vec<String> {
     vec![
-        format!("Verified local tag {} at {}.", state.tag, state.revision),
+        format!(
+            "Validated release candidate {} at {} before tag creation.",
+            state.tag, state.revision
+        ),
         "Validated formatting, linting, tests, Cargo packaging, and crates.io dry-run.".to_owned(),
+        "Release preparation performed no publication and wrote no Homebrew formula.".to_owned(),
         format!(
-            "Prepared native Rust Homebrew formula: {}",
-            formula_path.display()
+            "Dispatch the protected Release Publish workflow from exact main revision {}; automation owns crate publication, tag {}, and draft release creation.",
+            state.revision, state.tag
         ),
-        format!("Push release tag: git push origin {}", state.tag),
-        "Watch release workflow: gh run list --repo coreycoto/git-slop --workflow \
-         release-publish.yml --limit 1"
-            .to_owned(),
-        format!(
-            "Verify GitHub Release assets: gh release view {} --repo coreycoto/git-slop --json \
-             url,tagName,assets",
-            state.tag
-        ),
-        format!(
-            "Verify tap formula: cd {} && brew style Formula/git-slop.rb",
-            tap_root.display()
-        ),
-        "Upgrade lane (install the prior tap formula before merging the tap update): brew update \
-         && brew upgrade coreycoto/tap/git-slop"
-            .to_owned(),
-        "Clean-install lane (use a separate clean runner): brew install \
-         coreycoto/tap/git-slop"
-            .to_owned(),
-        "Test both lanes: brew test coreycoto/tap/git-slop".to_owned(),
-        "Confirm CLI: git-slop version".to_owned(),
-        "Confirm Git command: git slop --help".to_owned(),
+        "Publish the verified draft only after the separate Marketplace approval gate.".to_owned(),
     ]
 }
 
@@ -287,90 +255,85 @@ mod tests {
     }
 
     #[test]
-    fn project_version_requires_strict_matching_semver() -> Result<()> {
+    fn release_candidate_requires_version_but_not_a_tag() -> Result<()> {
         let project = project()?;
-        validate_project_version(project.path(), "0.9.0")?;
-
-        let mismatch = validate_project_version(project.path(), "9.9.9").unwrap_err();
-        assert!(mismatch.to_string().contains("Cargo.toml version"));
-        let leading_zero = validate_project_version(project.path(), "00.9.0").unwrap_err();
-        assert!(leading_zero.to_string().contains("strict semver"));
-        let prerelease = validate_project_version(project.path(), "0.9.0-rc.1").unwrap_err();
-        assert!(prerelease.to_string().contains("strict semver"));
+        let revision = "a".repeat(40);
+        let mut runner = FakeRunner {
+            outputs: VecDeque::from([revision.clone(), String::new()]),
+            ..FakeRunner::default()
+        };
+        let state = validate_release_state_with_runner(project.path(), "0.9.0", &mut runner)?;
+        assert_eq!(state.tag, "v0.9.0");
+        assert_eq!(state.revision, revision);
+        assert_eq!(runner.output_calls.len(), 2);
+        assert_eq!(
+            runner.output_calls[0].1,
+            CommandSpec::new("git", ["rev-parse", "HEAD"])
+        );
+        assert_eq!(
+            runner.output_calls[1].1,
+            CommandSpec::new(
+                "git",
+                [
+                    "for-each-ref".to_owned(),
+                    "--format=%(*objectname)%09%(objectname)".to_owned(),
+                    "refs/tags/v0.9.0".to_owned(),
+                ]
+            )
+        );
         Ok(())
     }
 
     #[test]
-    fn release_state_requires_exact_tagged_head() -> Result<()> {
+    fn existing_release_tag_must_equal_candidate_head() -> Result<()> {
         let project = project()?;
-        let mut runner = FakeRunner {
+        let revision = "a".repeat(40);
+        let mut exact = FakeRunner {
+            outputs: VecDeque::from([revision.clone(), revision.clone()]),
+            ..FakeRunner::default()
+        };
+        assert_eq!(
+            validate_release_state_with_runner(project.path(), "0.9.0", &mut exact)?.revision,
+            revision
+        );
+
+        let mut drifted = FakeRunner {
             outputs: VecDeque::from(["a".repeat(40), "b".repeat(40)]),
             ..FakeRunner::default()
         };
         let error =
-            validate_release_state_with_runner(project.path(), "0.9.0", &mut runner).unwrap_err();
-        assert!(error.to_string().contains("exact tagged commit"));
-        assert_eq!(
-            runner.output_calls[0].1,
-            CommandSpec::new(
-                "git",
-                ["rev-parse", "--verify", "refs/tags/v0.9.0^{commit}",]
-            )
-        );
-        assert_eq!(
-            runner.output_calls[1].1,
-            CommandSpec::new("git", ["rev-parse", "HEAD"])
-        );
+            validate_release_state_with_runner(project.path(), "0.9.0", &mut drifted).unwrap_err();
+        assert!(error.to_string().contains("existing release tag v0.9.0"));
         Ok(())
     }
 
     #[test]
-    fn release_preparation_runs_only_validation_and_dry_run_commands() -> Result<()> {
+    fn release_preparation_is_validation_only() -> Result<()> {
         let project = project()?;
         let mut runner = FakeRunner {
-            outputs: VecDeque::from(["c".repeat(40), "c".repeat(40)]),
+            outputs: VecDeque::from(["b".repeat(40), String::new()]),
             ..FakeRunner::default()
         };
-        let options = PrepareReleaseOptions::new(project.path(), "0.9.0", "tap");
+        let options = PrepareReleaseOptions::new(project.path(), "0.9.0");
         let result = prepare_release_with_runner(&options, &mut runner)?;
-
         assert_eq!(runner.run_calls.len(), release_validation_commands().len());
-        assert!(
-            runner
-                .run_calls
-                .iter()
-                .all(|(cwd, _)| cwd == project.path())
-        );
-        assert_eq!(
-            runner
-                .run_calls
-                .iter()
-                .map(|(_, command)| command.clone())
-                .collect::<Vec<_>>(),
-            release_validation_commands()
-        );
-        let rendered_commands = result
+        let rendered = result
             .commands
             .iter()
             .map(CommandSpec::display)
             .collect::<Vec<_>>()
             .join("\n");
-        for forbidden in ["git tag", "git push", "gh ", "brew "] {
-            assert!(!rendered_commands.contains(forbidden));
+        for forbidden in ["git tag", "git push", "gh ", "brew ", "homebrew-formula"] {
+            assert!(!rendered.contains(forbidden));
         }
-        assert!(rendered_commands.contains("cargo publish -p git-slop --dry-run --locked"));
-        assert!(!rendered_commands.contains("cargo publish -p git-slop --locked"));
+        assert!(rendered.contains("cargo publish -p git-slop --dry-run --locked"));
+        assert!(!rendered.contains("cargo publish -p git-slop --locked"));
         assert!(
-            rendered_commands
-                .contains("cargo clippy --manifest-path xtask/Cargo.toml --all-targets")
+            result
+                .messages
+                .join("\n")
+                .contains("no publication and wrote no Homebrew formula")
         );
-
-        let formula = fs::read_to_string(&result.formula_path)?;
-        assert!(formula.contains("git-slop 0.9.0"));
-        let messages = result.messages.join("\n");
-        assert!(messages.contains("git push origin v0.9.0"));
-        assert!(messages.contains("brew upgrade coreycoto/tap/git-slop"));
-        assert!(messages.contains("separate clean runner"));
         Ok(())
     }
 
@@ -385,10 +348,6 @@ mod tests {
             commands[1],
             "cargo fmt --manifest-path xtask/Cargo.toml --all -- --check"
         );
-        assert!(commands[2].starts_with("cargo clippy -p git-slop "));
-        assert!(commands[3].starts_with("cargo clippy --manifest-path xtask/Cargo.toml "));
-        assert!(commands[4].starts_with("cargo test -p git-slop "));
-        assert!(commands[5].starts_with("cargo test --manifest-path xtask/Cargo.toml "));
         assert_eq!(commands[6], "cargo package -p git-slop --locked");
         assert_eq!(commands[7], "cargo publish -p git-slop --dry-run --locked");
     }

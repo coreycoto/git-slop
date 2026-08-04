@@ -13,15 +13,37 @@ cargo xtask validate-workflows
 cargo xtask check-issue-forms
 cargo xtask check-distribution
 cargo xtask release-prepare --version 0.9.0 --check-only
-cargo xtask release-manifest --tag v0.9.0
-cargo xtask homebrew-formula --manifest dist/release-manifest.json
+cargo xtask release-prepare --version 0.9.0
+cargo xtask verify-crate \
+  --crate-file dist/git-slop-0.9.0.crate \
+  --version 0.9.0 \
+  --revision <40-character-lowercase-commit> \
+  --expected-sha256 <64-character-lowercase-sha256> \
+  --output dist/crate-source.json
+cargo xtask release-manifest \
+  --dist-dir dist \
+  --crate-source dist/crate-source.json \
+  --tag v0.9.0
+cargo xtask homebrew-formula \
+  --manifest dist/release-manifest.json \
+  --formula ../homebrew-tap/Formula/git-slop.rb
 ```
 
-The validation commands are read-only. `release-manifest` writes only its
-declared manifest and checksum outputs. `homebrew-formula` writes only the
-declared formula path. `release-prepare` runs local Rust quality/package dry
-runs and renders a formula; it never creates or pushes a tag, publishes a
-crate, mutates a GitHub release, or runs Homebrew publication commands.
+The validation commands are read-only. `release-prepare` accepts an exact
+candidate `HEAD` before its future tag exists, runs local Rust quality,
+packaging, and crates.io dry-run gates, and performs no publication. It never
+creates or pushes a tag, publishes a crate, mutates a GitHub release, renders a
+formula, or writes another repository.
+
+After the protected workflow publishes the crate, `verify-crate` checks the
+downloaded `.crate` checksum, exact package archive boundary, Cargo package
+name/version, and clean Cargo VCS revision before writing the canonical
+crates.io source record. `release-manifest` binds that source record to the
+exact release tag and five native archives, writes only its declared manifest
+and checksum outputs, and includes `release-manifest.json` in `SHA256SUMS`.
+`homebrew-formula` accepts only a fully valid release manifest and writes only
+the declared formula path; the rendered formula builds from the immutable
+`static.crates.io` URL and SHA-256 in that manifest.
 
 The separately published `agent-plugins` maintainer runtime is an eager Linux
 x86_64 PEX SCIE invoked only by trusted Codex/governance workflows through

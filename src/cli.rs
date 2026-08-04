@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use serde_json::Value;
 
+use crate::build_info;
 use crate::config;
 use crate::health;
 use crate::report;
@@ -49,6 +50,14 @@ enum Command {
     Health(HealthArgs),
     /// Print version information.
     Version,
+    /// Print package and source-build provenance.
+    BuildInfo(BuildInfoArgs),
+}
+
+#[derive(Debug, Args)]
+struct BuildInfoArgs {
+    #[arg(long, value_enum, default_value_t = BuildInfoFormat::Json)]
+    format: BuildInfoFormat,
 }
 
 #[derive(Debug, Args)]
@@ -192,6 +201,11 @@ enum DisplayFormat {
 enum HealthFormat {
     Markdown,
     Github,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum BuildInfoFormat {
     Json,
 }
 
@@ -659,6 +673,14 @@ fn execute(command: Command) -> Result<i32> {
         Command::Health(args) => run_health(args),
         Command::Version => {
             println!("{PROJECT_NAME} {VERSION}");
+            Ok(0)
+        }
+        Command::BuildInfo(args) => {
+            match args.format {
+                BuildInfoFormat::Json => {
+                    println!("{}", serde_json::to_string_pretty(&build_info::current())?)
+                }
+            }
             Ok(0)
         }
     }

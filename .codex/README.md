@@ -45,10 +45,14 @@ legacy `[profiles.<name>]` tables to `.codex/config.toml`. PEX interpreter mode
 is compatibility-only; new workflow calls use the direct CLI.
 
 Execution-state sync uses `pull_request_target` so the workflow definition and
-runtime launcher both come from the trusted base. It scopes its project token
-to its two direct GitHub operations, so publisher verification and interpreter
-smoke do not inherit the PAT. Fork pull requests that cannot safely receive the
-acquisition secret skip the private-runtime job.
+runtime launcher both come from the trusted base. Active PR events pin the
+payload's base SHA; closed events use the event's current base SHA so merge
+processing uses the launcher that is actually on the base branch. The workflow
+writes a non-secret run-context diagnostic before runtime acquisition, making
+early failures uploadable. It scopes its project token to its two direct GitHub
+operations, so publisher verification and interpreter smoke do not inherit the
+PAT. Fork pull requests that cannot safely receive the acquisition secret skip
+the private-runtime job.
 
 Privileged `pull_request_target` workflows validate the trusted base and
 snapshot its Codex config, profiles, agents, prompt, and schema under

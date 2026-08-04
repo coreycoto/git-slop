@@ -12,7 +12,7 @@ Include:
 
 - affected `git-slop` version or commit
 - operating system, architecture, and `git-slop version` output
-- installation method: Homebrew, release archive, tagged Cargo source, or Action
+- installation method: crates.io, Homebrew Formula, release archive, or Action
 - exact command or artifact involved
 - impact and reproduction steps
 - any suggested fix, if you have one
@@ -39,11 +39,33 @@ It shells out to the local Git executable to inventory tracked files and read
 history.
 
 The GitHub Action has an explicit hosted boundary: it downloads the selected
-release archive and checksum manifest, publishes derived Markdown to the job
-summary, and can upload a bounded set of derived report files. Pull request
+release archive, checksum inventory, and schema-3 release manifest. Before
+execution it verifies the GitHub asset digests, exact release tag revision,
+archive digest, canonical crates.io package digest, and the installed binary's
+embedded `build-info` provenance. It publishes derived Markdown to the job
+summary and can upload a bounded set of derived report files. Pull request
 comments and enforcement are opt-in. A report about the Action unexpectedly
-uploading source files, bypassing checksum verification, or exceeding those
-configured boundaries is in scope.
+uploading source files, bypassing provenance verification, accepting an unsafe
+archive, or exceeding those configured boundaries is in scope.
+
+The crates.io check is an unauthenticated, bounded download from the canonical
+static package URL; the GitHub token is never sent to crates.io. The Action
+checks both the package SHA-256 and its embedded clean VCS revision. It resolves
+the release through the exact tag namespace with bounded annotated-tag peeling,
+never through a potentially ambiguous branch name. Native release archives are
+limited to 128 MiB in both publisher validation and consumer installation.
+
+The stable release workflow starts only through `workflow_dispatch` at exact
+current `main`. All five target builds and distribution metadata pass preflight
+before the protected `release` environment can expose the one-time crates.io
+bootstrap token. The candidate package, crates.io index checksum, and
+downloaded static `.crate` must have one SHA-256 digest. Automation creates the
+tag only after that package is verified, then builds the release archives from
+those registry bytes and stops at a verified draft. Publishing the Action to
+Marketplace remains a deliberate browser approval with 2FA. The published
+release triggers a same-repository `github.token` relay with no named secret,
+followed by a separately protected `main`-branch Homebrew handoff; only its
+final dispatch step receives the existing `HOMEBREW_TAP_DISPATCH_TOKEN`.
 
 Private maintainer workflows have a separate acquisition boundary. The
 consumer manifest pins the publisher source revision and archive SHA-256; the
@@ -56,12 +78,14 @@ Fork pull requests do not receive this secret, and pull-request-controlled code
 must never perform preparation. The public release workflow never receives or
 uses the private runtime token.
 
-Execution-state sync runs on `pull_request_target` and checks out only the
-trusted base before acquiring the private runtime. Its project credential is
-separate from runtime acquisition and is not job-scoped: only the direct
-project snapshot and execution-state steps receive that resolved `GH_TOKEN`.
-Preparation, offline verification, and publisher identity/interpreter smoke
-therefore cannot inherit the project PAT.
+Execution-state sync runs on `pull_request_target` and checks out only trusted
+base content before acquiring the private runtime. Active PR events pin the
+base revision carried by the PR payload; a closed event uses the event's
+current trusted base SHA so a merged PR cannot resurrect the pre-merge runtime
+launcher. Its project credential is separate from runtime acquisition and is
+not job-scoped: only the direct project snapshot and execution-state steps
+receive that resolved `GH_TOKEN`. Preparation, offline verification, and
+publisher identity/interpreter smoke therefore cannot inherit the project PAT.
 
 For privileged `pull_request_target` automation, the workflow first checks out
 and validates the trusted base, then snapshots its Codex config, profiles,

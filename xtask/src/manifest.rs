@@ -9,11 +9,14 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::crates_io::CrateSource;
+
 pub const PROJECT_NAME: &str = "git-slop";
 pub const REPO_FULL_NAME: &str = "coreycoto/git-slop";
-pub const REPO_GIT_URL: &str = "https://github.com/coreycoto/git-slop.git";
-pub const MANIFEST_SCHEMA_VERSION: u32 = 2;
+pub const MANIFEST_SCHEMA_VERSION: u32 = 3;
 pub const CHECKSUM_FILE_NAME: &str = "SHA256SUMS";
+/// Public Action download and manifest limit for every native release archive.
+pub const MAX_RELEASE_ARTIFACT_BYTES: u64 = 128 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReleaseTarget {
@@ -133,13 +136,7 @@ fn command_failure_detail(stdout: &[u8], stderr: &[u8]) -> String {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct HomebrewSource {
-    pub url: String,
-    pub tag: String,
-    pub revision: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReleaseIdentity {
     pub schema_version: u32,
     pub project: String,
@@ -147,7 +144,7 @@ pub struct ReleaseIdentity {
     pub tag: String,
     pub revision: String,
     pub repository: String,
-    pub homebrew_source: HomebrewSource,
+    pub crate_source: CrateSource,
 }
 
 impl ReleaseIdentity {
@@ -155,6 +152,7 @@ impl ReleaseIdentity {
         version: impl Into<String>,
         tag: impl Into<String>,
         revision: impl Into<String>,
+        crate_source: CrateSource,
     ) -> Self {
         let version = version.into();
         let tag = tag.into();
@@ -163,19 +161,45 @@ impl ReleaseIdentity {
             schema_version: MANIFEST_SCHEMA_VERSION,
             project: PROJECT_NAME.to_owned(),
             version,
-            tag: tag.clone(),
-            revision: revision.clone(),
+            tag,
+            revision,
             repository: REPO_FULL_NAME.to_owned(),
-            homebrew_source: HomebrewSource {
-                url: REPO_GIT_URL.to_owned(),
-                tag,
-                revision,
-            },
+            crate_source,
         }
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if self.schema_version != MANIFEST_SCHEMA_VERSION {
+            bail!("release manifest schema_version must be {MANIFEST_SCHEMA_VERSION}");
+        }
+        if self.project != PROJECT_NAME {
+            bail!("release manifest project must be {PROJECT_NAME}");
+        }
+        if self.repository != REPO_FULL_NAME {
+            bail!("release manifest repository must be {REPO_FULL_NAME}");
+        }
+        if !is_strict_semver(&self.version) {
+            bail!("release manifest version must be strict semver");
+        }
+        if self.tag != format!("v{}", self.version) {
+            bail!("release manifest tag must agree with version");
+        }
+        if !is_full_revision(&self.revision) {
+            bail!("release manifest revision must be a full commit id");
+        }
+        self.crate_source.validate()?;
+        if self.crate_source.version != self.version {
+            bail!("crate source version must agree with the release version");
+        }
+        if self.crate_source.revision != self.revision {
+            bail!("crate source revision must agree with the release revision");
+        }
+        Ok(())
     }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReleaseArtifact {
     pub name: String,
     pub path: String,
@@ -189,6 +213,7 @@ pub struct ReleaseArtifact {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChecksumMetadata {
     pub algorithm: String,
     pub name: String,
@@ -196,18 +221,138 @@ pub struct ChecksumMetadata {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct InstallInstructions {
     pub homebrew_tap: Vec<String>,
     pub github_release: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReleaseManifest {
-    #[serde(flatten)]
-    pub identity: ReleaseIdentity,
+    pub schema_version: u32,
+    pub project: String,
+    pub version: String,
+    pub tag: String,
+    pub revision: String,
+    pub repository: String,
+    pub crate_source: CrateSource,
     pub artifacts: Vec<ReleaseArtifact>,
     pub checksums: ChecksumMetadata,
     pub install: InstallInstructions,
+}
+
+impl ReleaseManifest {
+    pub fn new(
+        identity: ReleaseIdentity,
+        artifacts: Vec<ReleaseArtifact>,
+        checksums: ChecksumMetadata,
+        install: InstallInstructions,
+    ) -> Self {
+        Self {
+            schema_version: identity.schema_version,
+            project: identity.project,
+            version: identity.version,
+            tag: identity.tag,
+            revision: identity.revision,
+            repository: identity.repository,
+            crate_source: identity.crate_source,
+            artifacts,
+            checksums,
+            install,
+        }
+    }
+
+    pub fn identity(&self) -> ReleaseIdentity {
+        ReleaseIdentity {
+            schema_version: self.schema_version,
+            project: self.project.clone(),
+            version: self.version.clone(),
+            tag: self.tag.clone(),
+            revision: self.revision.clone(),
+            repository: self.repository.clone(),
+            crate_source: self.crate_source.clone(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        self.identity().validate()?;
+        if self.artifacts.len() != RELEASE_TARGETS.len() {
+            bail!(
+                "release manifest must contain exactly {} artifacts",
+                RELEASE_TARGETS.len()
+            );
+        }
+        let unique_names = self
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.name.as_str())
+            .collect::<BTreeSet<_>>();
+        let unique_paths = self
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.path.as_str())
+            .collect::<BTreeSet<_>>();
+        let unique_targets = self
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.target.as_str())
+            .collect::<BTreeSet<_>>();
+        if unique_names.len() != self.artifacts.len()
+            || unique_paths.len() != self.artifacts.len()
+            || unique_targets.len() != self.artifacts.len()
+        {
+            bail!("release manifest artifact names, paths, and targets must be unique");
+        }
+        let release_url = format!(
+            "https://github.com/{REPO_FULL_NAME}/releases/download/{}",
+            self.tag
+        );
+        for target in RELEASE_TARGETS {
+            let artifact = self
+                .artifacts
+                .iter()
+                .find(|artifact| artifact.target == target.target)
+                .ok_or_else(|| anyhow!("release manifest is missing target {}", target.target))?;
+            let name = artifact_name(&self.tag, target);
+            if artifact.name != name || artifact.path != name {
+                bail!(
+                    "release artifact {} must use exact name and path {name}",
+                    target.target
+                );
+            }
+            if artifact.os != target.os
+                || artifact.arch != target.arch
+                || artifact.archive != target.archive
+            {
+                bail!("release artifact {name} platform metadata does not match its target");
+            }
+            if !is_sha256(&artifact.sha256) {
+                bail!("release artifact {name} must have a lowercase SHA-256 digest");
+            }
+            if artifact.size_bytes == 0 || artifact.size_bytes > MAX_RELEASE_ARTIFACT_BYTES {
+                bail!(
+                    "release artifact {name} size must be from 1 through \
+                     {MAX_RELEASE_ARTIFACT_BYTES} bytes"
+                );
+            }
+            if artifact.url != format!("{release_url}/{name}") {
+                bail!("release artifact {name} URL does not match the release identity");
+            }
+        }
+        let expected_checksums = ChecksumMetadata {
+            algorithm: "sha256".to_owned(),
+            name: CHECKSUM_FILE_NAME.to_owned(),
+            url: format!("{release_url}/{CHECKSUM_FILE_NAME}"),
+        };
+        if self.checksums != expected_checksums {
+            bail!("release manifest checksum metadata must match the exact release URL");
+        }
+        if self.install != install_instructions(&self.tag) {
+            bail!("release manifest install metadata must match the canonical commands");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -226,6 +371,20 @@ pub fn is_strict_semver(version: &str) -> bool {
     parts.by_ref().take(3).all(valid_part)
         && version.matches('.').count() == 2
         && parts.next().is_none()
+}
+
+pub fn is_full_revision(revision: &str) -> bool {
+    revision.len() == 40
+        && revision
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+pub fn is_sha256(digest: &str) -> bool {
+    digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 pub fn strict_tag_version(tag: &str) -> Result<&str> {
@@ -276,17 +435,41 @@ pub fn artifact_name(tag: &str, target: ReleaseTarget) -> String {
     format!("git-slop-{tag}-{}.{}", target.target, target.archive)
 }
 
+fn install_instructions(tag: &str) -> InstallInstructions {
+    InstallInstructions {
+        homebrew_tap: vec![
+            "brew tap coreycoto/tap".to_owned(),
+            "brew install coreycoto/tap/git-slop".to_owned(),
+        ],
+        github_release: vec![
+            format!(
+                "gh release download {tag} --repo {REPO_FULL_NAME} --pattern \
+                 'git-slop-{tag}-<target>.*' --pattern {CHECKSUM_FILE_NAME}"
+            ),
+            format!("sha256sum --check {CHECKSUM_FILE_NAME} --ignore-missing"),
+        ],
+    }
+}
+
 pub fn build_manifest(
     project_root: &Path,
     dist_dir: &Path,
+    crate_source: &CrateSource,
     tag: Option<&str>,
 ) -> Result<ReleaseManifest> {
-    build_manifest_with_runner(project_root, dist_dir, tag, &mut SystemCommandRunner)
+    build_manifest_with_runner(
+        project_root,
+        dist_dir,
+        crate_source,
+        tag,
+        &mut SystemCommandRunner,
+    )
 }
 
 pub fn build_manifest_with_runner(
     project_root: &Path,
     dist_dir: &Path,
+    crate_source: &CrateSource,
     tag: Option<&str>,
     runner: &mut impl CommandRunner,
 ) -> Result<ReleaseManifest> {
@@ -296,36 +479,39 @@ pub fn build_manifest_with_runner(
     if tag_version != version {
         bail!("Cargo.toml version is {version}; release tag {release_tag} is {tag_version}.");
     }
+    crate_source.validate()?;
+    if crate_source.version != version {
+        bail!(
+            "Cargo.toml version is {version}; canonical crate version is {}.",
+            crate_source.version
+        );
+    }
     if !dist_dir.is_dir() {
         bail!("dist dir does not exist: {}", dist_dir.display());
     }
 
     let artifacts = release_artifacts(dist_dir, &release_tag)?;
     let revision = git_revision_with_runner(project_root, &release_tag, runner)?;
+    if crate_source.revision != revision {
+        bail!(
+            "release tag {release_tag} resolves to {revision}, but canonical crate revision is {}.",
+            crate_source.revision
+        );
+    }
     let release_url =
         format!("https://github.com/{REPO_FULL_NAME}/releases/download/{release_tag}");
-    Ok(ReleaseManifest {
-        identity: ReleaseIdentity::new(version, &release_tag, revision),
+    let manifest = ReleaseManifest::new(
+        ReleaseIdentity::new(version, &release_tag, revision, crate_source.clone()),
         artifacts,
-        checksums: ChecksumMetadata {
+        ChecksumMetadata {
             algorithm: "sha256".to_owned(),
             name: CHECKSUM_FILE_NAME.to_owned(),
             url: format!("{release_url}/{CHECKSUM_FILE_NAME}"),
         },
-        install: InstallInstructions {
-            homebrew_tap: vec![
-                "brew tap coreycoto/tap".to_owned(),
-                "brew install coreycoto/tap/git-slop".to_owned(),
-            ],
-            github_release: vec![
-                format!(
-                    "gh release download {release_tag} --repo {REPO_FULL_NAME} --pattern \
-                     'git-slop-{release_tag}-<target>.*' --pattern {CHECKSUM_FILE_NAME}"
-                ),
-                format!("sha256sum --check {CHECKSUM_FILE_NAME} --ignore-missing"),
-            ],
-        },
-    })
+        install_instructions(&release_tag),
+    );
+    manifest.validate()?;
+    Ok(manifest)
 }
 
 fn release_artifacts(dist_dir: &Path, tag: &str) -> Result<Vec<ReleaseArtifact>> {
@@ -342,6 +528,12 @@ fn release_artifacts(dist_dir: &Path, tag: &str) -> Result<Vec<ReleaseArtifact>>
         }
         let metadata =
             fs::metadata(&path).with_context(|| format!("unable to inspect {}", path.display()))?;
+        if metadata.len() == 0 || metadata.len() > MAX_RELEASE_ARTIFACT_BYTES {
+            bail!(
+                "release artifact {name} size must be from 1 through \
+                 {MAX_RELEASE_ARTIFACT_BYTES} bytes"
+            );
+        }
         artifacts.push(ReleaseArtifact {
             name: name.clone(),
             path: name.clone(),
@@ -419,7 +611,23 @@ pub fn checksum_lines(artifacts: &[ReleaseArtifact]) -> String {
     lines.concat()
 }
 
+pub fn checksum_lines_with_manifest(
+    artifacts: &[ReleaseArtifact],
+    manifest_name: &str,
+    manifest_sha256: &str,
+) -> String {
+    let mut lines = artifacts
+        .iter()
+        .map(|artifact| (artifact.name.as_str(), artifact.sha256.as_str()))
+        .chain(std::iter::once((manifest_name, manifest_sha256)))
+        .map(|(name, digest)| format!("{digest}  {name}\n"))
+        .collect::<Vec<_>>();
+    lines.sort();
+    lines.concat()
+}
+
 pub fn render_manifest_json(manifest: &ReleaseManifest) -> Result<String> {
+    manifest.validate()?;
     // serde_json::Value uses a sorted map without preserve_order, matching the
     // previous recursive sort_keys=True output rather than Rust field order.
     let value = serde_json::to_value(manifest).context("unable to serialize release manifest")?;
@@ -458,8 +666,16 @@ pub fn write_manifest_outputs(
     create_parent(&checksum_output)?;
     fs::write(&output, render_manifest_json(manifest)?)
         .with_context(|| format!("unable to write {}", output.display()))?;
-    fs::write(&checksum_output, checksum_lines(&manifest.artifacts))
-        .with_context(|| format!("unable to write {}", checksum_output.display()))?;
+    let manifest_name = output
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| anyhow!("release manifest output must have a UTF-8 filename"))?;
+    let manifest_sha256 = sha256_file(&output)?;
+    fs::write(
+        &checksum_output,
+        checksum_lines_with_manifest(&manifest.artifacts, manifest_name, &manifest_sha256),
+    )
+    .with_context(|| format!("unable to write {}", checksum_output.display()))?;
     Ok(ManifestOutputPaths {
         manifest: output,
         checksums: checksum_output,
@@ -552,6 +768,14 @@ mod tests {
         Ok((temp, dist))
     }
 
+    fn crate_source() -> CrateSource {
+        CrateSource::new(
+            "0.9.0",
+            "f".repeat(64),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        )
+    }
+
     #[test]
     fn strict_semver_matches_stable_contract() {
         for valid in ["0.0.0", "0.9.0", "10.20.300"] {
@@ -579,11 +803,17 @@ mod tests {
             outputs: VecDeque::from(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()]),
             ..FakeRunner::default()
         };
-        let manifest = build_manifest_with_runner(temp.path(), &dist, Some("v0.9.0"), &mut runner)?;
+        let manifest = build_manifest_with_runner(
+            temp.path(),
+            &dist,
+            &crate_source(),
+            Some("v0.9.0"),
+            &mut runner,
+        )?;
 
-        assert_eq!(manifest.identity.schema_version, 2);
-        assert_eq!(manifest.identity.project, PROJECT_NAME);
-        assert_eq!(manifest.identity.repository, REPO_FULL_NAME);
+        assert_eq!(manifest.schema_version, 3);
+        assert_eq!(manifest.project, PROJECT_NAME);
+        assert_eq!(manifest.repository, REPO_FULL_NAME);
         assert_eq!(manifest.artifacts.len(), RELEASE_TARGETS.len());
         assert_eq!(
             manifest
@@ -628,6 +858,129 @@ mod tests {
     }
 
     #[test]
+    fn manifest_validation_rejects_unknown_fields_and_contract_drift() -> Result<()> {
+        let (temp, dist) = fixture()?;
+        let mut runner = FakeRunner {
+            outputs: VecDeque::from(["a".repeat(40)]),
+            ..FakeRunner::default()
+        };
+        let manifest = build_manifest_with_runner(
+            temp.path(),
+            &dist,
+            &crate_source(),
+            Some("v0.9.0"),
+            &mut runner,
+        )?;
+        manifest.validate()?;
+
+        let mut unknown = serde_json::to_value(&manifest)?;
+        unknown
+            .as_object_mut()
+            .unwrap()
+            .insert("unexpected".into(), serde_json::Value::Bool(true));
+        assert!(serde_json::from_value::<ReleaseManifest>(unknown).is_err());
+
+        let mut nested_unknown = serde_json::to_value(&manifest)?;
+        nested_unknown["crate_source"]
+            .as_object_mut()
+            .unwrap()
+            .insert("unexpected".into(), serde_json::Value::Bool(true));
+        assert!(serde_json::from_value::<ReleaseManifest>(nested_unknown).is_err());
+
+        let mut missing = manifest.clone();
+        missing.artifacts.pop();
+        assert!(
+            missing
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("exactly 5")
+        );
+
+        let mut artifact_drift = manifest.clone();
+        artifact_drift.artifacts[0].path = "renamed.tar.gz".into();
+        assert!(
+            artifact_drift
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("exact name and path")
+        );
+
+        let mut checksum_drift = manifest.clone();
+        checksum_drift.checksums.name = "checksums.txt".into();
+        assert!(
+            checksum_drift
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("checksum metadata")
+        );
+
+        let mut install_drift = manifest;
+        install_drift.install.homebrew_tap.pop();
+        assert!(
+            install_drift
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("install metadata")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn release_artifact_size_bound_matches_the_public_action() -> Result<()> {
+        assert_eq!(MAX_RELEASE_ARTIFACT_BYTES, 128 * 1024 * 1024);
+        assert!(
+            include_str!("../../action/install.mjs")
+                .contains("const maximumArchiveBytes = 128 * 1024 * 1024;")
+        );
+        let (temp, dist) = fixture()?;
+        let mut runner = FakeRunner {
+            outputs: VecDeque::from(["a".repeat(40)]),
+            ..FakeRunner::default()
+        };
+        let manifest = build_manifest_with_runner(
+            temp.path(),
+            &dist,
+            &crate_source(),
+            Some("v0.9.0"),
+            &mut runner,
+        )?;
+
+        let mut at_limit = manifest.clone();
+        at_limit.artifacts[0].size_bytes = MAX_RELEASE_ARTIFACT_BYTES;
+        at_limit.validate()?;
+
+        let mut over_limit = manifest;
+        over_limit.artifacts[0].size_bytes = MAX_RELEASE_ARTIFACT_BYTES + 1;
+        assert!(
+            over_limit
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("size must be from 1 through")
+        );
+
+        let oversized_name = artifact_name("v0.9.0", RELEASE_TARGETS[0]);
+        File::options()
+            .write(true)
+            .open(dist.join(oversized_name))?
+            .set_len(MAX_RELEASE_ARTIFACT_BYTES + 1)?;
+        let error = build_manifest_with_runner(
+            temp.path(),
+            &dist,
+            &crate_source(),
+            Some("v0.9.0"),
+            &mut FakeRunner::default(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("size must be from 1 through"));
+        Ok(())
+    }
+
+    #[test]
     fn missing_and_unexpected_release_artifacts_fail_closed() -> Result<()> {
         let (temp, dist) = fixture()?;
         let missing = artifact_name("v0.9.0", RELEASE_TARGETS[1]);
@@ -635,6 +988,7 @@ mod tests {
         let error = build_manifest_with_runner(
             temp.path(),
             &dist,
+            &crate_source(),
             Some("v0.9.0"),
             &mut FakeRunner::default(),
         )
@@ -653,6 +1007,7 @@ mod tests {
         let error = build_manifest_with_runner(
             temp.path(),
             &dist,
+            &crate_source(),
             Some("v0.9.0"),
             &mut FakeRunner::default(),
         )
@@ -665,8 +1020,14 @@ mod tests {
     fn version_and_tag_must_agree_before_git_resolution() -> Result<()> {
         let (temp, dist) = fixture()?;
         let mut runner = FakeRunner::default();
-        let error = build_manifest_with_runner(temp.path(), &dist, Some("v0.9.1"), &mut runner)
-            .unwrap_err();
+        let error = build_manifest_with_runner(
+            temp.path(),
+            &dist,
+            &crate_source(),
+            Some("v0.9.1"),
+            &mut runner,
+        )
+        .unwrap_err();
         assert_eq!(
             error.to_string(),
             "Cargo.toml version is 0.9.0; release tag v0.9.1 is 0.9.1."
@@ -682,7 +1043,13 @@ mod tests {
             outputs: VecDeque::from(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()]),
             ..FakeRunner::default()
         };
-        let manifest = build_manifest_with_runner(temp.path(), &dist, Some("v0.9.0"), &mut runner)?;
+        let manifest = build_manifest_with_runner(
+            temp.path(),
+            &dist,
+            &crate_source(),
+            Some("v0.9.0"),
+            &mut runner,
+        )?;
         let paths = write_manifest_outputs(
             temp.path(),
             &dist,
@@ -691,8 +1058,11 @@ mod tests {
             Path::new("generated/SHA256SUMS"),
         )?;
 
-        assert!(fs::read_to_string(paths.manifest)?.ends_with('\n'));
-        assert!(fs::read_to_string(paths.checksums)?.ends_with('\n'));
+        assert!(fs::read_to_string(&paths.manifest)?.ends_with('\n'));
+        let checksums = fs::read_to_string(&paths.checksums)?;
+        assert!(checksums.ends_with('\n'));
+        let manifest_digest = sha256_file(&paths.manifest)?;
+        assert!(checksums.contains(&format!("{manifest_digest}  release-manifest.json\n")));
         Ok(())
     }
 
@@ -703,7 +1073,13 @@ mod tests {
             outputs: VecDeque::from(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()]),
             ..FakeRunner::default()
         };
-        let manifest = build_manifest_with_runner(temp.path(), &dist, Some("v0.9.0"), &mut runner)?;
+        let manifest = build_manifest_with_runner(
+            temp.path(),
+            &dist,
+            &crate_source(),
+            Some("v0.9.0"),
+            &mut runner,
+        )?;
         let shared = Path::new("generated/release-metadata");
         let error =
             write_manifest_outputs(temp.path(), &dist, &manifest, shared, shared).unwrap_err();

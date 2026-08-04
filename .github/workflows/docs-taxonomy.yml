@@ -53,6 +53,29 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Prepare docs-taxonomy artifact roots
+        if: steps.codex_preflight.outputs.enabled == 'true'
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          mkdir -p .artifacts/codex .artifacts/docs-taxonomy
+          jq -n \
+            --arg event_name "$EVENT_NAME" \
+            --arg event_sha "$EVENT_SHA" \
+            --arg run_id "$RUN_ID" \
+            --arg run_attempt "$RUN_ATTEMPT" \
+            '{
+              schema_version: 1,
+              event: $event_name,
+              event_sha: $event_sha,
+              run_id: $run_id,
+              run_attempt: $run_attempt
+            }' > .artifacts/docs-taxonomy/run-context.json
+
       - name: Prepare pinned agent-plugins runtime
         if: steps.codex_preflight.outputs.enabled == 'true'
         env:
@@ -66,7 +89,7 @@ jobs:
       - name: Prepare pinned Codex runtime
         if: steps.codex_preflight.outputs.enabled == 'true'
         run: |
-          mkdir -p .artifacts/codex .artifacts/docs-taxonomy "$RUNNER_TEMP/codex-runtime/.codex"
+          mkdir -p "$RUNNER_TEMP/codex-runtime/.codex"
           cp .codex/config.toml "$RUNNER_TEMP/codex-runtime/.codex/config.toml"
           cp .codex/*.config.toml "$RUNNER_TEMP/codex-runtime/.codex/"
           scripts/with-agent-plugins.sh marketplace install \

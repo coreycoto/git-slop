@@ -1,4 +1,4 @@
-.TH GIT-SLOP 1 "2026-07-30" "git-slop 0.9.0" "General Commands Manual"
+.TH GIT-SLOP 1 "2026-08-04" "git-slop 0.9.0" "General Commands Manual"
 .SH NAME
 git-slop \- deterministic repository health and maintenance-pressure analysis
 .SH SYNOPSIS
@@ -133,6 +133,14 @@ to enforce stable detector thresholds.
 Print
 .B git-slop
 and the installed package version.
+.TP
+.B build-info
+Print schema-1 JSON containing the package version and source-build provenance.
+The only format is
+.BR "--format json" .
+Verified release builds report the full source revision and
+.BR "source_dirty: false" ;
+unverifiable local source identity is represented by nullable fields.
 .SH REPORT FILES
 Unless overridden with
 .BR --report ,
@@ -172,6 +180,10 @@ Fail when any file is at or above the warning context band.
 .TP
 .B git slop compare --base old.json --head new.json
 Compare two previously generated reports.
+.TP
+.B git slop build-info --format json
+Print the package version, full source revision when known, and source-dirty
+state as schema-1 JSON.
 .SH EXIT STATUS
 .B health
 returns 0 after successful rendering even when findings are present. Invalid

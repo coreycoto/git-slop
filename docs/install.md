@@ -3,6 +3,10 @@
 Git Slop is distributed as one native `git-slop` executable. Python is not
 required. When the executable is on `PATH`, Git also accepts `git slop`.
 
+The 0.9.0 commands below describe the upcoming release. Run them only after
+crates.io and the verified GitHub Release list 0.9.0; documentation on `main`
+does not itself mean that version has been published.
+
 ## Homebrew
 
 Homebrew remains the supported local install and upgrade path on macOS and
@@ -12,6 +16,7 @@ Linux:
 brew tap coreycoto/tap
 brew install coreycoto/tap/git-slop
 git-slop version
+git-slop build-info --format json
 ```
 
 Upgrade with:
@@ -20,10 +25,15 @@ Upgrade with:
 brew update
 brew upgrade coreycoto/tap/git-slop
 git-slop version
+git-slop build-info --format json
 ```
 
 The existing `coreycoto/tap/git-slop` formula name is stable across the Rust
 migration, so an existing Homebrew installation upgrades in place.
+
+The Formula downloads the exact `git-slop-<version>.crate` file from
+`static.crates.io`, verifies its SHA-256, and builds it locally with Rust. It
+does not install from a GitHub archive and has no Python dependency.
 
 ## GitHub Release Archives
 
@@ -72,24 +82,20 @@ automated consumers.
 
 ## Cargo
 
-Before the first crates.io publication is verified, install the tagged source
-directly when a Cargo-based install is required:
-
-```bash
-cargo install \
-  --git https://github.com/coreycoto/git-slop.git \
-  --tag v0.9.0 \
-  --locked
-```
-
-After `git-slop` `0.9.0` is confirmed on crates.io, this shorter form is also
-supported:
+Install the canonical crates.io package directly:
 
 ```bash
 cargo install git-slop --version 0.9.0 --locked
+git-slop build-info --format json
 ```
 
+For a verified 0.9.0 release, `source_revision` is the full commit named by
+`v0.9.0` and `source_dirty` is `false`. A local source build can report `null`
+for provenance it cannot prove; that is not equivalent to a release build.
+
 CI jobs should prefer the repository's GitHub Action or a checksummed prebuilt
-archive so they do not spend time compiling Rust or installing Homebrew.
+archive so they do not spend time compiling Rust or installing Homebrew. Those
+prebuilt archives are produced from the exact crates.io package and record its
+digest and full source revision in `release-manifest.json`.
 
 Contributor setup is documented in [Contributing](../CONTRIBUTING.md).

@@ -2,9 +2,21 @@
 
 The Git Slop Action publishes repository-health analysis without requiring
 Python, Homebrew, Cargo, or a Rust toolchain in the consumer repository. It
-downloads the requested prebuilt release, verifies the archive against the
-release's `SHA256SUMS`, runs the detector once, and leaves both human and
+downloads the requested prebuilt release, verifies the GitHub release and tag,
+schema-3 manifest, exact asset inventory, GitHub asset digests,
+`SHA256SUMS`, crates.io package provenance, archive contents, and installed
+`build-info`. It then runs the detector once and leaves both human and
 machine-readable evidence available to later steps.
+
+Crates provenance is verified independently of GitHub release assets. The
+installer downloads the canonical static `.crate` without sending the GitHub
+token, applies a 16 MiB download bound, checks its SHA-256 against the manifest,
+and verifies the package's embedded clean VCS revision. Native archives and
+their manifest entries are each limited to 128 MiB.
+
+The `v0.9.0` examples below describe the upcoming release. They resolve only
+after its verified draft is published; the presence of this documentation does
+not mean 0.9.0 is already available in GitHub Marketplace.
 
 ## Recommended Workflow
 
@@ -68,11 +80,35 @@ turns configured stable thresholds into an enforcing exit status.
 
 The Action supports GitHub-hosted Linux x64/ARM64, macOS Apple Silicon, and
 Windows x64/ARM64 runners. The release must contain the matching
-`git-slop-v<version>-<target>` archive and a `SHA256SUMS` file.
+`git-slop-v<version>-<target>` archive, `SHA256SUMS`,
+`release-manifest.json`, and the crates-backed `git-slop.rb` Formula. The
+Action installs the prebuilt native archive; it never invokes Homebrew or
+compiles the crate on a consumer runner. Release automation builds that archive
+from the exact `.crate` bytes recorded in the manifest.
 
 `working-directory` may point anywhere inside a worktree. Git Slop resolves
 the worktree's top level and analyzes the complete tracked repository, matching
 the CLI contract.
+
+## Provenance And Installation Failures
+
+Installation fails before repository analysis if the requested stable version
+is missing, is still a draft, has an unexpected asset inventory, resolves to a
+different tag revision, contains a digest mismatch, or packages unsafe archive
+members. It also fails when the installed binary's `build-info` does not report
+the manifest revision with `source_dirty: false`. Tag resolution uses the exact
+`refs/tags/vX.Y.Z` namespace and safely peels bounded annotated tags; a
+same-named branch cannot satisfy the release identity. The release workflow
+alone uses an explicit internal draft-verification mode before the human
+Marketplace gate; consumer runs cannot opt into an unverified draft.
+
+On success, record these outputs when downstream attestations need the release
+identity:
+
+- `source-revision`: full 40-character commit shared by the tag and binary
+- `crate-sha256`: SHA-256 of the canonical static crates.io package
+- `release-manifest-sha256`: SHA-256 of the schema-3 manifest
+- `asset-sha256`: SHA-256 of the selected native archive
 
 ## Enforcement
 
@@ -168,5 +204,21 @@ report remains in the job summary and artifact.
 | `github-token` | `github.token` | Optional token override |
 
 Useful outputs include `status`, `version`, `target`, `binary-path`,
-`asset-sha256`, `analysis-exit-code`, `policy-exit-code`, `finding-count`,
-`annotation-count`, report paths, artifact metadata, and `comment-url`.
+`asset-sha256`, `source-revision`, `crate-sha256`,
+`release-manifest-sha256`, `analysis-exit-code`, `policy-exit-code`,
+`finding-count`, `annotation-count`, report paths, artifact metadata, and
+`comment-url`. The three provenance outputs let a consuming workflow record the
+same source revision and crate digest used by crates.io, GitHub Release, the
+Marketplace Action, and Homebrew.
+
+## GitHub Marketplace
+
+The Action will be published from this repository's verified stable GitHub
+Release under the **Code quality** and **Continuous integration** categories.
+That first listing requires a maintainer to select GitHub's Marketplace checkbox
+in the draft-release UI, confirm the categories and agreement, and complete
+2FA. Marketplace and direct `uses: coreycoto/git-slop@v0.9.0` installation then
+resolve the same root `action.yml` and release provenance. For
+higher-assurance consumers, pin the Action itself to the full release commit
+SHA; the Action's own nested dependencies are already pinned to full commit
+SHAs.

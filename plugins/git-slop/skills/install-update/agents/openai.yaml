@@ -1,7 +1,7 @@
 interface:
   display_name: "Install Git Slop"
-  short_description: "Install or update git-slop"
-  default_prompt: "Use $git-slop:install-update to install or update the git-slop CLI from the Homebrew tap."
+  short_description: "Install and verify git-slop"
+  default_prompt: "Use $git-slop:install-update to install or update a published git-slop CLI and verify its version and source revision."
 
 policy:
   allow_implicit_invocation: true

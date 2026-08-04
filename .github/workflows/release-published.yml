@@ -1,0 +1,93 @@
+name: Release Published Relay
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: release-published-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  verify-and-relay:
+    name: Verify publication and request Homebrew handoff
+    if: github.event.release.draft == false && github.event.release.prerelease == false
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify published release identity and required assets
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ github.event.release.id }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          version="${TAG#v}"
+          gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}" > release.json
+          jq -e --arg tag "$TAG" --argjson release_id "$RELEASE_ID" \
+            '.id == $release_id and .tag_name == $tag and .draft == false and .prerelease == false and (.published_at | type == "string")' \
+            release.json >/dev/null
+          jq -r '.assets[].name' release.json | LC_ALL=C sort > actual-assets.txt
+          printf '%s\n' \
+            SHA256SUMS \
+            git-slop.rb \
+            "git-slop-${TAG}-aarch64-apple-darwin.tar.gz" \
+            "git-slop-${TAG}-aarch64-pc-windows-msvc.zip" \
+            "git-slop-${TAG}-aarch64-unknown-linux-gnu.tar.gz" \
+            "git-slop-${TAG}-x86_64-pc-windows-msvc.zip" \
+            "git-slop-${TAG}-x86_64-unknown-linux-gnu.tar.gz" \
+            release-manifest.json | LC_ALL=C sort > expected-assets.txt
+          diff -u expected-assets.txt actual-assets.txt
+          revision="$(gh api "repos/${REPOSITORY}/commits/${TAG}" --jq '.sha')"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          mkdir verification
+          gh release download "$TAG" --repo "$REPOSITORY" --dir verification \
+            --pattern release-manifest.json --pattern SHA256SUMS
+          manifest_sha256="$(sha256sum verification/release-manifest.json | awk '{print $1}')"
+          jq -e \
+            --arg version "$version" \
+            --arg tag "$TAG" \
+            --arg revision "$revision" \
+            '.schema_version == 3 and .version == $version and .tag == $tag and .revision == $revision and .crate_source.version == $version and .crate_source.revision == $revision' \
+            verification/release-manifest.json >/dev/null
+          jq -e --arg digest "sha256:${manifest_sha256}" \
+            '.assets[] | select(.name == "release-manifest.json") | .digest == $digest' \
+            release.json >/dev/null
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch protected Homebrew handoff from main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+          REVISION: ${{ steps.release.outputs.revision }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh workflow run homebrew-handoff.yml \
+            --repo "$REPOSITORY" \
+            --ref main \
+            --field version="$VERSION" \
+            --field revision="$REVISION"
+
+      - name: Summarize relay
+        shell: bash
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          REVISION: ${{ steps.release.outputs.revision }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Published release verified
+
+          - version: \`${VERSION}\`
+          - source revision: \`${REVISION}\`
+          - next gate: protected \`release\` environment in \`homebrew-handoff.yml\`
+          EOF
