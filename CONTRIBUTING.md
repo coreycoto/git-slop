@@ -54,7 +54,7 @@ the exact release, 40-character source revision, archive member, and SHA-256
 digest in `.agents/plugins/marketplace-source.json`. Preparation uses an
 ephemeral per-job directory; verification checks release metadata, archive
 safety, digest, target, and embedded revision before direct CLI execution. It
-does not create or sync a Python project in this repository.
+does not create or sync a project dependency environment in this repository.
 
 ## Validation
 
@@ -83,9 +83,9 @@ Use `cargo xtask validate-codex --require-codex-cli` when the local check must
 also prove that the Codex CLI is installed. To exercise a pinned publisher
 runtime itself, prepare and verify it through `scripts/with-agent-plugins.sh`,
 then use its direct `marketplace` or `github` commands. The read token belongs
-only on the prepare command. Do not add repository-owned Python or a local
-Python environment; PEX interpreter mode exists only to keep legacy `python -c`
-entry points importable.
+only on the prepare command. Do not add a parallel maintainer runtime or local
+publisher dependency environment; interpreter mode is confined to isolated
+runtime identity verification and the legacy compatibility entry point.
 
 Keep the execution-state project PAT step-scoped to its two direct operations;
 runtime preparation and verification must not inherit it. For privileged
@@ -115,8 +115,8 @@ Keep `git-slop` local-first and deterministic:
 - no automatic code mutation, commits, or pushes
 - no GitHub mutation from the public CLI
 - no broad report schema changes without tests and docs
-- no repository-owned or system Python setup; the pinned `agent-plugins` SCIE
-  contains its private maintainer runtime and embedded marketplace
+- no repository-owned maintainer runtime outside Rust; the pinned
+  `agent-plugins` SCIE is acquired as a verified executable
 - no product detector, report, explain, plan, or CLI behavior outside Rust
 
 Validation and dogfood may use private or external repositories, but committed

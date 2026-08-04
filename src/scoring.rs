@@ -118,9 +118,9 @@ fn reason_codes(record: &FileAnalysis) -> Vec<String> {
 
 /// Apply the stable 60/20/20 hotspot model in place.
 ///
-/// Repository-relative churn components use Python's nearest-rank p95 ordering.
+/// Repository-relative churn components use nearest-rank p95 ordering.
 /// Intermediate metrics are rounded to six decimals and the final score to one
-/// decimal before banding, matching the public Python report contract.
+/// decimal before banding, matching the public report contract.
 pub fn apply_scoring(records: &mut [FileAnalysis], config: &Value) {
     let revision_p95 = p95(records.iter().map(|record| record.revisions_window as f64)).max(1.0);
     let relative_churn_p95 = p95(records.iter().map(|record| record.relative_churn_window));

@@ -43,7 +43,7 @@ fn render_cluster_brief(value: &Value) -> String {
     )
 }
 
-fn python_bool(value: bool) -> &'static str {
+fn title_case_bool(value: bool) -> &'static str {
     if value { "True" } else { "False" }
 }
 
@@ -145,7 +145,7 @@ fn render_overlay_lines(overlays: Option<&Value>) -> Vec<String> {
             number(verification.and_then(|value| value.get("verification_gap"))),
             number(verification.and_then(|value| value.get("test_adjacency_score"))),
             number(verification.and_then(|value| value.get("test_cochange_ratio"))),
-            python_bool(
+            title_case_bool(
                 verification
                     .and_then(|value| value.get("hotspot_without_nearby_tests"))
                     .and_then(Value::as_bool)
@@ -338,7 +338,7 @@ pub fn render_explain_text(payload: &Value) -> String {
         lines.push(format!(
             "- organization_health: evidence_score={:.3}, crosses_top_level_boundary={}",
             number(organization.and_then(|value| value.get("evidence_score"))),
-            python_bool(
+            title_case_bool(
                 organization
                     .and_then(|value| value.get("crosses_top_level_boundary"))
                     .and_then(Value::as_bool)

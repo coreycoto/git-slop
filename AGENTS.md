@@ -23,7 +23,7 @@
 - Keep the public `git slop` CLI focused on detector, report, explain, and plan behavior.
 - Keep reusable maintainer workflow instructions in the installed project-management plugin from `coreycoto/agent-plugins`.
 - Keep the local `git-slop` Codex plugin focused on product-specific CLI usage and consumer adoption guidance.
-- Keep repo-owned maintainer contracts in the private standalone Rust `xtask/` workspace and validate it with its committed lockfile; do not add repository-owned Python automation.
+- Keep repo-owned maintainer contract validation in the private standalone Rust `xtask/` workspace and validate it with its committed lockfile.
 - Keep only the pinned marketplace-source manifest and workflow invocation in this consumer repo; invoke the publisher-owned prebuilt runtime only through `scripts/with-agent-plugins.sh`.
 - Keep `agent_plugins` behavior tests, bootstrap implementation, and clean-room consumer smoke in `coreycoto/agent-plugins`.
 - Keep repo-specific overlays next to the repo-owned data they describe under `config/*/README.md`.
@@ -38,8 +38,8 @@
 - When a workflow needs the external `agent_plugins` runtime, acquire it into an ephemeral per-job directory with `scripts/with-agent-plugins.sh --prepare`, then verify it separately with `--verify` before using its direct CLI.
 - Scope `AGENT_PLUGINS_READ_TOKEN` to the dedicated prepare step. Never expose it to runtime execution, persist it in Git configuration, or use it from pull-request-controlled code.
 - Treat the manifest-pinned source revision and archive digest as consumer-owned integrity checks. Reject an unsafe archive or any release metadata, embedded revision, target, or digest mismatch.
-- Use `marketplace`, `github project-snapshot`, and `github execution-state` as the canonical runtime commands. `PEX_INTERPRETER=1` exists only inside the wrapper for compatibility with legacy Python entry points.
-- Do not use Actions caching, `actions/setup-python`, `uv`, or a project dependency sync for this runtime. The verified SCIE and its embedded marketplace must need no further publisher acquisition after preparation.
+- Use `marketplace`, `github project-snapshot`, and `github execution-state` as the canonical runtime commands. Interpreter mode is confined to the wrapper for isolated publisher identity verification and its legacy compatibility entry point.
+- Do not use Actions caching, install an interpreter or toolchain for this runtime, or perform a project dependency sync. The verified SCIE and its embedded marketplace must need no further publisher acquisition after preparation.
 - In execution-state sync, keep the project PAT off job scope and pass it as `GH_TOKEN` only to the direct project operations. In privileged `pull_request_target` automation, likewise pass the repository mutation token only to the deliberate Codex mutation step. Acquisition, verification, and publisher identity smoke must not inherit either credential.
 - For privileged `pull_request_target` jobs, validate and snapshot trusted base Codex config, agents, prompts, and schemas before checking out the requested head. Do not execute head-owned maintainer tooling or persist checkout credentials; expose `github.token` only on the deliberate mutation step.
 - Keep the public release workflow independent of private `agent-plugins` credentials and runtime acquisition.

@@ -11,7 +11,7 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
     crate::workflows::validate_public_release_workflows(repo_root, &mut errors);
     validate_package_boundary(repo_root, &mut errors);
     validate_version_alignment(repo_root, &mut errors);
-    validate_python_retirement(repo_root, &mut errors);
+    validate_removed_runtime_surfaces(repo_root, &mut errors);
     errors
 }
 
@@ -226,7 +226,7 @@ fn validate_document_versions(
     }
 }
 
-fn validate_python_retirement(repo_root: &Path, errors: &mut Vec<String>) {
+fn validate_removed_runtime_surfaces(repo_root: &Path, errors: &mut Vec<String>) {
     for removed in ["pyproject.toml", "uv.lock", "src/git_slop"] {
         if repo_root.join(removed).exists() {
             errors.push(format!(
@@ -234,17 +234,17 @@ fn validate_python_retirement(repo_root: &Path, errors: &mut Vec<String>) {
             ));
         }
     }
-    match repository_python_files(repo_root) {
+    match repository_owned_py_files(repo_root) {
         Ok(paths) => errors.extend(
             paths
                 .into_iter()
-                .map(|path| format!("Repository-owned Python file must be removed: {path}.")),
+                .map(|path| format!("Repository-owned .py file must be removed: {path}.")),
         ),
         Err(error) => errors.push(error),
     }
 }
 
-pub fn repository_python_files(repo_root: &Path) -> Result<Vec<String>, String> {
+pub fn repository_owned_py_files(repo_root: &Path) -> Result<Vec<String>, String> {
     let output = Command::new("git")
         .args([
             "ls-files",
@@ -271,7 +271,7 @@ pub fn repository_python_files(repo_root: &Path) -> Result<Vec<String>, String> 
         .filter(|path| !path.is_empty())
     {
         let relative = std::str::from_utf8(raw_path).map_err(|_| {
-            "Repository contains a non-UTF-8 path; Python retirement cannot be verified safely."
+            "Repository contains a non-UTF-8 path; the .py-file boundary cannot be verified safely."
                 .to_owned()
         })?;
         let path = repo_root.join(relative);
@@ -397,7 +397,7 @@ mod tests {
     }
 
     #[test]
-    fn python_retirement_covers_the_entire_owned_repository() {
+    fn removed_runtime_check_covers_the_entire_owned_repository() {
         let temp = TempDir::new().unwrap();
         let root = temp.path();
         assert!(
@@ -416,7 +416,7 @@ mod tests {
         fs::write(root.join("ignored/external.py"), "pass\n").unwrap();
 
         assert_eq!(
-            repository_python_files(root).unwrap(),
+            repository_owned_py_files(root).unwrap(),
             [".github/contract.py", "root_helper.py"]
         );
     }

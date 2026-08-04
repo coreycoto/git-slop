@@ -11,9 +11,9 @@ pub(super) fn round6(value: f64) -> f64 {
 }
 
 pub(super) fn stable_id(kind: &str, parts: &[&str]) -> String {
-    // Match the Python v1 ID contract: BLAKE2b with a 16-byte digest over
-    // every NUL-terminated part (including the kind), then retain 12 hex
-    // characters for the public identifier.
+    // Match the public v1 ID contract: BLAKE2b with a 16-byte digest over every
+    // NUL-terminated part (including the kind), then retain 12 hex characters
+    // for the public identifier.
     let mut hasher = Blake2bVar::new(16).expect("valid BLAKE2b output size");
     for part in std::iter::once(kind).chain(parts.iter().copied()) {
         hasher.update(part.as_bytes());

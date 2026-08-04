@@ -1,9 +1,9 @@
 # GitHub Action
 
-The Git Slop Action publishes repository-health analysis without requiring
-Python, Homebrew, Cargo, or a Rust toolchain in the consumer repository. It
-downloads the requested prebuilt release, verifies the GitHub release and tag,
-schema-3 manifest, exact asset inventory, GitHub asset digests,
+The Git Slop Action publishes repository-health analysis without requiring a
+separate package manager or toolchain in the consumer repository. It downloads
+the requested prebuilt release, verifies the GitHub release and tag, schema-3
+manifest, exact asset inventory, GitHub asset digests,
 `SHA256SUMS`, crates.io package provenance, archive contents, and installed
 `build-info`. It then runs the detector once and leaves both human and
 machine-readable evidence available to later steps.

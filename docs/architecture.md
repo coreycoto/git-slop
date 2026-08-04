@@ -306,37 +306,34 @@ the terminal `marketplace-ready` job confirms all five Action smoke lanes.
 
 ## Rust Maintainer Surface
 
-The public runtime and release artifacts are Rust. Accepted analyzer, CLI,
-report, explain, plan, comparison, and SARIF behavior is covered by native Rust
-tests and language-neutral historical report fixtures. The duplicated Python
-engine was retired before the 0.9.0 release.
+The public runtime, release artifacts, and repository-owned maintainer contract
+validation are Rust. Native tests and language-neutral historical report
+fixtures cover accepted analyzer, CLI, report, explain, plan, comparison, and
+SARIF behavior.
 
 The private, non-publishable standalone Rust workspace under `xtask/` owns
 repo-local Codex, plugin, workflow, repository, and release-contract
 validation. The root workspace excludes it, and the public `git-slop` package
 and native archives do not contain it. Its separate committed lockfile pins the
-maintainer dependency graph. New product runtime behavior and repository-owned
-maintainer automation must be implemented and tested in Rust.
+maintainer dependency graph. Product behavior is implemented and tested in the
+root Rust crate; repository-owned contract validation belongs in `xtask/`.
 
-The only retained Python execution is inside the separately published,
-manifest-pinned `agent-plugins` PEX SCIE used by private maintainer workflows.
-The consumer pins its release, source revision, target, archive member, and
-SHA-256 digest. `scripts/with-agent-plugins.sh --prepare` acquires it into a
-per-job directory under `RUNNER_TEMP`; `--verify` independently checks release
-metadata, safe archive extraction, digest, target, and embedded revision before
-execution. The acquisition token is unavailable to later commands, and there
-is no cross-job Actions cache.
+Private maintainer workflows use a separately published, manifest-pinned
+`agent-plugins` SCIE. The consumer pins its release, source revision, target,
+archive member, and SHA-256 digest. `scripts/with-agent-plugins.sh --prepare`
+acquires it into a per-job directory under `RUNNER_TEMP`; `--verify`
+independently checks release metadata, safe archive extraction, digest, target,
+and embedded revision before execution. The acquisition token is unavailable
+to later commands, and there is no cross-job Actions cache.
 
-The SCIE embeds the marketplace payload and Python runtime, so `marketplace`
-installation is offline after preparation and canonical `github
-project-snapshot` and `github execution-state` commands need no system Python,
-`uv`, or publisher Git checkout. Those GitHub commands retain the workflow's
-GitHub token for their intended API calls. `PEX_INTERPRETER=1` is a wrapper
-compatibility path for legacy Python entry points, not the primary workflow
-surface. Pull-request jobs prepare from trusted base tooling and skip forks when
-the private secret cannot be provided safely. Public Git Slop release jobs never
-acquire this private runtime. No Python project or publisher implementation is
-stored in this repository.
+The SCIE embeds its marketplace payload, so installation is offline after
+preparation. Canonical `marketplace`, `github project-snapshot`, and `github
+execution-state` commands invoke its direct CLI. The wrapper's isolated
+interpreter is confined to runtime identity, embedded-marketplace provenance
+verification, and the legacy compatibility entry point. Pull-request jobs
+prepare from trusted base tooling and skip forks when the private secret cannot
+be provided safely. Public Git Slop release jobs never acquire this private
+runtime, and no publisher implementation is stored in this repository.
 
 Execution-state's project credential is step-scoped. Runtime acquisition
 receives only the publisher read token; verification and identity/interpreter

@@ -1,7 +1,7 @@
 # Installation
 
-Git Slop is distributed as one native `git-slop` executable. Python is not
-required. When the executable is on `PATH`, Git also accepts `git slop`.
+Git Slop is distributed as one `git-slop` executable. When it is on `PATH`, Git
+also accepts `git slop`.
 
 The 0.9.0 commands below describe the upcoming release. Run them only after
 crates.io and the verified GitHub Release list 0.9.0; documentation on `main`
@@ -32,8 +32,8 @@ The existing `coreycoto/tap/git-slop` formula name is stable across the Rust
 migration, so an existing Homebrew installation upgrades in place.
 
 The Formula downloads the exact `git-slop-<version>.crate` file from
-`static.crates.io`, verifies its SHA-256, and builds it locally with Rust. It
-does not install from a GitHub archive and has no Python dependency.
+`static.crates.io`, verifies its SHA-256, and builds it locally with Rust rather
+than installing a GitHub archive.
 
 ## GitHub Release Archives
 

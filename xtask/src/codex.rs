@@ -401,11 +401,11 @@ fn validate_removed_surfaces(repo_root: &Path, errors: &mut Vec<String>) {
         }
     }
 
-    match crate::distribution::repository_python_files(repo_root) {
+    match crate::distribution::repository_owned_py_files(repo_root) {
         Ok(paths) => errors.extend(
             paths
                 .into_iter()
-                .map(|path| format!("Repository-owned Python file must be removed: {path}.")),
+                .map(|path| format!("Repository-owned .py file must be removed: {path}.")),
         ),
         Err(error) => errors.push(error),
     }

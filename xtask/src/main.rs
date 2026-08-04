@@ -44,7 +44,7 @@ enum Command {
     /// Validate repository issue forms and their contact link.
     CheckIssueForms,
 
-    /// Validate release, package-boundary, and Python-retirement contracts.
+    /// Validate release, package-boundary, and removed-runtime contracts.
     CheckDistribution,
 
     /// Validate a release candidate before its protected workflow creates the tag.

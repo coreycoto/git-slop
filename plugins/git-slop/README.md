@@ -15,10 +15,10 @@ It intentionally does not own generic backlog, release, project, or governance
 workflows. When a reviewed `git-slop plan` should become backlog work, use the
 separate `project-management-workflows` plugin from `coreycoto/agent-plugins`.
 
-The public `git-slop` runtime is a native executable and does not require
-Python. `find` writes schema-4 JSON/YAML plus detailed `summary.md` and
-CI-oriented `health.md`. Stable costs drive the existing `check` gate; overlays
-and health rollups remain additive evidence.
+The public `git-slop` runtime is a native executable. `find` writes schema-4
+JSON/YAML plus detailed `summary.md` and CI-oriented `health.md`. Stable costs
+drive the existing `check` gate; overlays and health rollups remain additive
+evidence.
 
 For the `0.9.0` distribution contract, the published crates.io package is the
 canonical source identity. The Homebrew Formula installs that exact crate, with

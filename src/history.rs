@@ -275,8 +275,8 @@ fn load_numstat_commits(
             "--no-renames".to_string()
         },
     ];
-    // Keep the ordering identical to the Python implementation: all commits are
-    // emitted newest first and rename aliases are expanded while walking back.
+    // Preserve the established ordering contract: commits are emitted newest
+    // first and rename aliases are expanded while walking back.
     let raw = run_git_log(repo_root, &args)?;
     Ok(parse_numstat_log(&raw))
 }
@@ -807,7 +807,7 @@ mod tests {
     }
 
     #[test]
-    fn percentile_uses_python_nearest_rank_ordering() {
+    fn percentile_uses_nearest_rank_ordering() {
         let values: Vec<f64> = (1..=20).map(f64::from).collect();
         assert_eq!(nearest_rank_percentile(&values, 0.95), 19.0);
         assert_eq!(nearest_rank_percentile(&values, 0.99), 20.0);
