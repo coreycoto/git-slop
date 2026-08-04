@@ -15,6 +15,25 @@ inflate the stable hotspot score.
 The public CLI is a native Rust executable. It needs Git, but it does not need
 Python, a package-manager runtime, a hosted API, or a model provider.
 
+## Philosophy
+
+AI did not invent hard-to-maintain code. It made the cost of loading,
+understanding, and safely changing a repository harder to ignore.
+
+Git Slop is not an AI detector, a code-quality grade, or a judgment about who
+wrote the code. It examines the repository that exists and asks how expensive
+it is for a human or agent to work in.
+
+- Measure maintenance pressure, not authorship.
+- Prefer deterministic evidence over opaque judgments.
+- Keep stable hotspot costs separate from supporting signals.
+- Treat findings as prompts for investigation, not automatic verdicts.
+- Propose bounded next steps; leave refactoring decisions to people.
+- Stay local by default and keep repository data private.
+
+The deeper product thesis and non-goals are documented in
+[Vision](docs/vision.md).
+
 ## Install
 
 After 0.9.0 is published, install its canonical crates.io package:
