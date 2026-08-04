@@ -331,7 +331,7 @@ fn runtime_workflows_reject_unsafe_pull_request_checkout_ordering() {
     let unsafe_execution_state = execution_state
         .replace("pull_request.base.sha", "pull_request.head.sha")
         .replace(
-            "    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository\n",
+            "    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository\n",
             "",
         );
     let mut errors = Vec::new();
@@ -347,6 +347,21 @@ fn runtime_workflows_reject_unsafe_pull_request_checkout_ordering() {
     );
     assert!(
         errors.iter().any(|error| error.contains("head content")),
+        "{errors:?}"
+    );
+
+    let untrusted_event = execution_state.replace("pull_request_target", "pull_request");
+    let mut errors = Vec::new();
+    validate_agent_plugin_workflow_text(
+        "execution_state_sync.yml",
+        &untrusted_event,
+        AgentPluginWorkflowKind::ExecutionState,
+        &mut errors,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("trusted pull_request_target event")),
         "{errors:?}"
     );
 
@@ -583,10 +598,11 @@ jobs:
 
 fn safe_execution_state_workflow() -> &'static str {
     r#"name: Execution-state fixture
-on: pull_request
+on:
+  pull_request_target:
 jobs:
   sync:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     env:
       ROADMAP_GH_TOKEN_SOURCE: ${{ secrets.GH_PROJECTS_TOKEN != '' && 'GH_PROJECTS_TOKEN' || 'github.token' }}
@@ -595,7 +611,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
       - name: Acquire runtime
         env:
           AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}

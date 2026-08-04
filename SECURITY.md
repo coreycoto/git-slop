@@ -56,10 +56,12 @@ Fork pull requests do not receive this secret, and pull-request-controlled code
 must never perform preparation. The public release workflow never receives or
 uses the private runtime token.
 
-Execution-state's project credential is separate from runtime acquisition and
-is not job-scoped: only the direct project snapshot and execution-state steps
-receive that resolved `GH_TOKEN`. Preparation, offline verification, and
-publisher identity/interpreter smoke therefore cannot inherit the project PAT.
+Execution-state sync runs on `pull_request_target` and checks out only the
+trusted base before acquiring the private runtime. Its project credential is
+separate from runtime acquisition and is not job-scoped: only the direct
+project snapshot and execution-state steps receive that resolved `GH_TOKEN`.
+Preparation, offline verification, and publisher identity/interpreter smoke
+therefore cannot inherit the project PAT.
 
 For privileged `pull_request_target` automation, the workflow first checks out
 and validates the trusted base, then snapshots its Codex config, profiles,

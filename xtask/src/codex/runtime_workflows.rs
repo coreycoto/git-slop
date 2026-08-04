@@ -679,6 +679,18 @@ fn validate_execution_state_trust(
     errors: &mut Vec<String>,
 ) {
     let name = "execution_state_sync.yml";
+    if !text.contains("\n  pull_request_target:\n") || text.contains("\n  pull_request:\n") {
+        errors.push(format!(
+            "{name} must use only the trusted pull_request_target event for automatic PR sync."
+        ));
+    }
+    if !text.contains(
+        "github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository",
+    ) {
+        errors.push(format!(
+            "{name} must gate pull_request_target runtime acquisition to same-repository pull requests."
+        ));
+    }
     if !text.contains("github.event.pull_request.head.repo.full_name == github.repository") {
         errors.push(format!(
             "{name} must reject fork pull requests before private runtime acquisition."

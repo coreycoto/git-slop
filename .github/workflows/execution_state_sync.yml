@@ -11,7 +11,7 @@ on:
         description: Optional issue number to resync manually when no PR number is supplied.
         required: false
         type: string
-  pull_request:
+  pull_request_target:
     types:
       - opened
       - edited
@@ -24,7 +24,7 @@ on:
 jobs:
   sync:
     name: Sync execution state
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
 
       - name: Prepare pinned agent-plugins runtime
         env:
@@ -90,7 +90,7 @@ jobs:
         id: target
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
             kind="pull_request"
             value="${{ github.event.pull_request.number }}"
           elif [ -n "${{ inputs.pr_number }}" ]; then
