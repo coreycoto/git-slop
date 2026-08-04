@@ -14,10 +14,10 @@ Use these surfaces:
 - `.codex/README.md`: Codex runtime map
 
 `git-slop` consumes the `project-management-workflows` plugin from
-`coreycoto/agent-plugins` through a pinned marketplace-source bootstrap helper
-that registers the marketplace source, enables
-`project-management-workflows@agent-plugins-marketplace`, and materializes the
-pinned plugin into the local Codex plugin cache.
+`coreycoto/agent-plugins` through this pinned manifest. The publisher-owned
+`agent_plugins.marketplace.bootstrap` module installs into isolated Codex homes;
+bootstrap implementation, reusable behavior tests, and clean-room consumer
+smoke coverage stay in `agent-plugins`, not this consumer repository.
 
 `git-slop` also publishes its repo-local Codex plugin from `plugins/git-slop`.
 That plugin owns product-specific guidance for installing, running,

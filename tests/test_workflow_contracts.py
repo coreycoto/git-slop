@@ -19,11 +19,19 @@ class WorkflowContractTests(unittest.TestCase):
 
             with self.subTest(workflow=workflow_name):
                 self.assertIn(
-                    'cp .codex/config.toml "$RUNNER_TEMP/codex-home/config.toml"',
+                    'cp .codex/config.toml "$RUNNER_TEMP/codex-runtime/.codex/config.toml"',
                     workflow,
                 )
                 self.assertIn(
-                    'cp .codex/*.config.toml "$RUNNER_TEMP/codex-home/"',
+                    'cp .codex/*.config.toml "$RUNNER_TEMP/codex-runtime/.codex/"',
+                    workflow,
+                )
+                self.assertIn(
+                    "python -m agent_plugins.marketplace.bootstrap install",
+                    workflow,
+                )
+                self.assertIn(
+                    "codex-home: ${{ runner.temp }}/codex-runtime/.codex",
                     workflow,
                 )
                 self.assertIn('"--profile","ci_mutation"', workflow)
@@ -113,6 +121,9 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("uv run python -m compileall src/git_slop scripts tests", workflow)
         self.assertIn("uv run ruff check", workflow)
         self.assertIn("uv run pytest", workflow)
+        self.assertNotIn("plugin-runtime-smoke:", workflow)
+        self.assertNotIn("scripts/smoke_plugin_consumer.py", workflow)
+        self.assertNotIn("tests/unit/agent_tools", workflow)
         self.assertNotIn("python -m git_slop", workflow)
         self.assertIn("ubuntu-24.04", workflow)
         self.assertIn("macos-15", workflow)

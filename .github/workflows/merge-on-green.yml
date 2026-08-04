@@ -138,11 +138,7 @@ jobs:
           fi
       - name: Sync project
         if: steps.merge_preflight.outputs.eligible == 'true'
-        run: uv sync --group dev --group maintainer
-
-      - name: Bootstrap agent-plugins marketplace source
-        if: steps.merge_preflight.outputs.eligible == 'true'
-        run: uv run python scripts/bootstrap_agent_plugins_marketplace.py install
+        run: uv sync --locked --group dev --group maintainer
 
       - name: Validate Codex surface
         if: steps.merge_preflight.outputs.eligible == 'true'
@@ -161,12 +157,15 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Prepare Codex runtime directories
+      - name: Prepare pinned Codex runtime
         if: steps.codex_preflight.outputs.enabled == 'true'
         run: |
-          mkdir -p .artifacts/codex "$RUNNER_TEMP/codex-home"
-          cp .codex/config.toml "$RUNNER_TEMP/codex-home/config.toml"
-          cp .codex/*.config.toml "$RUNNER_TEMP/codex-home/"
+          mkdir -p .artifacts/codex "$RUNNER_TEMP/codex-runtime/.codex"
+          cp .codex/config.toml "$RUNNER_TEMP/codex-runtime/.codex/config.toml"
+          cp .codex/*.config.toml "$RUNNER_TEMP/codex-runtime/.codex/"
+          uv run python -m agent_plugins.marketplace.bootstrap install \
+            --manifest .agents/plugins/marketplace-source.json \
+            --home "$RUNNER_TEMP/codex-runtime"
 
       - name: Run Codex merge gate
         if: steps.codex_preflight.outputs.enabled == 'true'
@@ -176,7 +175,7 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/merge-on-green.md
           output-file: .artifacts/codex/merge-on-green.json
-          codex-home: ${{ runner.temp }}/codex-home
+          codex-home: ${{ runner.temp }}/codex-runtime/.codex
           codex-args: >-
             ["--profile","ci_mutation","--model","gpt-5.6-luna","--output-schema",".github/codex/schemas/merge-on-green.json"]
           safety-strategy: drop-sudo

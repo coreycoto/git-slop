@@ -54,13 +54,9 @@ uv run ruff check
 uv run pytest
 ```
 
-Optional maintainer-agent tests add the `maintainer` dependency group:
-
-```bash
-uv sync --group dev --group maintainer
-```
-
-Those tests are skipped when `agent-plugins` is not available.
+Reusable `agent_plugins` behavior tests, marketplace bootstrap tests, and
+clean-room plugin consumer smoke run in the `coreycoto/agent-plugins`
+publisher repository. They are intentionally not duplicated here.
 
 ## Validation
 
@@ -80,12 +76,15 @@ uv run ruff check
 uv run pytest
 ```
 
-For plugin or maintainer workflow changes, also run:
+For local plugin or maintainer workflow wiring changes, also run:
 
 ```bash
 uv run python scripts/validate_codex_surface.py
-uv run python scripts/smoke_plugin_consumer.py
 ```
+
+To exercise a pinned workflow runtime itself, sync the publisher dependency
+with `uv sync --group dev --group maintainer` and use the
+`agent_plugins.marketplace.bootstrap` module named in the workflow.
 
 For packaging or release-script changes, also run:
 

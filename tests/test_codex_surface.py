@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from git_slop.integrations.agents.codex_surface import (
     AGENT_SKILL_REFERENCES,
+    BOOTSTRAP_COMMAND,
     CI_PROFILE_SANDBOX_MODES,
+    CODEX_CONFIG_COPY_COMMAND,
     CODEX_CONFIG_PATH,
+    CODEX_HOME_INPUT,
     CODEX_PROFILE_COPY_COMMAND,
     EXPECTED_MARKETPLACE_NAME,
     EXPECTED_PLUGIN_SHA,
@@ -49,6 +55,24 @@ class CodexSurfaceTests(unittest.TestCase):
 
     def test_codex_surface_validation_passes(self) -> None:
         self.assertEqual(validate_codex_surface(REPO_ROOT), [])
+
+    def test_repo_local_validator_imports_without_agent_plugins(self) -> None:
+        script = """
+from git_slop.integrations import agents
+assert agents.__all__ == ["validate_codex_surface"]
+assert callable(agents.validate_codex_surface)
+"""
+        env = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")}
+        completed = subprocess.run(
+            [sys.executable, "-S", "-c", script],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_expected_custom_agents_and_workflow_assets_exist(self) -> None:
         self.assertEqual(
@@ -155,7 +179,10 @@ class CodexSurfaceTests(unittest.TestCase):
             workflow_text = (REPO_ROOT / ".github" / "workflows" / workflow_name).read_text(
                 encoding="utf-8"
             )
+            self.assertIn(CODEX_CONFIG_COPY_COMMAND, workflow_text)
             self.assertIn(CODEX_PROFILE_COPY_COMMAND, workflow_text)
+            self.assertIn(BOOTSTRAP_COMMAND, workflow_text)
+            self.assertIn(CODEX_HOME_INPUT, workflow_text)
 
     def test_custom_agents_reference_installed_skill_names_only(self) -> None:
         for agent_name, relative_path in ROOT_AGENTS.items():

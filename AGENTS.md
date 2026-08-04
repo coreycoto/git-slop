@@ -22,7 +22,8 @@
 - Keep the public `git slop` CLI focused on detector, report, explain, and plan behavior.
 - Keep reusable maintainer workflow instructions in the installed project-management plugin from `coreycoto/agent-plugins`.
 - Keep the local `git-slop` Codex plugin focused on product-specific CLI usage and consumer adoption guidance.
-- Bootstrap that plugin through the tracked marketplace source manifest instead of a checked-in repo-local marketplace file.
+- Keep only the pinned marketplace-source manifest and workflow invocation in this consumer repo; use `agent_plugins.marketplace.bootstrap` from the publisher for configuration and installation.
+- Keep `agent_plugins` behavior tests, bootstrap implementation, and clean-room consumer smoke in `coreycoto/agent-plugins`.
 - Keep repo-specific overlays next to the repo-owned data they describe under `config/*/README.md`.
 - Keep custom agents thin: they should reference plugin skills and only add role, sandbox, model, and delegation guidance.
 

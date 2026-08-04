@@ -16,6 +16,10 @@ Use the runtime layers like this:
 - `.github/codex/prompts/*`: workflow prompts that explicitly name the custom agents to use
 - `.github/codex/schemas/*`: structured-output schemas for Codex-driven workflows
 
+The consumer-owned boundary is the immutable marketplace-source manifest and
+workflow invocation. The `agent-plugins` publisher owns marketplace bootstrap
+implementation, reusable runtime behavior tests, and clean-room consumer smoke.
+
 ## Approval And Publication
 
 Interactive local sessions should default to `approval_policy = "on-request"`.
@@ -24,8 +28,9 @@ explicit workflow permissions instead of fresh approvals.
 
 Codex profiles are standalone files named `<profile>.config.toml`. Workflows
 copy both the base config and these profile files into their isolated
-`CODEX_HOME`; do not restore legacy `[profiles.<name>]` tables to
-`.codex/config.toml`.
+`CODEX_HOME`, then install the pinned marketplace with the publisher-owned
+`agent_plugins.marketplace.bootstrap` module. Do not restore legacy
+`[profiles.<name>]` tables to `.codex/config.toml`.
 
 Publication rules:
 

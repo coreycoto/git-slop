@@ -8,7 +8,7 @@ try:
 except ImportError:  # pragma: no cover
     yaml = None
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 @unittest.skipIf(yaml is None, "PyYAML is required for issue form validation tests.")
@@ -37,3 +37,7 @@ class IssueFormTests(unittest.TestCase):
         links = payload["contact_links"]
         self.assertEqual(links[0]["name"], "Contributing Guide")
         self.assertIn("CONTRIBUTING.md", links[0]["url"])
+
+
+if __name__ == "__main__":
+    unittest.main()

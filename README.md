@@ -118,4 +118,5 @@ package.
 The `git-slop` Codex plugin is published from this repo. It owns
 product-specific install, report, interpretation, planning, and
 consumer-adoption guidance. Reusable project and backlog workflows live in the
-separate `coreycoto/agent-plugins` plugin.
+separate `coreycoto/agent-plugins` plugin, which also owns its runtime behavior
+tests, pinned marketplace bootstrap, and clean-room consumer smoke coverage.
