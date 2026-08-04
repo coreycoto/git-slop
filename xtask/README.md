@@ -52,12 +52,13 @@ release coordinates, archive member, byte size, and SHA-256. Workflows acquire
 it into an ephemeral `RUNNER_TEMP` root with a step-scoped
 `AGENT_PLUGINS_READ_TOKEN`, verify it again without credentials, and never put
 it in an Actions cache. Direct `marketplace` and `github` CLI commands are the
-normal interface; the wrapper maps compatibility `python -c` imports to the
-verified runtime with `PEX_INTERPRETER=1`. The runtime is not part of this xtask
-or the public `git-slop` product runtime.
+normal interface; the wrapper confines interpreter mode to runtime identity,
+embedded-marketplace provenance verification, and the legacy compatibility
+entry point. The runtime is not part of this xtask or the public `git-slop`
+product runtime.
 
 `validate-codex` and `validate-workflows` fail closed on malformed runtime pins,
-legacy Git/uv/Python acquisition, implicit downloads, misplaced acquisition
-credentials, persistent cache use, indirect CLI shims, unsafe pull-request
-checkout ordering, or coupling the private runtime to public release
-publication.
+legacy source or dependency acquisition, implicit downloads, misplaced
+acquisition credentials, persistent cache use, indirect CLI shims, unsafe
+pull-request checkout ordering, or coupling the private runtime to public
+release publication.

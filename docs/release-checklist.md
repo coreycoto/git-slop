@@ -225,8 +225,8 @@ seven-line checksum inventory. Only its final step receives
 digests to `coreycoto/homebrew-tap`.
 
 Verify the tap workflow and Formula before merging its change. The Formula must
-retain `coreycoto/tap/git-slop`, build from the exact `.crate` source, and have
-no Python dependency.
+retain `coreycoto/tap/git-slop`, build from the exact `.crate` source, and
+introduce no auxiliary runtime dependency.
 
 Test both upgrade and clean-install lanes:
 

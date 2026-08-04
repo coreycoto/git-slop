@@ -46,8 +46,8 @@ available without verifying the corresponding publication.
 - GitHub Actions, after confirming the matching immutable tag and release:
   - `uses: coreycoto/git-slop@v<version>`
 
-The public CLI is a native Rust executable. Do not add Python as a runtime
-dependency.
+The public CLI is a native Rust executable. Do not add alternate runtime
+dependencies.
 
 ## Verification
 

@@ -24,7 +24,8 @@ digest; the wrapper verifies release metadata, target, archive safety, and the
 SCIE's embedded revision. The `agent-plugins` publisher owns marketplace
 bootstrap implementation, reusable runtime behavior tests, and clean-room
 consumer smoke. Repo-owned validation stays in the private standalone Rust
-`xtask/` workspace; this repository does not carry a Python project.
+`xtask/` workspace; this repository does not carry a parallel maintainer
+runtime.
 
 ## Approval And Publication
 
@@ -39,10 +40,11 @@ copy both the base config and these profile files into their isolated
 the SCIE under `RUNNER_TEMP` with the read token scoped to that step, verifies it
 without the token, and performs no further publisher acquisition afterward. The
 embedded marketplace installs offline; GitHub commands retain the workflow's
-GitHub token for their intended API calls. Do not add Actions caching, restore
-project `uv sync`, set up system Python, add repository-owned Python, or restore
-legacy `[profiles.<name>]` tables to `.codex/config.toml`. PEX interpreter mode
-is compatibility-only; new workflow calls use the direct CLI.
+GitHub token for their intended API calls. Do not add Actions caching, project
+dependency synchronization, consumer language-runtime setup, or legacy
+`[profiles.<name>]` tables to `.codex/config.toml`. Workflow calls use the
+direct CLI; interpreter mode is confined to isolated identity verification and
+the legacy compatibility entry point.
 
 Execution-state sync uses `pull_request_target` so the workflow definition and
 runtime launcher both come from the trusted base. Active PR events pin the

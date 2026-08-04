@@ -12,8 +12,24 @@ scatter, weak verification, navigation friction, blast radius, stewardship
 pressure, and semantic drift. Those overlays support review, but they do not
 inflate the stable hotspot score.
 
-The public CLI is a native Rust executable. It needs Git, but it does not need
-Python, a package-manager runtime, a hosted API, or a model provider.
+## Philosophy
+
+AI did not invent hard-to-maintain code. It made the cost of loading,
+understanding, and safely changing a repository harder to ignore.
+
+Git Slop is not an AI detector, a code-quality grade, or a judgment about who
+wrote the code. It examines the repository that exists and asks how expensive
+it is for a human or agent to work in.
+
+- Measure maintenance pressure, not authorship.
+- Prefer deterministic evidence over opaque judgments.
+- Keep stable hotspot costs separate from supporting signals.
+- Treat findings as prompts for investigation, not automatic verdicts.
+- Propose bounded next steps; leave refactoring decisions to people.
+- Stay local by default and keep repository data private.
+
+The deeper product thesis and non-goals are documented in
+[Vision](docs/vision.md).
 
 ## Install
 
@@ -130,26 +146,18 @@ The local `git-slop` CLI does not:
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 
-The planned 0.9.0 release moves the product runtime to Rust while retaining
-report schema 4, config schema 2, and the existing `check` threshold semantics.
-The repository uses a private, non-publishable Rust `xtask` workspace to
-validate Codex, plugin, workflow, repository, and release wiring. It is
-excluded from the public workspace and is not part of the native CLI or
-`git-slop` Cargo package.
+The upcoming 0.9.0 release retains report schema 4, config schema 2, and the
+existing `check` threshold semantics. A private, non-publishable Rust `xtask`
+workspace validates Codex, plugin, workflow, repository, distribution, and
+release wiring. It is excluded from the public workspace and the `git-slop`
+Cargo package.
 
 The `git-slop` Codex plugin is published from this repo. It owns
 product-specific install, report, interpretation, planning, and
 consumer-adoption guidance. Reusable project and backlog workflows live in the
 separate `coreycoto/agent-plugins` plugin, which also owns its runtime behavior
 tests, pinned marketplace bootstrap, and clean-room consumer smoke coverage.
-When a maintainer workflow needs that private runtime, it acquires a
-consumer-digest-pinned Linux PEX SCIE into an ephemeral job directory, verifies
-its release metadata and embedded source revision, and then uses its direct CLI
-through `scripts/with-agent-plugins.sh` without further publisher acquisition.
-Its embedded marketplace installs offline; GitHub operations retain the
-workflow token they need. Execution-state sync keeps its project PAT off runtime
-verification, while privileged dependency remediation uses trusted base Codex
-inputs and exposes the repository token only to its mutation step. The
-acquisition token is not available during execution, and this repo carries no
-Python project of its own. The public Git Slop release workflow is independent
-of that private runtime.
+Maintainer workflows acquire and verify that pinned prebuilt runtime in an
+ephemeral job directory before invoking its direct CLI through
+`scripts/with-agent-plugins.sh`. Acquisition credentials remain step-scoped,
+and the public Git Slop release workflow is independent of the private runtime.
