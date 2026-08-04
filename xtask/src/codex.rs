@@ -1,3 +1,11 @@
+mod runtime_manifest;
+mod runtime_workflows;
+
+#[cfg(test)]
+mod runtime_tests;
+#[cfg(test)]
+mod tests;
+
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
@@ -8,25 +16,13 @@ use std::process::Command;
 use serde_json::{Value as JsonValue, json};
 use toml::Value as TomlValue;
 
-const INSTALLED_PLUGIN_NAME: &str = "project-management-workflows";
 const EXPECTED_PLUGIN_URL: &str = "https://github.com/coreycoto/agent-plugins.git";
-const EXPECTED_PLUGIN_SHA: &str = "ec3c5b169550f309b45fb2d86c406fe487ff42d8";
-const EXPECTED_MARKETPLACE_NAME: &str = "agent-plugins-marketplace";
-const MARKETPLACE_SOURCE_MANIFEST: &str = ".agents/plugins/marketplace-source.json";
 const GIT_SLOP_MARKETPLACE: &str = ".agents/plugins/marketplace.json";
 const GIT_SLOP_MARKETPLACE_NAME: &str = "git-slop-marketplace";
 const GIT_SLOP_PLUGIN_ROOT: &str = "plugins/git-slop";
 const GIT_SLOP_PLUGIN_DOC_NAME: &str = "`git-slop` Codex plugin";
 const GIT_SLOP_PLUGIN_NAME: &str = "git-slop";
 const GIT_SLOP_PLUGIN_VERSION: &str = "0.2.1";
-const BOOTSTRAP_COMMAND: &str =
-    "scripts/with-agent-plugins.sh python -m agent_plugins.marketplace.bootstrap install";
-const VALIDATE_COMMAND: &str = "cargo xtask validate-codex";
-const CODEX_CONFIG_COPY_COMMAND: &str =
-    "cp .codex/config.toml \"$RUNNER_TEMP/codex-runtime/.codex/config.toml\"";
-const CODEX_PROFILE_COPY_COMMAND: &str =
-    "cp .codex/*.config.toml \"$RUNNER_TEMP/codex-runtime/.codex/\"";
-const CODEX_HOME_INPUT: &str = "codex-home: ${{ runner.temp }}/codex-runtime/.codex";
 const EXPECTED_EXEC_POLICY_DECISION: &str = "prompt";
 
 const REQUIRED_GUIDANCE: [&str; 5] = [
@@ -175,8 +171,8 @@ pub fn validate(repo_root: &Path, require_codex_cli: bool) -> Vec<String> {
     validate_agents(repo_root, &mut errors);
     validate_workflow_assets(repo_root, &mut errors);
     validate_guidance(repo_root, &mut errors);
-    validate_agent_plugin_wrapper(repo_root, &mut errors);
-    validate_agent_plugin_workflows(repo_root, &mut errors);
+    runtime_manifest::validate_agent_plugin_wrapper(repo_root, &mut errors);
+    runtime_workflows::validate_agent_plugin_workflows(repo_root, &mut errors);
     validate_release_workflow(repo_root, &mut errors);
     validate_product_documentation(repo_root, &mut errors);
 
@@ -313,37 +309,7 @@ fn require_prompt_decision(stdout: &str) -> Result<(), String> {
 }
 
 fn validate_marketplaces(repo_root: &Path, errors: &mut Vec<String>) {
-    if let Some(manifest) = load_json(repo_root, MARKETPLACE_SOURCE_MANIFEST, errors) {
-        if json_string(&manifest, "marketplace_name") != Some(EXPECTED_MARKETPLACE_NAME) {
-            errors.push(
-                "Consumer bootstrap manifest must use the agent-plugins marketplace name.".into(),
-            );
-        }
-        if json_string(&manifest, "source_url") != Some(EXPECTED_PLUGIN_URL) {
-            errors.push(
-                "Consumer bootstrap manifest must point at coreycoto/agent-plugins.git.".into(),
-            );
-        }
-        match manifest.get("ref") {
-            Some(JsonValue::String(revision)) if is_lower_sha(revision) => {
-                if revision != EXPECTED_PLUGIN_SHA {
-                    errors.push(
-                        "Consumer bootstrap manifest must pin the expected agent-plugins commit."
-                            .into(),
-                    );
-                }
-            }
-            _ => errors
-                .push("Consumer bootstrap manifest must pin an immutable 40-character sha.".into()),
-        }
-        if json_string(&manifest, "required_plugin") != Some(INSTALLED_PLUGIN_NAME) {
-            errors.push(
-                "Consumer bootstrap manifest must require the project-management-workflows \
-                 plugin."
-                    .into(),
-            );
-        }
-    }
+    runtime_manifest::validate_marketplace_source(repo_root, errors);
 
     if let Some(marketplace) = load_json(repo_root, GIT_SLOP_MARKETPLACE, errors) {
         if json_string(&marketplace, "name") != Some(GIT_SLOP_MARKETPLACE_NAME) {
@@ -558,91 +524,27 @@ fn validate_guidance(repo_root: &Path, errors: &mut Vec<String>) {
     }
 }
 
-fn validate_agent_plugin_wrapper(repo_root: &Path, errors: &mut Vec<String>) {
-    let relative = "scripts/with-agent-plugins.sh";
-    let Some(text) = read_text(repo_root, relative, errors) else {
-        return;
-    };
-    for required in [
-        ".agents/plugins/marketplace-source.json",
-        "agent-plugins @ git+${source_url}@${source_revision}",
-        "exec uv run --no-project --with \"$agent_plugins_spec\" \"$@\"",
-    ] {
-        if !text.contains(required) {
-            errors.push(format!("{relative} must include {required}."));
-        }
-    }
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-
-        if let Ok(metadata) = fs::metadata(repo_root.join(relative))
-            && metadata.permissions().mode() & 0o111 == 0
-        {
-            errors.push(format!(
-                "{relative} must be executable because workflows invoke it directly."
-            ));
-        }
-    }
-}
-
-fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec<String>) {
-    for workflow in WORKFLOWS
-        .iter()
-        .filter(|workflow| workflow.uses_agent_plugins)
-    {
-        let relative = format!(".github/workflows/{}", workflow.name);
-        let Some(text) = read_text(repo_root, &relative, errors) else {
-            continue;
-        };
-        for (required, description) in [
-            (
-                "AGENT_PLUGINS_GIT_TOKEN",
-                "configure AGENT_PLUGINS_GIT_TOKEN access",
-            ),
-            (EXPECTED_PLUGIN_URL, "reference the agent-plugins repo URL"),
-            (
-                BOOTSTRAP_COMMAND,
-                "use the publisher-owned pinned marketplace bootstrap wrapper",
-            ),
-            (VALIDATE_COMMAND, "run the Rust Codex surface validator"),
-            ("openai/codex-action@v1", "invoke the Codex action"),
-            (
-                "$RUNNER_TEMP/codex-runtime/.codex",
-                "prepare a temporary isolated Codex home",
-            ),
-            (
-                CODEX_CONFIG_COPY_COMMAND,
-                "copy repo Codex config into the isolated Codex home",
-            ),
-            (
-                CODEX_PROFILE_COPY_COMMAND,
-                "copy standalone Codex profiles into the isolated Codex home",
-            ),
-            (
-                CODEX_HOME_INPUT,
-                "pass the isolated Codex home to codex-action",
-            ),
-        ] {
-            if !text.contains(required) {
-                errors.push(format!("{} must {description}.", workflow.name));
-            }
-        }
-    }
-}
-
 fn validate_release_workflow(repo_root: &Path, errors: &mut Vec<String>) {
     let relative = ".github/workflows/release-publish.yml";
     let Some(text) = read_text(repo_root, relative, errors) else {
         return;
     };
-    if text.contains("AGENT_PLUGINS_GIT_TOKEN") {
-        errors.push(
-            "release-publish.yml must keep Rust artifact publication decoupled from agent-plugins \
-             credentials."
-                .into(),
-        );
+    for forbidden in [
+        "AGENT_PLUGINS_READ_TOKEN",
+        "AGENT_PLUGINS_GIT_TOKEN",
+        runtime_manifest::AGENT_PLUGIN_WRAPPER,
+        runtime_manifest::MARKETPLACE_SOURCE_MANIFEST,
+        runtime_manifest::EXPECTED_RUNTIME_ARCHIVE,
+        runtime_manifest::EXPECTED_RUNTIME_REPOSITORY,
+        runtime_manifest::EXPECTED_MARKETPLACE_NAME,
+        "agent-plugins-runtime",
+    ] {
+        if text.contains(forbidden) {
+            errors.push(format!(
+                "release-publish.yml must keep public Rust artifact publication decoupled from \
+                 private agent-plugins runtime surface {forbidden}."
+            ));
+        }
     }
     for required in [
         "cargo publish -p git-slop --dry-run --locked",
@@ -822,13 +724,6 @@ fn json_string<'a>(value: &'a JsonValue, key: &str) -> Option<&'a str> {
     value.get(key).and_then(JsonValue::as_str)
 }
 
-fn is_lower_sha(value: &str) -> bool {
-    value.len() == 40
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
 fn command_on_path(command: &str) -> bool {
     let Some(path) = env::var_os("PATH") else {
         return false;
@@ -851,178 +746,4 @@ fn command_candidates(directory: &Path, command: &str) -> impl Iterator<Item = P
         directory.join(format!("{command}.bat")),
     ]
     .into_iter()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    #[test]
-    fn repository_codex_surface_passes() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        assert_eq!(validate(root, false), Vec::<String>::new());
-    }
-
-    #[test]
-    fn contract_inventory_is_stable() {
-        assert_eq!(
-            AGENTS.iter().map(|agent| agent.name).collect::<Vec<_>>(),
-            [
-                "dependency_patcher",
-                "docs_taxonomist",
-                "governance_auditor",
-                "merge_gatekeeper",
-                "release_publisher",
-            ]
-        );
-        assert_eq!(
-            WORKFLOWS
-                .iter()
-                .map(|workflow| workflow.name)
-                .collect::<Vec<_>>(),
-            [
-                "dependency-remediation.yml",
-                "docs-taxonomy.yml",
-                "governance-reconcile.yml",
-                "merge-on-green.yml",
-                "release-publish.yml",
-            ]
-        );
-        assert_eq!(
-            GIT_SLOP_PLUGIN_SKILLS.into_iter().collect::<BTreeSet<_>>(),
-            [
-                "adopt-repo",
-                "install-update",
-                "interpret-results",
-                "plan-maintenance",
-                "run-report",
-            ]
-            .into_iter()
-            .collect()
-        );
-    }
-
-    #[test]
-    fn execpolicy_parser_accepts_current_prompt_output() {
-        let output = r#"{
-            "matchedRules": [{
-                "prefixRuleMatch": {
-                    "matchedPrefix": ["git", "push"],
-                    "decision": "prompt",
-                    "justification": "Publishing changes is allowed with explicit approval."
-                }
-            }],
-            "decision": "prompt"
-        }"#;
-
-        assert_eq!(parse_execpolicy_decision(output).unwrap(), "prompt");
-        assert_eq!(require_prompt_decision(output), Ok(()));
-    }
-
-    #[test]
-    fn execpolicy_parser_rejects_non_prompt_decisions() {
-        let error = require_prompt_decision(r#"{"decision":"allow"}"#).unwrap_err();
-        assert!(error.contains("decision was \"allow\"; expected \"prompt\""));
-
-        let error = require_prompt_decision(r#"{"decision":"forbidden"}"#).unwrap_err();
-        assert!(error.contains("decision was \"forbidden\"; expected \"prompt\""));
-    }
-
-    #[test]
-    fn execpolicy_parser_rejects_missing_or_malformed_decisions() {
-        assert!(
-            require_prompt_decision("")
-                .unwrap_err()
-                .contains("stdout was empty")
-        );
-        assert!(
-            require_prompt_decision("not-json")
-                .unwrap_err()
-                .contains("stdout was not valid JSON")
-        );
-        assert!(
-            require_prompt_decision(r#"{"matchedRules":[]}"#)
-                .unwrap_err()
-                .contains("did not contain a string decision")
-        );
-    }
-
-    #[test]
-    fn config_validation_rejects_legacy_profiles() {
-        let temp = TempDir::new().unwrap();
-        let codex_root = temp.path().join(".codex");
-        fs::create_dir_all(&codex_root).unwrap();
-        fs::write(
-            codex_root.join("config.toml"),
-            "approval_policy = \"on-request\"\n\
-             sandbox_mode = \"workspace-write\"\n\
-             profile = \"ci_mutation\"\n\
-             [profiles.ci_mutation]\n\
-             approval_policy = \"never\"\n",
-        )
-        .unwrap();
-        write_profiles(&codex_root);
-
-        let mut errors = Vec::new();
-        validate_codex_config(temp.path(), &mut errors);
-
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.contains("legacy profile selector"))
-        );
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.contains("legacy [profiles.*] tables"))
-        );
-    }
-
-    #[test]
-    fn config_validation_requires_safe_standalone_profiles() {
-        let temp = TempDir::new().unwrap();
-        let codex_root = temp.path().join(".codex");
-        fs::create_dir_all(&codex_root).unwrap();
-        fs::write(
-            codex_root.join("config.toml"),
-            "approval_policy = \"on-request\"\nsandbox_mode = \"workspace-write\"\n",
-        )
-        .unwrap();
-        fs::write(
-            codex_root.join("ci_readonly.config.toml"),
-            "approval_policy = \"on-request\"\nsandbox_mode = \"workspace-write\"\n",
-        )
-        .unwrap();
-        fs::write(
-            codex_root.join("ci_mutation.config.toml"),
-            "approval_policy = \"never\"\nsandbox_mode = \"workspace-write\"\n",
-        )
-        .unwrap();
-
-        let mut errors = Vec::new();
-        validate_codex_config(temp.path(), &mut errors);
-
-        assert!(errors.iter().any(|error| {
-            error.contains("ci_readonly.config.toml must set top-level approval_policy to never")
-        }));
-        assert!(errors.iter().any(|error| {
-            error.contains("ci_readonly.config.toml must set top-level sandbox_mode to read-only")
-        }));
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.contains(".codex/ci_release.config.toml is missing"))
-        );
-    }
-
-    fn write_profiles(codex_root: &Path) {
-        for (name, sandbox_mode) in CI_PROFILES {
-            fs::write(
-                codex_root.join(format!("{name}.config.toml")),
-                format!("approval_policy = \"never\"\nsandbox_mode = \"{sandbox_mode}\"\n"),
-            )
-            .unwrap();
-        }
-    }
 }

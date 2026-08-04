@@ -1,12 +1,27 @@
 use std::fs;
 use std::path::Path;
 
+use serde_yaml::Value as YamlValue;
+
 const CODEX_WORKFLOWS: [&str; 4] = [
     "dependency-remediation.yml",
     "docs-taxonomy.yml",
     "governance-reconcile.yml",
     "merge-on-green.yml",
 ];
+
+const AGENT_PLUGIN_WORKFLOWS: [&str; 5] = [
+    "dependency-remediation.yml",
+    "docs-taxonomy.yml",
+    "governance-reconcile.yml",
+    "merge-on-green.yml",
+    "execution_state_sync.yml",
+];
+
+const AGENT_PLUGIN_WRAPPER: &str = "scripts/with-agent-plugins.sh";
+const PREPARE_COMMAND: &str = "scripts/with-agent-plugins.sh --prepare";
+const VERIFY_COMMAND: &str = "scripts/with-agent-plugins.sh --verify";
+const MARKETPLACE_COMMAND: &str = "scripts/with-agent-plugins.sh marketplace install";
 
 pub fn validate(repo_root: &Path) -> Vec<String> {
     let mut errors = Vec::new();
@@ -16,24 +31,34 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
         let Some(text) = read(&workflows.join(name), &mut errors) else {
             continue;
         };
-        require(
-            &text,
-            r#"cp .codex/config.toml "$RUNNER_TEMP/codex-runtime/.codex/config.toml""#,
-            name,
-            &mut errors,
-        );
-        require(
-            &text,
-            r#"cp .codex/*.config.toml "$RUNNER_TEMP/codex-runtime/.codex/""#,
-            name,
-            &mut errors,
-        );
-        require(
-            &text,
-            "scripts/with-agent-plugins.sh python -m agent_plugins.marketplace.bootstrap install",
-            name,
-            &mut errors,
-        );
+        if name == "dependency-remediation.yml" {
+            for trusted_snapshot in [
+                r#"codex_home="$RUNNER_TEMP/codex-runtime/.codex""#,
+                r#"cp .codex/config.toml "$codex_home/config.toml""#,
+                r#"cp .codex/*.config.toml "$codex_home/""#,
+                r#"cp -R .codex/agents/. "$codex_home/agents/""#,
+                "cp .github/codex/prompts/dependency-remediation.md",
+                "cp .github/codex/schemas/dependency-remediation.json",
+                "prompt-file: ${{ runner.temp }}/dependency-remediation-trusted/dependency-remediation.md",
+                "output-schema-file: ${{ runner.temp }}/dependency-remediation-trusted/dependency-remediation.json",
+            ] {
+                require(&text, trusted_snapshot, name, &mut errors);
+            }
+        } else {
+            require(
+                &text,
+                r#"cp .codex/config.toml "$RUNNER_TEMP/codex-runtime/.codex/config.toml""#,
+                name,
+                &mut errors,
+            );
+            require(
+                &text,
+                r#"cp .codex/*.config.toml "$RUNNER_TEMP/codex-runtime/.codex/""#,
+                name,
+                &mut errors,
+            );
+        }
+        require(&text, MARKETPLACE_COMMAND, name, &mut errors);
         require(
             &text,
             "codex-home: ${{ runner.temp }}/codex-runtime/.codex",
@@ -51,6 +76,8 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
         );
     }
 
+    validate_agent_plugin_runtime(&workflows, &mut errors);
+
     for name in ["docs-taxonomy.yml", "merge-on-green.yml"] {
         if let Some(text) = read(&workflows.join(name), &mut errors) {
             forbid(&text, "gpt-5.4-nano", name, &mut errors);
@@ -61,9 +88,71 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
     validate_action_versions(repo_root, &workflows, &mut errors);
     validate_artifacts(&workflows, &mut errors);
     validate_dogfood(&workflows, &mut errors);
-    validate_ci(&workflows, &mut errors);
+    validate_ci(repo_root, &workflows, &mut errors);
 
     errors
+}
+
+fn validate_agent_plugin_runtime(workflows: &Path, errors: &mut Vec<String>) {
+    for name in AGENT_PLUGIN_WORKFLOWS {
+        let Some(text) = read(&workflows.join(name), errors) else {
+            continue;
+        };
+        for required in [
+            PREPARE_COMMAND,
+            VERIFY_COMMAND,
+            "AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}",
+        ] {
+            require(&text, required, name, errors);
+        }
+        for forbidden in [
+            "actions/setup-python",
+            "python-version:",
+            "python -m pip",
+            "pip install",
+            "Install uv",
+            "uv run",
+            "uv sync",
+            "AGENT_PLUGINS_GIT_TOKEN",
+            "python -m agent_plugins",
+            "python -c \"from agent_plugins",
+            "actions/cache@",
+            "RUNNER_TOOL_CACHE",
+            "runner.tool_cache",
+            "restore-keys:",
+        ] {
+            forbid(&text, forbidden, name, errors);
+        }
+    }
+
+    if let Some(text) = read(&workflows.join("execution_state_sync.yml"), errors) {
+        require(
+            &text,
+            "scripts/with-agent-plugins.sh github project-snapshot",
+            "execution_state_sync.yml",
+            errors,
+        );
+        require(
+            &text,
+            "scripts/with-agent-plugins.sh github execution-state",
+            "execution_state_sync.yml",
+            errors,
+        );
+    }
+
+    if let Some(text) = read(&workflows.join("release-publish.yml"), errors) {
+        for forbidden in [
+            "AGENT_PLUGINS_READ_TOKEN",
+            "AGENT_PLUGINS_GIT_TOKEN",
+            AGENT_PLUGIN_WRAPPER,
+            ".agents/plugins/marketplace-source.json",
+            "coreycoto/agent-plugins",
+            "agent-plugins-marketplace",
+            "agent-plugins-runtime",
+        ] {
+            forbid(&text, forbidden, "release-publish.yml", errors);
+        }
+    }
 }
 
 fn validate_action_versions(repo_root: &Path, workflows: &Path, errors: &mut Vec<String>) {
@@ -147,21 +236,35 @@ fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
     }
 
     if let Some(text) = read(&workflows.join("execution_state_sync.yml"), errors) {
-        let upload = text
-            .split_once("      - name: Upload execution artifacts")
-            .map(|(_, tail)| tail);
-        let Some(upload) = upload else {
-            errors.push("execution_state_sync.yml must define its artifact upload.".into());
-            return;
-        };
-        for expected in [
-            "path: ${{ steps.artifact-root.outputs.path }}",
-            "include-hidden-files: true",
-            "if-no-files-found: error",
-            "retention-days: 14",
-        ] {
-            require(upload, expected, "execution_state_sync.yml", errors);
-        }
+        validate_execution_state_artifacts(&text, errors);
+    }
+}
+
+fn validate_execution_state_artifacts(text: &str, errors: &mut Vec<String>) {
+    let name = "execution_state_sync.yml";
+    let artifact_root = text.find("      - name: Prepare artifact root");
+    let runtime_prepare = text.find("      - name: Prepare pinned agent-plugins runtime");
+    if !matches!((artifact_root, runtime_prepare), (Some(root), Some(runtime)) if root < runtime) {
+        errors.push(format!(
+            "{name} must create its artifact root before private runtime preparation."
+        ));
+    }
+
+    let upload = text
+        .split_once("      - name: Upload execution artifacts")
+        .map(|(_, tail)| tail);
+    let Some(upload) = upload else {
+        errors.push(format!("{name} must define its artifact upload."));
+        return;
+    };
+    for expected in [
+        "if: ${{ (failure() || github.event_name == 'workflow_dispatch') && steps.artifact-root.outputs.path != '' }}",
+        "path: ${{ steps.artifact-root.outputs.path }}",
+        "include-hidden-files: true",
+        "if-no-files-found: error",
+        "retention-days: 14",
+    ] {
+        require(upload, expected, name, errors);
     }
 }
 
@@ -184,7 +287,7 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
     forbid(&text, "uv run git-slop", name, errors);
 }
 
-fn validate_ci(workflows: &Path, errors: &mut Vec<String>) {
+fn validate_ci(repo_root: &Path, workflows: &Path, errors: &mut Vec<String>) {
     let name = "ci.yml";
     let Some(text) = read(&workflows.join(name), errors) else {
         return;
@@ -219,6 +322,59 @@ fn validate_ci(workflows: &Path, errors: &mut Vec<String>) {
         "uv build",
     ] {
         forbid(&text, forbidden, name, errors);
+    }
+    validate_runtime_launcher_ci_job(&text, name, errors);
+    validate_runtime_launcher_fixture(repo_root, errors);
+}
+
+fn validate_runtime_launcher_ci_job(text: &str, name: &str, errors: &mut Vec<String>) {
+    const COMMAND: &str = "bash scripts/with-agent-plugins.test.sh";
+    let payload = match serde_yaml::from_str::<YamlValue>(text) {
+        Ok(payload) => payload,
+        Err(error) => {
+            errors.push(format!("Unable to parse {name}: {error}"));
+            return;
+        }
+    };
+    let command_is_in_rust_quality = payload
+        .get("jobs")
+        .and_then(|jobs| jobs.get("rust-quality"))
+        .and_then(|job| job.get("steps"))
+        .and_then(YamlValue::as_sequence)
+        .is_some_and(|steps| {
+            steps.iter().any(|step| {
+                step.get("run")
+                    .and_then(YamlValue::as_str)
+                    .is_some_and(|run| run.trim() == COMMAND)
+            })
+        });
+    if !command_is_in_rust_quality {
+        errors.push(format!("{name} rust-quality job must run {COMMAND}."));
+    }
+}
+
+fn validate_runtime_launcher_fixture(repo_root: &Path, errors: &mut Vec<String>) {
+    let relative = "scripts/with-agent-plugins.test.sh";
+    let path = repo_root.join(relative);
+    let Ok(metadata) = fs::symlink_metadata(&path) else {
+        errors.push(format!(
+            "{relative} must exist as a regular executable file."
+        ));
+        return;
+    };
+    if !metadata.is_file() {
+        errors.push(format!("{relative} must be a regular file."));
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        if metadata.permissions().mode() & 0o111 == 0 {
+            errors.push(format!(
+                "{relative} must be executable as part of the runtime-launcher test contract."
+            ));
+        }
     }
 }
 
@@ -259,5 +415,90 @@ mod tests {
     fn repository_workflows_pass() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         assert_eq!(validate(root), Vec::<String>::new());
+    }
+
+    #[test]
+    fn runtime_launcher_test_must_run_in_rust_quality_job() {
+        let valid = r#"jobs:
+  rust-quality:
+    steps:
+      - run: bash scripts/with-agent-plugins.test.sh
+"#;
+        let mut errors = Vec::new();
+        validate_runtime_launcher_ci_job(valid, "ci.yml", &mut errors);
+        assert_eq!(errors, Vec::<String>::new());
+
+        let wrong_job = r#"jobs:
+  workflow-lint:
+    steps:
+      - run: bash scripts/with-agent-plugins.test.sh
+  rust-quality:
+    steps:
+      - run: cargo test
+"#;
+        let mut errors = Vec::new();
+        validate_runtime_launcher_ci_job(wrong_job, "ci.yml", &mut errors);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("rust-quality job must run"))
+        );
+
+        let expanded_command = r#"jobs:
+  rust-quality:
+    steps:
+      - run: |
+          echo preparing
+          bash scripts/with-agent-plugins.test.sh
+"#;
+        let mut errors = Vec::new();
+        validate_runtime_launcher_ci_job(expanded_command, "ci.yml", &mut errors);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("rust-quality job must run"))
+        );
+    }
+
+    #[test]
+    fn execution_state_artifacts_require_early_root_and_guarded_upload() {
+        let valid = r#"jobs:
+  sync:
+    steps:
+      - name: Prepare artifact root
+      - name: Prepare pinned agent-plugins runtime
+      - name: Upload execution artifacts
+        if: ${{ (failure() || github.event_name == 'workflow_dispatch') && steps.artifact-root.outputs.path != '' }}
+        with:
+          path: ${{ steps.artifact-root.outputs.path }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+"#;
+        let mut errors = Vec::new();
+        validate_execution_state_artifacts(valid, &mut errors);
+        assert_eq!(errors, Vec::<String>::new());
+
+        let late_and_unguarded = valid
+            .replace(
+                "      - name: Prepare artifact root\n      - name: Prepare pinned agent-plugins runtime",
+                "      - name: Prepare pinned agent-plugins runtime\n      - name: Prepare artifact root",
+            )
+            .replace(
+                "if: ${{ (failure() || github.event_name == 'workflow_dispatch') && steps.artifact-root.outputs.path != '' }}",
+                "if: ${{ failure() }}",
+            );
+        let mut errors = Vec::new();
+        validate_execution_state_artifacts(&late_and_unguarded, &mut errors);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("before private runtime preparation"))
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("artifact-root.outputs.path != ''"))
+        );
     }
 }

@@ -1,6 +1,18 @@
 {
   "marketplace_name": "agent-plugins-marketplace",
   "source_url": "https://github.com/coreycoto/agent-plugins.git",
-  "ref": "ec3c5b169550f309b45fb2d86c406fe487ff42d8",
-  "required_plugin": "project-management-workflows"
+  "ref": "e42f887045a2460a5d33b41bedb0565e5fa0d75d",
+  "required_plugin": "project-management-workflows",
+  "runtime_release": {
+    "repository": "coreycoto/agent-plugins",
+    "tag": "v0.1.0",
+    "version": "0.1.0",
+    "target": "x86_64-unknown-linux-gnu",
+    "archive": "agent-plugins-v0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+    "member": "agent-plugins-v0.1.0-x86_64-unknown-linux-gnu/agent-plugins",
+    "sha256": "40a2d2a1ad21f262b27832c3eb2ad046360c8295e5bb7f6efaba1e3ea933a6f0",
+    "size": 42846550,
+    "release_manifest": "release-manifest.json",
+    "checksums": "SHA256SUMS"
+  }
 }

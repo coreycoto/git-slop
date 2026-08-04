@@ -64,6 +64,9 @@ jobs:
       - name: Test maintainer tooling
         run: cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
 
+      - name: Test agent-plugins runtime launcher
+        run: bash scripts/with-agent-plugins.test.sh
+
       - name: Validate maintainer contracts
         run: cargo xtask validate
 

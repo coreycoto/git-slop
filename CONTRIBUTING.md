@@ -49,10 +49,12 @@ maintainer validation reproducible independently of the public dependency graph.
 Reusable `agent_plugins` behavior tests, marketplace bootstrap tests, and
 clean-room plugin consumer smoke run in the `coreycoto/agent-plugins`
 publisher repository. They are intentionally not duplicated here. The
-`scripts/with-agent-plugins.sh` wrapper uses `jq` and `uv` to resolve that
-external Python package from the exact URL and 40-character revision in
-`.agents/plugins/marketplace-source.json`; it does not create or sync a Python
-project in this repository.
+`scripts/with-agent-plugins.sh` wrapper resolves a private Linux PEX SCIE from
+the exact release, 40-character source revision, archive member, and SHA-256
+digest in `.agents/plugins/marketplace-source.json`. Preparation uses an
+ephemeral per-job directory; verification checks release metadata, archive
+safety, digest, target, and embedded revision before direct CLI execution. It
+does not create or sync a Python project in this repository.
 
 ## Validation
 
@@ -79,9 +81,18 @@ cargo xtask check-distribution
 
 Use `cargo xtask validate-codex --require-codex-cli` when the local check must
 also prove that the Codex CLI is installed. To exercise a pinned publisher
-runtime itself, invoke its Python entry point through
-`scripts/with-agent-plugins.sh`; do not add repository-owned Python or a local
-Python environment.
+runtime itself, prepare and verify it through `scripts/with-agent-plugins.sh`,
+then use its direct `marketplace` or `github` commands. The read token belongs
+only on the prepare command. Do not add repository-owned Python or a local
+Python environment; PEX interpreter mode exists only to keep legacy `python -c`
+entry points importable.
+
+Keep the execution-state project PAT step-scoped to its two direct operations;
+runtime preparation and verification must not inherit it. For privileged
+`pull_request_target`, keep the repository token on the deliberate Codex
+mutation step, validate and snapshot the trusted base Codex inputs before
+checking out the requested head, and never run head-owned `xtask`, prompts,
+schemas, config, or agents with that credential.
 
 For packaging or release-script changes, also run:
 
@@ -104,8 +115,8 @@ Keep `git-slop` local-first and deterministic:
 - no automatic code mutation, commits, or pushes
 - no GitHub mutation from the public CLI
 - no broad report schema changes without tests and docs
-- no repository-owned Python; the pinned external `agent-plugins` runtime is
-  the only Python used by maintainer workflows
+- no repository-owned or system Python setup; the pinned `agent-plugins` SCIE
+  contains its private maintainer runtime and embedded marketplace
 - no product detector, report, explain, plan, or CLI behavior outside Rust
 
 Validation and dogfood may use private or external repositories, but committed

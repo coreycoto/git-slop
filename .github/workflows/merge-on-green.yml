@@ -92,34 +92,10 @@ jobs:
 
           finish true "PR #${pr_number} passed cheap eligibility preflight" "$pr_number"
 
-      - name: Set up Python
-        if: steps.merge_preflight.outputs.eligible == 'true'
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-
       - name: Set up Rust
         if: steps.merge_preflight.outputs.eligible == 'true'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
-      - name: Install uv
-        if: steps.merge_preflight.outputs.eligible == 'true'
-        run: python -m pip install --upgrade pip uv
-
-      - name: Configure agent-plugins dependency access
-        if: steps.merge_preflight.outputs.eligible == 'true'
-        env:
-          AGENT_PLUGINS_GIT_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
-        run: |
-          if [ -n "$AGENT_PLUGINS_GIT_TOKEN" ]; then
-            git config --global url."https://x-access-token:${AGENT_PLUGINS_GIT_TOKEN}@github.com/coreycoto/agent-plugins.git".insteadOf "https://github.com/coreycoto/agent-plugins.git"
-          elif GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/coreycoto/agent-plugins.git >/dev/null 2>&1; then
-            echo "agent-plugins is publicly readable; no extra git auth configured."
-          else
-            echo "coreycoto/agent-plugins is private and cannot be fetched from CI without a token." >&2
-            echo "Set AGENT_PLUGINS_READ_TOKEN with read access to coreycoto/agent-plugins, or make the repo public." >&2
-            exit 1
-          fi
       - name: Validate Codex surface
         if: steps.merge_preflight.outputs.eligible == 'true'
         run: cargo xtask validate-codex
@@ -137,13 +113,23 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Prepare pinned agent-plugins runtime
+        if: steps.codex_preflight.outputs.enabled == 'true'
+        env:
+          AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
+        run: scripts/with-agent-plugins.sh --prepare
+
+      - name: Verify pinned agent-plugins runtime
+        if: steps.codex_preflight.outputs.enabled == 'true'
+        run: scripts/with-agent-plugins.sh --verify
+
       - name: Prepare pinned Codex runtime
         if: steps.codex_preflight.outputs.enabled == 'true'
         run: |
           mkdir -p .artifacts/codex "$RUNNER_TEMP/codex-runtime/.codex"
           cp .codex/config.toml "$RUNNER_TEMP/codex-runtime/.codex/config.toml"
           cp .codex/*.config.toml "$RUNNER_TEMP/codex-runtime/.codex/"
-          scripts/with-agent-plugins.sh python -m agent_plugins.marketplace.bootstrap install \
+          scripts/with-agent-plugins.sh marketplace install \
             --manifest .agents/plugins/marketplace-source.json \
             --home "$RUNNER_TEMP/codex-runtime"
 
