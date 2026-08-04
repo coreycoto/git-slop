@@ -333,9 +333,9 @@ validate_checksums() {
   expected="$({
     jq -r '.artifacts[] | "\(.sha256)  \(.name)"' "$manifest_file"
     printf '%s  %s\n' "$manifest_sha" "$release_manifest"
-  } | LC_ALL=C sort)"
+  })"
   [[ "$actual" == "$expected" ]] ||
-    die "${release_checksums} must contain exactly one sorted entry for each manifest artifact and ${release_manifest}"
+    die "${release_checksums} must list each name-sorted manifest artifact once, followed by ${release_manifest}"
 }
 
 validate_archive() {
