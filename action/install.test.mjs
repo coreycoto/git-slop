@@ -749,17 +749,28 @@ test("Windows ZIP archives use the exact safe layout when the host tar supports 
     writeFileSync(join(stage, name), contents, "utf8");
   }
   const archive = join(root, `${rootName}.zip`);
+  const archiveIsZip = () => {
+    if (!existsSync(archive)) {
+      return false;
+    }
+    try {
+      validateArchiveFormat(readFileSync(archive), "zip");
+      return true;
+    } catch {
+      return false;
+    }
+  };
   let zipped = spawnSync("tar", ["-a", "-cf", archive, "-C", stageParent, rootName], {
     encoding: "utf8",
   });
-  if (zipped.status !== 0 && process.platform !== "win32") {
+  if ((zipped.status !== 0 || !archiveIsZip()) && process.platform !== "win32") {
     rmSync(archive, { force: true });
     zipped = spawnSync("zip", ["-q", "-D", "-r", archive, rootName], {
       cwd: stageParent,
       encoding: "utf8",
     });
   }
-  if (zipped.status !== 0) {
+  if (zipped.status !== 0 || !archiveIsZip()) {
     context.skip(`ZIP creation is unavailable: ${zipped.stderr}`);
     return;
   }
