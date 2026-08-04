@@ -168,6 +168,22 @@ fn version_subcommand_preserves_public_shape() {
 }
 
 #[test]
+fn build_info_reports_version_and_source_identity_as_json() {
+    let output = cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .args(["build-info", "--format", "json"])
+        .output()
+        .expect("run build-info");
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build-info JSON");
+    assert_eq!(payload["schema_version"], 1);
+    assert_eq!(payload["project"], "git-slop");
+    assert_eq!(payload["version"], env!("CARGO_PKG_VERSION"));
+    assert!(payload.get("source_revision").is_some());
+    assert!(payload.get("source_dirty").is_some());
+}
+
+#[test]
 fn find_writes_schema_four_and_all_human_and_machine_surfaces() {
     let repository = committed_repository();
     cargo_bin_cmd!("git-slop")

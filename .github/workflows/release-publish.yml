@@ -1,76 +1,246 @@
 name: Release Publish
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Publish exact current main, or recover an already-published immutable crate.
+        required: true
+        default: publish
+        type: choice
+        options:
+          - publish
+          - recover
+      version:
+        description: Strict stable version to publish or recover.
+        required: true
+        default: "0.9.0"
+        type: string
+      recovery_revision:
+        description: Recovery only - full 40-character source revision embedded in the published crate.
+        required: false
+        type: string
+      recovery_crate_sha256:
+        description: Recovery only - full 64-character crates.io package SHA-256.
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
-  validate:
-    name: Validate tagged Rust package
+  candidate:
+    name: Validate exact release identity
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    outputs:
+      mode: ${{ steps.identity.outputs.mode || steps.recovery-identity.outputs.mode }}
+      version: ${{ steps.identity.outputs.version || steps.recovery-identity.outputs.version }}
+      tag: ${{ steps.identity.outputs.tag || steps.recovery-identity.outputs.tag }}
+      control-revision: ${{ steps.identity.outputs.control-revision || steps.recovery-identity.outputs.control-revision }}
+      revision: ${{ steps.identity.outputs.revision || steps.recovery-identity.outputs.revision }}
+      crate-sha256: ${{ steps.package.outputs.crate-sha256 || steps.recovery-package.outputs.crate-sha256 }}
     steps:
-      - name: Checkout tag
-        uses: actions/checkout@v7
+      - name: Checkout dispatch revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require exact current main and release identity
+        id: identity
+        if: inputs.mode == 'publish'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          RECOVERY_REVISION: ${{ inputs.recovery_revision }}
+          RECOVERY_CRATE_SHA256: ${{ inputs.recovery_crate_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test -z "$RECOVERY_REVISION"
+          test -z "$RECOVERY_CRATE_SHA256"
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          revision="$(git rev-parse HEAD)"
+          test "$revision" = "$(git rev-parse refs/remotes/origin/main)"
+          test -z "$(git status --short)"
+          remote_tag="$(git ls-remote --refs origin "refs/tags/v${VERSION}" | awk '{print $1}')"
+          if test -n "$remote_tag"; then
+            git fetch origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
+            test "$(git rev-parse "refs/tags/v${VERSION}^{commit}")" = "$revision"
+          fi
+          {
+            echo "mode=publish"
+            echo "version=$VERSION"
+            echo "tag=v$VERSION"
+            echo "control-revision=$revision"
+            echo "revision=$revision"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Require explicit immutable recovery identity
+        id: recovery-identity
+        if: inputs.mode == 'recover'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          REVISION: ${{ inputs.recovery_revision }}
+          EXPECTED_CRATE_SHA256: ${{ inputs.recovery_crate_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_CRATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          control_revision="$(git rev-parse HEAD)"
+          test "$control_revision" = "$(git rev-parse refs/remotes/origin/main)"
+          git cat-file -e "${REVISION}^{commit}"
+          git merge-base --is-ancestor "$REVISION" refs/remotes/origin/main
+          remote_tag="$(git ls-remote --refs origin "refs/tags/v${VERSION}" | awk '{print $1}')"
+          if test -n "$remote_tag"; then
+            git fetch origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
+            test "$(git rev-parse "refs/tags/v${VERSION}^{commit}")" = "$REVISION"
+          fi
+          {
+            echo "mode=recover"
+            echo "version=$VERSION"
+            echo "tag=v$VERSION"
+            echo "control-revision=$control_revision"
+            echo "revision=$REVISION"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
+          toolchain: 1.97.1
           components: clippy,rustfmt
 
-      - name: Validate tag and Cargo version
+      - name: Run full repository preflight
+        if: inputs.mode == 'publish'
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          cargo xtask release-prepare --version "$VERSION" --check-only
+          cargo fmt -p git-slop -- --check
+          cargo clippy -p git-slop --all-targets --all-features --locked -- -D warnings
+          cargo test -p git-slop --all-targets --all-features --locked
+          cargo fmt --manifest-path xtask/Cargo.toml --all -- --check
+          cargo clippy --manifest-path xtask/Cargo.toml --all-targets --all-features --locked -- -D warnings
+          cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
+          cargo xtask validate
+          node --test action/*.test.mjs
+          cargo publish -p git-slop --dry-run --locked
+
+      - name: Validate current recovery tooling
+        if: inputs.mode == 'recover'
+        run: |
+          cargo fmt -p git-slop -- --check
+          cargo clippy -p git-slop --all-targets --all-features --locked -- -D warnings
+          cargo test -p git-slop --all-targets --all-features --locked
+          cargo fmt --manifest-path xtask/Cargo.toml --all -- --check
+          cargo clippy --manifest-path xtask/Cargo.toml --all-targets --all-features --locked -- -D warnings
+          cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
+          cargo xtask validate
+          node --test action/*.test.mjs
+
+      - name: Package and verify candidate crate
+        id: package
+        if: inputs.mode == 'publish'
         shell: bash
-        run: cargo xtask release-prepare --version "${GITHUB_REF_NAME#v}" --check-only
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          REVISION: ${{ steps.identity.outputs.revision }}
+        run: |
+          set -euo pipefail
+          cargo package -p git-slop --locked
+          mkdir -p candidate
+          crate="target/package/git-slop-${VERSION}.crate"
+          digest="$(sha256sum "$crate" | awk '{print $1}')"
+          cp "$crate" "candidate/git-slop-${VERSION}.crate"
+          cargo xtask verify-crate \
+            --crate-file "candidate/git-slop-${VERSION}.crate" \
+            --version "$VERSION" \
+            --revision "$REVISION" \
+            --expected-sha256 "$digest" \
+            --output candidate/crate-source.json
+          echo "crate-sha256=$digest" >> "$GITHUB_OUTPUT"
 
-      - name: Check formatting
-        run: cargo fmt -p git-slop -- --check
+      - name: Download and verify immutable recovery package
+        id: recovery-package
+        if: inputs.mode == 'recover'
+        shell: bash
+        env:
+          VERSION: ${{ steps.recovery-identity.outputs.version }}
+          REVISION: ${{ steps.recovery-identity.outputs.revision }}
+          EXPECTED_CRATE_SHA256: ${{ inputs.recovery_crate_sha256 }}
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
+          test "$status" = 200
+          jq -e --arg version "$VERSION" --arg checksum "$EXPECTED_CRATE_SHA256" \
+            '.version.num == $version and .version.yanked == false and .version.checksum == $checksum' \
+            registry-version.json >/dev/null
+          crate_url="https://static.crates.io/crates/git-slop/git-slop-${VERSION}.crate"
+          mkdir -p candidate
+          curl --fail --location --retry 5 --retry-delay 5 "$crate_url" \
+            --output "candidate/git-slop-${VERSION}.crate"
+          digest="$(sha256sum "candidate/git-slop-${VERSION}.crate" | awk '{print $1}')"
+          test "$digest" = "$EXPECTED_CRATE_SHA256"
+          cargo xtask verify-crate \
+            --crate-file "candidate/git-slop-${VERSION}.crate" \
+            --version "$VERSION" \
+            --revision "$REVISION" \
+            --expected-sha256 "$EXPECTED_CRATE_SHA256" \
+            --output candidate/crate-source.json
+          echo "crate-sha256=$digest" >> "$GITHUB_OUTPUT"
 
-      - name: Lint
-        run: cargo clippy -p git-slop --all-targets --all-features --locked -- -D warnings
+      - name: Record immutable release identity
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          VERSION: ${{ inputs.version }}
+          CONTROL_REVISION: ${{ steps.identity.outputs.control-revision || steps.recovery-identity.outputs.control-revision }}
+          REVISION: ${{ steps.identity.outputs.revision || steps.recovery-identity.outputs.revision }}
+          CRATE_SHA256: ${{ steps.package.outputs.crate-sha256 || steps.recovery-package.outputs.crate-sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$CONTROL_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CRATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          # Markdown backticks below are literal format text.
+          # shellcheck disable=SC2016
+          {
+            printf '## Immutable release identity\n\n'
+            printf '| Field | Value |\n| --- | --- |\n'
+            printf '| Mode | `%s` |\n' "$MODE"
+            printf '| Version | `%s` |\n' "$VERSION"
+            printf '| Workflow control revision | `%s` |\n' "$CONTROL_REVISION"
+            printf '| Source revision | `%s` |\n' "$REVISION"
+            printf '| Crate SHA-256 | `%s` |\n' "$CRATE_SHA256"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Test
-        run: cargo test -p git-slop --all-targets --all-features --locked
+      - name: Upload immutable candidate package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: source-package
+          path: candidate
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Validate Cargo package
-        run: cargo package -p git-slop --locked
-
-      - name: Validate crates.io publication without credentials
-        run: cargo publish -p git-slop --dry-run --locked
-
-      - name: Check maintainer formatting
-        run: cargo fmt --manifest-path xtask/Cargo.toml --all -- --check
-
-      - name: Lint maintainer tooling
-        run: cargo clippy --manifest-path xtask/Cargo.toml --all-targets --all-features --locked -- -D warnings
-
-      - name: Test maintainer tooling
-        run: cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
-
-      - name: Validate maintainer contracts
-        run: cargo xtask validate
-
-      - name: Test GitHub Action
-        run: node --test action/*.test.mjs
-
-  build:
-    name: Build ${{ matrix.target }}
-    needs: validate
+  candidate-targets:
+    name: Candidate ${{ matrix.target }}
+    needs: candidate
     strategy:
       fail-fast: false
       matrix:
@@ -94,233 +264,663 @@ jobs:
     permissions:
       contents: read
     env:
-      RELEASE_TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.candidate.outputs.version }}
+      TAG: ${{ needs.candidate.outputs.tag }}
+      REVISION: ${{ needs.candidate.outputs.revision }}
+      EXPECTED_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
       TARGET: ${{ matrix.target }}
+      CARGO_TARGET_DIR: ${{ github.workspace }}/candidate-target
     steps:
-      - name: Checkout tag
-        uses: actions/checkout@v7
+      - name: Download exact candidate package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: source-package
+          path: candidate
 
       - name: Set up Rust target
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
+          toolchain: 1.97.1
           targets: ${{ matrix.target }}
 
-      - name: Build release binary
-        run: cargo build -p git-slop --release --locked --target "${{ matrix.target }}"
+      - name: Verify and unpack candidate bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          crate="candidate/git-slop-${VERSION}.crate"
+          test "$(sha256sum "$crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
+          mkdir candidate-source
+          tar -xzf "$crate" -C candidate-source
+
+      - name: Build and smoke candidate Unix archive
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="candidate-source/git-slop-${VERSION}"
+          cargo build --manifest-path "$package/Cargo.toml" --release --locked --target "$TARGET"
+          root="git-slop-${TAG}-${TARGET}"
+          mkdir -p "stage/$root" smoke candidate-dist
+          cp "$CARGO_TARGET_DIR/$TARGET/release/git-slop" "stage/$root/git-slop"
+          cp "$package/LICENSE" "$package/README.md" "$package/man/git-slop.1" "stage/$root/"
+          chmod +x "stage/$root/git-slop"
+          tar -C stage -czf "candidate-dist/${root}.tar.gz" "$root"
+          tar -C smoke -xzf "candidate-dist/${root}.tar.gz"
+          test "$("smoke/$root/git-slop" version)" = "git-slop $VERSION"
+          "smoke/$root/git-slop" build-info --format json > build-info.json
+          jq -e --arg version "$VERSION" --arg revision "$REVISION" \
+            '.schema_version == 1 and .project == "git-slop" and .version == $version and .source_revision == $revision and .source_dirty == false' \
+            build-info.json
+
+      - name: Build and smoke candidate Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $package = "candidate-source\git-slop-$env:VERSION"
+          cargo build --manifest-path "$package\Cargo.toml" --release --locked --target $env:TARGET
+          $root = "git-slop-$env:TAG-$env:TARGET"
+          $stage = "stage\$root"
+          New-Item -ItemType Directory -Force -Path $stage, "smoke", "candidate-dist" | Out-Null
+          Copy-Item "$env:CARGO_TARGET_DIR\$env:TARGET\release\git-slop.exe" "$stage\git-slop.exe"
+          Copy-Item "$package\LICENSE", "$package\README.md", "$package\man\git-slop.1" $stage
+          Compress-Archive -Path $stage -DestinationPath "candidate-dist\$root.zip"
+          Expand-Archive -Path "candidate-dist\$root.zip" -DestinationPath smoke
+          if ((& "smoke\$root\git-slop.exe" version) -ne "git-slop $env:VERSION") { throw "version mismatch" }
+          $info = (& "smoke\$root\git-slop.exe" build-info --format json | ConvertFrom-Json)
+          if ($info.schema_version -ne 1 -or $info.project -ne "git-slop" -or $info.version -ne $env:VERSION -or $info.source_revision -ne $env:REVISION -or $info.source_dirty -ne $false) { throw "build identity mismatch" }
+
+      - name: Upload candidate target archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: candidate-${{ matrix.target }}
+          path: candidate-dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  candidate-distribution:
+    name: Validate candidate manifest and Formula
+    needs: [candidate, candidate-targets]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.candidate.outputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.1
+
+      - name: Download candidate provenance
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: source-package
+          path: candidate
+
+      - name: Download candidate archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: candidate-*
+          path: candidate-dist
+          merge-multiple: true
+
+      - name: Dry-run release manifest and crates-backed Formula
+        shell: bash
+        env:
+          VERSION: ${{ needs.candidate.outputs.version }}
+          TAG: ${{ needs.candidate.outputs.tag }}
+          REVISION: ${{ needs.candidate.outputs.revision }}
+          EXPECTED_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(sha256sum "candidate/git-slop-${VERSION}.crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
+          if ! git rev-parse --verify "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
+            git tag "$TAG" "$REVISION"
+          fi
+          test "$(git rev-parse "refs/tags/${TAG}^{commit}")" = "$REVISION"
+          cargo xtask release-manifest \
+            --dist-dir candidate-dist \
+            --crate-source candidate/crate-source.json \
+            --output candidate-dist/release-manifest.json \
+            --checksum-output candidate-dist/SHA256SUMS \
+            --tag "$TAG"
+          cargo xtask homebrew-formula \
+            --manifest candidate-dist/release-manifest.json \
+            --formula candidate-dist/git-slop.rb
+          (cd candidate-dist && sha256sum git-slop.rb >> SHA256SUMS && LC_ALL=C sort -o SHA256SUMS SHA256SUMS && sha256sum --check SHA256SUMS)
+          test "$(wc -l < candidate-dist/SHA256SUMS | tr -d ' ')" = "7"
+
+  publish-crate:
+    name: Publish and verify crates.io, then create exact tag
+    needs: [candidate, candidate-distribution]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.registry.outputs.version }}
+      tag: ${{ steps.registry.outputs.tag }}
+      revision: ${{ steps.registry.outputs.revision }}
+      crate-url: ${{ steps.registry.outputs.crate-url }}
+      crate-sha256: ${{ steps.registry.outputs.crate-sha256 }}
+    steps:
+      - name: Checkout exact candidate without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.candidate.outputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.1
+
+      - name: Download trusted candidate package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: source-package
+          path: ${{ runner.temp }}/source-package
+
+      - name: Revalidate protected release identity after environment approval
+        shell: bash
+        env:
+          MODE: ${{ needs.candidate.outputs.mode }}
+          CONTROL_REVISION: ${{ needs.candidate.outputs.control-revision }}
+          REVISION: ${{ needs.candidate.outputs.revision }}
+          VERSION: ${{ needs.candidate.outputs.version }}
+          EXPECTED_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
+          CANDIDATE_DIR: ${{ runner.temp }}/source-package
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          [[ "$CONTROL_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$CONTROL_REVISION" = "$GITHUB_SHA"
+          test "$CONTROL_REVISION" = "$(git rev-parse refs/remotes/origin/main)"
+          test "$REVISION" = "$(git rev-parse HEAD)"
+          case "$MODE" in
+            publish)
+              test "$REVISION" = "$CONTROL_REVISION"
+              ;;
+            recover)
+              git merge-base --is-ancestor "$REVISION" refs/remotes/origin/main
+              ;;
+            *)
+              echo "Unsupported release mode: $MODE" >&2
+              exit 1
+              ;;
+          esac
+          test -z "$(git status --short)"
+          test "$(sha256sum "${CANDIDATE_DIR}/git-slop-${VERSION}.crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
+          cargo xtask verify-crate --crate-file "${CANDIDATE_DIR}/git-slop-${VERSION}.crate" --version "$VERSION" --revision "$REVISION" --expected-sha256 "$EXPECTED_CRATE_SHA256" --output "${CANDIDATE_DIR}/reverified-crate-source.json"
+          cmp "${CANDIDATE_DIR}/crate-source.json" "${CANDIDATE_DIR}/reverified-crate-source.json"
+          if test "$MODE" = publish; then
+            cargo package -p git-slop --locked --no-verify
+            cmp "target/package/git-slop-${VERSION}.crate" "${CANDIDATE_DIR}/git-slop-${VERSION}.crate"
+          else
+            status="$(curl -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
+            test "$status" = 200
+            jq -e --arg version "$VERSION" --arg checksum "$EXPECTED_CRATE_SHA256" \
+              '.version.num == $version and .version.yanked == false and .version.checksum == $checksum' \
+              registry-version.json >/dev/null
+            crate_url="https://static.crates.io/crates/git-slop/git-slop-${VERSION}.crate"
+            curl --fail --location --retry 5 --retry-delay 5 "$crate_url" --output registry-recovery.crate
+            test "$(sha256sum registry-recovery.crate | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
+            cmp registry-recovery.crate "${CANDIDATE_DIR}/git-slop-${VERSION}.crate"
+          fi
+
+      - name: Inspect immutable registry and tag state
+        id: state
+        shell: bash
+        env:
+          MODE: ${{ needs.candidate.outputs.mode }}
+          VERSION: ${{ needs.candidate.outputs.version }}
+          TAG: ${{ needs.candidate.outputs.tag }}
+          REVISION: ${{ needs.candidate.outputs.revision }}
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
+          case "$status" in
+            200)
+              jq -e '.version.yanked == false' registry-version.json >/dev/null
+              crate_exists=true
+              ;;
+            404) crate_exists=false ;;
+            *) cat registry-version.json >&2; exit 1 ;;
+          esac
+          if test "$MODE" = recover && test "$crate_exists" != true; then
+            echo "Recovery requires an existing, non-yanked crates.io package." >&2
+            exit 1
+          fi
+          remote_tag="$(git ls-remote --refs origin "refs/tags/${TAG}" | awk '{print $1}')"
+          if test -n "$remote_tag"; then
+            git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}"
+            test "$(git rev-parse "refs/tags/${TAG}^{commit}")" = "$REVISION"
+            if test "$crate_exists" != true; then
+              echo "Exact tag exists before crates.io publication; refusing to reverse the release order." >&2
+              exit 1
+            fi
+          fi
+          echo "crate-exists=$crate_exists" >> "$GITHUB_OUTPUT"
+          echo "tag-exists=$([[ -n "$remote_tag" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish first crates.io package
+        id: publish
+        if: needs.candidate.outputs.mode == 'publish' && steps.state.outputs.crate-exists != 'true'
+        continue-on-error: true
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p git-slop --locked --no-verify
+
+      - name: Download and verify exact registry bytes
+        id: registry
+        shell: bash
+        env:
+          VERSION: ${{ needs.candidate.outputs.version }}
+          TAG: ${{ needs.candidate.outputs.tag }}
+          REVISION: ${{ needs.candidate.outputs.revision }}
+          EXPECTED_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
+          CANDIDATE_DIR: ${{ runner.temp }}/source-package
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            status="$(curl -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
+            test "$status" = 200 && break
+            test "$attempt" != 30
+            sleep 10
+          done
+          jq -e '.version.yanked == false' registry-version.json >/dev/null
+          index_sha256="$(jq -r '.version.checksum' registry-version.json)"
+          test "$index_sha256" = "$EXPECTED_CRATE_SHA256"
+          crate_url="https://static.crates.io/crates/git-slop/git-slop-${VERSION}.crate"
+          mkdir -p registry
+          curl --fail --location --retry 5 --retry-delay 5 "$crate_url" --output "registry/git-slop-${VERSION}.crate"
+          registry_sha256="$(sha256sum "registry/git-slop-${VERSION}.crate" | awk '{print $1}')"
+          test "$registry_sha256" = "$index_sha256"
+          test "$registry_sha256" = "$EXPECTED_CRATE_SHA256"
+          cargo xtask verify-crate --crate-file "registry/git-slop-${VERSION}.crate" --version "$VERSION" --revision "$REVISION" --expected-sha256 "$registry_sha256" --output registry/crate-source.json
+          cmp "${CANDIDATE_DIR}/crate-source.json" registry/crate-source.json
+          {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "revision=$REVISION"
+            echo "crate-url=$crate_url"
+            echo "crate-sha256=$registry_sha256"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create missing exact release tag
+        if: steps.state.outputs.tag-exists != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ needs.candidate.outputs.mode }}
+          CONTROL_REVISION: ${{ needs.candidate.outputs.control-revision }}
+          TAG: ${{ needs.candidate.outputs.tag }}
+          REVISION: ${{ needs.candidate.outputs.revision }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          test "$CONTROL_REVISION" = "$GITHUB_SHA"
+          test "$CONTROL_REVISION" = "$(git rev-parse refs/remotes/origin/main)"
+          if test "$MODE" = recover; then
+            git merge-base --is-ancestor "$REVISION" refs/remotes/origin/main
+          else
+            test "$REVISION" = "$CONTROL_REVISION"
+          fi
+          test -z "$(git ls-remote --refs origin "refs/tags/${TAG}")"
+          if git rev-parse --verify "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
+            test "$(git rev-parse "refs/tags/${TAG}^{commit}")" = "$REVISION"
+          else
+            git tag "$TAG" "$REVISION"
+          fi
+          authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${authorization}" \
+            push origin "refs/tags/${TAG}"
+          unset authorization
+          test "$(git ls-remote --refs origin "refs/tags/${TAG}" | awk '{print $1}')" = "$REVISION"
+
+      - name: Upload verified registry package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: verified-registry-crate
+          path: registry
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: Build registry crate for ${{ matrix.target }}
+    needs: publish-crate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.publish-crate.outputs.version }}
+      TAG: ${{ needs.publish-crate.outputs.tag }}
+      REVISION: ${{ needs.publish-crate.outputs.revision }}
+      EXPECTED_CRATE_SHA256: ${{ needs.publish-crate.outputs.crate-sha256 }}
+      TARGET: ${{ matrix.target }}
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - name: Download verified registry package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: verified-registry-crate
+          path: registry
+
+      - name: Set up Rust target
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.1
+          targets: ${{ matrix.target }}
+
+      - name: Verify registry bytes and unpack source
+        shell: bash
+        run: |
+          set -euo pipefail
+          crate="registry/git-slop-${VERSION}.crate"
+          test "$(sha256sum "$crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
+          mkdir registry-source
+          tar -xzf "$crate" -C registry-source
 
       - name: Package and smoke Unix archive
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          asset="git-slop-${RELEASE_TAG}-${TARGET}"
-          archive="git-slop-${RELEASE_TAG}-${TARGET}.tar.gz"
-          mkdir -p "staging/${asset}" dist smoke
-          cp "target/${TARGET}/release/git-slop" "staging/${asset}/git-slop"
-          cp LICENSE README.md "staging/${asset}/"
-          cp man/git-slop.1 "staging/${asset}/"
-          chmod +x "staging/${asset}/git-slop"
-          tar -C staging -czf "dist/${archive}" "${asset}"
-          tar -C smoke -xzf "dist/${archive}"
-          actual="$("smoke/${asset}/git-slop" version)"
-          test "$actual" = "git-slop ${RELEASE_TAG#v}"
+          package="registry-source/git-slop-${VERSION}"
+          cargo build --manifest-path "$package/Cargo.toml" --release --locked --target "$TARGET"
+          root="git-slop-${TAG}-${TARGET}"
+          mkdir -p "stage/$root" smoke dist
+          cp "$CARGO_TARGET_DIR/$TARGET/release/git-slop" "stage/$root/git-slop"
+          cp "$package/LICENSE" "$package/README.md" "$package/man/git-slop.1" "stage/$root/"
+          chmod +x "stage/$root/git-slop"
+          tar -C stage -czf "dist/${root}.tar.gz" "$root"
+          tar -C smoke -xzf "dist/${root}.tar.gz"
+          test "$("smoke/$root/git-slop" version)" = "git-slop $VERSION"
+          "smoke/$root/git-slop" build-info --format json > build-info.json
+          jq -e --arg version "$VERSION" --arg revision "$REVISION" '.version == $version and .source_revision == $revision and .source_dirty == false' build-info.json
 
       - name: Package and smoke Windows archive
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $asset = "git-slop-${env:RELEASE_TAG}-${env:TARGET}"
-          $archive = "git-slop-${env:RELEASE_TAG}-${env:TARGET}.zip"
-          $stage = Join-Path "staging" $asset
-          New-Item -ItemType Directory -Force -Path $stage, "dist", "smoke" | Out-Null
-          Copy-Item "target\$env:TARGET\release\git-slop.exe" "$stage\git-slop.exe"
-          Copy-Item "LICENSE" $stage
-          Copy-Item "README.md" $stage
-          Copy-Item "man\git-slop.1" $stage
-          Compress-Archive -Path $stage -DestinationPath "dist\$archive"
-          Expand-Archive -Path "dist\$archive" -DestinationPath "smoke"
-          $actual = & "smoke\$asset\git-slop.exe" version
-          if ($actual -ne "git-slop $($env:RELEASE_TAG.TrimStart('v'))") {
-            throw "Unexpected packaged binary version: $actual"
-          }
+          $package = "registry-source\git-slop-$env:VERSION"
+          cargo build --manifest-path "$package\Cargo.toml" --release --locked --target $env:TARGET
+          $root = "git-slop-$env:TAG-$env:TARGET"
+          $stage = "stage\$root"
+          New-Item -ItemType Directory -Force -Path $stage, "smoke", "dist" | Out-Null
+          Copy-Item "$env:CARGO_TARGET_DIR\$env:TARGET\release\git-slop.exe" "$stage\git-slop.exe"
+          Copy-Item "$package\LICENSE", "$package\README.md", "$package\man\git-slop.1" $stage
+          Compress-Archive -Path $stage -DestinationPath "dist\$root.zip"
+          Expand-Archive -Path "dist\$root.zip" -DestinationPath smoke
+          if ((& "smoke\$root\git-slop.exe" version) -ne "git-slop $env:VERSION") { throw "version mismatch" }
+          $info = (& "smoke\$root\git-slop.exe" build-info --format json | ConvertFrom-Json)
+          if ($info.version -ne $env:VERSION -or $info.source_revision -ne $env:REVISION -or $info.source_dirty -ne $false) { throw "build identity mismatch" }
 
-      - name: Upload target archive
-        uses: actions/upload-artifact@v7
+      - name: Upload final target archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
           retention-days: 1
 
-  publish:
-    name: Publish GitHub Release
-    needs: build
+  draft-release:
+    name: Prepare verified Marketplace draft
+    needs: [publish-crate, build]
     runs-on: ubuntu-24.04
     permissions:
       attestations: write
       contents: write
       id-token: write
+    outputs:
+      release-state: ${{ steps.release.outputs.state }}
     env:
-      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.publish-crate.outputs.version }}
+      TAG: ${{ needs.publish-crate.outputs.tag }}
+      REVISION: ${{ needs.publish-crate.outputs.revision }}
     steps:
-      - name: Checkout tag
-        uses: actions/checkout@v7
+      - name: Checkout exact release revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ needs.publish-crate.outputs.revision }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.1
 
-      - name: Download target archives
-        uses: actions/download-artifact@v8
+      - name: Download final archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: release-*
           path: dist
           merge-multiple: true
 
-      - name: Build and verify release manifest
-        run: |
-          cargo xtask release-manifest \
-            --dist-dir dist \
-            --output dist/release-manifest.json \
-            --checksum-output dist/SHA256SUMS \
-            --tag "$GITHUB_REF_NAME"
-          cd dist
-          sha256sum --check SHA256SUMS
+      - name: Download registry provenance
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: verified-registry-crate
+          path: registry
 
-      - name: Inspect existing release state
-        id: release-state
+      - name: Generate release manifest, checksums, and Formula
         shell: bash
         run: |
           set -euo pipefail
-          endpoint="repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}"
-          mkdir -p release-verification
-          if gh api "$endpoint" > release-verification/release.json \
-            2> release-verification/release-error.txt; then
-            if test "$(jq -r '.draft' release-verification/release.json)" = "true"; then
-              echo "state=draft" >> "$GITHUB_OUTPUT"
-              echo "published=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
+          cp registry/crate-source.json dist/crate-source.json
+          cargo xtask release-manifest --dist-dir dist --crate-source dist/crate-source.json --output dist/release-manifest.json --checksum-output dist/SHA256SUMS --tag "$TAG"
+          cargo xtask homebrew-formula --manifest dist/release-manifest.json --formula dist/git-slop.rb
+          rm dist/crate-source.json
+          (cd dist && sha256sum git-slop.rb >> SHA256SUMS && LC_ALL=C sort -o SHA256SUMS SHA256SUMS && sha256sum --check SHA256SUMS)
+          test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" = "7"
 
-            mkdir -p release-verification/published-assets \
-              release-verification/regenerated
-            gh release download "$GITHUB_REF_NAME" \
-              --dir release-verification/published-assets
-            cat > release-verification/expected-assets.txt <<EOF
-          SHA256SUMS
-          git-slop-${GITHUB_REF_NAME}-aarch64-apple-darwin.tar.gz
-          git-slop-${GITHUB_REF_NAME}-aarch64-pc-windows-msvc.zip
-          git-slop-${GITHUB_REF_NAME}-aarch64-unknown-linux-gnu.tar.gz
-          git-slop-${GITHUB_REF_NAME}-x86_64-pc-windows-msvc.zip
-          git-slop-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz
-          release-manifest.json
-          EOF
-            jq -r '.assets[].name' release-verification/release.json \
-              | LC_ALL=C sort > release-verification/actual-assets.txt
-            diff -u \
-              release-verification/expected-assets.txt \
-              release-verification/actual-assets.txt
-            (
-              cd release-verification/published-assets
-              sha256sum --check SHA256SUMS
-            )
-            cargo xtask release-manifest \
-              --dist-dir release-verification/published-assets \
-              --output release-verification/regenerated/release-manifest.json \
-              --checksum-output release-verification/regenerated/SHA256SUMS \
-              --tag "$GITHUB_REF_NAME"
-            cmp \
-              release-verification/published-assets/release-manifest.json \
-              release-verification/regenerated/release-manifest.json
-            cmp \
-              release-verification/published-assets/SHA256SUMS \
-              release-verification/regenerated/SHA256SUMS
-            echo "Published release already exists and exactly verifies; no mutation will run."
-            echo "state=published" >> "$GITHUB_OUTPUT"
-            echo "published=true" >> "$GITHUB_OUTPUT"
-          elif grep -q "HTTP 404" release-verification/release-error.txt; then
-            echo "state=missing" >> "$GITHUB_OUTPUT"
-            echo "published=false" >> "$GITHUB_OUTPUT"
+      - name: Inspect existing GitHub Release
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          endpoint="repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}"
+          if gh api "$endpoint" > release.json 2> release-error.txt; then
+            jq -e --arg tag "$TAG" \
+              '.tag_name == $tag and .prerelease == false and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))' \
+              release.json >/dev/null
+            state="$(jq -r 'if .draft then "draft" else "published" end' release.json)"
+          elif grep -q 'HTTP 404' release-error.txt; then
+            state=missing
           else
-            cat release-verification/release-error.txt >&2
+            cat release-error.txt >&2
             exit 1
           fi
+          echo "state=$state" >> "$GITHUB_OUTPUT"
 
-      - name: Attest release assets
-        if: steps.release-state.outputs.published != 'true'
-        uses: actions/attest@v4
+      - name: Attest final distribution files
+        if: steps.release.outputs.state != 'published'
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: |
             dist/*.tar.gz
             dist/*.zip
             dist/SHA256SUMS
             dist/release-manifest.json
+            dist/git-slop.rb
 
-      - name: Create or refresh draft release assets
-        if: steps.release-state.outputs.published != 'true'
+      - name: Create or refresh verified draft release
+        if: steps.release.outputs.state != 'published'
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          release_tag="$GITHUB_REF_NAME"
-          if test "${{ steps.release-state.outputs.state }}" = "missing"; then
-            gh release create "$release_tag" \
-              --draft \
-              --generate-notes \
-              --title "$release_tag" \
-              --verify-tag
+          if test "${{ steps.release.outputs.state }}" = missing; then
+            gh release create "$TAG" --draft --generate-notes --title "$TAG" --verify-tag
           fi
-          endpoint="repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}"
+          endpoint="repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}"
           release_json="$(gh api "$endpoint")"
-          test "$(jq -r '.draft' <<< "$release_json")" = "true"
+          test "$(jq -r '.draft' <<< "$release_json")" = true
+          while IFS= read -r asset; do gh release delete-asset "$TAG" "$asset" --yes; done < <(jq -r '.assets[].name' <<< "$release_json")
+          gh release upload "$TAG" dist/*.tar.gz dist/*.zip dist/SHA256SUMS dist/release-manifest.json dist/git-slop.rb
+          gh api "$endpoint" > release.json
+
+      - name: Verify published no-op or refreshed draft assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf release-verification
+          mkdir release-verification
+          gh release download "$TAG" --dir release-verification
+          find release-verification -maxdepth 1 -type f -exec basename {} \; | LC_ALL=C sort > actual-assets.txt
+          printf '%s\n' SHA256SUMS git-slop.rb "git-slop-${TAG}-aarch64-apple-darwin.tar.gz" "git-slop-${TAG}-aarch64-pc-windows-msvc.zip" "git-slop-${TAG}-aarch64-unknown-linux-gnu.tar.gz" "git-slop-${TAG}-x86_64-pc-windows-msvc.zip" "git-slop-${TAG}-x86_64-unknown-linux-gnu.tar.gz" release-manifest.json | LC_ALL=C sort > expected-assets.txt
+          diff -u expected-assets.txt actual-assets.txt
+          (cd release-verification && sha256sum --check SHA256SUMS)
+          jq -e --arg version "$VERSION" --arg tag "$TAG" --arg revision "$REVISION" '.schema_version == 3 and .version == $version and .tag == $tag and .revision == $revision and .crate_source.revision == $revision' release-verification/release-manifest.json
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" > release.json
+          jq -e --arg tag "$TAG" \
+            '.tag_name == $tag and .prerelease == false and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))' \
+            release.json >/dev/null
           while IFS= read -r asset_name; do
-            gh release delete-asset "$release_tag" "$asset_name" --yes
-          done < <(jq -r '.assets[].name' <<< "$release_json")
-          gh release upload "$release_tag" \
-            dist/*.tar.gz \
-            dist/*.zip \
-            dist/SHA256SUMS \
-            dist/release-manifest.json
-          cat > expected-draft-assets.txt <<EOF
-          SHA256SUMS
-          git-slop-${release_tag}-aarch64-apple-darwin.tar.gz
-          git-slop-${release_tag}-aarch64-pc-windows-msvc.zip
-          git-slop-${release_tag}-aarch64-unknown-linux-gnu.tar.gz
-          git-slop-${release_tag}-x86_64-pc-windows-msvc.zip
-          git-slop-${release_tag}-x86_64-unknown-linux-gnu.tar.gz
-          release-manifest.json
-          EOF
-          gh api "$endpoint" --jq '.assets[].name' \
-            | LC_ALL=C sort > actual-draft-assets.txt
-          diff -u expected-draft-assets.txt actual-draft-assets.txt
+            digest="$(sha256sum "release-verification/${asset_name}" | awk '{print $1}')"
+            jq -e --arg name "$asset_name" --arg digest "sha256:${digest}" \
+              '.assets[] | select(.name == $name) | .digest == $digest' \
+              release.json >/dev/null
+          done < actual-assets.txt
 
-      # This intentionally runs for an exact published no-op and for a refreshed draft.
-      - name: Verify the Action installer against published or draft assets
+      - name: Verify Action installer against release assets
+        id: release-install
         shell: bash
+        env:
+          GIT_SLOP_ACTION_VERSION: ${{ needs.publish-crate.outputs.version }}
+          GIT_SLOP_RELEASE_REPOSITORY: ${{ github.repository }}
+          GIT_SLOP_GITHUB_TOKEN: ${{ github.token }}
+          GIT_SLOP_ALLOW_DRAFT_RELEASE: "true"
         run: |
           set -euo pipefail
-          install_temp="${RUNNER_TEMP}/git-slop-release-installer"
-          mkdir -p "$install_temp"
-          export GIT_SLOP_ACTION_VERSION="${GITHUB_REF_NAME#v}"
-          export GIT_SLOP_RELEASE_REPOSITORY="$GITHUB_REPOSITORY"
-          export GIT_SLOP_GITHUB_TOKEN="$GH_TOKEN"
-          export GITHUB_OUTPUT="${install_temp}/output"
-          export GITHUB_PATH="${install_temp}/path"
-          export RUNNER_TEMP="$install_temp"
           node action/install.mjs
-          binary_path="$(
-            find "$install_temp" -type f -name git-slop -perm -111 -print -quit
-          )"
-          test -n "$binary_path"
-          test "$("$binary_path" version)" = "git-slop ${GITHUB_REF_NAME#v}"
 
-      - name: Publish verified draft
-        if: steps.release-state.outputs.published != 'true'
+      - name: Assert exact Action installer outputs
         shell: bash
+        env:
+          ACTUAL_VERSION: ${{ steps.release-install.outputs.version }}
+          ACTUAL_REVISION: ${{ steps.release-install.outputs.source-revision }}
+          ACTUAL_TARGET: ${{ steps.release-install.outputs.target }}
+          ACTUAL_CRATE_SHA256: ${{ steps.release-install.outputs.crate-sha256 }}
+          ACTUAL_MANIFEST_SHA256: ${{ steps.release-install.outputs.release-manifest-sha256 }}
+          EXPECTED_CRATE_SHA256: ${{ needs.publish-crate.outputs.crate-sha256 }}
         run: |
           set -euo pipefail
-          release_tag="$GITHUB_REF_NAME"
-          endpoint="repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}"
-          test "$(gh api "$endpoint" --jq '.draft')" = "true"
-          gh release edit "$release_tag" --draft=false
+          expected_manifest_sha256="$(sha256sum release-verification/release-manifest.json | awk '{print $1}')"
+          test "$ACTUAL_VERSION" = "$VERSION"
+          test "$ACTUAL_REVISION" = "$REVISION"
+          test "$ACTUAL_TARGET" = "x86_64-unknown-linux-gnu"
+          test "$ACTUAL_CRATE_SHA256" = "$EXPECTED_CRATE_SHA256"
+          test "$ACTUAL_MANIFEST_SHA256" = "$expected_manifest_sha256"
+
+  draft-action-smoke:
+    name: Draft Action smoke on ${{ matrix.target }}
+    needs: [publish-crate, draft-release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.publish-crate.outputs.version }}
+      REVISION: ${{ needs.publish-crate.outputs.revision }}
+    steps:
+      - name: Checkout exact Action revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.publish-crate.outputs.revision }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Install and verify the draft release through the public Action installer
+        id: install
+        shell: bash
+        env:
+          GIT_SLOP_ACTION_VERSION: ${{ needs.publish-crate.outputs.version }}
+          GIT_SLOP_RELEASE_REPOSITORY: ${{ github.repository }}
+          GIT_SLOP_GITHUB_TOKEN: ${{ github.token }}
+          GIT_SLOP_ALLOW_DRAFT_RELEASE: "true"
+        run: |
+          set -euo pipefail
+          node action/install.mjs
+
+      - name: Assert installed Action identity
+        shell: bash
+        env:
+          ACTUAL_VERSION: ${{ steps.install.outputs.version }}
+          ACTUAL_REVISION: ${{ steps.install.outputs.source-revision }}
+          ACTUAL_TARGET: ${{ steps.install.outputs.target }}
+          EXPECTED_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          test "$ACTUAL_VERSION" = "$VERSION"
+          test "$ACTUAL_REVISION" = "$REVISION"
+          test "$ACTUAL_TARGET" = "$EXPECTED_TARGET"
+
+  marketplace-ready:
+    name: Marketplace release ready
+    needs: [publish-crate, draft-release, draft-action-smoke]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ needs.publish-crate.outputs.tag }}
+      RELEASE_STATE: ${{ needs.draft-release.outputs.release-state }}
+    steps:
+      - name: Publish Marketplace handoff summary
+        shell: bash
+        run: |
+          {
+            printf '## Verified Git Slop %s release assets are Marketplace-ready\n\n' "$TAG"
+            printf '%s\n\n' 'The crate, exact source tag, five archives, checksums, release manifest, crates-backed Formula, and public Action installer verify on all five supported runner targets.'
+            if test "$RELEASE_STATE" != "published"; then
+              printf '%s\n\n' 'The workflow intentionally did **not** publish the GitHub Release.'
+              printf '%s\n' 'Open the draft release, select **Publish this Action to the GitHub Marketplace**, choose **Code quality** and **Continuous integration**, and publish with 2FA. The published-release relay will then request a protected Homebrew handoff from the main branch.'
+            else
+              printf '%s\n' 'The existing published release was reverified without mutation.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

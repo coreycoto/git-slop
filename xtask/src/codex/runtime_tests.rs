@@ -128,6 +128,24 @@ fn runtime_workflow_rejects_misplaced_token_old_setup_and_cache() {
     );
     assert_eq!(errors, Vec::<String>::new());
 
+    let missing_diagnostic = workflow.replace(
+        "      - name: Prepare artifact roots\n        if: steps.codex_preflight.outputs.enabled == 'true'\n        run: |\n          mkdir -p .artifacts/codex .artifacts/docs-taxonomy\n          jq -n '{}' > .artifacts/docs-taxonomy/run-context.json\n",
+        "",
+    );
+    let mut errors = Vec::new();
+    validate_agent_plugin_workflow_text(
+        "docs-taxonomy.yml",
+        &missing_diagnostic,
+        AgentPluginWorkflowKind::Marketplace,
+        &mut errors,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("run-context diagnostic")),
+        "{errors:?}"
+    );
+
     let misplaced = workflow.replace(
         "      - name: Verify runtime\n        run:",
         "      - name: Verify runtime\n        env:\n          LEAKED_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}\n        run:",
@@ -328,6 +346,24 @@ fn runtime_workflows_reject_unsafe_pull_request_checkout_ordering() {
     );
     assert_eq!(errors, Vec::<String>::new());
 
+    let missing_execution_diagnostic = execution_state.replace(
+        "jq -n '{}' > \"$root/run-context.json\"",
+        "jq -n '{}' > \"$root/context.json\"",
+    );
+    let mut errors = Vec::new();
+    validate_agent_plugin_workflow_text(
+        "execution_state_sync.yml",
+        &missing_execution_diagnostic,
+        AgentPluginWorkflowKind::ExecutionState,
+        &mut errors,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("run-context diagnostic")),
+        "{errors:?}"
+    );
+
     let unsafe_execution_state = execution_state
         .replace("pull_request.base.sha", "pull_request.head.sha")
         .replace(
@@ -347,6 +383,24 @@ fn runtime_workflows_reject_unsafe_pull_request_checkout_ordering() {
     );
     assert!(
         errors.iter().any(|error| error.contains("head content")),
+        "{errors:?}"
+    );
+
+    let stale_closed_execution_state = execution_state.replace(
+        "github.event.action != 'closed' && github.event.pull_request.base.sha || github.sha",
+        "github.event.pull_request.base.sha || github.sha",
+    );
+    let mut errors = Vec::new();
+    validate_agent_plugin_workflow_text(
+        "execution_state_sync.yml",
+        &stale_closed_execution_state,
+        AgentPluginWorkflowKind::ExecutionState,
+        &mut errors,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("current base revision for closed events")),
         "{errors:?}"
     );
 
@@ -403,38 +457,67 @@ fn runtime_workflows_reject_unsafe_pull_request_checkout_ordering() {
 }
 
 #[test]
-fn public_release_workflow_rejects_private_runtime_surface() {
+fn public_release_workflows_reject_private_runtime_surfaces() {
     let temp = TempDir::new().unwrap();
     let workflow_dir = temp.path().join(".github/workflows");
     fs::create_dir_all(&workflow_dir).unwrap();
-    let release_contract = r#"cargo publish -p git-slop --dry-run --locked
-cargo xtask release-prepare
-cargo xtask release-manifest
-dist/SHA256SUMS
-dist/release-manifest.json
-gh release upload
-"#;
-    fs::write(workflow_dir.join("release-publish.yml"), release_contract).unwrap();
+    let contracts = [
+        (
+            "release-publish.yml",
+            r#"workflow_dispatch:
+cargo publish -p git-slop --locked --no-verify
+cargo xtask verify-crate
+verified-registry-crate
+gh release create "$TAG" --draft
+marketplace-ready:
+published-release relay
+"#,
+        ),
+        (
+            "release-published.yml",
+            r#"types: [published]
+release-manifest.json
+gh workflow run homebrew-handoff.yml
+--ref main
+"#,
+        ),
+        (
+            "homebrew-handoff.yml",
+            r#"workflow_dispatch:
+environment: release
+secrets.HOMEBREW_TAP_DISPATCH_TOKEN
+https://static.crates.io/crates/git-slop/
+--repo coreycoto/homebrew-tap
+--ref main
+"#,
+        ),
+    ];
+    for (name, contract) in contracts {
+        fs::write(workflow_dir.join(name), contract).unwrap();
+    }
     let mut errors = Vec::new();
     validate_release_workflow(temp.path(), &mut errors);
     assert_eq!(errors, Vec::<String>::new());
 
-    for private_surface in [
-        "AGENT_PLUGINS_READ_TOKEN",
-        "scripts/with-agent-plugins.sh",
-        "coreycoto/agent-plugins",
-    ] {
-        fs::write(
-            workflow_dir.join("release-publish.yml"),
-            format!("{release_contract}{private_surface}\n"),
-        )
-        .unwrap();
-        let mut errors = Vec::new();
-        validate_release_workflow(temp.path(), &mut errors);
-        assert!(
-            errors.iter().any(|error| error.contains(private_surface)),
-            "missing {private_surface:?} from {errors:?}"
-        );
+    for (name, contract) in contracts {
+        for private_surface in [
+            "AGENT_PLUGINS_READ_TOKEN",
+            "scripts/with-agent-plugins.sh",
+            "coreycoto/agent-plugins",
+        ] {
+            fs::write(
+                workflow_dir.join(name),
+                format!("{contract}{private_surface}\n"),
+            )
+            .unwrap();
+            let mut errors = Vec::new();
+            validate_release_workflow(temp.path(), &mut errors);
+            assert!(
+                errors.iter().any(|error| error.contains(private_surface)),
+                "missing {private_surface:?} from {name}: {errors:?}"
+            );
+            fs::write(workflow_dir.join(name), contract).unwrap();
+        }
     }
 }
 
@@ -530,6 +613,14 @@ jobs:
     steps:
       - name: Checkout trusted source
         uses: actions/checkout@v6
+      - name: Detect Codex credentials
+        id: codex_preflight
+        run: echo "enabled=true" >> "$GITHUB_OUTPUT"
+      - name: Prepare artifact roots
+        if: steps.codex_preflight.outputs.enabled == 'true'
+        run: |
+          mkdir -p .artifacts/codex .artifacts/docs-taxonomy
+          jq -n '{}' > .artifacts/docs-taxonomy/run-context.json
       - name: Acquire runtime
         env:
           AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
@@ -611,7 +702,14 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.action != 'closed' && github.event.pull_request.base.sha || github.sha }}
+      - name: Prepare artifact root
+        id: artifact-root
+        run: |
+          root=".artifacts/execution-state/fixture"
+          mkdir -p "$root"
+          jq -n '{}' > "$root/run-context.json"
+          echo "path=$root" >> "$GITHUB_OUTPUT"
       - name: Acquire runtime
         env:
           AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
@@ -626,5 +724,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}
         run: scripts/with-agent-plugins.sh github execution-state --json-path result.json sync
+      - name: Upload execution artifacts
+        if: ${{ (failure() || github.event_name == 'workflow_dispatch') && steps.artifact-root.outputs.path != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.artifact-root.outputs.path }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
 "#
 }

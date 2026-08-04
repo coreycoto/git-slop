@@ -525,49 +525,79 @@ fn validate_guidance(repo_root: &Path, errors: &mut Vec<String>) {
 }
 
 fn validate_release_workflow(repo_root: &Path, errors: &mut Vec<String>) {
-    let relative = ".github/workflows/release-publish.yml";
-    let Some(text) = read_text(repo_root, relative, errors) else {
-        return;
-    };
-    for forbidden in [
-        "AGENT_PLUGINS_READ_TOKEN",
-        "AGENT_PLUGINS_GIT_TOKEN",
-        runtime_manifest::AGENT_PLUGIN_WRAPPER,
-        runtime_manifest::MARKETPLACE_SOURCE_MANIFEST,
-        runtime_manifest::EXPECTED_RUNTIME_ARCHIVE,
-        runtime_manifest::EXPECTED_RUNTIME_REPOSITORY,
-        runtime_manifest::EXPECTED_MARKETPLACE_NAME,
-        "agent-plugins-runtime",
-    ] {
-        if text.contains(forbidden) {
-            errors.push(format!(
-                "release-publish.yml must keep public Rust artifact publication decoupled from \
-                 private agent-plugins runtime surface {forbidden}."
-            ));
+    let contracts: [(&str, &[&str]); 3] = [
+        (
+            ".github/workflows/release-publish.yml",
+            &[
+                "workflow_dispatch:",
+                "cargo publish -p git-slop --locked --no-verify",
+                "cargo xtask verify-crate",
+                "verified-registry-crate",
+                "gh release create \"$TAG\" --draft",
+                "marketplace-ready:",
+                "published-release relay",
+            ],
+        ),
+        (
+            ".github/workflows/release-published.yml",
+            &[
+                "types: [published]",
+                "release-manifest.json",
+                "gh workflow run homebrew-handoff.yml",
+                "--ref main",
+            ],
+        ),
+        (
+            ".github/workflows/homebrew-handoff.yml",
+            &[
+                "workflow_dispatch:",
+                "environment: release",
+                "secrets.HOMEBREW_TAP_DISPATCH_TOKEN",
+                "https://static.crates.io/crates/git-slop/",
+                "--repo coreycoto/homebrew-tap",
+                "--ref main",
+            ],
+        ),
+    ];
+    for (relative, required) in contracts {
+        let Some(text) = read_text(repo_root, relative, errors) else {
+            continue;
+        };
+        let label = relative.trim_start_matches(".github/workflows/");
+        for forbidden in [
+            "AGENT_PLUGINS_READ_TOKEN",
+            "AGENT_PLUGINS_GIT_TOKEN",
+            runtime_manifest::AGENT_PLUGIN_WRAPPER,
+            runtime_manifest::MARKETPLACE_SOURCE_MANIFEST,
+            runtime_manifest::EXPECTED_RUNTIME_ARCHIVE,
+            runtime_manifest::EXPECTED_RUNTIME_REPOSITORY,
+            runtime_manifest::EXPECTED_MARKETPLACE_NAME,
+            "agent-plugins-runtime",
+            "coreycoto/agent-plugins",
+        ] {
+            if text.contains(forbidden) {
+                errors.push(format!(
+                    "{label} must keep public release publication decoupled from private \
+                     agent-plugins runtime surface {forbidden}."
+                ));
+            }
         }
-    }
-    for required in [
-        "cargo publish -p git-slop --dry-run --locked",
-        "cargo xtask release-prepare",
-        "cargo xtask release-manifest",
-        "dist/SHA256SUMS",
-        "dist/release-manifest.json",
-        "gh release upload",
-    ] {
-        if !text.contains(required) {
-            errors.push(format!("release-publish.yml must include {required}."));
+        for required in required {
+            if !text.contains(required) {
+                errors.push(format!("{label} must include {required}."));
+            }
         }
-    }
-    for removed in [
-        "scripts/build_release_manifest.py",
-        "scripts/release_prepare.py",
-        "scripts/update_homebrew_formula.py",
-        "scripts/validate_codex_surface.py",
-    ] {
-        if text.contains(removed) {
-            errors.push(format!(
-                "release-publish.yml must not reference retired helper {removed}."
-            ));
+        for removed in [
+            "scripts/build_release_manifest.py",
+            "scripts/release_prepare.py",
+            "scripts/update_homebrew_formula.py",
+            "scripts/validate_codex_surface.py",
+        ] {
+            if text.contains(removed) {
+                errors.push(format!(
+                    "{label} must not reference retired helper {removed}."
+                ));
+            }
         }
     }
 }

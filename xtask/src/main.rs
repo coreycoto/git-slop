@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use git_slop_xtask::{
-    codex, distribution, finish_validation, homebrew, issue_forms, manifest, release, repository,
-    workflows,
+    codex, crates_io, distribution, finish_validation, homebrew, issue_forms, manifest, release,
+    repository, workflows,
 };
 
 #[derive(Debug, Parser)]
@@ -47,17 +47,32 @@ enum Command {
     /// Validate release, package-boundary, and Python-retirement contracts.
     CheckDistribution,
 
-    /// Validate a tagged release and optionally run all local release gates.
+    /// Validate a release candidate before its protected workflow creates the tag.
     ReleasePrepare {
         #[arg(long)]
         version: String,
 
-        #[arg(long, default_value = "../homebrew-tap")]
-        tap: PathBuf,
-
-        /// Validate only the Cargo version and exact tag-to-HEAD identity.
+        /// Validate only the Cargo version and candidate HEAD identity.
         #[arg(long)]
         check_only: bool,
+    },
+
+    /// Verify a downloaded crates.io package and write canonical source metadata.
+    VerifyCrate {
+        #[arg(long)]
+        crate_file: PathBuf,
+
+        #[arg(long)]
+        version: String,
+
+        #[arg(long)]
+        revision: String,
+
+        #[arg(long)]
+        expected_sha256: String,
+
+        #[arg(long, default_value = "dist/crate-source.json")]
+        output: PathBuf,
     },
 
     /// Generate the deterministic release manifest and SHA256SUMS.
@@ -71,6 +86,9 @@ enum Command {
         #[arg(long, default_value = "dist/SHA256SUMS")]
         checksum_output: PathBuf,
 
+        #[arg(long, default_value = "dist/crate-source.json")]
+        crate_source: PathBuf,
+
         #[arg(long)]
         tag: Option<String>,
     },
@@ -78,16 +96,7 @@ enum Command {
     /// Render the native Rust Homebrew formula from verified release identity.
     HomebrewFormula {
         #[arg(long)]
-        manifest: Option<PathBuf>,
-
-        #[arg(long)]
-        tag: Option<String>,
-
-        #[arg(long)]
-        version: Option<String>,
-
-        #[arg(long)]
-        revision: Option<String>,
+        manifest: PathBuf,
 
         #[arg(long, default_value = "../homebrew-tap/Formula/git-slop.rb")]
         formula: PathBuf,
@@ -133,30 +142,55 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::ReleasePrepare {
             version,
-            tap,
             check_only,
         } => {
             if check_only {
                 let state = release::validate_release_state(&repo_root, &version)?;
-                println!("Verified local tag {} at {}.", state.tag, state.revision);
+                println!(
+                    "Verified release candidate HEAD {} for future tag {}.",
+                    state.revision, state.tag
+                );
                 return Ok(());
             }
 
-            let options = release::PrepareReleaseOptions::new(&repo_root, version, tap);
+            let options = release::PrepareReleaseOptions::new(&repo_root, version);
             let prepared = release::prepare_release(&options)?;
             for message in prepared.messages {
                 println!("{message}");
             }
             Ok(())
         }
+        Command::VerifyCrate {
+            crate_file,
+            version,
+            revision,
+            expected_sha256,
+            output,
+        } => {
+            let options = crates_io::VerifyCrateOptions {
+                project_root: repo_root,
+                crate_file,
+                version,
+                revision,
+                expected_sha256,
+                output: output.clone(),
+            };
+            let source = crates_io::verify_crate(&options)?;
+            println!("Verified canonical crate: {}", source.url);
+            println!("Wrote crate source: {}", output.display());
+            Ok(())
+        }
         Command::ReleaseManifest {
             dist_dir,
             output,
             checksum_output,
+            crate_source,
             tag,
         } => {
             let dist_dir = manifest::resolve_project_path(&repo_root, &dist_dir)?;
-            let generated = manifest::build_manifest(&repo_root, &dist_dir, tag.as_deref())?;
+            let crate_source = crates_io::load_crate_source(&repo_root, &crate_source)?;
+            let generated =
+                manifest::build_manifest(&repo_root, &dist_dir, &crate_source, tag.as_deref())?;
             let paths = manifest::write_manifest_outputs(
                 &repo_root,
                 &dist_dir,
@@ -168,20 +202,8 @@ fn run(cli: Cli) -> Result<()> {
             println!("Wrote checksums: {}", paths.checksums.display());
             Ok(())
         }
-        Command::HomebrewFormula {
-            manifest,
-            tag,
-            version,
-            revision,
-            formula,
-        } => {
-            let source = homebrew::FormulaSourceArgs {
-                manifest,
-                tag,
-                version,
-                revision,
-            };
-            let identity = homebrew::resolve_formula_source(&repo_root, &source)?;
+        Command::HomebrewFormula { manifest, formula } => {
+            let identity = homebrew::load_manifest(&repo_root, &manifest)?;
             let path = homebrew::write_formula(&repo_root, &formula, &identity)?;
             println!("Wrote Homebrew formula: {}", path.display());
             Ok(())

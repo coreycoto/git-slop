@@ -37,6 +37,7 @@ schema-4 report and do not rerun or rescore the detector.
 src/
   main.rs
   lib.rs
+  build_info.rs
   cli.rs
   analyze.rs
   config.rs
@@ -80,6 +81,8 @@ src/
 ### Entry Point And CLI
 
 - `main.rs` delegates to the library CLI and returns its process exit code.
+- `build_info.rs` exposes schema-1 package and source-build provenance embedded
+  by Cargo packaging for release verification.
 - `cli.rs` defines the `clap` command surface, validates selectors and
   thresholds, resolves report paths, and dispatches read-only artifact
   operations.
@@ -239,6 +242,7 @@ The CLI exposes:
 - `git slop sarif`
 - `git slop health`
 - `git slop version`
+- `git slop build-info`
 
 `find` is the only command that performs detector analysis. `show`, `explain`,
 `plan`, `check`, `sarif`, and `health` consume one report; `compare` consumes
@@ -248,6 +252,57 @@ The composite GitHub Action installs a checksummed prebuilt binary, runs `find`
 once, publishes `health.md` to the job summary, and then optionally renders
 annotations, uploads an allowlisted artifact, comments on a pull request, or
 applies the stable `check` gate.
+
+## Distribution And Release Identity
+
+The planned 0.9.0 distribution has one canonical identity: a strict version, a
+full source revision, and the SHA-256 of the crates.io `.crate`. It does not
+treat Homebrew, GitHub Release, or Marketplace as independent builds.
+
+```text
+exact current main
+  -> local candidate .crate
+  -> five-target preflight
+  -> protected release environment
+  -> crates.io publication and local/index/static SHA equality
+  -> exact v<version> tag
+  -> five archives built from downloaded registry bytes
+  -> schema-3 manifest + SHA256SUMS + crates-backed Formula
+  -> verified draft GitHub Release
+  -> manual Marketplace publication with 2FA
+  -> release.published relay
+  -> protected main-branch Homebrew handoff
+```
+
+If crates.io has already accepted those immutable bytes and `main` advances
+before the tag or draft is completed, an explicit `recover` dispatch rejoins
+the chain at the registry package. It is keyed by the original full revision
+and crate SHA-256. The workflow separately pins its control revision to the
+exact dispatch-time `main` and rechecks that it is still live `main` after the
+protected approval and at tag mutation; only the immutable release revision may
+be an older ancestor. Recovery re-verifies the API/index checksum, static
+package, and embedded VCS revision and passes through the same protected
+environment. It cannot publish a crate, move a tag, or derive artifacts from
+advanced `main`.
+
+The five targets are Linux x86-64 and ARM64, macOS Apple Silicon, and Windows
+x86-64 and ARM64. `git-slop build-info --format json` binds each packaged
+binary to the full revision with `source_dirty: false`. The composite Action
+downloads one of those prebuilt archives and verifies the tag, GitHub asset
+digests, checksum inventory, manifest, canonical crate digest, safe archive
+shape, and embedded build identity before running. It never invokes Homebrew or
+compiles Rust in a consumer repository.
+
+The Homebrew artifact is a Formula, not a cask or an alternate binary source.
+It downloads the static crates.io package at the manifest's exact digest,
+builds it with Rust, and checks the same embedded revision. The
+`release.published` event itself uses no cross-repository credential; it relays
+the immutable identity to a workflow dispatched on `main`, where the protected
+`release` environment gates the existing Homebrew dispatch token. Marketplace
+selection is not machine-readable from that event, so the environment reviewer
+must verify the public listing visibly shows the exact tag/version before
+approving the Homebrew handoff. The draft likewise must not be published until
+the terminal `marketplace-ready` job confirms all five Action smoke lanes.
 
 ## Rust Maintainer Surface
 

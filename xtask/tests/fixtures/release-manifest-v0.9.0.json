@@ -61,10 +61,15 @@
     "name": "SHA256SUMS",
     "url": "https://github.com/coreycoto/git-slop/releases/download/v0.9.0/SHA256SUMS"
   },
-  "homebrew_source": {
+  "crate_source": {
+    "package": "git-slop",
+    "registry": "crates.io",
     "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "tag": "v0.9.0",
-    "url": "https://github.com/coreycoto/git-slop.git"
+    "schema_version": 1,
+    "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "url": "https://static.crates.io/crates/git-slop/git-slop-0.9.0.crate",
+    "vcs_dirty": false,
+    "version": "0.9.0"
   },
   "install": {
     "github_release": [
@@ -79,7 +84,7 @@
   "project": "git-slop",
   "repository": "coreycoto/git-slop",
   "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "schema_version": 2,
+  "schema_version": 3,
   "tag": "v0.9.0",
   "version": "0.9.0"
 }

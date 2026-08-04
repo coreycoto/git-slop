@@ -2,73 +2,17 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-const TARGETS: [&str; 5] = [
-    "x86_64-unknown-linux-gnu",
-    "aarch64-unknown-linux-gnu",
-    "aarch64-apple-darwin",
-    "x86_64-pc-windows-msvc",
-    "aarch64-pc-windows-msvc",
-];
+use serde_yaml::Value as YamlValue;
+
+use crate::manifest::{is_strict_semver, project_version};
 
 pub fn validate(repo_root: &Path) -> Vec<String> {
     let mut errors = Vec::new();
-    validate_release_workflow(repo_root, &mut errors);
+    crate::workflows::validate_public_release_workflows(repo_root, &mut errors);
     validate_package_boundary(repo_root, &mut errors);
+    validate_version_alignment(repo_root, &mut errors);
     validate_python_retirement(repo_root, &mut errors);
     errors
-}
-
-fn validate_release_workflow(repo_root: &Path, errors: &mut Vec<String>) {
-    let path = repo_root.join(".github/workflows/release-publish.yml");
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) => {
-            errors.push(format!("Unable to read {}: {error}", path.display()));
-            return;
-        }
-    };
-    for target in TARGETS {
-        require(&text, target, "release-publish.yml", errors);
-    }
-    for expected in [
-        "git-slop-${RELEASE_TAG}-${TARGET}.tar.gz",
-        "git-slop-${env:RELEASE_TAG}-${env:TARGET}.zip",
-        "os: ubuntu-22.04-arm",
-        "          - os: windows-11-arm\n            target: aarch64-pc-windows-msvc\n            archive: zip",
-        "dist/SHA256SUMS",
-        "dist/release-manifest.json",
-        "gh release upload",
-        "cargo publish -p git-slop --dry-run --locked",
-        "cargo xtask release-prepare",
-        "cargo xtask release-manifest",
-        "node --test action/*.test.mjs",
-        "Published release already exists and exactly verifies",
-        "steps.release-state.outputs.published != 'true'",
-        "release-verification/regenerated/release-manifest.json",
-        "Create or refresh draft release assets",
-        "Verify the Action installer against published or draft assets",
-        "node action/install.mjs",
-        "gh release delete-asset \"$release_tag\" \"$asset_name\" --yes",
-        "test \"$(jq -r '.draft' <<< \"$release_json\")\" = \"true\"",
-        "test \"$(gh api \"$endpoint\" --jq '.draft')\" = \"true\"",
-    ] {
-        require(&text, expected, "release-publish.yml", errors);
-    }
-    for forbidden in [
-        "x86_64-apple-darwin",
-        "macos-15-intel",
-        "os: ubuntu-24.04-arm",
-        "--clobber",
-        "cargo publish --locked\n",
-        "uv build",
-        "scripts/build_release_manifest.py",
-        "scripts/release_prepare.py",
-    ] {
-        forbid(&text, forbidden, "release-publish.yml", errors);
-    }
-    if text.matches("os: ubuntu-22.04").count() != 2 {
-        errors.push("release-publish.yml must use ubuntu-22.04 exactly twice.".into());
-    }
 }
 
 fn validate_package_boundary(repo_root: &Path, errors: &mut Vec<String>) {
@@ -91,6 +35,9 @@ fn validate_package_boundary(repo_root: &Path, errors: &mut Vec<String>) {
     require(&root, "members = [\".\"]", "Cargo.toml", errors);
     require(&root, "default-members = [\".\"]", "Cargo.toml", errors);
     require(&root, "exclude = [\"xtask\"]", "Cargo.toml", errors);
+    require(&root, "publish = [\"crates-io\"]", "Cargo.toml", errors);
+    require(&root, "build = \"build.rs\"", "Cargo.toml", errors);
+    require(&root, "\"/build.rs\"", "Cargo.toml", errors);
     if root.lines().any(|line| {
         let line = line.trim();
         line.starts_with('"') && line.contains("xtask")
@@ -109,6 +56,173 @@ fn validate_package_boundary(repo_root: &Path, errors: &mut Vec<String>) {
     let xtask_lock = repo_root.join("xtask/Cargo.lock");
     if !xtask_lock.exists() {
         errors.push("xtask/Cargo.lock must be committed for the private tooling workspace.".into());
+    }
+}
+
+fn validate_version_alignment(repo_root: &Path, errors: &mut Vec<String>) {
+    let version = match project_version(repo_root) {
+        Ok(version) => version,
+        Err(error) => {
+            errors.push(format!(
+                "Unable to resolve Cargo.toml package version: {error}"
+            ));
+            return;
+        }
+    };
+    if !is_strict_semver(&version) {
+        errors.push(format!(
+            "Cargo.toml package version must be strict semver, received {version}."
+        ));
+        return;
+    }
+
+    validate_lock_version(repo_root, &version, errors);
+    validate_action_default(repo_root, &version, errors);
+    validate_installer_fallback(repo_root, &version, errors);
+    for (relative, markers) in [
+        (
+            "README.md",
+            &["coreycoto/git-slop@v", "cargo install git-slop --version "][..],
+        ),
+        (
+            "docs/github-action.md",
+            &["coreycoto/git-slop@v", "| `version` | `"][..],
+        ),
+        (
+            "docs/install.md",
+            &["release=v", "cargo install git-slop --version "][..],
+        ),
+        ("man/git-slop.1", &["\"git-slop "][..]),
+    ] {
+        validate_document_versions(repo_root, relative, markers, &version, errors);
+    }
+}
+
+fn validate_lock_version(repo_root: &Path, version: &str, errors: &mut Vec<String>) {
+    let relative = "Cargo.lock";
+    let path = repo_root.join(relative);
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            errors.push(format!("Unable to read {relative}: {error}"));
+            return;
+        }
+    };
+    let payload = match toml::from_str::<toml::Value>(&text) {
+        Ok(payload) => payload,
+        Err(error) => {
+            errors.push(format!("Unable to parse {relative}: {error}"));
+            return;
+        }
+    };
+    let product_versions = payload
+        .get("package")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|package| package.get("name").and_then(toml::Value::as_str) == Some("git-slop"))
+        .filter_map(|package| package.get("version").and_then(toml::Value::as_str))
+        .collect::<Vec<_>>();
+    if product_versions != [version] {
+        errors.push(format!(
+            "Cargo.lock must contain exactly one git-slop package at version {version}; found {}.",
+            product_versions.join(", ")
+        ));
+    }
+}
+
+fn validate_action_default(repo_root: &Path, version: &str, errors: &mut Vec<String>) {
+    let relative = "action.yml";
+    let path = repo_root.join(relative);
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            errors.push(format!("Unable to read {relative}: {error}"));
+            return;
+        }
+    };
+    let payload = match serde_yaml::from_str::<YamlValue>(&text) {
+        Ok(payload) => payload,
+        Err(error) => {
+            errors.push(format!("Unable to parse {relative}: {error}"));
+            return;
+        }
+    };
+    let action_version = payload
+        .get("inputs")
+        .and_then(|inputs| inputs.get("version"))
+        .and_then(|input| input.get("default"))
+        .and_then(YamlValue::as_str);
+    if action_version != Some(version) {
+        errors.push(format!(
+            "action.yml inputs.version.default must equal Cargo.toml version {version}."
+        ));
+    }
+}
+
+fn validate_installer_fallback(repo_root: &Path, version: &str, errors: &mut Vec<String>) {
+    let relative = "action/install.mjs";
+    let path = repo_root.join(relative);
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            errors.push(format!("Unable to read {relative}: {error}"));
+            return;
+        }
+    };
+    let marker = "process.env.GIT_SLOP_ACTION_VERSION || \"";
+    let Some(tail) = text.split_once(marker).map(|(_, tail)| tail) else {
+        errors.push(format!(
+            "{relative} must define the GIT_SLOP_ACTION_VERSION fallback."
+        ));
+        return;
+    };
+    let fallback = tail.split_once('"').map(|(fallback, _)| fallback);
+    if fallback != Some(version) {
+        errors.push(format!(
+            "{relative} release fallback must equal Cargo.toml version {version}."
+        ));
+    }
+}
+
+fn validate_document_versions(
+    repo_root: &Path,
+    relative: &str,
+    markers: &[&str],
+    version: &str,
+    errors: &mut Vec<String>,
+) {
+    let path = repo_root.join(relative);
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            errors.push(format!("Unable to read {relative}: {error}"));
+            return;
+        }
+    };
+    for marker in markers {
+        let values = text
+            .match_indices(marker)
+            .map(|(offset, _)| {
+                let tail = &text[offset + marker.len()..];
+                let length = tail
+                    .bytes()
+                    .take_while(|byte| byte.is_ascii_digit() || *byte == b'.')
+                    .count();
+                &tail[..length]
+            })
+            .collect::<Vec<_>>();
+        if values.is_empty() {
+            errors.push(format!("{relative} must include version marker {marker}."));
+            continue;
+        }
+        for found in values {
+            if found != version {
+                errors.push(format!(
+                    "{relative} version after {marker} must equal Cargo.toml version {version}; found {found}."
+                ));
+            }
+        }
     }
 }
 
@@ -178,35 +292,108 @@ fn require(text: &str, expected: &str, label: &str, errors: &mut Vec<String>) {
     }
 }
 
-fn forbid(text: &str, forbidden: &str, label: &str, errors: &mut Vec<String>) {
-    if text.contains(forbidden) {
-        errors.push(format!("{label} must not include {forbidden}."));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    #[test]
-    fn supported_target_set_is_exact() {
-        assert_eq!(
-            TARGETS,
-            [
-                "x86_64-unknown-linux-gnu",
-                "aarch64-unknown-linux-gnu",
-                "aarch64-apple-darwin",
-                "x86_64-pc-windows-msvc",
-                "aarch64-pc-windows-msvc",
-            ]
-        );
+    fn version_fixture() -> TempDir {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("action")).unwrap();
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::create_dir_all(root.join("man")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"git-slop\"\nversion = \"0.9.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("Cargo.lock"),
+            "version = 4\n\n[[package]]\nname = \"git-slop\"\nversion = \"0.9.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("action.yml"),
+            "inputs:\n  version:\n    default: \"0.9.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("action/install.mjs"),
+            "const version = process.env.GIT_SLOP_ACTION_VERSION || \"0.9.0\";\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("README.md"),
+            "uses: coreycoto/git-slop@v0.9.0\ncargo install git-slop --version 0.9.0\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("docs/github-action.md"),
+            "uses: coreycoto/git-slop@v0.9.0\n| `version` | `0.9.0` |\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("docs/install.md"),
+            "release=v0.9.0\ncargo install git-slop --version 0.9.0\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("man/git-slop.1"),
+            ".TH GIT-SLOP 1 \"today\" \"git-slop 0.9.0\"\n",
+        )
+        .unwrap();
+        temp
     }
 
     #[test]
     fn repository_distribution_contract_passes() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         assert_eq!(validate(root), Vec::<String>::new());
+    }
+
+    #[test]
+    fn version_alignment_covers_structured_and_documented_surfaces() {
+        let temp = version_fixture();
+        let mut errors = Vec::new();
+        validate_version_alignment(temp.path(), &mut errors);
+        assert_eq!(errors, Vec::<String>::new());
+
+        fs::write(
+            temp.path().join("Cargo.lock"),
+            "version = 4\n\n[[package]]\nname = \"git-slop\"\nversion = \"0.9.1\"\n",
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("action.yml"),
+            "inputs:\n  version:\n    default: \"0.9.1\"\n",
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("action/install.mjs"),
+            "const version = process.env.GIT_SLOP_ACTION_VERSION || \"0.9.1\";\n",
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("docs/install.md"),
+            "release=v0.9.1\ncargo install git-slop --version 0.9.1\n",
+        )
+        .unwrap();
+
+        let mut errors = Vec::new();
+        validate_version_alignment(temp.path(), &mut errors);
+        let rendered = errors.join("\n");
+        for expected in [
+            "Cargo.lock",
+            "action.yml",
+            "action/install.mjs",
+            "docs/install.md",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "missing {expected}: {rendered}"
+            );
+        }
     }
 
     #[test]

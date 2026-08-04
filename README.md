@@ -17,13 +17,25 @@ Python, a package-manager runtime, a hosted API, or a model provider.
 
 ## Install
 
+After 0.9.0 is published, install its canonical crates.io package:
+
+```bash
+cargo install git-slop --version 0.9.0 --locked
+git-slop build-info --format json
+```
+
+or with the Homebrew Formula:
+
 ```bash
 brew tap coreycoto/tap
 brew install coreycoto/tap/git-slop
 git-slop version
+git-slop build-info --format json
 ```
 
-See [Installation](docs/install.md) for install policy and contributor setup.
+The Formula builds the exact checksummed crates.io source package; it is not a
+cask. See [Installation](docs/install.md) for availability, provenance, and
+contributor setup.
 
 ## GitHub Actions
 
@@ -41,10 +53,17 @@ steps:
   - uses: coreycoto/git-slop@v0.9.0
 ```
 
-The Action is advisory by default. It verifies a prebuilt native binary, writes
-`health.md` to the job summary, emits at most 10 annotations, and uploads only
-`health.md` for 14 days. Enforcement, report-sized artifacts, and pull request
-comments are explicit opt-ins. See [GitHub Action](docs/github-action.md).
+The Action is advisory by default. It verifies a prebuilt native binary built
+from the exact crates.io package, writes `health.md` to the job summary, emits
+at most 10 annotations, and uploads only `health.md` for 14 days. It never
+installs through Homebrew. Enforcement, report-sized artifacts, and pull
+request comments are explicit opt-ins. The same Action will be published in
+GitHub Marketplace with the stable release. See [GitHub
+Action](docs/github-action.md).
+
+The `0.9.0` and `v0.9.0` examples describe the upcoming release contract. They
+become installable only after the verified draft is published; this
+documentation does not mean that 0.9.0 is already available.
 
 ## Quick Start
 
@@ -56,6 +75,7 @@ git-slop explain --top 5
 git-slop plan --path src
 git-slop health
 git-slop check
+git-slop build-info --format json
 ```
 
 `find` writes a complete bundle to `.slop/latest/` and a timestamped copy under
@@ -78,6 +98,7 @@ git-slop check
 - `git slop sarif`: export action-queue findings as SARIF 2.1.0
 - `git slop health`: render Markdown, GitHub annotations, or health JSON
 - `git slop version`: print the installed version
+- `git slop build-info`: print machine-readable package and source provenance
 
 The installed executable is `git-slop`. When it is on `PATH`, Git also accepts
 `git slop`.
@@ -109,11 +130,12 @@ The local `git-slop` CLI does not:
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 
-Version 0.9.0 moves the product runtime to Rust while retaining report schema 4,
-config schema 2, and the existing `check` threshold semantics. The repository
-uses a private, non-publishable Rust `xtask` workspace to validate Codex,
-plugin, workflow, repository, and release wiring. It is excluded from the
-public workspace and is not part of the native CLI or `git-slop` Cargo package.
+The planned 0.9.0 release moves the product runtime to Rust while retaining
+report schema 4, config schema 2, and the existing `check` threshold semantics.
+The repository uses a private, non-publishable Rust `xtask` workspace to
+validate Codex, plugin, workflow, repository, and release wiring. It is
+excluded from the public workspace and is not part of the native CLI or
+`git-slop` Cargo package.
 
 The `git-slop` Codex plugin is published from this repo. It owns
 product-specific install, report, interpretation, planning, and

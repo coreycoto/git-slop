@@ -1,5 +1,5 @@
 name: Git Slop Repository Health
-description: Analyze repository health with a verified, prebuilt git-slop binary.
+description: Find repository context hotspots and publish actionable health summaries, annotations, and artifacts.
 author: Corey Coto
 
 branding:
@@ -80,6 +80,15 @@ outputs:
   asset-sha256:
     description: Verified SHA-256 digest of the installed release archive.
     value: ${{ steps.install.outputs.sha256 }}
+  source-revision:
+    description: Full source commit revision verified across the release tag, manifest, and installed binary.
+    value: ${{ steps.install.outputs.source-revision }}
+  crate-sha256:
+    description: Verified SHA-256 of the canonical crates.io package.
+    value: ${{ steps.install.outputs.crate-sha256 }}
+  release-manifest-sha256:
+    description: Verified SHA-256 digest of release-manifest.json.
+    value: ${{ steps.install.outputs.release-manifest-sha256 }}
   analysis-exit-code:
     description: Exit code from the one git-slop find invocation.
     value: ${{ steps.analyze.outputs.analysis-exit-code }}
@@ -176,7 +185,7 @@ runs:
     - name: Upload bounded Git Slop artifact
       id: upload
       if: ${{ always() && steps.analyze.outputs.upload-enabled == 'true' }}
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
       with:
         name: ${{ inputs.artifact-name }}
         path: ${{ steps.artifact-files.outputs.paths }}
@@ -191,7 +200,7 @@ runs:
     - name: Update pull request health comment
       id: comment
       if: ${{ always() && steps.analyze.outputs.analysis-exit-code == '0' && steps.analyze.outputs.comment-enabled == 'true' && github.event_name == 'pull_request' }}
-      uses: actions/github-script@v9
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
       env:
         GIT_SLOP_HEALTH_PATH: ${{ steps.analyze.outputs.health-path }}
       with:
