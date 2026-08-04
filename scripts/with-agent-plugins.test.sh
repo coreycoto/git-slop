@@ -179,11 +179,10 @@ jq -n \
 
 manifest_sha="$(sha256_file "${release_dir}/release-manifest.json")"
 {
-  printf '%s  %s\n' "$archive_sha" "$archive"
-  printf '%s  %s\n' "$wheel_sha" "agent_plugins-0.1.0-py3-none-any.whl"
-  printf '%s  %s\n' "$sdist_sha" "agent_plugins-0.1.0.tar.gz"
+  jq -r '.artifacts[] | "\(.sha256)  \(.name)"' \
+    "${release_dir}/release-manifest.json"
   printf '%s  %s\n' "$manifest_sha" "release-manifest.json"
-} | LC_ALL=C sort >"${release_dir}/SHA256SUMS"
+} >"${release_dir}/SHA256SUMS"
 
 jq -n \
   --arg revision "$FAKE_EXPECTED_REVISION" \
@@ -298,7 +297,7 @@ refresh_release_chain() {
     jq -r '.artifacts[] | "\(.sha256)  \(.name)"' \
       "${scenario_release}/release-manifest.json"
     printf '%s  %s\n' "$scenario_manifest_sha" "release-manifest.json"
-  } | LC_ALL=C sort >"${scenario_release}/SHA256SUMS"
+  } >"${scenario_release}/SHA256SUMS"
 
   temporary="${fixture_repo}/.agents/plugins/.marketplace-source.tmp"
   jq \
