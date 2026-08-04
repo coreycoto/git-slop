@@ -263,8 +263,32 @@ and native archives do not contain it. Its separate committed lockfile pins the
 maintainer dependency graph. New product runtime behavior and repository-owned
 maintainer automation must be implemented and tested in Rust.
 
-The only retained Python execution is the separately published, manifest-pinned
-`agent-plugins` runtime used by maintainer workflows. The
-`scripts/with-agent-plugins.sh` wrapper resolves its exact source revision in an
-isolated `uv run --no-project` environment; no Python project or implementation
-is stored in this repository.
+The only retained Python execution is inside the separately published,
+manifest-pinned `agent-plugins` PEX SCIE used by private maintainer workflows.
+The consumer pins its release, source revision, target, archive member, and
+SHA-256 digest. `scripts/with-agent-plugins.sh --prepare` acquires it into a
+per-job directory under `RUNNER_TEMP`; `--verify` independently checks release
+metadata, safe archive extraction, digest, target, and embedded revision before
+execution. The acquisition token is unavailable to later commands, and there
+is no cross-job Actions cache.
+
+The SCIE embeds the marketplace payload and Python runtime, so `marketplace`
+installation is offline after preparation and canonical `github
+project-snapshot` and `github execution-state` commands need no system Python,
+`uv`, or publisher Git checkout. Those GitHub commands retain the workflow's
+GitHub token for their intended API calls. `PEX_INTERPRETER=1` is a wrapper
+compatibility path for legacy Python entry points, not the primary workflow
+surface. Pull-request jobs prepare from trusted base tooling and skip forks when
+the private secret cannot be provided safely. Public Git Slop release jobs never
+acquire this private runtime. No Python project or publisher implementation is
+stored in this repository.
+
+Execution-state's project credential is step-scoped. Runtime acquisition
+receives only the publisher read token; verification and identity/interpreter
+smoke receive no project token; direct project and execution-state commands
+receive the resolved PAT only for their own step. In the privileged
+dependency-remediation flow, the base checkout is validated and its Codex
+config, profiles, agents, prompt, and schema are copied under `RUNNER_TEMP`
+before the requested head is checked out. The later Codex action consumes only
+those trusted control files, and only that mutation step receives
+`github.token`.

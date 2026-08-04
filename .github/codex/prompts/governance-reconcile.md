@@ -27,8 +27,9 @@ artifacts before any allowed mutation.
 
 ## Boundaries
 
-- Use checked-out repo files, `gh`, GitHub tokens, `agent_plugins` runtime APIs, and local
-  CLI tooling only.
+- Use checked-out repo files, `gh`, the workflow GitHub token, the already
+  prepared and verified `agent_plugins` CLI, and local CLI tooling only. The
+  private acquisition token is not available to this task.
 - Do not assume Marketplace-installed connectors are available on the runner.
 - Do not use the GitHub Git Data API.
 - Always generate preview artifacts under `.artifacts/github-governance/`

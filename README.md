@@ -120,6 +120,14 @@ product-specific install, report, interpretation, planning, and
 consumer-adoption guidance. Reusable project and backlog workflows live in the
 separate `coreycoto/agent-plugins` plugin, which also owns its runtime behavior
 tests, pinned marketplace bootstrap, and clean-room consumer smoke coverage.
-When a workflow needs that external Python runtime, it resolves the exact
-manifest-pinned revision through `scripts/with-agent-plugins.sh`; this repo does
-not carry a Python project of its own.
+When a maintainer workflow needs that private runtime, it acquires a
+consumer-digest-pinned Linux PEX SCIE into an ephemeral job directory, verifies
+its release metadata and embedded source revision, and then uses its direct CLI
+through `scripts/with-agent-plugins.sh` without further publisher acquisition.
+Its embedded marketplace installs offline; GitHub operations retain the
+workflow token they need. Execution-state sync keeps its project PAT off runtime
+verification, while privileged dependency remediation uses trusted base Codex
+inputs and exposes the repository token only to its mutation step. The
+acquisition token is not available during execution, and this repo carries no
+Python project of its own. The public Git Slop release workflow is independent
+of that private runtime.

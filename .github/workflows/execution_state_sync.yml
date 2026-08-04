@@ -24,6 +24,7 @@ on:
 jobs:
   sync:
     name: Sync execution state
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,11 +32,21 @@ jobs:
       pull-requests: write
       repository-projects: write
     env:
-      ROADMAP_GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}
       ROADMAP_GH_TOKEN_SOURCE: ${{ secrets.GH_PROJECTS_TOKEN != '' && 'GH_PROJECTS_TOKEN' || 'github.token' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+
+      - name: Prepare pinned agent-plugins runtime
+        env:
+          AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
+        run: scripts/with-agent-plugins.sh --prepare
+
+      - name: Verify pinned agent-plugins runtime
+        run: scripts/with-agent-plugins.sh --verify
 
       - name: Prepare artifact root
         id: artifact-root
@@ -46,27 +57,6 @@ jobs:
           mkdir -p "$root"
           echo "path=$root" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-
-      - name: Install uv
-        run: python -m pip install --upgrade pip uv
-
-      - name: Configure agent-plugins dependency access
-        env:
-          AGENT_PLUGINS_GIT_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
-        run: |
-          if [ -n "$AGENT_PLUGINS_GIT_TOKEN" ]; then
-            git config --global url."https://x-access-token:${AGENT_PLUGINS_GIT_TOKEN}@github.com/coreycoto/agent-plugins.git".insteadOf "https://github.com/coreycoto/agent-plugins.git"
-          elif GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/coreycoto/agent-plugins.git >/dev/null 2>&1; then
-            echo "agent-plugins is publicly readable; no extra git auth configured."
-          else
-            echo "coreycoto/agent-plugins is private and cannot be fetched from CI without a token." >&2
-            echo "Set AGENT_PLUGINS_READ_TOKEN with read access to coreycoto/agent-plugins, or make the repo public." >&2
-            exit 1
-          fi
       - name: Resolve backlog project identity
         id: project
         shell: bash
@@ -78,12 +68,12 @@ jobs:
         id: project-access
         shell: bash
         env:
-          GH_TOKEN: ${{ env.ROADMAP_GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}
         run: |
           snapshot_path="${{ steps.artifact-root.outputs.path }}/project-access-preflight.json"
           stderr_path="${{ steps.artifact-root.outputs.path }}/project-access.stderr"
           set +e
-          scripts/with-agent-plugins.sh python -c "from agent_plugins.github.shared.project_snapshot import main; raise SystemExit(main())" \
+          scripts/with-agent-plugins.sh github project-snapshot \
             --require-live \
             --json-path "$snapshot_path" \
             > /dev/null \
@@ -118,7 +108,7 @@ jobs:
 
       - name: Sync issue and project state
         env:
-          GH_TOKEN: ${{ env.ROADMAP_GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}
         shell: bash
         run: |
           args=(
@@ -136,7 +126,7 @@ jobs:
           fi
           stderr_path="${{ steps.artifact-root.outputs.path }}/execution-state.stderr"
           set +e
-          scripts/with-agent-plugins.sh python -c "from agent_plugins.github.governance.execution_state import main; raise SystemExit(main())" "${args[@]}" 2> "$stderr_path"
+          scripts/with-agent-plugins.sh github execution-state "${args[@]}" 2> "$stderr_path"
           status=$?
           set -e
           if [ "$status" -eq 0 ]; then

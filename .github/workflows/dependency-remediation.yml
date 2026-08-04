@@ -16,45 +16,18 @@ jobs:
       contents: write
       pull-requests: write
       security-events: read
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout
+      - name: Checkout trusted workflow tooling
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
+          persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
-      - name: Install uv
-        run: python -m pip install --upgrade pip uv
-
-      - name: Configure git author
-        run: |
-          git config user.name "codex[bot]"
-          git config user.email "codex[bot]@users.noreply.github.com"
-
-      - name: Configure agent-plugins dependency access
-        env:
-          AGENT_PLUGINS_GIT_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
-        run: |
-          if [ -n "$AGENT_PLUGINS_GIT_TOKEN" ]; then
-            git config --global url."https://x-access-token:${AGENT_PLUGINS_GIT_TOKEN}@github.com/coreycoto/agent-plugins.git".insteadOf "https://github.com/coreycoto/agent-plugins.git"
-          elif GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/coreycoto/agent-plugins.git >/dev/null 2>&1; then
-            echo "agent-plugins is publicly readable; no extra git auth configured."
-          else
-            echo "coreycoto/agent-plugins is private and cannot be fetched from CI without a token." >&2
-            echo "Set AGENT_PLUGINS_READ_TOKEN with read access to coreycoto/agent-plugins, or make the repo public." >&2
-            exit 1
-          fi
-      - name: Validate Codex surface
+      - name: Validate trusted Codex surface
         run: cargo xtask validate-codex
 
       - name: Detect Codex credentials
@@ -69,27 +42,68 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Prepare pinned Codex runtime
+      - name: Prepare pinned agent-plugins runtime
+        if: steps.codex_preflight.outputs.enabled == 'true'
+        env:
+          AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
+        run: scripts/with-agent-plugins.sh --prepare
+
+      - name: Verify pinned agent-plugins runtime
+        if: steps.codex_preflight.outputs.enabled == 'true'
+        run: scripts/with-agent-plugins.sh --verify
+
+      - name: Snapshot trusted Codex runtime inputs
         if: steps.codex_preflight.outputs.enabled == 'true'
         run: |
-          mkdir -p .artifacts/codex .artifacts/dependency-remediation "$RUNNER_TEMP/codex-runtime/.codex"
-          cp .codex/config.toml "$RUNNER_TEMP/codex-runtime/.codex/config.toml"
-          cp .codex/*.config.toml "$RUNNER_TEMP/codex-runtime/.codex/"
-          scripts/with-agent-plugins.sh python -m agent_plugins.marketplace.bootstrap install \
+          trusted_root="$RUNNER_TEMP/dependency-remediation-trusted"
+          codex_home="$RUNNER_TEMP/codex-runtime/.codex"
+          mkdir -p "$trusted_root" "$codex_home/agents"
+          cp .codex/config.toml "$codex_home/config.toml"
+          cp .codex/*.config.toml "$codex_home/"
+          cp -R .codex/agents/. "$codex_home/agents/"
+          cp .github/codex/prompts/dependency-remediation.md \
+            "$trusted_root/dependency-remediation.md"
+          cp .github/codex/schemas/dependency-remediation.json \
+            "$trusted_root/dependency-remediation.json"
+
+      - name: Install pinned marketplace from trusted tooling
+        if: steps.codex_preflight.outputs.enabled == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/codex-runtime/.codex"
+          scripts/with-agent-plugins.sh marketplace install \
             --manifest .agents/plugins/marketplace-source.json \
             --home "$RUNNER_TEMP/codex-runtime"
+
+      - name: Checkout requested revision
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Configure git author
+        run: |
+          git config user.name "codex[bot]"
+          git config user.email "codex[bot]@users.noreply.github.com"
+
+      - name: Prepare remediation artifacts
+        if: steps.codex_preflight.outputs.enabled == 'true'
+        run: mkdir -p .artifacts/codex .artifacts/dependency-remediation
 
       - name: Run Codex dependency remediation
         if: steps.codex_preflight.outputs.enabled == 'true'
         id: run_codex
         uses: openai/codex-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt-file: .github/codex/prompts/dependency-remediation.md
+          prompt-file: ${{ runner.temp }}/dependency-remediation-trusted/dependency-remediation.md
+          output-schema-file: ${{ runner.temp }}/dependency-remediation-trusted/dependency-remediation.json
           output-file: .artifacts/codex/dependency-remediation.json
           codex-home: ${{ runner.temp }}/codex-runtime/.codex
           codex-args: >-
-            ["--profile","ci_mutation","--output-schema",".github/codex/schemas/dependency-remediation.json"]
+            ["--profile","ci_mutation"]
           safety-strategy: drop-sudo
           sandbox: workspace-write
           allow-bots: dependabot[bot]
