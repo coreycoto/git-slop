@@ -186,7 +186,7 @@ jobs:
           EXPECTED_CRATE_SHA256: ${{ inputs.recovery_crate_sha256 }}
         run: |
           set -euo pipefail
-          status="$(curl -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
+          status="$(curl --user-agent "git-slop-release-workflow/1 (https://github.com/coreycoto/git-slop)" -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
           test "$status" = 200
           jq -e --arg version "$VERSION" --arg checksum "$EXPECTED_CRATE_SHA256" \
             '.version.num == $version and .version.yanked == false and .version.checksum == $checksum' \
@@ -464,7 +464,7 @@ jobs:
             cargo package -p git-slop --locked --no-verify
             cmp "target/package/git-slop-${VERSION}.crate" "${CANDIDATE_DIR}/git-slop-${VERSION}.crate"
           else
-            status="$(curl -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
+            status="$(curl --user-agent "git-slop-release-workflow/1 (https://github.com/coreycoto/git-slop)" -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
             test "$status" = 200
             jq -e --arg version "$VERSION" --arg checksum "$EXPECTED_CRATE_SHA256" \
               '.version.num == $version and .version.yanked == false and .version.checksum == $checksum' \
@@ -485,7 +485,7 @@ jobs:
           REVISION: ${{ needs.candidate.outputs.revision }}
         run: |
           set -euo pipefail
-          status="$(curl -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
+          status="$(curl --user-agent "git-slop-release-workflow/1 (https://github.com/coreycoto/git-slop)" -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
           case "$status" in
             200)
               jq -e '.version.yanked == false' registry-version.json >/dev/null
@@ -530,7 +530,7 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in $(seq 1 30); do
-            status="$(curl -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
+            status="$(curl --user-agent "git-slop-release-workflow/1 (https://github.com/coreycoto/git-slop)" -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
             test "$status" = 200 && break
             test "$attempt" != 30
             sleep 10

@@ -45,6 +45,10 @@ const PRIVATE_RUNTIME_SURFACES: [&str; 8] = [
     "agent-plugins-runtime",
     "marketplace install",
 ];
+const CRATES_IO_VERSION_ENDPOINT: &str = "https://crates.io/api/v1/crates/git-slop/${VERSION}";
+const CRATES_IO_RELEASE_USER_AGENT: &str =
+    r#"--user-agent "git-slop-release-workflow/1 (https://github.com/coreycoto/git-slop)""#;
+const CRATES_IO_VERSION_REQUESTS: usize = 4;
 
 pub fn validate(repo_root: &Path) -> Vec<String> {
     let mut errors = Vec::new();
@@ -167,6 +171,7 @@ fn validate_no_private_runtime(name: &str, text: &str, errors: &mut Vec<String>)
 
 fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<String>) {
     let name = "release-publish.yml";
+    validate_crates_io_api_client(text, name, errors);
     require_exact_trigger(payload, name, "workflow_dispatch", errors);
     let Some(dispatch) = payload.get("on").and_then(|on| on.get("workflow_dispatch")) else {
         return;
@@ -722,6 +727,26 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
         ] {
             require(summary, required, name, errors);
         }
+    }
+}
+
+fn validate_crates_io_api_client(text: &str, name: &str, errors: &mut Vec<String>) {
+    let requests = text
+        .lines()
+        .filter(|line| line.contains(CRATES_IO_VERSION_ENDPOINT))
+        .collect::<Vec<_>>();
+    if requests.len() != CRATES_IO_VERSION_REQUESTS {
+        errors.push(format!(
+            "{name} must keep exactly {CRATES_IO_VERSION_REQUESTS} bounded crates.io API version requests."
+        ));
+    }
+    if requests
+        .iter()
+        .any(|line| !line.contains(CRATES_IO_RELEASE_USER_AGENT))
+    {
+        errors.push(format!(
+            "{name} must identify every crates.io API request with the git-slop release workflow User-Agent and repository contact."
+        ));
     }
 }
 
@@ -1714,6 +1739,14 @@ mod tests {
         assert_eq!(publish_errors(&valid), Vec::<String>::new());
 
         let cases = [
+            (
+                valid.replacen(
+                    CRATES_IO_RELEASE_USER_AGENT,
+                    r#"--user-agent "curl/8""#,
+                    1,
+                ),
+                "identify every crates.io API request",
+            ),
             (
                 valid.replacen("environment: release", "environment: unprotected", 1),
                 "protected release environment",
