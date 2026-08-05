@@ -283,7 +283,9 @@ protected approval and at tag mutation; only the immutable release revision may
 be an older ancestor. Recovery re-verifies the API/index checksum, static
 package, and embedded VCS revision and passes through the same protected
 environment. It cannot publish a crate, move a tag, or derive artifacts from
-advanced `main`.
+advanced `main`. Recovery may execute the current trusted Action installer to
+inspect a numeric draft-release ID, while the artifacts and their provenance
+remain bound to the historical release revision.
 
 The five targets are Linux x86-64 and ARM64, macOS Apple Silicon, and Windows
 x86-64 and ARM64. `git-slop build-info --format json` binds each packaged

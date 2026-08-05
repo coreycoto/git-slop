@@ -144,7 +144,10 @@ The workflow is deliberately restartable without weakening immutable identity:
   supplied digest must agree. Recovery reacquires the immutable crate instead
   of repackaging advanced `main`, re-runs all five target lanes, and enters the
   same protected `release` environment before any missing tag is pushed. The
-  Cargo publication step and its secret are unreachable in recovery mode.
+  Cargo publication step and its secret are unreachable in recovery mode. The
+  historical release revision remains the source of every artifact; only
+  draft-release discovery and smoke verification use the current trusted
+  control revision so repaired release tooling can resume an immutable release.
 - A missing tag is created only after the registry package has been reverified.
   An existing tag must already resolve to the supplied revision; the workflow
   never moves or deletes it. A missing/yanked package, a revision no longer
@@ -152,7 +155,9 @@ The workflow is deliberately restartable without weakening immutable identity:
   investigation rather than mutation.
 - A draft release may be refreshed only with the same verified identity. Once
   published, release assets are treated as immutable and the release job is a
-  verification-only no-op.
+  verification-only no-op. Draft metadata is resolved to a numeric GitHub
+  Release ID before upload and verification because the tag-indexed REST
+  endpoint does not expose drafts.
 - A failed `release.published` relay or Homebrew handoff can be rerun from the
   published identity; neither is allowed to change the package, tag, or release
   assets.

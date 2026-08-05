@@ -404,6 +404,8 @@ jobs:
     permissions:
       contents: write
     outputs:
+      mode: ${{ needs.candidate.outputs.mode }}
+      control-revision: ${{ needs.candidate.outputs.control-revision }}
       version: ${{ steps.registry.outputs.version }}
       tag: ${{ steps.registry.outputs.tag }}
       revision: ${{ steps.registry.outputs.revision }}
@@ -696,6 +698,7 @@ jobs:
       id-token: write
     outputs:
       release-state: ${{ steps.release.outputs.state }}
+      release-id: ${{ steps.release.outputs.release-id || steps.draft.outputs.release-id }}
     env:
       VERSION: ${{ needs.publish-crate.outputs.version }}
       TAG: ${{ needs.publish-crate.outputs.tag }}
@@ -706,6 +709,15 @@ jobs:
         with:
           ref: ${{ needs.publish-crate.outputs.revision }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout current recovery control tooling
+        if: needs.publish-crate.outputs.mode == 'recover'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.publish-crate.outputs.control-revision }}
+          path: release-control
+          sparse-checkout: action
           persist-credentials: false
 
       - name: Set up Rust
@@ -744,13 +756,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          endpoint="repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}"
-          if gh api "$endpoint" > release.json 2> release-error.txt; then
-            jq -e --arg tag "$TAG" \
-              '.tag_name == $tag and .prerelease == false and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))' \
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json databaseId > release-view.json 2> release-error.txt; then
+            release_id="$(jq -er '.databaseId | select(type == "number" and . > 0)' release-view.json)"
+            [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
+            gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" > release.json
+            jq -e --arg tag "$TAG" --argjson release_id "$release_id" \
+              '.id == $release_id and .tag_name == $tag and .prerelease == false and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))' \
               release.json >/dev/null
             state="$(jq -r 'if .draft then "draft" else "published" end' release.json)"
-          elif grep -q 'HTTP 404' release-error.txt; then
+            echo "release-id=$release_id" >> "$GITHUB_OUTPUT"
+          elif grep -qx 'release not found' release-error.txt; then
             state=missing
           else
             cat release-error.txt >&2
@@ -770,26 +785,41 @@ jobs:
             dist/git-slop.rb
 
       - name: Create or refresh verified draft release
+        id: draft
         if: steps.release.outputs.state != 'published'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          release_id="${{ steps.release.outputs.release-id }}"
           if test "${{ steps.release.outputs.state }}" = missing; then
             gh release create "$TAG" --draft --generate-notes --title "$TAG" --verify-tag
+            for attempt in $(seq 1 10); do
+              if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json databaseId > release-view.json 2> release-error.txt; then
+                break
+              fi
+              test "$attempt" != 10 || { cat release-error.txt >&2; exit 1; }
+              sleep 2
+            done
+            release_id="$(jq -er '.databaseId | select(type == "number" and . > 0)' release-view.json)"
           fi
-          endpoint="repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}"
+          [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
+          endpoint="repos/${GITHUB_REPOSITORY}/releases/${release_id}"
           release_json="$(gh api "$endpoint")"
-          test "$(jq -r '.draft' <<< "$release_json")" = true
+          jq -e --arg tag "$TAG" --argjson release_id "$release_id" \
+            '.id == $release_id and .tag_name == $tag and .draft == true and .prerelease == false and .published_at == null' \
+            <<< "$release_json" >/dev/null
           while IFS= read -r asset; do gh release delete-asset "$TAG" "$asset" --yes; done < <(jq -r '.assets[].name' <<< "$release_json")
           gh release upload "$TAG" dist/*.tar.gz dist/*.zip dist/SHA256SUMS dist/release-manifest.json dist/git-slop.rb
           gh api "$endpoint" > release.json
+          echo "release-id=$release_id" >> "$GITHUB_OUTPUT"
 
       - name: Verify published no-op or refreshed draft assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.release.outputs.release-id || steps.draft.outputs.release-id }}
         run: |
           set -euo pipefail
           rm -rf release-verification
@@ -800,9 +830,10 @@ jobs:
           diff -u expected-assets.txt actual-assets.txt
           (cd release-verification && sha256sum --check SHA256SUMS)
           jq -e --arg version "$VERSION" --arg tag "$TAG" --arg revision "$REVISION" '.schema_version == 3 and .version == $version and .tag == $tag and .revision == $revision and .crate_source.revision == $revision' release-verification/release-manifest.json
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" > release.json
-          jq -e --arg tag "$TAG" \
-            '.tag_name == $tag and .prerelease == false and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))' \
+          [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > release.json
+          jq -e --arg tag "$TAG" --argjson release_id "$RELEASE_ID" \
+            '.id == $release_id and .tag_name == $tag and .prerelease == false and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))' \
             release.json >/dev/null
           while IFS= read -r asset_name; do
             digest="$(sha256sum "release-verification/${asset_name}" | awk '{print $1}')"
@@ -819,9 +850,11 @@ jobs:
           GIT_SLOP_RELEASE_REPOSITORY: ${{ github.repository }}
           GIT_SLOP_GITHUB_TOKEN: ${{ github.token }}
           GIT_SLOP_ALLOW_DRAFT_RELEASE: "true"
+          GIT_SLOP_RELEASE_ID: ${{ steps.release.outputs.release-id || steps.draft.outputs.release-id }}
+          ACTION_INSTALLER: ${{ needs.publish-crate.outputs.mode == 'recover' && 'release-control/action/install.mjs' || 'action/install.mjs' }}
         run: |
           set -euo pipefail
-          node action/install.mjs
+          node "$ACTION_INSTALLER"
 
       - name: Assert exact Action installer outputs
         shell: bash
@@ -865,10 +898,11 @@ jobs:
       VERSION: ${{ needs.publish-crate.outputs.version }}
       REVISION: ${{ needs.publish-crate.outputs.revision }}
     steps:
-      - name: Checkout exact Action revision
+      - name: Checkout verified Action control revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.publish-crate.outputs.revision }}
+          ref: ${{ needs.publish-crate.outputs.control-revision }}
+          sparse-checkout: action
           persist-credentials: false
 
       - name: Set up Node.js
@@ -884,6 +918,7 @@ jobs:
           GIT_SLOP_RELEASE_REPOSITORY: ${{ github.repository }}
           GIT_SLOP_GITHUB_TOKEN: ${{ github.token }}
           GIT_SLOP_ALLOW_DRAFT_RELEASE: "true"
+          GIT_SLOP_RELEASE_ID: ${{ needs.draft-release.outputs.release-id }}
         run: |
           set -euo pipefail
           node action/install.mjs

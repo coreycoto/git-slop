@@ -162,6 +162,10 @@ if (process.argv[2] === "version") {
     let crateSha256 = canonicalCrateSha256;
     let crateAuthorizationObserved = null;
     let crateContentLengthOverride = null;
+    const draftReleaseId = 365216485;
+    let servedReleaseId = draftReleaseId;
+    let releaseTagRequests = 0;
+    let releaseIdRequests = 0;
     let releaseDraft = false;
     let releaseTagName = tag;
     let servedTagRevision = revision;
@@ -287,9 +291,29 @@ if (process.argv[2] === "version") {
     let apiRoot;
     const server = createServer((request, response) => {
       if (request.url === `/repos/example/git-slop/releases/tags/${tag}`) {
+        releaseTagRequests += 1;
+        if (releaseDraft) {
+          response.statusCode = 404;
+          response.end("not found");
+          return;
+        }
         response.setHeader("content-type", "application/json");
         response.end(
           JSON.stringify({
+            id: servedReleaseId,
+            tag_name: releaseTagName,
+            draft: releaseDraft,
+            prerelease: false,
+            published_at: releaseDraft ? null : "2026-08-04T18:00:00Z",
+            assets: buildReleaseAssets(),
+          }),
+        );
+      } else if (request.url === `/repos/example/git-slop/releases/${draftReleaseId}`) {
+        releaseIdRequests += 1;
+        response.setHeader("content-type", "application/json");
+        response.end(
+          JSON.stringify({
+            id: servedReleaseId,
             tag_name: releaseTagName,
             draft: releaseDraft,
             prerelease: false,
@@ -401,6 +425,8 @@ try {
       assert.ok(existsSync(actual["binary-path"]));
       assert.equal(readFileSync(githubPath, "utf8").trim(), dirname(actual["binary-path"]));
       assert.equal(crateAuthorizationObserved, null, "GitHub token leaked to crates.io fetch");
+      assert.equal(releaseTagRequests, 1);
+      assert.equal(releaseIdRequests, 0);
 
       releaseDraft = true;
       const rejectedDraft = await runInstaller({
@@ -410,28 +436,101 @@ try {
         RUNNER_TEMP: root,
       });
       assert.equal(rejectedDraft.status, 1);
-      assert.match(rejectedDraft.stderr, /still a draft/u);
+      assert.match(rejectedDraft.stderr, /returned HTTP 404/u);
+
+      const rejectedDraftWithoutId = await runInstaller({
+        GITHUB_API_URL: apiRoot,
+        GITHUB_REPOSITORY: "example/git-slop",
+        GIT_SLOP_ACTION_VERSION: version,
+        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
+        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
+        GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
+        RUNNER_TEMP: root,
+      });
+      assert.equal(rejectedDraftWithoutId.status, 1);
+      assert.match(rejectedDraftWithoutId.stderr, /requires an exact release ID/u);
 
       const acceptedDraft = await runInstaller({
         GITHUB_API_URL: apiRoot,
         GITHUB_REPOSITORY: "example/git-slop",
         GIT_SLOP_ACTION_VERSION: version,
+        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
         GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
         GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
+        GIT_SLOP_RELEASE_ID: String(draftReleaseId),
         RUNNER_TEMP: root,
       });
       assert.equal(acceptedDraft.status, 0, acceptedDraft.stderr);
+      assert.equal(releaseIdRequests, 1);
+
+      const rejectedMalformedDraftId = await runInstaller({
+        GITHUB_API_URL: apiRoot,
+        GITHUB_REPOSITORY: "example/git-slop",
+        GIT_SLOP_ACTION_VERSION: version,
+        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
+        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
+        GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
+        GIT_SLOP_RELEASE_ID: "not-a-release-id",
+        RUNNER_TEMP: root,
+      });
+      assert.equal(rejectedMalformedDraftId.status, 1);
+      assert.match(rejectedMalformedDraftId.stderr, /positive decimal integer/u);
+
+      const rejectedUnsafeDraftId = await runInstaller({
+        GITHUB_API_URL: apiRoot,
+        GITHUB_REPOSITORY: "example/git-slop",
+        GIT_SLOP_ACTION_VERSION: version,
+        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
+        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
+        GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
+        GIT_SLOP_RELEASE_ID: "9007199254740992",
+        RUNNER_TEMP: root,
+      });
+      assert.equal(rejectedUnsafeDraftId.status, 1);
+      assert.match(rejectedUnsafeDraftId.stderr, /safe integer range/u);
+
+      const rejectedUnauthenticatedDraftId = await runInstaller({
+        GITHUB_API_URL: apiRoot,
+        GITHUB_REPOSITORY: "example/git-slop",
+        GIT_SLOP_ACTION_VERSION: version,
+        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
+        GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
+        GIT_SLOP_RELEASE_ID: String(draftReleaseId),
+        RUNNER_TEMP: root,
+      });
+      assert.equal(rejectedUnauthenticatedDraftId.status, 1);
+      assert.match(
+        rejectedUnauthenticatedDraftId.stderr,
+        /restricted to authenticated same-repository/u,
+      );
+
+      servedReleaseId = draftReleaseId + 1;
+      const rejectedMismatchedDraftId = await runInstaller({
+        GITHUB_API_URL: apiRoot,
+        GITHUB_REPOSITORY: "example/git-slop",
+        GIT_SLOP_ACTION_VERSION: version,
+        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
+        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
+        GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
+        GIT_SLOP_RELEASE_ID: String(draftReleaseId),
+        RUNNER_TEMP: root,
+      });
+      assert.equal(rejectedMismatchedDraftId.status, 1);
+      assert.match(rejectedMismatchedDraftId.stderr, /inconsistent GitHub release metadata/u);
+      servedReleaseId = draftReleaseId;
 
       const rejectedConsumerDraft = await runInstaller({
         GITHUB_API_URL: apiRoot,
         GITHUB_REPOSITORY: "example/consumer",
         GIT_SLOP_ACTION_VERSION: version,
+        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
         GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
         GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
+        GIT_SLOP_RELEASE_ID: String(draftReleaseId),
         RUNNER_TEMP: root,
       });
       assert.equal(rejectedConsumerDraft.status, 1);
-      assert.match(rejectedConsumerDraft.stderr, /still a draft/u);
+      assert.match(rejectedConsumerDraft.stderr, /restricted to authenticated same-repository/u);
 
       releaseDraft = false;
       releaseTagName = "v0.9.1";
