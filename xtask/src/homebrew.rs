@@ -169,7 +169,12 @@ mod tests {
             "b".repeat(40)
         )));
         assert!(formula.contains("assert_match \"\\\"source_dirty\\\": false\", build_info"));
-        assert!(!formula.lines().any(|line| line.starts_with("  version \"")));
+        assert!(
+            !formula
+                .lines()
+                .any(|line| line.trim_start().starts_with("version "))
+        );
+        assert!(!formula.contains("assert_match %"));
         assert!(formula.contains("system \"cargo\", \"install\", *std_cargo_args"));
         for forbidden in ["Python", "python@", "libyaml", "resource ", "tag:"] {
             assert!(!formula.contains(forbidden), "unexpected {forbidden}");

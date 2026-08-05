@@ -481,17 +481,37 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             name,
             errors,
         );
-        if named_step(
+        let upload = named_step(
             candidate_distribution,
             "Upload candidate Formula for Homebrew audit",
-        )
-        .and_then(|step| step.get("with"))
-        .and_then(|with| with.get("name"))
-        .and_then(YamlValue::as_str)
-            != Some("candidate-homebrew-formula")
-        {
+        );
+        let upload_valid = upload.is_some_and(|step| {
+            step.get("uses").and_then(YamlValue::as_str)
+                == Some("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+                && step
+                    .get("with")
+                    .and_then(|with| with.get("name"))
+                    .and_then(YamlValue::as_str)
+                    == Some("candidate-homebrew-formula")
+                && step
+                    .get("with")
+                    .and_then(|with| with.get("path"))
+                    .and_then(YamlValue::as_str)
+                    == Some("candidate-dist/git-slop.rb")
+                && step
+                    .get("with")
+                    .and_then(|with| with.get("if-no-files-found"))
+                    .and_then(YamlValue::as_str)
+                    == Some("error")
+                && step
+                    .get("with")
+                    .and_then(|with| with.get("retention-days"))
+                    .and_then(YamlValue::as_u64)
+                    == Some(1)
+        });
+        if !upload_valid {
             errors.push(format!(
-                "{name} candidate-distribution must upload the generated Formula for Homebrew audit."
+                "{name} candidate-distribution must upload only the generated Formula with the pinned bounded artifact contract."
             ));
         }
     }
@@ -539,13 +559,34 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
                 "{name} candidate-homebrew-audit must use the pinned Homebrew setup Action."
             ));
         }
-        let download_name = named_step(candidate_homebrew_audit, "Download candidate Formula")
-            .and_then(|step| step.get("with"))
-            .and_then(|with| with.get("name"))
-            .and_then(YamlValue::as_str);
-        if download_name != Some("candidate-homebrew-formula") {
+        let download = named_step(candidate_homebrew_audit, "Download candidate Formula");
+        let download_valid = download.is_some_and(|step| {
+            step.get("uses").and_then(YamlValue::as_str)
+                == Some("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c")
+                && step
+                    .get("with")
+                    .and_then(|with| with.get("name"))
+                    .and_then(YamlValue::as_str)
+                    == Some("candidate-homebrew-formula")
+                && step
+                    .get("with")
+                    .and_then(|with| with.get("path"))
+                    .and_then(YamlValue::as_str)
+                    == Some("${{ runner.temp }}/candidate-homebrew")
+        });
+        if !download_valid {
             errors.push(format!(
-                "{name} candidate-homebrew-audit must download the generated Formula artifact."
+                "{name} candidate-homebrew-audit must download only the generated Formula with the pinned artifact contract."
+            ));
+        }
+        let audit_formula_path = named_step(
+            candidate_homebrew_audit,
+            "Audit candidate Formula with Homebrew",
+        )
+        .and_then(|step| step_env(step, "FORMULA_PATH"));
+        if audit_formula_path != Some("${{ runner.temp }}/candidate-homebrew/git-slop.rb") {
+            errors.push(format!(
+                "{name} candidate-homebrew-audit must audit the exact downloaded Formula path."
             ));
         }
     }
@@ -1577,7 +1618,7 @@ fn validate_homebrew_handoff(payload: &YamlValue, errors: &mut Vec<String>) {
         "git merge-base --is-ancestor \"$REVISION\" refs/remotes/origin/main",
         "curl --fail --location --retry 5 \"$crate_url\"",
         "test \"$(sha256sum registry.crate | awk '{print $1}')\" = \"$crate_sha256\"",
-        "if grep -Eq '^  version \"' release-assets/git-slop.rb",
+        "if grep -Eq '^  version[[:space:]]' release-assets/git-slop.rb",
         "assert_match \\\"\\\\\\\"source_revision",
         "assert_match \"\\\"source_dirty",
     ] {
@@ -2502,7 +2543,15 @@ mod tests {
                     "      - name: Download candidate Formula\n        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8\n        with:\n          name: untrusted-formula",
                     1,
                 ),
-                "must download the generated Formula artifact",
+                "must download only the generated Formula with the pinned artifact contract",
+            ),
+            (
+                valid.replacen(
+                    "          path: candidate-dist/git-slop.rb\n          if-no-files-found: error\n          retention-days: 1",
+                    "          path: candidate-dist\n          if-no-files-found: warn\n          retention-days: 14",
+                    1,
+                ),
+                "must upload only the generated Formula with the pinned bounded artifact contract",
             ),
             (
                 valid.replacen(
@@ -2948,7 +2997,7 @@ mod tests {
             ),
             (
                 homebrew.replacen(
-                    "if grep -Eq '^  version \"' release-assets/git-slop.rb",
+                    "if grep -Eq '^  version[[:space:]]' release-assets/git-slop.rb",
                     "grep -Fx \"  version \\\"${VERSION}\\\"\" release-assets/git-slop.rb",
                     1,
                 ),
