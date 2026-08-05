@@ -482,6 +482,24 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             errors,
         );
         require_environment(publish_crate, name, "publish-crate", "release", errors);
+        for (output, expected) in [
+            ("mode", "${{ needs.candidate.outputs.mode }}"),
+            (
+                "control-revision",
+                "${{ needs.candidate.outputs.control-revision }}",
+            ),
+        ] {
+            if publish_crate
+                .get("outputs")
+                .and_then(|outputs| outputs.get(output))
+                .and_then(YamlValue::as_str)
+                != Some(expected)
+            {
+                errors.push(format!(
+                    "{name} publish-crate output {output} must preserve the trusted workflow control identity."
+                ));
+            }
+        }
         validate_publish_token_scope(payload, errors);
         validate_publish_order_and_registry(publish_crate, errors);
         let Some(revalidate) = step_run(
@@ -557,6 +575,51 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             &["publish-crate", "build"],
             errors,
         );
+        if draft
+            .get("outputs")
+            .and_then(|outputs| outputs.get("release-id"))
+            .and_then(YamlValue::as_str)
+            != Some("${{ steps.release.outputs.release-id || steps.draft.outputs.release-id }}")
+        {
+            errors.push(format!(
+                "{name} draft-release must expose the exact resolved numeric release ID."
+            ));
+        }
+        if let Some(control_checkout) =
+            named_step(draft, "Checkout current recovery control tooling")
+        {
+            if control_checkout.get("if").and_then(YamlValue::as_str)
+                != Some("needs.publish-crate.outputs.mode == 'recover'")
+                || control_checkout
+                    .get("with")
+                    .and_then(|with| with.get("ref"))
+                    .and_then(YamlValue::as_str)
+                    != Some("${{ needs.publish-crate.outputs.control-revision }}")
+                || control_checkout
+                    .get("with")
+                    .and_then(|with| with.get("path"))
+                    .and_then(YamlValue::as_str)
+                    != Some("release-control")
+                || control_checkout
+                    .get("with")
+                    .and_then(|with| with.get("sparse-checkout"))
+                    .and_then(YamlValue::as_str)
+                    != Some("action")
+                || control_checkout
+                    .get("with")
+                    .and_then(|with| with.get("persist-credentials"))
+                    .and_then(YamlValue::as_bool)
+                    != Some(false)
+            {
+                errors.push(format!(
+                    "{name} recovery control tooling must come from the trusted current-main revision without persisted credentials."
+                ));
+            }
+        } else {
+            errors.push(format!(
+                "{name} draft-release must checkout current recovery control tooling."
+            ));
+        }
         let Some(generate) = step_run(draft, "Generate release manifest, checksums, and Formula")
         else {
             errors.push(format!(
@@ -586,6 +649,7 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             "gh release create \"$TAG\" --draft",
             "gh release upload \"$TAG\"",
             "GIT_SLOP_ALLOW_DRAFT_RELEASE: \"true\"",
+            "GIT_SLOP_RELEASE_ID:",
         ] {
             require(text, required, name, errors);
         }
@@ -597,8 +661,58 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
         ] {
             forbid(text, forbidden, name, errors);
         }
+        if let Some(inspect) = step_run(draft, "Inspect existing GitHub Release") {
+            for required in [
+                "gh release view \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --json databaseId",
+                "repos/${GITHUB_REPOSITORY}/releases/${release_id}",
+                "echo \"release-id=$release_id\" >> \"$GITHUB_OUTPUT\"",
+            ] {
+                require(inspect, required, name, errors);
+            }
+            forbid(inspect, "releases/tags/${TAG}", name, errors);
+        } else {
+            errors.push(format!(
+                "{name} draft-release must inspect the exact numeric GitHub Release ID."
+            ));
+        }
+        if let Some(refresh) = named_step(draft, "Create or refresh verified draft release") {
+            if refresh.get("id").and_then(YamlValue::as_str) != Some("draft") {
+                errors.push(format!(
+                    "{name} draft refresh must use the stable draft step id."
+                ));
+            }
+            if let Some(run) = refresh.get("run").and_then(YamlValue::as_str) {
+                for required in [
+                    "repos/${GITHUB_REPOSITORY}/releases/${release_id}",
+                    ".id == $release_id",
+                    "echo \"release-id=$release_id\" >> \"$GITHUB_OUTPUT\"",
+                ] {
+                    require(run, required, name, errors);
+                }
+                forbid(run, "releases/tags/${TAG}", name, errors);
+            }
+        } else {
+            errors.push(format!(
+                "{name} must create or refresh the verified draft by numeric release ID."
+            ));
+        }
         if let Some(verify) = step_run(draft, "Verify published no-op or refreshed draft assets") {
             validate_exact_release_assets(verify, name, "${TAG}", errors);
+            for required in [
+                "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}",
+                ".id == $release_id",
+            ] {
+                require(verify, required, name, errors);
+            }
+            forbid(verify, "releases/tags/${TAG}", name, errors);
+            if named_step(draft, "Verify published no-op or refreshed draft assets")
+                .and_then(|step| step_env(step, "RELEASE_ID"))
+                != Some("${{ steps.release.outputs.release-id || steps.draft.outputs.release-id }}")
+            {
+                errors.push(format!(
+                    "{name} final asset verification must bind the exact resolved release ID."
+                ));
+            }
         } else {
             errors.push(format!(
                 "{name} must verify the exact eight release assets."
@@ -613,10 +727,26 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
                 ));
             }
             match verify_action.get("run").and_then(YamlValue::as_str) {
-                Some(run) => require(run, "node action/install.mjs", name, errors),
+                Some(run) => require(run, "node \"$ACTION_INSTALLER\"", name, errors),
                 None => errors.push(format!(
-                    "{name} draft installer verification must run action/install.mjs."
+                    "{name} draft installer verification must run the trusted Action installer."
                 )),
+            }
+            for (key, expected) in [
+                (
+                    "GIT_SLOP_RELEASE_ID",
+                    "${{ steps.release.outputs.release-id || steps.draft.outputs.release-id }}",
+                ),
+                (
+                    "ACTION_INSTALLER",
+                    "${{ needs.publish-crate.outputs.mode == 'recover' && 'release-control/action/install.mjs' || 'action/install.mjs' }}",
+                ),
+            ] {
+                if step_env(verify_action, key) != Some(expected) {
+                    errors.push(format!(
+                        "{name} draft installer verification must bind {key} to the exact release or control identity."
+                    ));
+                }
             }
         } else {
             errors.push(format!(
@@ -701,6 +831,46 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             "node action/install.mjs",
         ] {
             require(text, required, name, errors);
+        }
+        if let Some(control_checkout) = named_step(
+            draft_action_smoke,
+            "Checkout verified Action control revision",
+        ) {
+            if control_checkout
+                .get("with")
+                .and_then(|with| with.get("ref"))
+                .and_then(YamlValue::as_str)
+                != Some("${{ needs.publish-crate.outputs.control-revision }}")
+                || control_checkout
+                    .get("with")
+                    .and_then(|with| with.get("sparse-checkout"))
+                    .and_then(YamlValue::as_str)
+                    != Some("action")
+                || control_checkout
+                    .get("with")
+                    .and_then(|with| with.get("persist-credentials"))
+                    .and_then(YamlValue::as_bool)
+                    != Some(false)
+            {
+                errors.push(format!(
+                    "{name} draft Action smoke must checkout the trusted workflow control revision without persisted credentials."
+                ));
+            }
+        } else {
+            errors.push(format!(
+                "{name} draft Action smoke must checkout the verified Action control revision."
+            ));
+        }
+        if named_step(
+            draft_action_smoke,
+            "Install and verify the draft release through the public Action installer",
+        )
+        .and_then(|step| step_env(step, "GIT_SLOP_RELEASE_ID"))
+            != Some("${{ needs.draft-release.outputs.release-id }}")
+        {
+            errors.push(format!(
+                "{name} draft Action smoke must use the exact resolved numeric release ID."
+            ));
         }
     }
 
@@ -1818,6 +1988,38 @@ mod tests {
                     1,
                 ),
                 "published crate digest",
+            ),
+            (
+                valid.replacen(
+                    "release-id: ${{ steps.release.outputs.release-id || steps.draft.outputs.release-id }}",
+                    "release-id: untrusted",
+                    1,
+                ),
+                "resolved numeric release ID",
+            ),
+            (
+                valid.replacen(
+                    "gh api \"repos/${GITHUB_REPOSITORY}/releases/${release_id}\" > release.json",
+                    "gh api \"repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}\" > release.json",
+                    1,
+                ),
+                "releases/${release_id}",
+            ),
+            (
+                valid.replacen(
+                    "          ref: ${{ needs.publish-crate.outputs.control-revision }}\n          path: release-control",
+                    "          ref: ${{ needs.publish-crate.outputs.revision }}\n          path: release-control",
+                    1,
+                ),
+                "trusted current-main revision",
+            ),
+            (
+                valid.replacen(
+                    "          ACTION_INSTALLER: ${{ needs.publish-crate.outputs.mode == 'recover' && 'release-control/action/install.mjs' || 'action/install.mjs' }}",
+                    "          ACTION_INSTALLER: action/install.mjs",
+                    1,
+                ),
+                "ACTION_INSTALLER",
             ),
         ];
         for (drifted, expected) in cases {

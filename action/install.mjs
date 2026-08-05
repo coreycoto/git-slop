@@ -14,6 +14,7 @@ const apiRoot = (process.env.GITHUB_API_URL || "https://api.github.com").replace
 const allowDraftRelease =
   (process.env.GIT_SLOP_ALLOW_DRAFT_RELEASE || "false").trim().toLowerCase() === "true" &&
   (process.env.GITHUB_REPOSITORY || "").trim() === releaseRepository;
+const releaseIdInput = (process.env.GIT_SLOP_RELEASE_ID || "").trim();
 const maximumArchiveBytes = 128 * 1024 * 1024;
 const maximumCrateBytes = 16 * 1024 * 1024;
 const maximumInventoryBytes = 1024 * 1024;
@@ -778,7 +779,28 @@ async function main() {
     throw new Error(`runner archive format does not match target ${target}`);
   }
   const assetName = `git-slop-${tag}-${target}.${extension}`;
-  const releaseUrl = `${apiRoot}/repos/${releaseRepository}/releases/tags/${encodeURIComponent(tag)}`;
+  let expectedReleaseId = null;
+  let releaseUrl;
+  if (releaseIdInput) {
+    if (!allowDraftRelease || !githubToken) {
+      throw new Error(
+        "release ID lookup is restricted to authenticated same-repository draft verification",
+      );
+    }
+    if (!/^[1-9]\d*$/u.test(releaseIdInput)) {
+      throw new Error("release ID must be a positive decimal integer");
+    }
+    expectedReleaseId = Number(releaseIdInput);
+    if (!Number.isSafeInteger(expectedReleaseId)) {
+      throw new Error("release ID exceeds the safe integer range");
+    }
+    releaseUrl = `${apiRoot}/repos/${releaseRepository}/releases/${releaseIdInput}`;
+  } else {
+    if (allowDraftRelease) {
+      throw new Error("same-repository draft verification requires an exact release ID");
+    }
+    releaseUrl = `${apiRoot}/repos/${releaseRepository}/releases/tags/${encodeURIComponent(tag)}`;
+  }
   const release = await fetchJsonRequired(
     releaseUrl,
     maximumReleaseMetadataBytes,
@@ -788,6 +810,7 @@ async function main() {
     release === null ||
     typeof release !== "object" ||
     Array.isArray(release) ||
+    (expectedReleaseId !== null && release.id !== expectedReleaseId) ||
     release.tag_name !== tag ||
     release.prerelease !== false ||
     typeof release.draft !== "boolean" ||
