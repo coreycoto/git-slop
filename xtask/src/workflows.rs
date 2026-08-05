@@ -1832,6 +1832,7 @@ fn validate_ci(repo_root: &Path, workflows: &Path, errors: &mut Vec<String>) {
         forbid(&text, forbidden, name, errors);
     }
     validate_runtime_launcher_ci_job(&text, name, errors);
+    validate_windows_action_ci_job(&text, name, errors);
     validate_runtime_launcher_fixture(repo_root, errors);
 }
 
@@ -1858,6 +1859,135 @@ fn validate_runtime_launcher_ci_job(text: &str, name: &str, errors: &mut Vec<Str
         });
     if !command_is_in_rust_quality {
         errors.push(format!("{name} rust-quality job must run {COMMAND}."));
+    }
+}
+
+fn validate_windows_action_ci_job(text: &str, name: &str, errors: &mut Vec<String>) {
+    const PLATFORM_OSES: [&str; 4] = ["ubuntu-24.04", "macos-15", "windows-2025", "windows-11-arm"];
+    const SETUP_STEP: &str = "Set up Node.js for Windows Action tests";
+    const TEST_STEP: &str = "Test GitHub Action on Windows";
+    const WINDOWS_CONDITION: &str = "runner.os == 'Windows'";
+    const TEST_COMMAND: &str = "node --test action/install.test.mjs";
+
+    let payload = match serde_yaml::from_str::<YamlValue>(text) {
+        Ok(payload) => payload,
+        Err(error) => {
+            errors.push(format!("Unable to parse {name}: {error}"));
+            return;
+        }
+    };
+    let Some(jobs) = payload.get("jobs").and_then(YamlValue::as_mapping) else {
+        errors.push(format!("{name} must define jobs."));
+        return;
+    };
+    let Some(platform_smoke) = job(jobs, "platform-smoke", name, errors) else {
+        return;
+    };
+
+    if platform_smoke.get("runs-on").and_then(YamlValue::as_str) != Some("${{ matrix.os }}") {
+        errors.push(format!(
+            "{name} platform-smoke job must use matrix.os as runs-on."
+        ));
+    }
+    let matrix = platform_smoke
+        .get("strategy")
+        .and_then(|strategy| strategy.get("matrix"));
+    let platform_oses = matrix
+        .and_then(|matrix| matrix.get("os"))
+        .and_then(YamlValue::as_sequence)
+        .map(|oses| {
+            oses.iter()
+                .filter_map(YamlValue::as_str)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if platform_oses.as_slice() != PLATFORM_OSES.as_slice() {
+        errors.push(format!(
+            "{name} platform-smoke job must define the exact supported platform matrix."
+        ));
+    }
+    if matrix
+        .and_then(|matrix| matrix.get("exclude"))
+        .and_then(YamlValue::as_sequence)
+        .is_some_and(|excludes| {
+            excludes.iter().any(|exclude| {
+                exclude
+                    .get("os")
+                    .and_then(YamlValue::as_str)
+                    .is_some_and(|os| matches!(os, "windows-2025" | "windows-11-arm"))
+            })
+        })
+    {
+        errors.push(format!(
+            "{name} platform-smoke job must not exclude either supported Windows lane."
+        ));
+    }
+
+    let platform_steps = steps(platform_smoke);
+
+    for step_name in [SETUP_STEP, TEST_STEP] {
+        let count = platform_steps
+            .iter()
+            .filter(|step| step.get("name").and_then(YamlValue::as_str) == Some(step_name))
+            .count();
+        if count != 1 {
+            errors.push(format!(
+                "{name} platform-smoke job must define exactly one {step_name} step."
+            ));
+        }
+    }
+
+    let setup = named_step(platform_smoke, SETUP_STEP);
+    let test = named_step(platform_smoke, TEST_STEP);
+
+    if let Some(setup) = setup {
+        if setup.get("if").and_then(YamlValue::as_str) != Some(WINDOWS_CONDITION) {
+            errors.push(format!(
+                "{name} {SETUP_STEP} step must use the exact Windows runner condition."
+            ));
+        }
+        if setup.get("uses").and_then(YamlValue::as_str) != Some("actions/setup-node@v7") {
+            errors.push(format!(
+                "{name} {SETUP_STEP} step must use actions/setup-node@v7."
+            ));
+        }
+        if setup
+            .get("with")
+            .and_then(|with| with.get("node-version"))
+            .and_then(YamlValue::as_str)
+            != Some("24")
+        {
+            errors.push(format!("{name} {SETUP_STEP} step must install Node.js 24."));
+        }
+    }
+
+    if let Some(test) = test {
+        if test.get("if").and_then(YamlValue::as_str) != Some(WINDOWS_CONDITION) {
+            errors.push(format!(
+                "{name} {TEST_STEP} step must use the exact Windows runner condition."
+            ));
+        }
+        if test.get("run").and_then(YamlValue::as_str).map(str::trim) != Some(TEST_COMMAND) {
+            errors.push(format!(
+                "{name} {TEST_STEP} step must run exactly {TEST_COMMAND}."
+            ));
+        }
+    }
+
+    if setup.is_some() && test.is_some() {
+        let setup_position = platform_steps
+            .iter()
+            .position(|step| step.get("name").and_then(YamlValue::as_str) == Some(SETUP_STEP))
+            .expect("named setup step must have a position");
+        let test_position = platform_steps
+            .iter()
+            .position(|step| step.get("name").and_then(YamlValue::as_str) == Some(TEST_STEP))
+            .expect("named test step must have a position");
+        if setup_position >= test_position {
+            errors.push(format!(
+                "{name} {SETUP_STEP} step must run before {TEST_STEP}."
+            ));
+        }
     }
 }
 
@@ -2341,6 +2471,169 @@ mod tests {
             errors
                 .iter()
                 .any(|error| error.contains("rust-quality job must run"))
+        );
+    }
+
+    fn windows_action_ci_errors(text: &str) -> Vec<String> {
+        let mut errors = Vec::new();
+        validate_windows_action_ci_job(text, "ci.yml", &mut errors);
+        errors
+    }
+
+    fn valid_windows_action_ci() -> &'static str {
+        r#"jobs:
+  platform-smoke:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2025
+          - windows-11-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Set up Node.js for Windows Action tests
+        if: runner.os == 'Windows'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Test GitHub Action on Windows
+        if: runner.os == 'Windows'
+        run: node --test action/install.test.mjs
+"#
+    }
+
+    #[test]
+    fn windows_action_ci_contract_accepts_node_24_test() {
+        assert_eq!(
+            windows_action_ci_errors(valid_windows_action_ci()),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn windows_action_ci_contract_rejects_node_version_drift() {
+        let drifted =
+            valid_windows_action_ci().replace("node-version: \"24\"", "node-version: \"22\"");
+        let errors = windows_action_ci_errors(&drifted).join("\n");
+        assert!(errors.contains("must install Node.js 24"), "{errors}");
+    }
+
+    #[test]
+    fn windows_action_ci_contract_rejects_condition_drift() {
+        let drifted = valid_windows_action_ci().replacen(
+            "if: runner.os == 'Windows'",
+            "if: runner.os != 'Windows'",
+            1,
+        );
+        let errors = windows_action_ci_errors(&drifted).join("\n");
+        assert!(
+            errors.contains("must use the exact Windows runner condition"),
+            "{errors}"
+        );
+    }
+
+    #[test]
+    fn windows_action_ci_contract_rejects_command_drift() {
+        let drifted = valid_windows_action_ci().replace(
+            "node --test action/install.test.mjs",
+            "node --test action/*.test.mjs",
+        );
+        let errors = windows_action_ci_errors(&drifted).join("\n");
+        assert!(errors.contains("must run exactly"), "{errors}");
+    }
+
+    #[test]
+    fn windows_action_ci_contract_rejects_missing_windows_x64_lane() {
+        let drifted = valid_windows_action_ci().replace("          - windows-2025\n", "");
+        let errors = windows_action_ci_errors(&drifted).join("\n");
+        assert!(
+            errors.contains("exact supported platform matrix"),
+            "{errors}"
+        );
+    }
+
+    #[test]
+    fn windows_action_ci_contract_rejects_missing_windows_arm64_lane() {
+        let drifted = valid_windows_action_ci().replace("          - windows-11-arm\n", "");
+        let errors = windows_action_ci_errors(&drifted).join("\n");
+        assert!(
+            errors.contains("exact supported platform matrix"),
+            "{errors}"
+        );
+    }
+
+    #[test]
+    fn windows_action_ci_contract_rejects_wrong_runs_on() {
+        let drifted =
+            valid_windows_action_ci().replace("runs-on: ${{ matrix.os }}", "runs-on: windows-2025");
+        let errors = windows_action_ci_errors(&drifted).join("\n");
+        assert!(errors.contains("must use matrix.os as runs-on"), "{errors}");
+    }
+
+    #[test]
+    fn windows_action_ci_contract_rejects_excluded_windows_lane() {
+        let drifted = valid_windows_action_ci().replace(
+            "          - windows-11-arm\n    runs-on:",
+            "          - windows-11-arm\n        exclude:\n          - os: windows-11-arm\n    runs-on:",
+        );
+        let errors = windows_action_ci_errors(&drifted).join("\n");
+        assert!(
+            errors.contains("must not exclude either supported Windows lane"),
+            "{errors}"
+        );
+    }
+
+    #[test]
+    fn windows_action_ci_contract_rejects_missing_setup() {
+        let missing_setup = r#"jobs:
+  platform-smoke:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2025
+          - windows-11-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Test GitHub Action on Windows
+        if: runner.os == 'Windows'
+        run: node --test action/install.test.mjs
+"#;
+        let errors = windows_action_ci_errors(missing_setup).join("\n");
+        assert!(
+            errors.contains("must define exactly one Set up Node.js for Windows Action tests"),
+            "{errors}"
+        );
+    }
+
+    #[test]
+    fn windows_action_ci_contract_rejects_reordered_setup() {
+        let reordered = r#"jobs:
+  platform-smoke:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2025
+          - windows-11-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Test GitHub Action on Windows
+        if: runner.os == 'Windows'
+        run: node --test action/install.test.mjs
+      - name: Set up Node.js for Windows Action tests
+        if: runner.os == 'Windows'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+"#;
+        let errors = windows_action_ci_errors(reordered).join("\n");
+        assert!(
+            errors.contains("must run before Test GitHub Action on Windows"),
+            "{errors}"
         );
     }
 

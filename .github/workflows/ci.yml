@@ -90,6 +90,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Set up Node.js for Windows Action tests
+        if: runner.os == 'Windows'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
@@ -107,3 +113,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: .\target\release\git-slop.exe version
+
+      - name: Test GitHub Action on Windows
+        if: runner.os == 'Windows'
+        run: node --test action/install.test.mjs

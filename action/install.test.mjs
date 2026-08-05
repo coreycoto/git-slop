@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, execFileSync, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -12,11 +12,16 @@ import {
 } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { materializeArchive, validateArchiveFormat } from "./install.mjs";
+import {
+  archiveTarExecutable,
+  materializeArchive,
+  validateArchiveFormat,
+  verifyCanonicalCrate,
+} from "./install.mjs";
 
 const actionDirectory = dirname(fileURLToPath(import.meta.url));
 const installer = join(actionDirectory, "install.mjs");
@@ -79,6 +84,25 @@ function runNode(script, environment) {
   });
 }
 
+function runArchiveTar(archivePath, operationArguments, trailingArguments = [], options = {}) {
+  const absoluteArchivePath = resolve(archivePath);
+  return spawnSync(
+    archiveTarExecutable(),
+    [...operationArguments, "-f", basename(absoluteArchivePath), ...trailingArguments],
+    {
+      ...options,
+      cwd: dirname(absoluteArchivePath),
+    },
+  );
+}
+
+function createArchive(archivePath, operationArguments, trailingArguments) {
+  const result = runArchiveTar(archivePath, operationArguments, trailingArguments, {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.error?.message || result.stderr);
+}
+
 test(
   "installer downloads the exact target archive and verifies its checksum and version",
   {
@@ -117,7 +141,7 @@ if (process.argv[2] === "version") {
     writeFileSync(join(stage, "LICENSE"), "MIT fixture\n", "utf8");
     writeFileSync(join(stage, "README.md"), "# Git Slop fixture\n", "utf8");
     writeFileSync(join(stage, "git-slop.1"), ".TH GIT-SLOP 1\n", "utf8");
-    execFileSync("tar", ["-C", join(root, "stage"), "-czf", archive, stageName]);
+    createArchive(archive, ["-c", "-z"], ["-C", join(root, "stage"), stageName]);
     const archiveBytes = readFileSync(archive);
     const digest = createHash("sha256").update(archiveBytes).digest("hex");
     let crateFixtureIndex = 0;
@@ -149,7 +173,7 @@ if (process.argv[2] === "version") {
         members.push("outside-package");
       }
       const cratePath = join(root, `fixture-${crateFixtureIndex}.crate`);
-      execFileSync("tar", ["-C", fixtureRoot, "-czf", cratePath, ...members]);
+      createArchive(cratePath, ["-c", "-z"], ["-C", fixtureRoot, ...members]);
       return readFileSync(cratePath);
     }
     const canonicalCrateBytes = buildCrateBytes(revision);
@@ -834,7 +858,11 @@ try {
 
       writeFileSync(join(stage, "UNEXPECTED"), "unsafe extra member\n", "utf8");
       const unsafeArchive = join(root, `unsafe-${assetName}`);
-      execFileSync("tar", ["-C", join(root, "stage"), "-czf", unsafeArchive, stageName]);
+      createArchive(
+        unsafeArchive,
+        ["-c", "-z"],
+        ["-C", join(root, "stage"), stageName],
+      );
       servedArchiveBytes = readFileSync(unsafeArchive);
       servedArchiveDigest = createHash("sha256").update(servedArchiveBytes).digest("hex");
       refreshMetadata();
@@ -893,6 +921,37 @@ try {
   },
 );
 
+test("canonical crates.io packages support absolute archive paths", () => {
+  const root = mkdtempSync(join(tmpdir(), "git-slop-canonical-crate-test-"));
+  const version = "0.9.0";
+  const revision = "a".repeat(40);
+  const rootName = `git-slop-${version}`;
+  const packageRoot = join(root, rootName);
+  mkdirSync(join(packageRoot, "src"), { recursive: true });
+  writeFileSync(
+    join(packageRoot, "Cargo.toml"),
+    `[package]\nname = "git-slop"\nversion = "${version}"\n`,
+    "utf8",
+  );
+  writeFileSync(join(packageRoot, "src", "main.rs"), "fn main() {}\n", "utf8");
+  writeFileSync(
+    join(packageRoot, ".cargo_vcs_info.json"),
+    `${JSON.stringify({ git: { sha1: revision }, path_in_vcs: "" })}\n`,
+    "utf8",
+  );
+
+  const archive = join(root, `${rootName}.crate`);
+  assert.equal(isAbsolute(archive), true);
+  if (process.platform === "win32") {
+    assert.match(archive, /^[A-Za-z]:[\\/]/u);
+  }
+  createArchive(archive, ["-c", "-z"], ["-C", root, rootName]);
+  const bytes = readFileSync(archive);
+  const digest = createHash("sha256").update(bytes).digest("hex");
+
+  assert.equal(verifyCanonicalCrate(archive, bytes, version, digest, revision), digest);
+});
+
 test("Windows ZIP archives use the exact safe layout when the host tar supports ZIP", (context) => {
   const root = mkdtempSync(join(tmpdir(), "git-slop-windows-zip-test-"));
   const rootName = "git-slop-v0.9.0-x86_64-pc-windows-msvc";
@@ -909,6 +968,9 @@ test("Windows ZIP archives use the exact safe layout when the host tar supports 
     writeFileSync(join(stage, name), contents, "utf8");
   }
   const archive = join(root, `${rootName}.zip`);
+  if (process.platform === "win32") {
+    assert.match(archive, /^[A-Za-z]:[\\/]/u);
+  }
   const archiveIsZip = () => {
     if (!existsSync(archive)) {
       return false;
@@ -920,7 +982,7 @@ test("Windows ZIP archives use the exact safe layout when the host tar supports 
       return false;
     }
   };
-  let zipped = spawnSync("tar", ["-a", "-cf", archive, "-C", stageParent, rootName], {
+  let zipped = runArchiveTar(archive, ["-a", "-c"], ["-C", stageParent, rootName], {
     encoding: "utf8",
   });
   if ((zipped.status !== 0 || !archiveIsZip()) && process.platform !== "win32") {
@@ -931,12 +993,18 @@ test("Windows ZIP archives use the exact safe layout when the host tar supports 
     });
   }
   if (zipped.status !== 0 || !archiveIsZip()) {
+    if (process.platform === "win32") {
+      assert.fail(`Windows built-in tar.exe could not create the ZIP archive: ${zipped.stderr}`);
+    }
     context.skip(`ZIP creation is unavailable: ${zipped.stderr}`);
     return;
   }
   validateArchiveFormat(readFileSync(archive), "zip");
-  const inventory = spawnSync("tar", ["-tf", archive], { encoding: "utf8" });
+  const inventory = runArchiveTar(archive, ["-t"], [], { encoding: "utf8" });
   if (inventory.status !== 0) {
+    if (process.platform === "win32") {
+      assert.fail(`Windows built-in tar.exe could not inspect the ZIP archive: ${inventory.stderr}`);
+    }
     context.skip("the host tar does not support ZIP archives");
     return;
   }

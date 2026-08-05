@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -330,8 +330,26 @@ function validateArchiveFormat(bytes, archive) {
   throw new Error(`unsupported release archive format ${archive}`);
 }
 
+function archiveTarExecutable() {
+  if (process.platform !== "win32") {
+    return "tar";
+  }
+
+  const systemRoot =
+    (process.env.SystemRoot || "").trim() || (process.env.WINDIR || "").trim();
+  if (!systemRoot || !isAbsolute(systemRoot)) {
+    throw new Error("Windows SystemRoot must be an absolute path");
+  }
+  const executable = join(systemRoot, "System32", "tar.exe");
+  if (!existsSync(executable)) {
+    throw new Error(`Windows built-in tar.exe is unavailable at ${executable}`);
+  }
+  return executable;
+}
+
 function runTar(args, options = {}) {
-  const result = spawnSync("tar", args, {
+  const result = spawnSync(archiveTarExecutable(), args, {
+    cwd: options.cwd,
     encoding: Object.hasOwn(options, "encoding") ? options.encoding : "utf8",
     maxBuffer: options.maxBuffer ?? maximumInventoryBytes,
     stdio: ["ignore", "pipe", "pipe"],
@@ -346,6 +364,17 @@ function runTar(args, options = {}) {
     throw new Error(`archive inspection failed: ${stderr.trim()}`);
   }
   return result.stdout;
+}
+
+function runArchiveTar(archivePath, operationArguments, memberArguments = [], options = {}) {
+  const absoluteArchivePath = resolve(archivePath);
+  return runTar(
+    [...operationArguments, "-f", basename(absoluteArchivePath), ...memberArguments],
+    {
+      ...options,
+      cwd: dirname(absoluteArchivePath),
+    },
+  );
 }
 
 function validateArchiveMember(member, rootName) {
@@ -368,7 +397,7 @@ function validateArchiveMember(member, rootName) {
 }
 
 function validateCrateInventory(archivePath, rootName) {
-  const inventoryText = runTar(["-tf", archivePath]);
+  const inventoryText = runArchiveTar(archivePath, ["-t"]);
   const inventory = inventoryText.split(/\r?\n/u).filter(Boolean);
   if (inventory.length === 0 || inventory.length > 4096) {
     throw new Error("canonical crates.io package has an invalid archive inventory size");
@@ -394,10 +423,15 @@ function validateCrateInventory(archivePath, rootName) {
 
 function verifyCrateVcsMetadata(archivePath, rootName, revision) {
   const member = `${rootName}/.cargo_vcs_info.json`;
-  const bytes = runTar(["-xOf", archivePath, member], {
-    encoding: null,
-    maxBuffer: maximumCrateMetadataBytes,
-  });
+  const bytes = runArchiveTar(
+    archivePath,
+    ["-xO"],
+    [member],
+    {
+      encoding: null,
+      maxBuffer: maximumCrateMetadataBytes,
+    },
+  );
   if (
     !Buffer.isBuffer(bytes) ||
     bytes.length === 0 ||
@@ -504,7 +538,7 @@ function materializeArchive(archivePath, installRoot, rootName, executableName) 
   const rootMember = `${rootName}/`;
   const expectedFileMembers = expectedFiles.map((name) => `${rootName}/${name}`);
   const allowedMembers = new Set([rootMember, ...expectedFileMembers]);
-  const inventoryText = runTar(["-tf", archivePath]);
+  const inventoryText = runArchiveTar(archivePath, ["-t"]);
   const inventory = inventoryText.split(/\r?\n/u).filter(Boolean);
   const actualMembers = new Set();
   for (const member of inventory) {
@@ -526,10 +560,15 @@ function materializeArchive(archivePath, installRoot, rootName, executableName) 
   for (const name of expectedFiles) {
     const member = `${rootName}/${name}`;
     const maximumBytes = name === executableName ? maximumArchiveBytes : 4 * 1024 * 1024;
-    const bytes = runTar(["-xOf", archivePath, member], {
-      encoding: null,
-      maxBuffer: maximumBytes,
-    });
+    const bytes = runArchiveTar(
+      archivePath,
+      ["-xO"],
+      [member],
+      {
+        encoding: null,
+        maxBuffer: maximumBytes,
+      },
+    );
     if (!Buffer.isBuffer(bytes) || bytes.length === 0 || bytes.length > maximumBytes) {
       throw new Error(`archive member ${member} has an invalid size`);
     }
@@ -938,6 +977,7 @@ async function main() {
 }
 
 export {
+  archiveTarExecutable,
   exactTagRevision,
   main,
   materializeArchive,
