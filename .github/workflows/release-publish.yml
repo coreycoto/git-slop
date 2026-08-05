@@ -893,7 +893,8 @@ jobs:
             target: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: read
+      # GitHub limits draft release visibility to tokens with push-level access.
+      contents: write
     env:
       VERSION: ${{ needs.publish-crate.outputs.version }}
       REVISION: ${{ needs.publish-crate.outputs.revision }}

@@ -818,6 +818,14 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             &["publish-crate", "draft-release"],
             errors,
         );
+        require_exact_job_permission(
+            draft_action_smoke,
+            name,
+            "draft-action-smoke",
+            "contents",
+            "write",
+            errors,
+        );
         validate_target_matrix(
             draft_action_smoke,
             name,
@@ -861,15 +869,33 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
                 "{name} draft Action smoke must checkout the verified Action control revision."
             ));
         }
-        if named_step(
+        let installer = named_step(
             draft_action_smoke,
             "Install and verify the draft release through the public Action installer",
-        )
-        .and_then(|step| step_env(step, "GIT_SLOP_RELEASE_ID"))
+        );
+        if installer.and_then(|step| step_env(step, "GIT_SLOP_RELEASE_ID"))
             != Some("${{ needs.draft-release.outputs.release-id }}")
         {
             errors.push(format!(
                 "{name} draft Action smoke must use the exact resolved numeric release ID."
+            ));
+        }
+        if workflow_or_job_env_contains(payload, "GIT_SLOP_GITHUB_TOKEN") {
+            errors.push(format!(
+                "{name} must not expose GIT_SLOP_GITHUB_TOKEN at workflow or job scope."
+            ));
+        }
+        if yaml_string_occurrences(draft_action_smoke, "${{ github.token }}") != 1
+            || installer.and_then(|step| step_env(step, "GIT_SLOP_GITHUB_TOKEN"))
+                != Some("${{ github.token }}")
+            || steps(draft_action_smoke)
+                .into_iter()
+                .filter(|step| env_has_key(step, "GIT_SLOP_GITHUB_TOKEN"))
+                .count()
+                != 1
+        {
+            errors.push(format!(
+                "{name} draft Action smoke must explicitly expose GIT_SLOP_GITHUB_TOKEN only to the installer step using github.token."
             ));
         }
     }
@@ -928,7 +954,7 @@ fn validate_publish_token_scope(payload: &YamlValue, errors: &mut Vec<String>) {
             "{name} must not expose CARGO_REGISTRY_TOKEN at workflow or job scope."
         ));
     }
-    if yaml_scalar_occurrences(payload, token) != 1 {
+    if yaml_string_occurrences(payload, token) != 1 {
         errors.push(format!(
             "{name} must reference the Cargo registry secret exactly once."
         ));
@@ -1243,7 +1269,7 @@ fn validate_homebrew_token_scope(payload: &YamlValue, errors: &mut Vec<String>) 
             "{name} must not expose HOMEBREW_TAP_DISPATCH_TOKEN at workflow or job scope."
         ));
     }
-    if yaml_scalar_occurrences(payload, token) != 1 {
+    if yaml_string_occurrences(payload, token) != 1 {
         errors.push(format!(
             "{name} must reference the Homebrew dispatch secret exactly once."
         ));
@@ -1362,16 +1388,16 @@ fn workflow_or_job_env_contains_value(payload: &YamlValue, expected: &str) -> bo
             .is_some_and(|jobs| jobs.values().any(contains))
 }
 
-fn yaml_scalar_occurrences(value: &YamlValue, expected: &str) -> usize {
+fn yaml_string_occurrences(value: &YamlValue, expected: &str) -> usize {
     match value {
-        YamlValue::String(value) => usize::from(value == expected),
+        YamlValue::String(value) => value.matches(expected).count(),
         YamlValue::Sequence(values) => values
             .iter()
-            .map(|value| yaml_scalar_occurrences(value, expected))
+            .map(|value| yaml_string_occurrences(value, expected))
             .sum(),
         YamlValue::Mapping(values) => values
             .values()
-            .map(|value| yaml_scalar_occurrences(value, expected))
+            .map(|value| yaml_string_occurrences(value, expected))
             .sum(),
         _ => 0,
     }
@@ -1497,6 +1523,29 @@ fn require_environment(
     if job.get("environment").and_then(YamlValue::as_str) != Some(expected) {
         errors.push(format!(
             "{name} {job_name} must use the protected {expected} environment."
+        ));
+    }
+}
+
+fn require_exact_job_permission(
+    job: &YamlValue,
+    name: &str,
+    job_name: &str,
+    permission: &str,
+    expected: &str,
+    errors: &mut Vec<String>,
+) {
+    let Some(permissions) = job.get("permissions").and_then(YamlValue::as_mapping) else {
+        errors.push(format!(
+            "{name} {job_name} must grant only {permission}: {expected}."
+        ));
+        return;
+    };
+    if permissions.len() != 1
+        || permissions.get(permission).and_then(YamlValue::as_str) != Some(expected)
+    {
+        errors.push(format!(
+            "{name} {job_name} must grant only {permission}: {expected}."
         ));
     }
 }
@@ -2020,6 +2069,54 @@ mod tests {
                     1,
                 ),
                 "ACTION_INSTALLER",
+            ),
+            (
+                valid.replacen(
+                    "      contents: write\n    env:\n      VERSION: ${{ needs.publish-crate.outputs.version }}\n      REVISION: ${{ needs.publish-crate.outputs.revision }}",
+                    "      contents: read\n    env:\n      VERSION: ${{ needs.publish-crate.outputs.version }}\n      REVISION: ${{ needs.publish-crate.outputs.revision }}",
+                    1,
+                ),
+                "draft-action-smoke must grant only contents: write",
+            ),
+            (
+                valid.replacen(
+                    "      contents: write\n    env:\n      VERSION: ${{ needs.publish-crate.outputs.version }}\n      REVISION: ${{ needs.publish-crate.outputs.revision }}",
+                    "      contents: write\n      issues: write\n    env:\n      VERSION: ${{ needs.publish-crate.outputs.version }}\n      REVISION: ${{ needs.publish-crate.outputs.revision }}",
+                    1,
+                ),
+                "draft-action-smoke must grant only contents: write",
+            ),
+            (
+                valid.replacen(
+                    "          GIT_SLOP_RELEASE_REPOSITORY: ${{ github.repository }}\n          GIT_SLOP_GITHUB_TOKEN: ${{ github.token }}\n          GIT_SLOP_ALLOW_DRAFT_RELEASE: \"true\"\n          GIT_SLOP_RELEASE_ID: ${{ needs.draft-release.outputs.release-id }}",
+                    "          GIT_SLOP_RELEASE_REPOSITORY: ${{ github.repository }}\n          GIT_SLOP_GITHUB_TOKEN: untrusted\n          GIT_SLOP_ALLOW_DRAFT_RELEASE: \"true\"\n          GIT_SLOP_RELEASE_ID: ${{ needs.draft-release.outputs.release-id }}",
+                    1,
+                ),
+                "explicitly expose GIT_SLOP_GITHUB_TOKEN only to the installer step using github.token",
+            ),
+            (
+                valid.replacen(
+                    "          node action/install.mjs",
+                    "          node action/install.mjs\n          printf '%s' \"${{ github.token }}\" >/dev/null",
+                    1,
+                ),
+                "explicitly expose GIT_SLOP_GITHUB_TOKEN only to the installer step using github.token",
+            ),
+            (
+                valid.replacen(
+                    "env:\n  CARGO_TERM_COLOR: always",
+                    "env:\n  CARGO_TERM_COLOR: always\n  GIT_SLOP_GITHUB_TOKEN: ${{ github.token }}",
+                    1,
+                ),
+                "must not expose GIT_SLOP_GITHUB_TOKEN at workflow or job scope",
+            ),
+            (
+                valid.replacen(
+                    "          ref: ${{ needs.publish-crate.outputs.control-revision }}\n          sparse-checkout: action\n          persist-credentials: false",
+                    "          ref: ${{ needs.publish-crate.outputs.control-revision }}\n          sparse-checkout: action\n          persist-credentials: true",
+                    1,
+                ),
+                "without persisted credentials",
             ),
         ];
         for (drifted, expected) in cases {
