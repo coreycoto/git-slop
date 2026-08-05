@@ -17,7 +17,7 @@ Use this skill when a repository should start consuming `git-slop`.
   built from and verifiably bound to the same crate.
 - Verify that the intended version exists on crates.io and on the selected
   distribution surface before pinning it. Until publication is confirmed,
-  describe `0.9.0` as pending rather than available.
+  describe that surface as pending rather than available.
 - For local use, prefer a repo wrapper such as `./scripts/git_slop.sh` and
   require the native `git-slop` executable on `PATH`, usually from Homebrew.
 - Pin the expected minimum CLI version in a repo-owned tool contract when the
@@ -50,7 +50,7 @@ Use this skill when a repository should start consuming `git-slop`.
 - Keep `git-slop` observational until the repository explicitly promotes checks
   into required gates with `policy: enforce`.
 
-Minimal CI adoption after `0.9.0` and its matching release assets are published:
+Minimal CI adoption after `0.9.1` and its matching release assets are published:
 
 ```yaml
 permissions:
@@ -60,5 +60,5 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.9.0
+  - uses: coreycoto/git-slop@v0.9.1
 ```

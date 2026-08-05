@@ -16,6 +16,10 @@ on that identity.
 - For the first publication only, store a short-lived crates.io token scoped to
   `publish-new` as the environment secret `CARGO_REGISTRY_TOKEN`. Treat it as a
   namespace-bootstrap credential, not the permanent release mechanism.
+- Until the Trusted Publishing migration in issue #69 is implemented and
+  verified, subsequent releases use a crates.io API token scoped to
+  `publish-update` for exactly the `git-slop` crate under the same environment
+  secret name. Keep it available only to the deliberate publication step.
 - Store a fine-grained GitHub token that can dispatch the receiver workflow in
   `coreycoto/homebrew-tap` as the environment secret
   `HOMEBREW_TAP_DISPATCH_TOKEN`.
@@ -32,7 +36,7 @@ scope is wrong.
 ## Prepare Main
 
 - Update `Cargo.toml`, `Cargo.lock`, the Action's default `version`, examples,
-  and release notes to the same stable version.
+  and generated release-note inputs to the same stable version.
 - Confirm there is no prerelease suffix or leading zero.
 - Confirm `action.yml` remains the only root Action metadata file and its
   Marketplace name, description, branding, inputs, and outputs are current.
@@ -145,9 +149,12 @@ The workflow is deliberately restartable without weakening immutable identity:
   of repackaging advanced `main`, re-runs all five target lanes, and enters the
   same protected `release` environment before any missing tag is pushed. The
   Cargo publication step and its secret are unreachable in recovery mode. The
-  historical release revision remains the source of every artifact; only
-  draft-release discovery and smoke verification use the current trusted
-  control revision so repaired release tooling can resume an immutable release.
+  historical release revision remains the source of every artifact and of the
+  composite Action that Marketplace consumers receive. Draft discovery, asset
+  repair, and an initial installer verification may use current trusted control
+  tooling, but terminal Marketplace readiness requires the exact historical tag
+  to pass the full five-platform composite-Action smoke. If that tagged Action
+  cannot pass, recovery stops instead of masking it with newer control code.
 - A missing tag is created only after the registry package has been reverified.
   An existing tag must already resolve to the supplied revision; the workflow
   never moves or deletes it. A missing/yanked package, a revision no longer
@@ -255,11 +262,14 @@ coreycoto/tap/git-slop`.
 - Confirm `cargo install git-slop --version <version> --locked` succeeds.
 - Confirm the GitHub Release, Marketplace listing, crates.io version, Homebrew
   Formula, executable version, and full source revision all agree.
-- After the first package establishes the crates.io namespace, configure a
-  crates.io Trusted Publisher for `coreycoto/git-slop`, the exact release
-  workflow, and the protected `release` environment. Update the publish job to
-  the reviewed OIDC contract and verify it before removing the bootstrap path.
-- Revoke the one-time `publish-new` token and remove
-  `CARGO_REGISTRY_TOKEN` after Trusted Publishing is configured and verified.
+- [Issue #69](https://github.com/coreycoto/git-slop/issues/69) tracks
+  configuring a crates.io Trusted Publisher for
+  `coreycoto/git-slop`, the exact release workflow, and the protected `release`
+  environment. That migration updates the publish job to the reviewed OIDC
+  contract and proves one token-free release before removing the API-token
+  path; an open migration issue does not weaken or bypass the current protected
+  token-backed release contract.
+- Revoke the crates.io API token and remove `CARGO_REGISTRY_TOKEN` only after
+  Trusted Publishing is configured and verified.
   Keep the existing Homebrew dispatch token on its normal rotation schedule;
   rotate it immediately only if its value or scope was exposed.

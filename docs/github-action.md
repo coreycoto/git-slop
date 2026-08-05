@@ -14,9 +14,9 @@ token, applies a 16 MiB download bound, checks its SHA-256 against the manifest,
 and verifies the package's embedded clean VCS revision. Native archives and
 their manifest entries are each limited to 128 MiB.
 
-The `v0.9.0` examples below describe the upcoming release. They resolve only
-after its verified draft is published; the presence of this documentation does
-not mean 0.9.0 is already available in GitHub Marketplace.
+The examples below pin `v0.9.1`. Use them only after its verified GitHub
+Release is public and the Marketplace listing resolves; a source tag or
+documentation on `main` is not an availability proof.
 
 ## Recommended Workflow
 
@@ -49,7 +49,7 @@ jobs:
 
       - name: Analyze repository health
         id: git-slop
-        uses: coreycoto/git-slop@v0.9.0
+        uses: coreycoto/git-slop@v0.9.1
 ```
 
 The default is advisory:
@@ -117,7 +117,7 @@ publishes the report and job summary before it evaluates the gate:
 
 ```yaml
       - name: Analyze and enforce repository health
-        uses: coreycoto/git-slop@v0.9.0
+        uses: coreycoto/git-slop@v0.9.1
         with:
           policy: enforce
 ```
@@ -175,7 +175,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.9.0
+  - uses: coreycoto/git-slop@v0.9.1
     with:
       pr-comment: "true"
 ```
@@ -188,7 +188,7 @@ report remains in the job summary and artifact.
 
 | Input | Default | Purpose |
 | --- | --- | --- |
-| `version` | `0.9.0` | Prebuilt release version to download and verify |
+| `version` | `0.9.1` | Prebuilt release version to download and verify |
 | `release-repository` | `coreycoto/git-slop` | Repository containing release assets |
 | `working-directory` | `.` | Directory inside the Git worktree to analyze at its top level |
 | `policy` | `advisory` | `advisory` or `enforce` |
@@ -217,7 +217,7 @@ The Action will be published from this repository's verified stable GitHub
 Release under the **Code quality** and **Continuous integration** categories.
 That first listing requires a maintainer to select GitHub's Marketplace checkbox
 in the draft-release UI, confirm the categories and agreement, and complete
-2FA. Marketplace and direct `uses: coreycoto/git-slop@v0.9.0` installation then
+2FA. Marketplace and direct `uses: coreycoto/git-slop@v0.9.1` installation then
 resolve the same root `action.yml` and release provenance. For
 higher-assurance consumers, pin the Action itself to the full release commit
 SHA; the Action's own nested dependencies are already pinned to full commit

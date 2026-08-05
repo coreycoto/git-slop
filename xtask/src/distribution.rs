@@ -79,6 +79,7 @@ fn validate_version_alignment(repo_root: &Path, errors: &mut Vec<String>) {
     validate_lock_version(repo_root, &version, errors);
     validate_action_default(repo_root, &version, errors);
     validate_installer_fallback(repo_root, &version, errors);
+    validate_release_workflow_default(repo_root, &version, errors);
     for (relative, markers) in [
         (
             "README.md",
@@ -91,6 +92,14 @@ fn validate_version_alignment(repo_root: &Path, errors: &mut Vec<String>) {
         (
             "docs/install.md",
             &["release=v", "cargo install git-slop --version "][..],
+        ),
+        (
+            "plugins/git-slop/skills/adopt-repo/SKILL.md",
+            &["Minimal CI adoption after `", "uses: coreycoto/git-slop@v"][..],
+        ),
+        (
+            "xtask/README.md",
+            &["release-prepare --version ", "--tag v"][..],
         ),
         ("man/git-slop.1", &["\"git-slop "][..]),
     ] {
@@ -181,6 +190,37 @@ fn validate_installer_fallback(repo_root: &Path, version: &str, errors: &mut Vec
     if fallback != Some(version) {
         errors.push(format!(
             "{relative} release fallback must equal Cargo.toml version {version}."
+        ));
+    }
+}
+
+fn validate_release_workflow_default(repo_root: &Path, version: &str, errors: &mut Vec<String>) {
+    let relative = ".github/workflows/release-publish.yml";
+    let path = repo_root.join(relative);
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            errors.push(format!("Unable to read {relative}: {error}"));
+            return;
+        }
+    };
+    let payload = match serde_yaml::from_str::<YamlValue>(&text) {
+        Ok(payload) => payload,
+        Err(error) => {
+            errors.push(format!("Unable to parse {relative}: {error}"));
+            return;
+        }
+    };
+    let release_version = payload
+        .get("on")
+        .and_then(|trigger| trigger.get("workflow_dispatch"))
+        .and_then(|dispatch| dispatch.get("inputs"))
+        .and_then(|inputs| inputs.get("version"))
+        .and_then(|input| input.get("default"))
+        .and_then(YamlValue::as_str);
+    if release_version != Some(version) {
+        errors.push(format!(
+            "{relative} workflow_dispatch.inputs.version.default must equal Cargo.toml version {version}."
         ));
     }
 }
@@ -303,6 +343,9 @@ mod tests {
         fs::create_dir_all(root.join("action")).unwrap();
         fs::create_dir_all(root.join("docs")).unwrap();
         fs::create_dir_all(root.join("man")).unwrap();
+        fs::create_dir_all(root.join(".github/workflows")).unwrap();
+        fs::create_dir_all(root.join("plugins/git-slop/skills/adopt-repo")).unwrap();
+        fs::create_dir_all(root.join("xtask")).unwrap();
         fs::write(
             root.join("Cargo.toml"),
             "[package]\nname = \"git-slop\"\nversion = \"0.9.0\"\n",
@@ -324,6 +367,11 @@ mod tests {
         )
         .unwrap();
         fs::write(
+            root.join(".github/workflows/release-publish.yml"),
+            "on:\n  workflow_dispatch:\n    inputs:\n      version:\n        default: \"0.9.0\"\n",
+        )
+        .unwrap();
+        fs::write(
             root.join("README.md"),
             "uses: coreycoto/git-slop@v0.9.0\ncargo install git-slop --version 0.9.0\n",
         )
@@ -336,6 +384,16 @@ mod tests {
         fs::write(
             root.join("docs/install.md"),
             "release=v0.9.0\ncargo install git-slop --version 0.9.0\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("plugins/git-slop/skills/adopt-repo/SKILL.md"),
+            "Minimal CI adoption after `0.9.0` is published:\nuses: coreycoto/git-slop@v0.9.0\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("xtask/README.md"),
+            "cargo xtask release-prepare --version 0.9.0\ncargo xtask release-manifest --tag v0.9.0\n",
         )
         .unwrap();
         fs::write(
@@ -375,8 +433,24 @@ mod tests {
         )
         .unwrap();
         fs::write(
+            temp.path().join(".github/workflows/release-publish.yml"),
+            "on:\n  workflow_dispatch:\n    inputs:\n      version:\n        default: \"0.9.1\"\n",
+        )
+        .unwrap();
+        fs::write(
             temp.path().join("docs/install.md"),
             "release=v0.9.1\ncargo install git-slop --version 0.9.1\n",
+        )
+        .unwrap();
+        fs::write(
+            temp.path()
+                .join("plugins/git-slop/skills/adopt-repo/SKILL.md"),
+            "Minimal CI adoption after `0.9.1` is published:\nuses: coreycoto/git-slop@v0.9.1\n",
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("xtask/README.md"),
+            "cargo xtask release-prepare --version 0.9.1\ncargo xtask release-manifest --tag v0.9.1\n",
         )
         .unwrap();
 
@@ -387,7 +461,10 @@ mod tests {
             "Cargo.lock",
             "action.yml",
             "action/install.mjs",
+            ".github/workflows/release-publish.yml",
             "docs/install.md",
+            "plugins/git-slop/skills/adopt-repo/SKILL.md",
+            "xtask/README.md",
         ] {
             assert!(
                 rendered.contains(expected),

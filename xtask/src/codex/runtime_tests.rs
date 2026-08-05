@@ -468,7 +468,7 @@ fn public_release_workflows_reject_private_runtime_surfaces() {
 cargo publish -p git-slop --locked --no-verify
 cargo xtask verify-crate
 verified-registry-crate
-gh release create "$TAG" --draft
+gh release create "$TAG" --draft --generate-notes --title "$TAG" --verify-tag
 marketplace-ready:
 published-release relay
 "#,

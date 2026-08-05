@@ -18,10 +18,9 @@ published and verified:
 - The GitHub Action requires the crates.io package, matching GitHub Release
   archives and manifest, and the immutable Action tag.
 
-Until those surfaces exist, describe `0.9.0` as prepared or pending. Do not tell
-users that `cargo install git-slop --version 0.9.0`,
-`brew upgrade coreycoto/tap/git-slop`, or `coreycoto/git-slop@v0.9.0` is
-available without verifying the corresponding publication.
+Do not infer availability from a source tag, documentation, or another
+distribution surface. Verify the exact crates.io version, tap Formula, or
+public GitHub Release before recommending its corresponding install command.
 
 ## Distribution Contract
 

@@ -20,14 +20,13 @@ JSON/YAML plus detailed `summary.md` and CI-oriented `health.md`. Stable costs
 drive the existing `check` gate; overlays and health rollups remain additive
 evidence.
 
-For the `0.9.0` distribution contract, the published crates.io package is the
+For the stable distribution contract, the published crates.io package is the
 canonical source identity. The Homebrew Formula installs that exact crate, with
 bottles serving only as faster transport, while the public Action installs
 prebuilt GitHub Release archives verifiably bound to the same crate and source
-revision. Until the crates.io package, matching release assets, and tap update
-are each actually published, describe availability only for the verified
-surface and keep the remaining `0.9.0` paths pending. Verify a published binary
-with `git-slop build-info --format json`.
+revision. Describe availability only for distribution surfaces that have been
+published and verified. Verify a published binary with
+`git-slop build-info --format json`.
 
 Product guidance should treat `.slop/latest/`, `.slop/runs/`, `.slop/cache/`,
 prompt packs, SARIF exports, plan JSON, and compare JSON as generated artifacts
