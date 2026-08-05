@@ -163,11 +163,17 @@ if (process.argv[2] === "version") {
     let crateAuthorizationObserved = null;
     let crateContentLengthOverride = null;
     const draftReleaseId = 365216485;
+    const draftReleaseSlug = "untagged-b4f6c1a2d3e4";
+    const publishedDownloadBase =
+      `https://github.com/example/git-slop/releases/download/${tag}`;
+    const draftDownloadBase =
+      `https://github.com/example/git-slop/releases/download/${draftReleaseSlug}`;
     let servedReleaseId = draftReleaseId;
     let releaseTagRequests = 0;
     let releaseIdRequests = 0;
     let releaseDraft = false;
     let releaseTagName = tag;
+    let releaseAssetDownloadBaseOverride = null;
     let servedTagRevision = revision;
     let tagReferenceType = "commit";
     let tagReferenceName = `refs/tags/${tag}`;
@@ -248,6 +254,9 @@ if (process.argv[2] === "version") {
     }
 
     function buildReleaseAssets() {
+      const browserDownloadBase =
+        releaseAssetDownloadBaseOverride ??
+        (releaseDraft ? draftDownloadBase : publishedDownloadBase);
       const artifacts = buildArtifacts().map((artifact) => ({
         name: artifact.name,
         size: artifact.size_bytes,
@@ -256,7 +265,7 @@ if (process.argv[2] === "version") {
           artifact.target === target
             ? `${apiRoot}/assets/archive`
             : `${apiRoot}/assets/${encodeURIComponent(artifact.name)}`,
-        browser_download_url: artifact.url,
+        browser_download_url: `${browserDownloadBase}/${artifact.name}`,
       }));
       const metadataAssets = [
         {
@@ -279,7 +288,7 @@ if (process.argv[2] === "version") {
         size: bytes.length,
         digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
         url,
-        browser_download_url: `https://github.com/example/git-slop/releases/download/${tag}/${name}`,
+        browser_download_url: `${browserDownloadBase}/${name}`,
       }));
       const assets = [...artifacts, ...metadataAssets];
       if (assetMutator) {
@@ -305,6 +314,9 @@ if (process.argv[2] === "version") {
             draft: releaseDraft,
             prerelease: false,
             published_at: releaseDraft ? null : "2026-08-04T18:00:00Z",
+            html_url: `https://github.com/example/git-slop/releases/tag/${
+              releaseDraft ? draftReleaseSlug : tag
+            }`,
             assets: buildReleaseAssets(),
           }),
         );
@@ -318,6 +330,9 @@ if (process.argv[2] === "version") {
             draft: releaseDraft,
             prerelease: false,
             published_at: releaseDraft ? null : "2026-08-04T18:00:00Z",
+            html_url: `https://github.com/example/git-slop/releases/tag/${
+              releaseDraft ? draftReleaseSlug : tag
+            }`,
             assets: buildReleaseAssets(),
           }),
         );
@@ -418,6 +433,7 @@ try {
       assert.equal(actual.version, version);
       assert.equal(actual.target, target);
       assert.equal(actual.asset, assetName);
+      assert.equal(actual["asset-url"], `${publishedDownloadBase}/${assetName}`);
       assert.equal(actual.sha256, digest);
       assert.equal(actual["source-revision"], revision);
       assert.equal(actual["crate-sha256"], crateSha256);
@@ -450,8 +466,10 @@ try {
       assert.equal(rejectedDraftWithoutId.status, 1);
       assert.match(rejectedDraftWithoutId.stderr, /requires an exact release ID/u);
 
+      const draftOutput = join(root, "github-draft-output.txt");
       const acceptedDraft = await runInstaller({
         GITHUB_API_URL: apiRoot,
+        GITHUB_OUTPUT: draftOutput,
         GITHUB_REPOSITORY: "example/git-slop",
         GIT_SLOP_ACTION_VERSION: version,
         GIT_SLOP_GITHUB_TOKEN: "github-test-token",
@@ -461,7 +479,39 @@ try {
         RUNNER_TEMP: root,
       });
       assert.equal(acceptedDraft.status, 0, acceptedDraft.stderr);
+      assert.equal(outputs(draftOutput)["asset-url"], `${draftDownloadBase}/${assetName}`);
       assert.equal(releaseIdRequests, 1);
+
+      const invalidDraftAssetDownloadBases = [
+        [
+          "slug",
+          "https://github.com/example/git-slop/releases/download/untagged-e5d4c3b2a1f0",
+        ],
+        [
+          "repository",
+          `https://github.com/example/not-git-slop/releases/download/${draftReleaseSlug}`,
+        ],
+        [
+          "path",
+          `https://github.com/example/git-slop/releases/assets/${draftReleaseSlug}`,
+        ],
+      ];
+      for (const [label, downloadBase] of invalidDraftAssetDownloadBases) {
+        releaseAssetDownloadBaseOverride = downloadBase;
+        const invalidDraftAssetUrl = await runInstaller({
+          GITHUB_API_URL: apiRoot,
+          GITHUB_REPOSITORY: "example/git-slop",
+          GIT_SLOP_ACTION_VERSION: version,
+          GIT_SLOP_GITHUB_TOKEN: "github-test-token",
+          GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
+          GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
+          GIT_SLOP_RELEASE_ID: String(draftReleaseId),
+          RUNNER_TEMP: root,
+        });
+        assert.equal(invalidDraftAssetUrl.status, 1, `${label}: ${invalidDraftAssetUrl.stderr}`);
+        assert.match(invalidDraftAssetUrl.stderr, /invalid metadata for asset/u);
+      }
+      releaseAssetDownloadBaseOverride = null;
 
       const rejectedMalformedDraftId = await runInstaller({
         GITHUB_API_URL: apiRoot,
@@ -533,6 +583,17 @@ try {
       assert.match(rejectedConsumerDraft.stderr, /restricted to authenticated same-repository/u);
 
       releaseDraft = false;
+      releaseAssetDownloadBaseOverride = draftDownloadBase;
+      const rejectedPublishedDraftAssetUrl = await runInstaller({
+        GITHUB_API_URL: apiRoot,
+        GIT_SLOP_ACTION_VERSION: version,
+        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
+        RUNNER_TEMP: root,
+      });
+      assert.equal(rejectedPublishedDraftAssetUrl.status, 1);
+      assert.match(rejectedPublishedDraftAssetUrl.stderr, /invalid metadata for asset/u);
+      releaseAssetDownloadBaseOverride = null;
+
       releaseTagName = "v0.9.1";
       const rejectedTagMetadata = await runInstaller({
         GITHUB_API_URL: apiRoot,

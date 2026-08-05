@@ -249,6 +249,26 @@ function releaseAssetSizeLimit(name, tag) {
   throw new Error(`unexpected release asset ${name}`);
 }
 
+function releaseDownloadBase(release, releaseRepository, tag) {
+  const releasesBase = `https://github.com/${releaseRepository}/releases`;
+  if (release.draft !== true) {
+    return `${releasesBase}/download/${tag}`;
+  }
+
+  const draftPagePrefix = `${releasesBase}/tag/`;
+  if (
+    typeof release.html_url !== "string" ||
+    !release.html_url.startsWith(draftPagePrefix)
+  ) {
+    throw new Error(`release ${tag} contains invalid draft URL metadata`);
+  }
+  const draftSlug = release.html_url.slice(draftPagePrefix.length);
+  if (!/^untagged-[A-Za-z0-9]+$/u.test(draftSlug)) {
+    throw new Error(`release ${tag} contains invalid draft URL metadata`);
+  }
+  return `${releasesBase}/download/${draftSlug}`;
+}
+
 function exactReleaseAssets(release, releaseRepository, tag) {
   const expectedNames = new Set([
     ...Object.keys(supportedTargets).map((target) => archiveAssetName(tag, target)),
@@ -259,6 +279,7 @@ function exactReleaseAssets(release, releaseRepository, tag) {
   if (!Array.isArray(release.assets) || release.assets.length !== expectedNames.size) {
     throw new Error(`release ${tag} must contain exactly eight distribution assets`);
   }
+  const downloadBase = releaseDownloadBase(release, releaseRepository, tag);
   const assets = new Map();
   for (const asset of release.assets) {
     if (asset === null || typeof asset !== "object" || Array.isArray(asset)) {
@@ -278,8 +299,7 @@ function exactReleaseAssets(release, releaseRepository, tag) {
       !/^sha256:[a-f0-9]{64}$/u.test(asset.digest || "") ||
       typeof asset.url !== "string" ||
       asset.url.length === 0 ||
-      asset.browser_download_url !==
-        `https://github.com/${releaseRepository}/releases/download/${tag}/${asset.name}`
+      asset.browser_download_url !== `${downloadBase}/${asset.name}`
     ) {
       throw new Error(`release ${tag} contains invalid metadata for asset ${asset.name}`);
     }
