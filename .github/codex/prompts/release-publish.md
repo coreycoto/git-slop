@@ -42,7 +42,8 @@ to GitHub Marketplace through GitHub's required web approval.
   be an older ancestor of `origin/main`. Reverify the non-yanked API/index and
   static package bytes plus embedded VCS revision, and do not invoke the Cargo
   publication step or its secret.
-- The one-time `CARGO_REGISTRY_TOKEN` is a bootstrap credential for the package
+- Until issue #69 migrates publishing to short-lived OIDC credentials,
+  `CARGO_REGISTRY_TOKEN` is the crate-scoped credential for the package
   publication step only. Do not print, persist, or pass it to notes, build,
   archive, tag, release, Action, or Homebrew operations.
 - Require the candidate `.crate`, crates.io index checksum, and downloaded

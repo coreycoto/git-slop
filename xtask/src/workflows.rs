@@ -30,6 +30,14 @@ const RELEASE_TARGETS: [&str; 5] = [
     "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-gnu",
 ];
+const RELEASE_TARGET_RUNNERS: [(&str, &str); 5] = [
+    ("macos-15", "aarch64-apple-darwin"),
+    ("windows-11-arm", "aarch64-pc-windows-msvc"),
+    ("ubuntu-22.04-arm", "aarch64-unknown-linux-gnu"),
+    ("windows-2025", "x86_64-pc-windows-msvc"),
+    ("ubuntu-22.04", "x86_64-unknown-linux-gnu"),
+];
+const RELEASE_CHECKOUT_ACTION: &str = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
 const PUBLIC_RELEASE_WORKFLOWS: [&str; 3] = [
     "release-publish.yml",
     "release-published.yml",
@@ -585,6 +593,26 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
                 "{name} draft-release must expose the exact resolved numeric release ID."
             ));
         }
+        if draft
+            .get("outputs")
+            .and_then(|outputs| outputs.get("release-manifest-sha256"))
+            .and_then(YamlValue::as_str)
+            != Some("${{ steps.release-install.outputs.release-manifest-sha256 }}")
+        {
+            errors.push(format!(
+                "{name} draft-release must expose the verified release manifest digest."
+            ));
+        }
+        if draft
+            .get("outputs")
+            .and_then(|outputs| outputs.get("asset-sha256-by-target"))
+            .and_then(YamlValue::as_str)
+            != Some("${{ steps.release-identity.outputs.asset-sha256-by-target }}")
+        {
+            errors.push(format!(
+                "{name} draft-release must expose verified archive digests by target."
+            ));
+        }
         if let Some(control_checkout) =
             named_step(draft, "Checkout current recovery control tooling")
         {
@@ -646,8 +674,7 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             errors,
         );
         for required in [
-            "gh release create \"$TAG\" --draft",
-            "gh release upload \"$TAG\"",
+            "gh release create \"$TAG\" --draft --generate-notes --title \"$TAG\" --verify-tag",
             "GIT_SLOP_ALLOW_DRAFT_RELEASE: \"true\"",
             "GIT_SLOP_RELEASE_ID:",
         ] {
@@ -658,21 +685,29 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             "--draft=false",
             "-f draft=false",
             "-F draft=false",
+            "gh release upload",
+            "gh release download",
         ] {
             forbid(text, forbidden, name, errors);
         }
         if let Some(inspect) = step_run(draft, "Inspect existing GitHub Release") {
             for required in [
-                "gh release view \"$TAG\" --repo \"$GITHUB_REPOSITORY\" --json databaseId",
-                "repos/${GITHUB_REPOSITORY}/releases/${release_id}",
+                "gh api --paginate --slurp \"repos/${GITHUB_REPOSITORY}/releases?per_page=100\"",
+                "'[.[][] | select(.tag_name == $tag)]'",
+                "match_count=\"$(jq -r 'length' release-matches.json)\"",
+                "case \"$match_count\" in",
+                "release_id=\"$(jq -er '.id | select(type == \"number\" and . > 0)' release.json)\"",
+                "Multiple GitHub Releases use exact tag ${TAG}; refusing ambiguous release mutation.",
+                "exit 1",
                 "echo \"release-id=$release_id\" >> \"$GITHUB_OUTPUT\"",
             ] {
                 require(inspect, required, name, errors);
             }
             forbid(inspect, "releases/tags/${TAG}", name, errors);
+            forbid(inspect, "gh release view", name, errors);
         } else {
             errors.push(format!(
-                "{name} draft-release must inspect the exact numeric GitHub Release ID."
+                "{name} draft-release must enumerate the exact tag and reject duplicate GitHub Releases."
             ));
         }
         if let Some(refresh) = named_step(draft, "Create or refresh verified draft release") {
@@ -683,13 +718,34 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             }
             if let Some(run) = refresh.get("run").and_then(YamlValue::as_str) {
                 for required in [
+                    "gh release create \"$TAG\" --draft --generate-notes --title \"$TAG\" --verify-tag",
+                    "for attempt in $(seq 1 10); do",
+                    "gh api --paginate --slurp \"repos/${GITHUB_REPOSITORY}/releases?per_page=100\"",
+                    "'[.[][] | select(.tag_name == $tag)]'",
+                    "match_count=\"$(jq -r 'length' release-matches.json)\"",
+                    "if test \"$match_count\" -gt 1; then",
+                    "release_id=\"$(jq -er '.[0].id | select(type == \"number\" and . > 0)' release-matches.json)\"",
+                    "Multiple GitHub Releases use exact tag ${TAG}; refusing ambiguous release mutation.",
+                    "sleep 2",
                     "repos/${GITHUB_REPOSITORY}/releases/${release_id}",
                     ".id == $release_id",
+                    "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}",
+                    "curl --fail-with-body --silent --show-error --connect-timeout 15 --max-time 300",
+                    "--request POST",
+                    "Accept: application/vnd.github+json",
+                    "Authorization: Bearer ${GH_TOKEN}",
+                    "X-GitHub-Api-Version: 2022-11-28",
+                    "Content-Type: application/octet-stream",
+                    "--data-binary \"@${asset}\"",
+                    "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?name=${asset_name}",
                     "echo \"release-id=$release_id\" >> \"$GITHUB_OUTPUT\"",
                 ] {
                     require(run, required, name, errors);
                 }
                 forbid(run, "releases/tags/${TAG}", name, errors);
+                forbid(run, "gh release upload", name, errors);
+                forbid(run, "gh release delete-asset", name, errors);
+                forbid(run, "--hostname uploads.github.com", name, errors);
             }
         } else {
             errors.push(format!(
@@ -699,12 +755,22 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
         if let Some(verify) = step_run(draft, "Verify published no-op or refreshed draft assets") {
             validate_exact_release_assets(verify, name, "${TAG}", errors);
             for required in [
-                "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}",
+                "gh api --paginate --slurp \"repos/${GITHUB_REPOSITORY}/releases?per_page=100\"",
+                "'[.[][] | select(.tag_name == $tag)]'",
+                "for attempt in $(seq 1 10); do",
+                "match_count=\"$(jq -r 'length' release-matches.json)\"",
+                "if test \"$match_count\" -gt 1; then",
+                "Multiple GitHub Releases use exact tag ${TAG}; refusing ambiguous release verification.",
+                "sleep 2",
+                "test \"$(jq -r 'length' release-matches.json)\" = 1",
+                "test \"$(jq -r '.[0].id' release-matches.json)\" = \"$RELEASE_ID\"",
+                "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}",
                 ".id == $release_id",
             ] {
                 require(verify, required, name, errors);
             }
             forbid(verify, "releases/tags/${TAG}", name, errors);
+            forbid(verify, "gh release download", name, errors);
             if named_step(draft, "Verify published no-op or refreshed draft assets")
                 .and_then(|step| step_env(step, "RELEASE_ID"))
                 != Some("${{ steps.release.outputs.release-id || steps.draft.outputs.release-id }}")
@@ -754,6 +820,11 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             ));
         }
         if let Some(assert_outputs) = named_step(draft, "Assert exact Action installer outputs") {
+            if assert_outputs.get("id").and_then(YamlValue::as_str) != Some("release-identity") {
+                errors.push(format!(
+                    "{name} draft installer assertion must use the stable release-identity step id."
+                ));
+            }
             for (key, expected) in [
                 (
                     "ACTUAL_VERSION",
@@ -795,6 +866,9 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
                         r#"test "$ACTUAL_TARGET" = "x86_64-unknown-linux-gnu""#,
                         r#"test "$ACTUAL_CRATE_SHA256" = "$EXPECTED_CRATE_SHA256""#,
                         r#"test "$ACTUAL_MANIFEST_SHA256" = "$expected_manifest_sha256""#,
+                        "reduce .artifacts[] as $artifact ({}; .[$artifact.target] = $artifact.sha256)",
+                        r#"length == 5 and all(.[]; test("^[0-9a-f]{64}$"))"#,
+                        r#"echo "asset-sha256-by-target=$asset_sha256_by_target" >> "$GITHUB_OUTPUT""#,
                     ] {
                         require(run, required, name, errors);
                     }
@@ -811,6 +885,15 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
     }
 
     if let Some(draft_action_smoke) = draft_action_smoke {
+        if draft_action_smoke.get("if").is_some()
+            || draft_action_smoke
+                .get("continue-on-error")
+                .is_some_and(|value| value.as_bool() != Some(false))
+        {
+            errors.push(format!(
+                "{name} draft-action-smoke must not be conditional or fail open."
+            ));
+        }
         require_needs(
             draft_action_smoke,
             name,
@@ -833,52 +916,131 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             false,
             errors,
         );
-        for required in [
-            "Install and verify the draft release through the public Action installer",
-            "GIT_SLOP_ALLOW_DRAFT_RELEASE: \"true\"",
-            "node action/install.mjs",
+        for step_name in [
+            "Checkout exact release Action revision",
+            "Verify exact immutable Action tag",
+            "Run exact release composite Action",
+            "Assert installed Action identity",
         ] {
-            require(text, required, name, errors);
+            if let Some(step) = named_step(draft_action_smoke, step_name)
+                && (step.get("if").is_some()
+                    || step
+                        .get("continue-on-error")
+                        .is_some_and(|value| value.as_bool() != Some(false)))
+            {
+                errors.push(format!(
+                    "{name} {step_name} must execute unconditionally and fail closed."
+                ));
+            }
         }
-        if let Some(control_checkout) = named_step(
-            draft_action_smoke,
-            "Checkout verified Action control revision",
-        ) {
-            if control_checkout
-                .get("with")
-                .and_then(|with| with.get("ref"))
+        for (key, expected) in [
+            ("VERSION", "${{ needs.publish-crate.outputs.version }}"),
+            ("TAG", "${{ needs.publish-crate.outputs.tag }}"),
+            ("REVISION", "${{ needs.publish-crate.outputs.revision }}"),
+        ] {
+            if draft_action_smoke
+                .get("env")
+                .and_then(|env| env.get(key))
                 .and_then(YamlValue::as_str)
-                != Some("${{ needs.publish-crate.outputs.control-revision }}")
-                || control_checkout
+                != Some(expected)
+            {
+                errors.push(format!(
+                    "{name} draft Action smoke must bind job environment {key} to {expected}."
+                ));
+            }
+        }
+        if let Some(release_checkout) =
+            named_step(draft_action_smoke, "Checkout exact release Action revision")
+        {
+            if release_checkout.get("uses").and_then(YamlValue::as_str)
+                != Some(RELEASE_CHECKOUT_ACTION)
+                || release_checkout
                     .get("with")
-                    .and_then(|with| with.get("sparse-checkout"))
+                    .and_then(|with| with.get("ref"))
                     .and_then(YamlValue::as_str)
-                    != Some("action")
-                || control_checkout
+                    != Some("${{ needs.publish-crate.outputs.revision }}")
+                || release_checkout
+                    .get("with")
+                    .and_then(|with| with.get("fetch-depth"))
+                    .and_then(YamlValue::as_i64)
+                    != Some(0)
+                || release_checkout
                     .get("with")
                     .and_then(|with| with.get("persist-credentials"))
                     .and_then(YamlValue::as_bool)
                     != Some(false)
             {
                 errors.push(format!(
-                    "{name} draft Action smoke must checkout the trusted workflow control revision without persisted credentials."
+                    "{name} draft Action smoke must checkout the exact release revision with tag history and without persisted credentials."
                 ));
             }
         } else {
             errors.push(format!(
-                "{name} draft Action smoke must checkout the verified Action control revision."
+                "{name} draft Action smoke must checkout the exact release Action revision."
             ));
         }
-        let installer = named_step(
-            draft_action_smoke,
-            "Install and verify the draft release through the public Action installer",
-        );
-        if installer.and_then(|step| step_env(step, "GIT_SLOP_RELEASE_ID"))
-            != Some("${{ needs.draft-release.outputs.release-id }}")
+        if let Some(verify_tag) = step_run(draft_action_smoke, "Verify exact immutable Action tag")
+        {
+            for required in [
+                "test \"$(git rev-parse HEAD)\" = \"$REVISION\"",
+                "git fetch --no-tags origin \"refs/tags/${TAG}:refs/tags/${TAG}\"",
+                "test \"$(git rev-parse \"refs/tags/${TAG}^{commit}\")\" = \"$REVISION\"",
+                "test -z \"$(git status --short)\"",
+            ] {
+                require(verify_tag, required, name, errors);
+            }
+        } else {
+            errors.push(format!(
+                "{name} draft Action smoke must verify the exact immutable Action tag."
+            ));
+        }
+        let action = named_step(draft_action_smoke, "Run exact release composite Action");
+        if action
+            .and_then(|step| step.get("id"))
+            .and_then(YamlValue::as_str)
+            != Some("git-slop")
+            || action
+                .and_then(|step| step.get("uses"))
+                .and_then(YamlValue::as_str)
+                != Some("./")
         {
             errors.push(format!(
-                "{name} draft Action smoke must use the exact resolved numeric release ID."
+                "{name} draft Action smoke must run the exact checked-out composite Action with the stable git-slop step id."
             ));
+        }
+        if let Some(action) = action {
+            for (key, expected) in [
+                ("GIT_SLOP_ALLOW_DRAFT_RELEASE", "true"),
+                (
+                    "GIT_SLOP_RELEASE_ID",
+                    "${{ needs.draft-release.outputs.release-id }}",
+                ),
+            ] {
+                if step_env(action, key) != Some(expected) {
+                    errors.push(format!(
+                        "{name} draft Action smoke must bind {key} to the exact draft release contract."
+                    ));
+                }
+            }
+            for (key, expected) in [
+                ("version", "${{ needs.publish-crate.outputs.version }}"),
+                ("release-repository", "${{ github.repository }}"),
+                ("github-token", "${{ github.token }}"),
+                ("policy", "advisory"),
+                ("annotations", "false"),
+                ("upload-artifact", "false"),
+            ] {
+                if action
+                    .get("with")
+                    .and_then(|with| with.get(key))
+                    .and_then(YamlValue::as_str)
+                    != Some(expected)
+                {
+                    errors.push(format!(
+                        "{name} draft Action smoke must bind composite Action input {key} to {expected}."
+                    ));
+                }
+            }
         }
         if workflow_or_job_env_contains(payload, "GIT_SLOP_GITHUB_TOKEN") {
             errors.push(format!(
@@ -886,21 +1048,99 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             ));
         }
         if yaml_string_occurrences(draft_action_smoke, "${{ github.token }}") != 1
-            || installer.and_then(|step| step_env(step, "GIT_SLOP_GITHUB_TOKEN"))
-                != Some("${{ github.token }}")
             || steps(draft_action_smoke)
                 .into_iter()
                 .filter(|step| env_has_key(step, "GIT_SLOP_GITHUB_TOKEN"))
                 .count()
-                != 1
+                != 0
         {
             errors.push(format!(
-                "{name} draft Action smoke must explicitly expose GIT_SLOP_GITHUB_TOKEN only to the installer step using github.token."
+                "{name} draft Action smoke must pass github.token only through the composite Action github-token input."
+            ));
+        }
+        if let Some(assert_outputs) =
+            named_step(draft_action_smoke, "Assert installed Action identity")
+        {
+            for (key, expected) in [
+                ("ACTUAL_VERSION", "${{ steps.git-slop.outputs.version }}"),
+                (
+                    "ACTUAL_REVISION",
+                    "${{ steps.git-slop.outputs.source-revision }}",
+                ),
+                ("ACTUAL_TARGET", "${{ steps.git-slop.outputs.target }}"),
+                (
+                    "ACTUAL_CRATE_SHA256",
+                    "${{ steps.git-slop.outputs.crate-sha256 }}",
+                ),
+                (
+                    "ACTUAL_MANIFEST_SHA256",
+                    "${{ steps.git-slop.outputs.release-manifest-sha256 }}",
+                ),
+                (
+                    "ACTUAL_ASSET_SHA256",
+                    "${{ steps.git-slop.outputs.asset-sha256 }}",
+                ),
+                (
+                    "ANALYSIS_EXIT_CODE",
+                    "${{ steps.git-slop.outputs.analysis-exit-code }}",
+                ),
+                (
+                    "POLICY_EXIT_CODE",
+                    "${{ steps.git-slop.outputs.policy-exit-code }}",
+                ),
+                ("STATUS", "${{ steps.git-slop.outputs.status }}"),
+                ("EXPECTED_TARGET", "${{ matrix.target }}"),
+                (
+                    "EXPECTED_CRATE_SHA256",
+                    "${{ needs.publish-crate.outputs.crate-sha256 }}",
+                ),
+                (
+                    "EXPECTED_MANIFEST_SHA256",
+                    "${{ needs.draft-release.outputs.release-manifest-sha256 }}",
+                ),
+                (
+                    "EXPECTED_ASSET_SHA256",
+                    "${{ fromJSON(needs.draft-release.outputs.asset-sha256-by-target)[matrix.target] }}",
+                ),
+            ] {
+                if step_env(assert_outputs, key) != Some(expected) {
+                    errors.push(format!(
+                        "{name} draft Action smoke must bind {key} to the exact composite Action output or release digest."
+                    ));
+                }
+            }
+            if let Some(run) = assert_outputs.get("run").and_then(YamlValue::as_str) {
+                for required in [
+                    r#"test "$ACTUAL_VERSION" = "$VERSION""#,
+                    r#"test "$ACTUAL_REVISION" = "$REVISION""#,
+                    r#"test "$ACTUAL_TARGET" = "$EXPECTED_TARGET""#,
+                    r#"test "$ACTUAL_CRATE_SHA256" = "$EXPECTED_CRATE_SHA256""#,
+                    r#"test "$ACTUAL_MANIFEST_SHA256" = "$EXPECTED_MANIFEST_SHA256""#,
+                    r#"test "$ACTUAL_ASSET_SHA256" = "$EXPECTED_ASSET_SHA256""#,
+                    r#"test "$ANALYSIS_EXIT_CODE" = 0"#,
+                    r#"test "$POLICY_EXIT_CODE" = 0"#,
+                    r#"test "$STATUS" = advisory"#,
+                ] {
+                    require(run, required, name, errors);
+                }
+            }
+        } else {
+            errors.push(format!(
+                "{name} draft Action smoke must assert the installed composite Action identity and result."
             ));
         }
     }
 
     if let Some(marketplace_ready) = marketplace_ready {
+        if marketplace_ready.get("if").is_some()
+            || marketplace_ready
+                .get("continue-on-error")
+                .is_some_and(|value| value.as_bool() != Some(false))
+        {
+            errors.push(format!(
+                "{name} marketplace-ready must depend normally on successful smoke and fail closed."
+            ));
+        }
         require_needs(
             marketplace_ready,
             name,
@@ -915,6 +1155,16 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             ));
             return;
         };
+        if let Some(step) = named_step(marketplace_ready, "Publish Marketplace handoff summary")
+            && (step.get("if").is_some()
+                || step
+                    .get("continue-on-error")
+                    .is_some_and(|value| value.as_bool() != Some(false)))
+        {
+            errors.push(format!(
+                "{name} Marketplace handoff summary must execute unconditionally and fail closed."
+            ));
+        }
         for required in [
             "Marketplace-ready",
             "Open the draft release",
@@ -970,9 +1220,9 @@ fn validate_publish_token_scope(payload: &YamlValue, errors: &mut Vec<String>) {
         return;
     }
     let step = token_steps[0];
-    if step.get("name").and_then(YamlValue::as_str) != Some("Publish first crates.io package") {
+    if step.get("name").and_then(YamlValue::as_str) != Some("Publish exact crates.io package") {
         errors.push(format!(
-            "{name} must expose CARGO_REGISTRY_TOKEN only to Publish first crates.io package."
+            "{name} must expose CARGO_REGISTRY_TOKEN only to Publish exact crates.io package."
         ));
     }
     let token = step
@@ -1016,7 +1266,7 @@ fn validate_publish_order_and_registry(job: &YamlValue, errors: &mut Vec<String>
         .collect::<Vec<_>>();
     let publish = names
         .iter()
-        .position(|step| *step == "Publish first crates.io package");
+        .position(|step| *step == "Publish exact crates.io package");
     let registry = names
         .iter()
         .position(|step| *step == "Download and verify exact registry bytes");
@@ -1596,6 +1846,20 @@ fn validate_target_matrix(
     {
         errors.push(format!(
             "{name} {job_name} must contain exactly the five supported targets."
+        ));
+    }
+    let runner_targets = includes
+        .iter()
+        .filter_map(|entry| Some((entry.get("os")?.as_str()?, entry.get("target")?.as_str()?)))
+        .collect::<BTreeSet<_>>();
+    if runner_targets != RELEASE_TARGET_RUNNERS.into_iter().collect::<BTreeSet<_>>() {
+        errors.push(format!(
+            "{name} {job_name} must bind each supported target to its exact runner."
+        ));
+    }
+    if job.get("runs-on").and_then(YamlValue::as_str) != Some("${{ matrix.os }}") {
+        errors.push(format!(
+            "{name} {job_name} must run each target on matrix.os."
         ));
     }
     for entry in includes {
@@ -2178,11 +2442,51 @@ mod tests {
             ),
             (
                 valid.replacen(
-                    "gh api \"repos/${GITHUB_REPOSITORY}/releases/${release_id}\" > release.json",
-                    "gh api \"repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}\" > release.json",
+                    "release-manifest-sha256: ${{ steps.release-install.outputs.release-manifest-sha256 }}",
+                    "release-manifest-sha256: untrusted",
                     1,
                 ),
-                "releases/${release_id}",
+                "verified release manifest digest",
+            ),
+            (
+                valid.replacen(
+                    "asset-sha256-by-target: ${{ steps.release-identity.outputs.asset-sha256-by-target }}",
+                    "asset-sha256-by-target: untrusted",
+                    1,
+                ),
+                "verified archive digests by target",
+            ),
+            (
+                valid.replacen(
+                    "gh release create \"$TAG\" --draft --generate-notes --title \"$TAG\" --verify-tag",
+                    "gh release create \"$TAG\" --draft --generate-notes --title \"$TAG\"",
+                    1,
+                ),
+                "--verify-tag",
+            ),
+            (
+                valid.replacen(
+                    "Multiple GitHub Releases use exact tag ${TAG}; refusing ambiguous release mutation.",
+                    "Ignoring duplicate exact-tag releases.",
+                    1,
+                ),
+                "Multiple GitHub Releases use exact tag",
+            ),
+            (
+                valid.replacen(
+                    "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?name=${asset_name}",
+                    "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}/assets?name=${asset_name}",
+                    1,
+                ),
+                "uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?name=${asset_name}",
+            ),
+            (
+                valid.replacen(
+                    "test \"$(jq -r '.[0].id' release-matches.json)\" = \"$RELEASE_ID\"",
+                    "true",
+                    1,
+                ),
+                "release-matches.json)\" = \"$RELEASE_ID",
             ),
             (
                 valid.replacen(
@@ -2202,35 +2506,51 @@ mod tests {
             ),
             (
                 valid.replacen(
-                    "      contents: write\n    env:\n      VERSION: ${{ needs.publish-crate.outputs.version }}\n      REVISION: ${{ needs.publish-crate.outputs.revision }}",
-                    "      contents: read\n    env:\n      VERSION: ${{ needs.publish-crate.outputs.version }}\n      REVISION: ${{ needs.publish-crate.outputs.revision }}",
+                    "      contents: write\n    env:\n      VERSION: ${{ needs.publish-crate.outputs.version }}\n      TAG: ${{ needs.publish-crate.outputs.tag }}\n      REVISION: ${{ needs.publish-crate.outputs.revision }}",
+                    "      contents: read\n    env:\n      VERSION: ${{ needs.publish-crate.outputs.version }}\n      TAG: ${{ needs.publish-crate.outputs.tag }}\n      REVISION: ${{ needs.publish-crate.outputs.revision }}",
                     1,
                 ),
                 "draft-action-smoke must grant only contents: write",
             ),
             (
                 valid.replacen(
-                    "      contents: write\n    env:\n      VERSION: ${{ needs.publish-crate.outputs.version }}\n      REVISION: ${{ needs.publish-crate.outputs.revision }}",
-                    "      contents: write\n      issues: write\n    env:\n      VERSION: ${{ needs.publish-crate.outputs.version }}\n      REVISION: ${{ needs.publish-crate.outputs.revision }}",
+                    "          - os: windows-11-arm\n            target: aarch64-pc-windows-msvc",
+                    "          - os: windows-2025\n            target: aarch64-pc-windows-msvc",
+                    1,
+                ),
+                "exact runner",
+            ),
+            (
+                valid.replacen(
+                    "    runs-on: ${{ matrix.os }}",
+                    "    runs-on: ubuntu-24.04",
+                    1,
+                ),
+                "run each target on matrix.os",
+            ),
+            (
+                valid.replacen(
+                    "      contents: write\n    env:\n      VERSION: ${{ needs.publish-crate.outputs.version }}\n      TAG: ${{ needs.publish-crate.outputs.tag }}\n      REVISION: ${{ needs.publish-crate.outputs.revision }}",
+                    "      contents: write\n      issues: write\n    env:\n      VERSION: ${{ needs.publish-crate.outputs.version }}\n      TAG: ${{ needs.publish-crate.outputs.tag }}\n      REVISION: ${{ needs.publish-crate.outputs.revision }}",
                     1,
                 ),
                 "draft-action-smoke must grant only contents: write",
             ),
             (
                 valid.replacen(
-                    "          GIT_SLOP_RELEASE_REPOSITORY: ${{ github.repository }}\n          GIT_SLOP_GITHUB_TOKEN: ${{ github.token }}\n          GIT_SLOP_ALLOW_DRAFT_RELEASE: \"true\"\n          GIT_SLOP_RELEASE_ID: ${{ needs.draft-release.outputs.release-id }}",
-                    "          GIT_SLOP_RELEASE_REPOSITORY: ${{ github.repository }}\n          GIT_SLOP_GITHUB_TOKEN: untrusted\n          GIT_SLOP_ALLOW_DRAFT_RELEASE: \"true\"\n          GIT_SLOP_RELEASE_ID: ${{ needs.draft-release.outputs.release-id }}",
+                    "          github-token: ${{ github.token }}",
+                    "          github-token: untrusted",
                     1,
                 ),
-                "explicitly expose GIT_SLOP_GITHUB_TOKEN only to the installer step using github.token",
+                "composite Action input github-token",
             ),
             (
                 valid.replacen(
-                    "          node action/install.mjs",
-                    "          node action/install.mjs\n          printf '%s' \"${{ github.token }}\" >/dev/null",
+                    "          git fetch --no-tags origin \"refs/tags/${TAG}:refs/tags/${TAG}\"\n          test \"$(git rev-parse \"refs/tags/${TAG}^{commit}\")\" = \"$REVISION\"\n          test -z \"$(git status --short)\"",
+                    "          git fetch --no-tags origin \"refs/tags/${TAG}:refs/tags/${TAG}\"\n          test \"$(git rev-parse \"refs/tags/${TAG}^{commit}\")\" = \"$REVISION\"\n          test -z \"$(git status --short)\"\n          printf '%s' \"${{ github.token }}\" >/dev/null",
                     1,
                 ),
-                "explicitly expose GIT_SLOP_GITHUB_TOKEN only to the installer step using github.token",
+                "pass github.token only through the composite Action github-token input",
             ),
             (
                 valid.replacen(
@@ -2242,14 +2562,99 @@ mod tests {
             ),
             (
                 valid.replacen(
-                    "          ref: ${{ needs.publish-crate.outputs.control-revision }}\n          sparse-checkout: action\n          persist-credentials: false",
-                    "          ref: ${{ needs.publish-crate.outputs.control-revision }}\n          sparse-checkout: action\n          persist-credentials: true",
+                    "      - name: Checkout exact release Action revision\n        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7\n        with:\n          ref: ${{ needs.publish-crate.outputs.revision }}",
+                    "      - name: Checkout exact release Action revision\n        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7\n        with:\n          ref: ${{ needs.publish-crate.outputs.control-revision }}",
+                    1,
+                ),
+                "exact release revision with tag history",
+            ),
+            (
+                valid.replacen(
+                    "      - name: Checkout exact release Action revision\n        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7",
+                    "      - name: Checkout exact release Action revision\n        uses: actions/checkout@v7",
+                    1,
+                ),
+                "exact release revision with tag history",
+            ),
+            (
+                valid.replacen(
+                    "      - name: Checkout exact release Action revision\n        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7\n        with:\n          ref: ${{ needs.publish-crate.outputs.revision }}\n          fetch-depth: 0\n          persist-credentials: false",
+                    "      - name: Checkout exact release Action revision\n        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7\n        with:\n          ref: ${{ needs.publish-crate.outputs.revision }}\n          fetch-depth: 0\n          persist-credentials: true",
                     1,
                 ),
                 "without persisted credentials",
             ),
+            (
+                valid.replacen("        uses: ./", "        uses: ./action", 1),
+                "exact checked-out composite Action",
+            ),
+            (
+                valid.replacen(
+                    "      - name: Run exact release composite Action\n        id: git-slop",
+                    "      - name: Run exact release composite Action\n        if: false\n        id: git-slop",
+                    1,
+                ),
+                "Run exact release composite Action must execute unconditionally and fail closed",
+            ),
+            (
+                valid.replacen(
+                    "  draft-action-smoke:\n    name: Draft Action smoke on ${{ matrix.target }}",
+                    "  draft-action-smoke:\n    name: Draft Action smoke on ${{ matrix.target }}\n    continue-on-error: true",
+                    1,
+                ),
+                "draft-action-smoke must not be conditional or fail open",
+            ),
+            (
+                valid.replacen(
+                    "          GIT_SLOP_RELEASE_ID: ${{ needs.draft-release.outputs.release-id }}",
+                    "          GIT_SLOP_RELEASE_ID: untrusted",
+                    1,
+                ),
+                "GIT_SLOP_RELEASE_ID",
+            ),
+            (
+                valid.replacen(
+                    "          EXPECTED_MANIFEST_SHA256: ${{ needs.draft-release.outputs.release-manifest-sha256 }}",
+                    "          EXPECTED_MANIFEST_SHA256: untrusted",
+                    1,
+                ),
+                "EXPECTED_MANIFEST_SHA256",
+            ),
+            (
+                valid.replacen(
+                    "          EXPECTED_TARGET: ${{ matrix.target }}",
+                    "          EXPECTED_TARGET: x86_64-unknown-linux-gnu",
+                    1,
+                ),
+                "EXPECTED_TARGET",
+            ),
+            (
+                valid.replacen(
+                    "          STATUS: ${{ steps.git-slop.outputs.status }}",
+                    "          STATUS: advisory",
+                    1,
+                ),
+                "STATUS",
+            ),
+            (
+                valid.replacen(
+                    r#"test "$ACTUAL_ASSET_SHA256" = "$EXPECTED_ASSET_SHA256""#,
+                    r#"[[ "$ACTUAL_ASSET_SHA256" =~ ^[0-9a-f]{64}$ ]]"#,
+                    1,
+                ),
+                "ACTUAL_ASSET_SHA256",
+            ),
+            (
+                valid.replacen(
+                    "  marketplace-ready:\n    name: Marketplace release ready",
+                    "  marketplace-ready:\n    name: Marketplace release ready\n    if: always()",
+                    1,
+                ),
+                "marketplace-ready must depend normally on successful smoke and fail closed",
+            ),
         ];
         for (drifted, expected) in cases {
+            assert_ne!(drifted, valid, "mutation fixture did not match: {expected}");
             let errors = publish_errors(&drifted).join("\n");
             assert!(errors.contains(expected), "missing {expected}: {errors}");
         }

@@ -255,7 +255,7 @@ applies the stable `check` gate.
 
 ## Distribution And Release Identity
 
-The planned 0.9.0 distribution has one canonical identity: a strict version, a
+The stable distribution has one canonical identity: a strict version, a
 full source revision, and the SHA-256 of the crates.io `.crate`. It does not
 treat Homebrew, GitHub Release, or Marketplace as independent builds.
 
@@ -285,7 +285,9 @@ package, and embedded VCS revision and passes through the same protected
 environment. It cannot publish a crate, move a tag, or derive artifacts from
 advanced `main`. Recovery may execute the current trusted Action installer to
 inspect a numeric draft-release ID, while the artifacts and their provenance
-remain bound to the historical release revision.
+remain bound to the historical release revision. Marketplace readiness still
+executes the full composite Action from that exact historical tag across all
+five targets; current control tooling cannot substitute for public tagged code.
 
 The five targets are Linux x86-64 and ARM64, macOS Apple Silicon, and Windows
 x86-64 and ARM64. `git-slop build-info --format json` binds each packaged

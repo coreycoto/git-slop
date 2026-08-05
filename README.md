@@ -33,14 +33,18 @@ The deeper product thesis and non-goals are documented in
 
 ## Install
 
-After 0.9.0 is published, install its canonical crates.io package:
+The examples below pin the 0.9.1 release identity. Use each command only after
+that exact version is published on the requested distribution surface;
+documentation or a source tag is not proof that every surface is available.
+
+After crates.io lists 0.9.1, install the canonical package:
 
 ```bash
-cargo install git-slop --version 0.9.0 --locked
+cargo install git-slop --version 0.9.1 --locked
 git-slop build-info --format json
 ```
 
-or with the Homebrew Formula:
+After the tap lists 0.9.1, install the Homebrew Formula:
 
 ```bash
 brew tap coreycoto/tap
@@ -55,8 +59,9 @@ contributor setup.
 
 ## GitHub Actions
 
-Add a complete checkout and the Git Slop Action to get a detailed repository
-health summary, bounded annotations, and a small review artifact:
+After the public GitHub Release and Marketplace listing resolve `v0.9.1`, add a
+complete checkout and the Git Slop Action to get a detailed repository health
+summary, bounded annotations, and a small review artifact:
 
 ```yaml
 permissions:
@@ -66,7 +71,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.9.0
+  - uses: coreycoto/git-slop@v0.9.1
 ```
 
 The Action is advisory by default. It verifies a prebuilt native binary built
@@ -76,10 +81,6 @@ installs through Homebrew. Enforcement, report-sized artifacts, and pull
 request comments are explicit opt-ins. The same Action will be published in
 GitHub Marketplace with the stable release. See [GitHub
 Action](docs/github-action.md).
-
-The `0.9.0` and `v0.9.0` examples describe the upcoming release contract. They
-become installable only after the verified draft is published; this
-documentation does not mean that 0.9.0 is already available.
 
 ## Quick Start
 
@@ -146,8 +147,8 @@ The local `git-slop` CLI does not:
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 
-The upcoming 0.9.0 release retains report schema 4, config schema 2, and the
-existing `check` threshold semantics. A private, non-publishable Rust `xtask`
+The current release retains report schema 4, config schema 2, and the existing
+`check` threshold semantics. A private, non-publishable Rust `xtask`
 workspace validates Codex, plugin, workflow, repository, distribution, and
 release wiring. It is excluded from the public workspace and the `git-slop`
 Cargo package.

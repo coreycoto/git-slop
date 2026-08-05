@@ -22,7 +22,7 @@ const GIT_SLOP_MARKETPLACE_NAME: &str = "git-slop-marketplace";
 const GIT_SLOP_PLUGIN_ROOT: &str = "plugins/git-slop";
 const GIT_SLOP_PLUGIN_DOC_NAME: &str = "`git-slop` Codex plugin";
 const GIT_SLOP_PLUGIN_NAME: &str = "git-slop";
-const GIT_SLOP_PLUGIN_VERSION: &str = "0.2.1";
+const GIT_SLOP_PLUGIN_VERSION: &str = "0.2.2";
 const EXPECTED_EXEC_POLICY_DECISION: &str = "prompt";
 
 const REQUIRED_GUIDANCE: [&str; 5] = [
@@ -533,7 +533,7 @@ fn validate_release_workflow(repo_root: &Path, errors: &mut Vec<String>) {
                 "cargo publish -p git-slop --locked --no-verify",
                 "cargo xtask verify-crate",
                 "verified-registry-crate",
-                "gh release create \"$TAG\" --draft",
+                "gh release create \"$TAG\" --draft --generate-notes --title \"$TAG\" --verify-tag",
                 "marketplace-ready:",
                 "published-release relay",
             ],

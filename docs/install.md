@@ -3,9 +3,9 @@
 Git Slop is distributed as one `git-slop` executable. When it is on `PATH`, Git
 also accepts `git slop`.
 
-The 0.9.0 commands below describe the upcoming release. Run them only after
-crates.io and the verified GitHub Release list 0.9.0; documentation on `main`
-does not itself mean that version has been published.
+The examples below pin 0.9.1. Confirm that the requested distribution surface
+publishes that exact version before installing it; documentation on `main` does
+not itself prove availability.
 
 ## Homebrew
 
@@ -58,7 +58,7 @@ Download the archive plus `SHA256SUMS`, verify the exact filename, then place
 `git-slop` (`git-slop.exe` on Windows) on `PATH`. For example:
 
 ```bash
-release=v0.9.0
+release=v0.9.1
 target=x86_64-unknown-linux-gnu
 gh release download "$release" \
   --repo coreycoto/git-slop \
@@ -85,12 +85,12 @@ automated consumers.
 Install the canonical crates.io package directly:
 
 ```bash
-cargo install git-slop --version 0.9.0 --locked
+cargo install git-slop --version 0.9.1 --locked
 git-slop build-info --format json
 ```
 
-For a verified 0.9.0 release, `source_revision` is the full commit named by
-`v0.9.0` and `source_dirty` is `false`. A local source build can report `null`
+For a verified 0.9.1 release, `source_revision` is the full commit named by
+`v0.9.1` and `source_dirty` is `false`. A local source build can report `null`
 for provenance it cannot prove; that is not equivalent to a release build.
 
 CI jobs should prefer the repository's GitHub Action or a checksummed prebuilt
