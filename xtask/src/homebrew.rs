@@ -16,7 +16,6 @@ pub fn render_formula(identity: &ReleaseIdentity) -> Result<String> {
          \x20 desc \"Deterministic repository health analysis for humans and AI agents\"\n\
          \x20 homepage \"https://github.com/coreycoto/git-slop\"\n\
          \x20 url \"{}\"\n\
-         \x20 version \"{}\"\n\
          \x20 sha256 \"{}\"\n\
          \x20 license \"MIT\"\n\
          \n\
@@ -30,12 +29,11 @@ pub fn render_formula(identity: &ReleaseIdentity) -> Result<String> {
          \x20 test do\n\
          \x20   assert_match \"git-slop {}\", shell_output(\"#{{bin}}/git-slop version\")\n\
          \x20   build_info = shell_output(\"#{{bin}}/git-slop build-info --format json\")\n\
-         \x20   assert_match %(\"source_revision\": \"{}\"), build_info\n\
-         \x20   assert_match %(\"source_dirty\": false), build_info\n\
+         \x20   assert_match \"\\\"source_revision\\\": \\\"{}\\\"\", build_info\n\
+         \x20   assert_match \"\\\"source_dirty\\\": false\", build_info\n\
          \x20 end\n\
          end\n",
         identity.crate_source.url,
-        identity.version,
         identity.crate_source.sha256,
         identity.version,
         identity.revision,
@@ -140,7 +138,6 @@ mod tests {
              \x20 desc \"Deterministic repository health analysis for humans and AI agents\"\n\
              \x20 homepage \"https://github.com/coreycoto/git-slop\"\n\
              \x20 url \"https://static.crates.io/crates/git-slop/git-slop-0.9.0.crate\"\n\
-             \x20 version \"0.9.0\"\n\
              \x20 sha256 \"{}\"\n\
              \x20 license \"MIT\"\n\
              \n\
@@ -154,8 +151,8 @@ mod tests {
              \x20 test do\n\
              \x20   assert_match \"git-slop 0.9.0\", shell_output(\"#{{bin}}/git-slop version\")\n\
              \x20   build_info = shell_output(\"#{{bin}}/git-slop build-info --format json\")\n\
-             \x20   assert_match %(\"source_revision\": \"{}\"), build_info\n\
-             \x20   assert_match %(\"source_dirty\": false), build_info\n\
+             \x20   assert_match \"\\\"source_revision\\\": \\\"{}\\\"\", build_info\n\
+             \x20   assert_match \"\\\"source_dirty\\\": false\", build_info\n\
              \x20 end\n\
              end\n",
             "a".repeat(64),
@@ -168,10 +165,11 @@ mod tests {
         );
         assert!(formula.contains(&format!("sha256 \"{}\"", "a".repeat(64))));
         assert!(formula.contains(&format!(
-            "assert_match %(\"source_revision\": \"{}\"), build_info",
+            "assert_match \"\\\"source_revision\\\": \\\"{}\\\"\", build_info",
             "b".repeat(40)
         )));
-        assert!(formula.contains("assert_match %(\"source_dirty\": false), build_info"));
+        assert!(formula.contains("assert_match \"\\\"source_dirty\\\": false\", build_info"));
+        assert!(!formula.lines().any(|line| line.starts_with("  version \"")));
         assert!(formula.contains("system \"cargo\", \"install\", *std_cargo_args"));
         for forbidden in ["Python", "python@", "libyaml", "resource ", "tag:"] {
             assert!(!formula.contains(forbidden), "unexpected {forbidden}");

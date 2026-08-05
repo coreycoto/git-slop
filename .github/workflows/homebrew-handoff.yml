@@ -130,10 +130,13 @@ jobs:
           crate_url="$(jq -r '.crate_source.url' release-assets/release-manifest.json)"
           crate_sha256="$(jq -r '.crate_source.sha256' release-assets/release-manifest.json)"
           grep -Fx "  url \"${crate_url}\"" release-assets/git-slop.rb
-          grep -Fx "  version \"${VERSION}\"" release-assets/git-slop.rb
+          if grep -Eq '^  version "' release-assets/git-slop.rb; then
+            echo "Homebrew derives the version from the crates.io URL; explicit version is forbidden." >&2
+            exit 1
+          fi
           grep -Fx "  sha256 \"${crate_sha256}\"" release-assets/git-slop.rb
-          grep -Fx "    assert_match %(\"source_revision\": \"${REVISION}\"), build_info" release-assets/git-slop.rb
-          grep -Fx '    assert_match %("source_dirty": false), build_info' release-assets/git-slop.rb
+          grep -Fx "    assert_match \"\\\"source_revision\\\": \\\"${REVISION}\\\"\", build_info" release-assets/git-slop.rb
+          grep -Fx '    assert_match "\"source_dirty\": false", build_info' release-assets/git-slop.rb
           curl --fail --location --retry 5 "$crate_url" --output registry.crate
           test "$(sha256sum registry.crate | awk '{print $1}')" = "$crate_sha256"
           formula_url="https://github.com/${REPOSITORY}/releases/download/${tag}/git-slop.rb"

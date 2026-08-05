@@ -22,7 +22,7 @@ const GIT_SLOP_MARKETPLACE_NAME: &str = "git-slop-marketplace";
 const GIT_SLOP_PLUGIN_ROOT: &str = "plugins/git-slop";
 const GIT_SLOP_PLUGIN_DOC_NAME: &str = "`git-slop` Codex plugin";
 const GIT_SLOP_PLUGIN_NAME: &str = "git-slop";
-const GIT_SLOP_PLUGIN_VERSION: &str = "0.2.2";
+const GIT_SLOP_PLUGIN_VERSION: &str = "0.2.3";
 const EXPECTED_EXEC_POLICY_DECISION: &str = "prompt";
 
 const REQUIRED_GUIDANCE: [&str; 5] = [

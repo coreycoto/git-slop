@@ -80,8 +80,9 @@ Before the protected environment is entered, the workflow:
 2. runs the full product, `xtask`, Action, package, and publish dry-run gates;
 3. creates and verifies the exact candidate `.crate` bytes;
 4. builds and smokes all five supported targets from those candidate bytes;
-5. checks `git-slop version` and `git-slop build-info --format json`; and
-6. dry-runs schema-3 manifest and crates-backed Formula generation.
+5. checks `git-slop version` and `git-slop build-info --format json`;
+6. dry-runs schema-3 manifest and crates-backed Formula generation; and
+7. audits and styles the generated Formula with native Homebrew on macOS.
 
 The five targets are Linux x86-64, Linux ARM64, macOS Apple Silicon, Windows
 x86-64, and Windows ARM64. macOS Intel is not a release target.
@@ -97,11 +98,13 @@ dispatch the workflow again from the new head. Recovery permits only the
 immutable release revision—not the workflow control revision—to be an older
 ancestor of `main`.
 
-The first public mutation is crates.io publication. The workflow packages the
-candidate again, requires byte-for-byte equality with the preflight package,
-and runs `cargo publish --no-verify`. It then reconciles the registry even when
-Cargo returns a timeout or another nonzero status. Publication is accepted only
-when all of these values equal the candidate SHA-256:
+The protected publication job cannot start until the native Homebrew audit has
+accepted the exact candidate Formula. The first public mutation is crates.io
+publication. The workflow packages the candidate again, requires byte-for-byte
+equality with the preflight package, and runs `cargo publish --no-verify`. It
+then reconciles the registry even when Cargo returns a timeout or another
+nonzero status. Publication is accepted only when all of these values equal the
+candidate SHA-256:
 
 - the crates.io index/API checksum;
 - the downloaded static `.crate` checksum; and
@@ -238,7 +241,9 @@ digests to `coreycoto/homebrew-tap`.
 
 Verify the tap workflow and Formula before merging its change. The Formula must
 retain `coreycoto/tap/git-slop`, build from the exact `.crate` source, and
-introduce no auxiliary runtime dependency.
+introduce no auxiliary runtime dependency. Homebrew derives the version from
+the crates.io URL, so the Formula must not declare a redundant `version` stanza;
+its embedded-provenance assertions must also pass Homebrew's strict Ruby style.
 
 Test both upgrade and clean-install lanes:
 

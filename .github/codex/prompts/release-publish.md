@@ -32,8 +32,8 @@ to GitHub Marketplace through GitHub's required web approval.
   one immutable provenance chain.
 - Accept a candidate only when `release-publish.yml` was dispatched on the
   exact current `main` revision and its Linux x86-64/ARM64, macOS Apple Silicon,
-  and Windows x86-64/ARM64 preflight lanes all passed before the protected
-  `release` environment was approved.
+  Windows x86-64/ARM64 preflight lanes, and native Homebrew Formula audit all
+  passed before the protected `release` environment was approved.
 - The only exception to exact-revision `main` equality is explicit protected
   recovery after crates.io has already accepted the package. Recovery must be
   keyed by a full source revision and crate SHA-256. Keep the current workflow
