@@ -51,7 +51,8 @@ to GitHub Marketplace through GitHub's required web approval.
   creation; the final archives and Formula derive from those registry bytes.
 - Never move or delete an existing tag.
 - Never publish a draft release, select Marketplace categories, or dispatch a
-  Homebrew update from this Codex job.
+  Homebrew update from this Codex job. The protected workflow code owns its
+  narrowly scoped immutable-identity dispatch; Codex does not.
 - Marketplace publication is a manual GitHub UI gate with **Code quality** as
   the primary category and **Continuous integration** as the secondary. Do not
   publish the visible draft until the five-target Action smoke matrix and the
@@ -67,14 +68,13 @@ to GitHub Marketplace through GitHub's required web approval.
    published release or a release whose tag or assets disagree.
 4. Leave the release as a draft and report the release URL plus the remaining
    Marketplace UI approval.
-5. Explain that the `release.published` relay uses only its same-repository
-   `github.token`, receives no named secret, and dispatches a second workflow
-   from trusted `main`; that workflow requires a new protected `release`
-   environment approval before its final step can use the existing
-   `HOMEBREW_TAP_DISPATCH_TOKEN` for the Homebrew Formula handoff. Because the
-   relay cannot inspect Marketplace selection, instruct the reviewer to approve
-   Homebrew only after the public listing visibly shows the exact tag/version;
-   otherwise deny or leave the deployment pending and repair Marketplace first.
+5. Explain that the already-approved protected publication job dispatches only
+   the immutable version, revision, canonical crate URL, and crate digest to the
+   Homebrew receiver. The receiver waits for the exact public stable release
+   before deriving and reverifying Formula/manifest digests. The
+   `release.published` workflow is read-only verification and requires no
+   second environment approval; `homebrew-handoff.yml` is protected manual
+   recovery only.
 6. Report rerun state explicitly. A matching package/tag/draft is resumable; a
    digest or revision mismatch fails closed; a published release is
    verification-only. `artifact_paths` may be empty when this job does not

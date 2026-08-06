@@ -623,6 +623,7 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             }
         }
         validate_publish_token_scope(payload, errors);
+        validate_release_homebrew_token_scope(payload, publish_crate, errors);
         validate_publish_order_and_registry(publish_crate, errors);
         let Some(revalidate) = step_run(
             publish_crate,
@@ -1282,8 +1283,8 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
         for required in [
             "Marketplace-ready",
             "Open the draft release",
-            "published-release relay",
-            "existing published release was reverified without mutation",
+            "already-dispatched Homebrew receiver",
+            "existing published release was reverified without mutation, and the protected publication job redispatched",
         ] {
             require(summary, required, name, errors);
         }
@@ -1368,6 +1369,87 @@ fn validate_publish_token_scope(payload: &YamlValue, errors: &mut Vec<String>) {
     }
 }
 
+fn validate_release_homebrew_token_scope(
+    payload: &YamlValue,
+    publish_crate: &YamlValue,
+    errors: &mut Vec<String>,
+) {
+    let name = "release-publish.yml";
+    let token = "${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}";
+    if workflow_or_job_env_contains_value(payload, token) {
+        errors.push(format!(
+            "{name} must not expose HOMEBREW_TAP_DISPATCH_TOKEN at workflow or job scope."
+        ));
+    }
+    if yaml_string_occurrences(payload, token) != 1 {
+        errors.push(format!(
+            "{name} must reference the Homebrew dispatch secret exactly once."
+        ));
+    }
+    let token_steps = steps(publish_crate)
+        .into_iter()
+        .filter(|step| {
+            step.get("env")
+                .and_then(YamlValue::as_mapping)
+                .is_some_and(|env| {
+                    env.get(YamlValue::String("GH_TOKEN".into()))
+                        .and_then(YamlValue::as_str)
+                        == Some(token)
+                })
+        })
+        .collect::<Vec<_>>();
+    if token_steps.len() != 1 {
+        errors.push(format!(
+            "{name} must bind the Homebrew token to exactly one step."
+        ));
+        return;
+    }
+    let step = token_steps[0];
+    if step.get("name").and_then(YamlValue::as_str)
+        != Some("Dispatch immutable release identity to Homebrew tap")
+    {
+        errors.push(format!(
+            "{name} must expose the Homebrew token only to its deliberate immutable-identity dispatch step."
+        ));
+    }
+    for (key, expected) in [
+        ("VERSION", "${{ steps.registry.outputs.version }}"),
+        ("REVISION", "${{ steps.registry.outputs.revision }}"),
+        ("CRATE_URL", "${{ steps.registry.outputs.crate-url }}"),
+        ("CRATE_SHA256", "${{ steps.registry.outputs.crate-sha256 }}"),
+    ] {
+        if step_env(step, key) != Some(expected) {
+            errors.push(format!(
+                "{name} immutable Homebrew dispatch must bind {key} to {expected}."
+            ));
+        }
+    }
+    let run = step
+        .get("run")
+        .and_then(YamlValue::as_str)
+        .unwrap_or_default();
+    for required in [
+        "test \"$CRATE_URL\" = \"https://static.crates.io/crates/git-slop/git-slop-${VERSION}.crate\"",
+        "gh workflow run update-git-slop.yml",
+        "--repo coreycoto/homebrew-tap",
+        "--ref main",
+        "--field version=\"$VERSION\"",
+        "--field revision=\"$REVISION\"",
+        "--field crate_url=\"$CRATE_URL\"",
+        "--field crate_sha256=\"$CRATE_SHA256\"",
+    ] {
+        require(run, required, name, errors);
+    }
+    for forbidden in [
+        "--field formula_url=",
+        "--field formula_sha256=",
+        "--field manifest_url=",
+        "--field manifest_sha256=",
+    ] {
+        forbid(run, forbidden, name, errors);
+    }
+}
+
 fn validate_publish_order_and_registry(job: &YamlValue, errors: &mut Vec<String>) {
     let name = "release-publish.yml";
     let names = steps(job)
@@ -1387,10 +1469,13 @@ fn validate_publish_order_and_registry(job: &YamlValue, errors: &mut Vec<String>
     let tag = names
         .iter()
         .position(|step| *step == "Create missing exact release tag");
-    if !matches!((publish, registry, tag), (Some(publish), Some(registry), Some(tag)) if publish < registry && registry < tag)
+    let homebrew = names
+        .iter()
+        .position(|step| *step == "Dispatch immutable release identity to Homebrew tap");
+    if !matches!((publish, registry, tag, homebrew), (Some(publish), Some(registry), Some(tag), Some(homebrew)) if publish < registry && registry < tag && tag < homebrew)
     {
         errors.push(format!(
-            "{name} must publish, verify registry bytes, and only then create the release tag."
+            "{name} must publish, verify registry bytes, create the exact release tag, and only then dispatch the immutable Homebrew identity."
         ));
     }
     let Some(registry_run) = step_run(job, "Download and verify exact registry bytes") else {
@@ -1472,8 +1557,16 @@ fn validate_release_relay(text: &str, payload: &YamlValue, errors: &mut Vec<Stri
     if release_types != Some(vec!["published"]) {
         errors.push(format!("{name} must run only for release.published."));
     }
-    require_permission(payload, name, "actions", "write", errors);
     require_permission(payload, name, "contents", "read", errors);
+    if payload
+        .get("permissions")
+        .and_then(|permissions| permissions.get("actions"))
+        .is_some()
+    {
+        errors.push(format!(
+            "{name} publication verification must not receive Actions write permission."
+        ));
+    }
     if text.contains("secrets.") {
         errors.push(format!("{name} must not consume named secrets."));
     }
@@ -1481,8 +1574,8 @@ fn validate_release_relay(text: &str, payload: &YamlValue, errors: &mut Vec<Stri
         errors.push(format!("{name} must define jobs."));
         return;
     };
-    require_exact_job_set(jobs, name, &["verify-and-relay"], errors);
-    let Some(relay) = job(jobs, "verify-and-relay", name, errors) else {
+    require_exact_job_set(jobs, name, &["verify-publication"], errors);
+    let Some(relay) = job(jobs, "verify-publication", name, errors) else {
         return;
     };
     let condition = relay
@@ -1513,20 +1606,24 @@ fn validate_release_relay(text: &str, payload: &YamlValue, errors: &mut Vec<Stri
         require(verify, required, name, errors);
     }
     validate_exact_release_assets(verify, name, "${TAG}", errors);
-    let Some(dispatch) = step_run(relay, "Dispatch protected Homebrew handoff from main") else {
+    if text.contains("gh workflow run homebrew-handoff.yml")
+        || text.contains("HOMEBREW_TAP_DISPATCH_TOKEN")
+    {
         errors.push(format!(
-            "{name} must dispatch the protected Homebrew handoff."
+            "{name} must remain verification-only and must not dispatch Homebrew."
         ));
+    }
+    let Some(summary) = step_run(relay, "Summarize publication verification") else {
+        errors.push(format!("{name} must summarize publication verification."));
         return;
     };
     for required in [
-        "gh workflow run homebrew-handoff.yml",
-        "--repo \"$REPOSITORY\"",
-        "--ref main",
-        "--field version=\"$VERSION\"",
-        "--field revision=\"$REVISION\"",
+        "protected publication job already dispatched",
+        "without another environment approval",
+        "homebrew-handoff.yml",
+        "explicit protected redispatch",
     ] {
-        require(dispatch, required, name, errors);
+        require(summary, required, name, errors);
     }
 }
 
@@ -1677,14 +1774,18 @@ fn validate_homebrew_token_scope(payload: &YamlValue, errors: &mut Vec<String>) 
         "--ref main",
         "--field version=\"$VERSION\"",
         "--field revision=\"$REVISION\"",
-        "--field formula_url=\"$FORMULA_URL\"",
-        "--field formula_sha256=\"$FORMULA_SHA256\"",
-        "--field manifest_url=\"$MANIFEST_URL\"",
-        "--field manifest_sha256=\"$MANIFEST_SHA256\"",
         "--field crate_url=\"$CRATE_URL\"",
         "--field crate_sha256=\"$CRATE_SHA256\"",
     ] {
         require(run, required, name, errors);
+    }
+    for forbidden in [
+        "--field formula_url=",
+        "--field formula_sha256=",
+        "--field manifest_url=",
+        "--field manifest_sha256=",
+    ] {
+        forbid(run, forbidden, name, errors);
     }
 }
 
@@ -2503,7 +2604,7 @@ mod tests {
                     "- name: Create release tag early",
                     1,
                 ),
-                "only then create the release tag",
+                "create the exact release tag",
             ),
             (
                 valid.replacen(
@@ -2809,6 +2910,14 @@ mod tests {
                 ),
                 "marketplace-ready must depend normally on successful smoke and fail closed",
             ),
+            (
+                valid.replacen(
+                    "          CRATE_SHA256: ${{ steps.registry.outputs.crate-sha256 }}",
+                    "          CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}",
+                    1,
+                ),
+                "immutable Homebrew dispatch must bind CRATE_SHA256",
+            ),
         ];
         for (drifted, expected) in cases {
             assert_ne!(drifted, valid, "mutation fixture did not match: {expected}");
@@ -2822,6 +2931,14 @@ mod tests {
             1,
         );
         let errors = publish_errors(&job_scoped_token).join("\n");
+        assert!(errors.contains("workflow or job scope"), "{errors}");
+
+        let job_scoped_homebrew_token = valid.replacen(
+            "    environment: release\n    permissions:",
+            "    environment: release\n    env:\n      HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}\n    permissions:",
+            1,
+        );
+        let errors = publish_errors(&job_scoped_homebrew_token).join("\n");
         assert!(errors.contains("workflow or job scope"), "{errors}");
     }
 
@@ -2928,8 +3045,12 @@ mod tests {
                 "only for release.published",
             ),
             (
-                relay.replacen("--ref main", "--ref feature", 1),
-                "must include --ref main",
+                relay.replacen(
+                    "permissions:\n  contents: read",
+                    "permissions:\n  actions: write\n  contents: read",
+                    1,
+                ),
+                "must not receive Actions write permission",
             ),
             (
                 relay.replacen(
@@ -2938,6 +3059,10 @@ mod tests {
                     1,
                 ),
                 "exact eight release assets",
+            ),
+            (
+                format!("{relay}\n# gh workflow run homebrew-handoff.yml\n"),
+                "must remain verification-only",
             ),
         ] {
             let errors = relay_errors(&drifted).join("\n");

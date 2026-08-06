@@ -266,12 +266,13 @@ exact current main
   -> protected release environment
   -> crates.io publication and local/index/static SHA equality
   -> exact v<version> tag
+  -> immutable Homebrew receiver dispatch
   -> five archives built from downloaded registry bytes
   -> schema-3 manifest + SHA256SUMS + crates-backed Formula
   -> verified draft GitHub Release
   -> manual Marketplace publication with 2FA
-  -> release.published relay
-  -> protected main-branch Homebrew handoff
+  -> read-only release.published verification
+  -> receiver verifies public assets and updates the Homebrew tap
 ```
 
 If crates.io has already accepted those immutable bytes and `main` advances
@@ -300,13 +301,15 @@ compiles Rust in a consumer repository.
 The Homebrew artifact is a Formula, not a cask or an alternate binary source.
 It downloads the static crates.io package at the manifest's exact digest,
 builds it with Rust, and checks the same embedded revision. The
-`release.published` event itself uses no cross-repository credential; it relays
-the immutable identity to a workflow dispatched on `main`, where the protected
-`release` environment gates the existing Homebrew dispatch token. Marketplace
-selection is not machine-readable from that event, so the environment reviewer
-must verify the public listing visibly shows the exact tag/version before
-approving the Homebrew handoff. The draft likewise must not be published until
-the terminal `marketplace-ready` job confirms all five Action smoke lanes.
+already-approved protected publication job exposes the existing Homebrew token
+only while dispatching the immutable version, revision, crate URL, and crate
+digest. The tap receiver waits for the exact stable public release, derives and
+reverifies its Formula and manifest digests, and cannot create a tap PR from a
+draft. The `release.published` event uses no cross-repository credential and is
+read-only verification, so it introduces no second protected approval. Manual
+`homebrew-handoff.yml` dispatch remains a protected recovery path. The draft
+must not be published until the terminal `marketplace-ready` job confirms all
+five Action smoke lanes.
 
 ## Rust Maintainer Surface
 

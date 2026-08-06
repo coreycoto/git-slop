@@ -624,6 +624,44 @@ jobs:
           unset authorization
           test "$(git ls-remote --refs origin "refs/tags/${TAG}" | awk '{print $1}')" = "$REVISION"
 
+      - name: Dispatch immutable release identity to Homebrew tap
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
+          VERSION: ${{ steps.registry.outputs.version }}
+          REVISION: ${{ steps.registry.outputs.revision }}
+          CRATE_URL: ${{ steps.registry.outputs.crate-url }}
+          CRATE_SHA256: ${{ steps.registry.outputs.crate-sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CRATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test "$CRATE_URL" = "https://static.crates.io/crates/git-slop/git-slop-${VERSION}.crate"
+          gh workflow run update-git-slop.yml \
+            --repo coreycoto/homebrew-tap \
+            --ref main \
+            --field version="$VERSION" \
+            --field revision="$REVISION" \
+            --field crate_url="$CRATE_URL" \
+            --field crate_sha256="$CRATE_SHA256"
+
+      - name: Summarize protected publication
+        shell: bash
+        env:
+          VERSION: ${{ steps.registry.outputs.version }}
+          REVISION: ${{ steps.registry.outputs.revision }}
+          CRATE_SHA256: ${{ steps.registry.outputs.crate-sha256 }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Protected publication approved
+
+          - version: \`${VERSION}\`
+          - source revision: \`${REVISION}\`
+          - crate SHA-256: \`${CRATE_SHA256}\`
+          - Homebrew: the tap receiver was dispatched with this immutable identity and will wait for the exact public GitHub Release before deriving and reverifying its Formula and manifest digests
+          EOF
+
       - name: Upload verified registry package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -1074,8 +1112,8 @@ jobs:
             printf '%s\n\n' 'The crate, exact source tag, five archives, checksums, release manifest, crates-backed Formula, and immutable tagged composite Action verify on all five supported runner targets.'
             if test "$RELEASE_STATE" != "published"; then
               printf '%s\n\n' 'The workflow intentionally did **not** publish the GitHub Release.'
-              printf '%s\n' 'Open the draft release, select **Publish this Action to the GitHub Marketplace**, choose **Code quality** and **Continuous integration**, and publish with 2FA. The published-release relay will then request a protected Homebrew handoff from the main branch.'
+              printf '%s\n' 'Open the draft release, select **Publish this Action to the GitHub Marketplace**, choose **Code quality** and **Continuous integration**, and publish with 2FA. The already-dispatched Homebrew receiver will then verify the exact public release before preparing the tap update.'
             else
-              printf '%s\n' 'The existing published release was reverified without mutation.'
+              printf '%s\n' 'The existing published release was reverified without mutation, and the protected publication job redispatched its immutable identity to the Homebrew receiver.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"

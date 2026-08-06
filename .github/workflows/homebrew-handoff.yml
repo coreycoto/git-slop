@@ -1,14 +1,14 @@
-name: Homebrew Release Handoff
+name: Homebrew Release Handoff Recovery
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Published stable git-slop version.
+        description: Published stable git-slop version to redispatch.
         required: true
         type: string
       revision:
-        description: Exact 40-character source revision for the published version.
+        description: Exact 40-character source revision to reverify and redispatch.
         required: true
         type: string
 
@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   handoff:
-    name: Verify release and dispatch Homebrew tap update
+    name: Reverify release and recover Homebrew tap dispatch
     runs-on: ubuntu-24.04
     environment: release
     outputs:
@@ -156,10 +156,6 @@ jobs:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
           VERSION: ${{ inputs.version }}
           REVISION: ${{ inputs.revision }}
-          FORMULA_URL: ${{ steps.verify.outputs.formula-url }}
-          FORMULA_SHA256: ${{ steps.verify.outputs.formula-sha256 }}
-          MANIFEST_URL: ${{ steps.verify.outputs.manifest-url }}
-          MANIFEST_SHA256: ${{ steps.verify.outputs.manifest-sha256 }}
           CRATE_URL: ${{ steps.verify.outputs.crate-url }}
           CRATE_SHA256: ${{ steps.verify.outputs.crate-sha256 }}
         run: |
@@ -169,10 +165,6 @@ jobs:
             --ref main \
             --field version="$VERSION" \
             --field revision="$REVISION" \
-            --field formula_url="$FORMULA_URL" \
-            --field formula_sha256="$FORMULA_SHA256" \
-            --field manifest_url="$MANIFEST_URL" \
-            --field manifest_sha256="$MANIFEST_SHA256" \
             --field crate_url="$CRATE_URL" \
             --field crate_sha256="$CRATE_SHA256"
 
@@ -186,11 +178,12 @@ jobs:
           CRATE_SHA256: ${{ steps.verify.outputs.crate-sha256 }}
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
-          ## Homebrew tap update requested
+          ## Homebrew tap recovery requested
 
           - version: \`${VERSION}\`
           - source revision: \`${REVISION}\`
           - crate SHA-256: \`${CRATE_SHA256}\`
           - release manifest SHA-256: \`${MANIFEST_SHA256}\`
           - Formula SHA-256: \`${FORMULA_SHA256}\`
+          - note: this manual recovery workflow reverified the complete public release, then redispatched only the immutable version, revision, crate URL, and crate digest; the tap derives and reverifies the Formula and manifest digests independently
           EOF

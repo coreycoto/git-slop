@@ -28,8 +28,9 @@ on that identity.
 
 The normal `github.token` creates the exact tag and GitHub Release in this
 repository. No additional GitHub PAT is needed for those same-repository
-operations. The Homebrew token is used only by the final cross-repository
-dispatch step. The existing `HOMEBREW_TAP_DISPATCH_TOKEN` does not need to be
+operations. The Homebrew token is used only by the deliberate cross-repository
+dispatch step inside the already-approved protected publication job. The
+existing `HOMEBREW_TAP_DISPATCH_TOKEN` does not need to be
 replaced for this release unless it was exposed or its repository/permission
 scope is wrong.
 
@@ -115,6 +116,13 @@ create the immutable lightweight `v<version>` tag at the exact source revision.
 An existing version/tag is a valid rerun only when version, revision, and crate
 digest all agree; the workflow never moves or deletes a tag.
 
+After registry and tag verification, that same protected job sends only the
+immutable version, source revision, canonical crates.io URL, and crate SHA-256
+to the Homebrew tap receiver. The token is scoped to that one dispatch step.
+The receiver waits for the exact public GitHub Release; it does not create a
+tap PR from the unpublished draft or trust precomputed Formula/manifest
+digests. This is the normal release path's only Actions environment approval.
+
 ## Reruns And Failures
 
 The workflow is deliberately restartable without weakening immutable identity:
@@ -168,8 +176,10 @@ The workflow is deliberately restartable without weakening immutable identity:
   verification-only no-op. Draft metadata is resolved to a numeric GitHub
   Release ID before upload and verification because the tag-indexed REST
   endpoint does not expose drafts.
-- A failed `release.published` relay or Homebrew handoff can be rerun from the
-  published identity; neither is allowed to change the package, tag, or release
+- A failed Homebrew receiver can be recovered by manually dispatching
+  `homebrew-handoff.yml` from current `main` with the published version and
+  source revision. That protected recovery workflow reverifies the public
+  identity before redispatch; it cannot change the package, tag, or release
   assets.
 
 ## Review The Verified Draft
@@ -201,7 +211,8 @@ gh release view v<version> --repo coreycoto/git-slop --json url,tagName,isDraft,
 Do not edit or publish the draft merely because it is visible. Draft creation
 precedes the five-platform Action smoke matrix. Wait until the complete Release
 Publish run is green, including the terminal `marketplace-ready` job, before
-using the Marketplace controls.
+using the Marketplace controls. The Homebrew receiver may already be running;
+its bounded public-release wait is expected and cannot bypass this draft gate.
 
 ## Publish The Action In GitHub Marketplace
 
@@ -222,22 +233,23 @@ Homebrew and never an unverified executable.
 
 ## Verify The Homebrew Handoff
 
-The `release.published` event runs `.github/workflows/release-published.yml`.
-That relay uses only its same-repository `github.token`, receives no named
-secret, verifies the public release, and dispatches
-`.github/workflows/homebrew-handoff.yml` from `main`. GitHub does not expose the
-Marketplace checkbox or categories to this relay. Before approving the
-protected `release` environment, open the public Marketplace listing and verify
-that it visibly shows the exact `v<version>` tag/version. If it does not, deny
-or leave the deployment pending, repair the Marketplace publication in the
-release UI, and rerun the handoff if needed. Never approve Homebrew solely
-because the `release.published` event fired.
+The protected crates.io publication approval also authorizes one narrowly
+scoped Homebrew receiver dispatch. The receiver starts with the immutable
+version, revision, canonical crate URL, and crate SHA-256, then waits for the
+exact stable GitHub Release to become public. Once the Marketplace publication
+step makes that release public, the receiver downloads and verifies all release
+assets, exact tag revision, schema-3 manifest, GitHub asset digests, static
+crates.io package, Formula, and seven-line checksum inventory. It derives the
+Formula and manifest URLs/digests from those verified public assets before
+creating the tap PR.
 
-The handoff downloads and verifies all release assets, the exact tag revision,
-schema-3 manifest, GitHub asset digests, static crates.io package, Formula, and
-seven-line checksum inventory. Only its final step receives
-`HOMEBREW_TAP_DISPATCH_TOKEN`; it sends the exact version, revision, URLs, and
-digests to `coreycoto/homebrew-tap`.
+The `release.published` event still runs
+`.github/workflows/release-published.yml`, but that workflow is read-only
+verification. It receives no named secret, does not dispatch another workflow,
+and does not introduce a second protected environment approval. If the early
+receiver fails or times out, explicitly dispatch `homebrew-handoff.yml` from
+current `main` with the exact published version and source revision. That is a
+recovery path, not part of a normal release.
 
 Verify the tap workflow and Formula before merging its change. The Formula must
 retain `coreycoto/tap/git-slop`, build from the exact `.crate` source, and
