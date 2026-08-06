@@ -1,11 +1,10 @@
-name: Release Published Relay
+name: Release Publication Verification
 
 on:
   release:
     types: [published]
 
 permissions:
-  actions: write
   contents: read
 
 concurrency:
@@ -13,8 +12,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  verify-and-relay:
-    name: Verify publication and request Homebrew handoff
+  verify-publication:
+    name: Verify immutable public release
     if: github.event.release.draft == false && github.event.release.prerelease == false
     runs-on: ubuntu-24.04
     steps:
@@ -63,22 +62,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
 
-      - name: Dispatch protected Homebrew handoff from main
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.release.outputs.version }}
-          REVISION: ${{ steps.release.outputs.revision }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          gh workflow run homebrew-handoff.yml \
-            --repo "$REPOSITORY" \
-            --ref main \
-            --field version="$VERSION" \
-            --field revision="$REVISION"
-
-      - name: Summarize relay
+      - name: Summarize publication verification
         shell: bash
         env:
           VERSION: ${{ steps.release.outputs.version }}
@@ -89,5 +73,6 @@ jobs:
 
           - version: \`${VERSION}\`
           - source revision: \`${REVISION}\`
-          - next gate: protected \`release\` environment in \`homebrew-handoff.yml\`
+          - Homebrew: the protected publication job already dispatched this immutable version, revision, crate URL, and crate digest; the tap receiver can now complete its exact-release verification without another environment approval
+          - recovery: \`homebrew-handoff.yml\` remains available for an explicit protected redispatch if the receiver run must be recovered
           EOF

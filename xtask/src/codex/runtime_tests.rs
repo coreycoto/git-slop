@@ -470,15 +470,16 @@ cargo xtask verify-crate
 verified-registry-crate
 gh release create "$TAG" --draft --generate-notes --title "$TAG" --verify-tag
 marketplace-ready:
-published-release relay
+Dispatch immutable release identity to Homebrew tap
+secrets.HOMEBREW_TAP_DISPATCH_TOKEN
 "#,
         ),
         (
             "release-published.yml",
             r#"types: [published]
 release-manifest.json
-gh workflow run homebrew-handoff.yml
---ref main
+Summarize publication verification
+without another environment approval
 "#,
         ),
         (
