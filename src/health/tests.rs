@@ -32,6 +32,55 @@ fn github_blob_links_support_https_and_ssh_remotes() {
 }
 
 #[test]
+fn health_numbers_use_stable_human_formatting() {
+    assert_eq!(super::render::format_number(1_234.0), "1,234");
+    assert_eq!(super::render::format_number(1_234.5), "1,234.50");
+    assert_eq!(super::render::format_score(1_234.5), "1,234.5");
+    assert_eq!(super::render::format_percent(0.123_55), "12.4%");
+    assert_eq!(
+        super::render::format_finding_reason(
+            "10001 tokens exceed the configured fail threshold",
+            10_001,
+        ),
+        "10,001 tokens exceed the configured fail threshold"
+    );
+    assert_eq!(
+        super::render::folder_next_command("."),
+        "git-slop explain --path ."
+    );
+}
+
+#[test]
+fn folder_risks_explain_direct_triggers_and_rank_one_agent_descendant() {
+    let report: Value = serde_json::from_str(include_str!(
+        "../../tests/fixtures/reports/health_folder_guidance_report.json"
+    ))
+    .expect("folder guidance fixture");
+
+    let rendered = render_health_from_report(&report).expect("health renders");
+
+    assert!(rendered.contains("Context/load band"));
+    assert!(rendered.contains("Maintenance pressure"));
+    assert!(rendered.contains("Review severity"));
+    assert!(rendered.contains(r"files: 3 direct files \> 2 healthy ceiling"));
+    assert!(rendered.contains(r"tokens: 2,500 direct tokens \> 2,000 healthy ceiling"));
+    assert!(rendered.contains(
+        r"both: 5 direct files \> 4 warning ceiling; 4,500 direct tokens \> 4,000 warning ceiling"
+    ));
+    for path in ["src/files-only/", "src/tokens-only/", "src/both/"] {
+        assert!(
+            rendered.contains(&format!("git-slop explain --path {path}")),
+            "missing next command for {path}"
+        );
+    }
+    assert!(rendered.contains("src/files-only/nested/winner.rs"));
+    assert!(!rendered.contains("src/files-only/a.rs"));
+    assert!(!rendered.contains("src/files-only/generated.json"));
+    assert!(rendered.contains("score 1,234.5"));
+    assert!(rendered.contains("60.4% of parent"));
+}
+
+#[test]
 fn report_only_renderer_is_compatible_with_minimal_schema_four() {
     let report = json!({
         "schema_version": 4,

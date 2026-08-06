@@ -1,0 +1,154 @@
+{
+  "schema_version": 4,
+  "generated_at": "2026-08-06T12:00:00Z",
+  "repo": {
+    "repo_name": "health-folder-guidance",
+    "branch": "main",
+    "head_commit": "abc123"
+  },
+  "config": {
+    "health": {
+      "folder_bands": {
+        "compact_max_direct_tokens": 500,
+        "healthy_max_direct_tokens": 2000,
+        "warning_max_direct_tokens": 4000,
+        "warning_max_direct_files": 2,
+        "refactor_required_max_direct_files": 4
+      }
+    }
+  },
+  "stats": {},
+  "files": [
+    {
+      "path": "src/files-only/a.rs",
+      "profile": "agent_context",
+      "classification": "source",
+      "language": "Rust",
+      "tokens": 100,
+      "context_band": "compact",
+      "slop_band": "moderate",
+      "slop_score": 50.0
+    },
+    {
+      "path": "src/files-only/b.rs",
+      "profile": "agent_context",
+      "classification": "source",
+      "language": "Rust",
+      "tokens": 100,
+      "context_band": "compact",
+      "slop_band": "moderate",
+      "slop_score": 50.0
+    },
+    {
+      "path": "src/files-only/c.rs",
+      "profile": "agent_context",
+      "classification": "source",
+      "language": "Rust",
+      "tokens": 100,
+      "context_band": "compact",
+      "slop_band": "low",
+      "slop_score": 40.0
+    },
+    {
+      "path": "src/files-only/nested/winner.rs",
+      "profile": "agent_context",
+      "classification": "source",
+      "language": "Rust",
+      "tokens": 150,
+      "context_band": "compact",
+      "slop_band": "moderate",
+      "slop_score": 50.0
+    },
+    {
+      "path": "src/files-only/generated.json",
+      "profile": "data_context",
+      "classification": "data",
+      "language": "JSON",
+      "tokens": 99999,
+      "context_band": "refactor_required",
+      "slop_band": "critical",
+      "slop_score": 99.0
+    },
+    {
+      "path": "src/tokens-only/a.rs",
+      "profile": "agent_context",
+      "classification": "source",
+      "language": "Rust",
+      "tokens": 2500,
+      "context_band": "compact",
+      "slop_band": "moderate",
+      "slop_score": 60.0
+    },
+    {
+      "path": "src/both/0.rs",
+      "profile": "agent_context",
+      "classification": "source",
+      "language": "Rust",
+      "tokens": 900,
+      "context_band": "compact",
+      "slop_band": "high",
+      "slop_score": 80.0
+    },
+    {
+      "path": "src/both/1.rs",
+      "profile": "agent_context",
+      "classification": "source",
+      "language": "Rust",
+      "tokens": 900,
+      "context_band": "compact",
+      "slop_band": "high",
+      "slop_score": 79.0
+    },
+    {
+      "path": "src/both/2.rs",
+      "profile": "agent_context",
+      "classification": "source",
+      "language": "Rust",
+      "tokens": 900,
+      "context_band": "compact",
+      "slop_band": "high",
+      "slop_score": 78.0
+    },
+    {
+      "path": "src/both/3.rs",
+      "profile": "agent_context",
+      "classification": "source",
+      "language": "Rust",
+      "tokens": 900,
+      "context_band": "compact",
+      "slop_band": "high",
+      "slop_score": 77.0
+    },
+    {
+      "path": "src/both/4.rs",
+      "profile": "agent_context",
+      "classification": "source",
+      "language": "Rust",
+      "tokens": 900,
+      "context_band": "compact",
+      "slop_band": "high",
+      "slop_score": 76.0
+    }
+  ],
+  "folders": [
+    {
+      "path": "src/files-only",
+      "classification": "source",
+      "slop_band": "high",
+      "slop_score": 1234.5
+    },
+    {
+      "path": "src/tokens-only",
+      "classification": "source",
+      "slop_band": "moderate",
+      "slop_score": 61.25
+    },
+    {
+      "path": "src/both",
+      "classification": "source",
+      "slop_band": "critical",
+      "slop_score": 90.0
+    }
+  ],
+  "action_queue": []
+}

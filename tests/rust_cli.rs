@@ -151,6 +151,20 @@ fn health_report() -> Value {
             "slop_band": "high",
             "slop_score": 70.0,
             "reason_codes": ["high_token_cost"]
+        }, {
+            "path": "src/watchlist.rs",
+            "profile": "agent_context",
+            "classification": "source",
+            "language": "Rust",
+            "lines": 30,
+            "code_lines": 24,
+            "comment_lines": 3,
+            "blank_lines": 3,
+            "tokens": 6000,
+            "context_band": "healthy",
+            "slop_band": "moderate",
+            "slop_score": 60.0,
+            "reason_codes": []
         }],
         "folders": [],
         "action_queue": []
@@ -525,12 +539,57 @@ fn health_github_is_advisory_capped_actionable_and_escaped() {
         .assert()
         .success()
         .stdout(predicate::str::starts_with(
-            "::warning file=src/a%2Cb%25file.rs,title=Context budget exceeded::",
+            "::error file=src/a%2Cb%25file.rs,title=Context budget exceeded::",
         ))
         .stdout(predicate::str::contains(
             "Next: git-slop explain --path 'src/a,b%25file.rs'",
         ))
         .stdout(predicate::str::contains("src/second.rs").not());
+}
+
+#[test]
+fn health_markdown_matches_folder_guidance_golden() {
+    let report = fixture("health_folder_guidance_report.json");
+    let expected = fs::read_to_string(fixture("health_folder_guidance.md"))
+        .expect("folder guidance Markdown golden");
+    let output = cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .args([
+            "health",
+            "--report",
+            report.to_str().expect("fixture path"),
+            "--format",
+            "markdown",
+        ])
+        .output()
+        .expect("run health Markdown");
+
+    assert_stdout_matches_golden(&output, &expected);
+}
+
+#[test]
+fn health_github_preserves_error_warning_and_notice_severity() {
+    let report = write_report(&health_report());
+    let output = cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .args([
+            "health",
+            "--report",
+            report.path().to_str().expect("report path"),
+            "--format",
+            "github",
+            "--max-annotations",
+            "3",
+        ])
+        .output()
+        .expect("run health");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("GitHub annotations are UTF-8");
+    let annotations = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(annotations.len(), 3);
+    assert!(annotations[0].starts_with("::error file=src/a%2Cb%25file.rs,"));
+    assert!(annotations[1].starts_with("::warning file=src/second.rs,"));
+    assert!(annotations[2].starts_with("::notice file=src/watchlist.rs,"));
 }
 
 #[test]

@@ -82,6 +82,36 @@ standard output. `health` never rewrites `.slop/latest/health.md`; only `find`
 writes the persisted report bundle. GitHub annotations include a specific next
 command such as `git-slop explain --path <path>`.
 
+The dashboard keeps three related concepts separate:
+
+- **Context/load bands** (`compact`, `healthy`, `warning`, and
+  `refactor_required`) describe how much `agent_context` content must be loaded.
+  File bands use file tokens; folder bands use direct child-file counts and
+  direct tokens.
+- **Maintenance-pressure evidence** is the stable `slop_score` and `slop_band`
+  derived from deterministic load, history, and coordination signals. It is
+  not an overall quality score and is not another name for a context/load
+  band.
+- **Finding severity** (`notice`, `warning`, or `error`) is the rendered review
+  priority. It stays the same in Markdown and GitHub annotations; policy mode
+  does not promote or demote it.
+
+Every surfaced warning or refactor-required folder states the exact boundary
+that produced its displayed band. For example, `19 direct files > 17 healthy
+ceiling` identifies both the observed value and configured boundary. When
+direct files and direct tokens both cross the relevant ceiling, both clauses
+are shown. The row includes a copyable folder command such as
+`git-slop explain --path src/` (`--path .` for the repository root) and one
+highest-ranked recursive `agent_context` descendant. That descendant is chosen
+deterministically by descending maintenance-pressure score, then descending
+tokens, then ascending path.
+
+Markdown number formatting is locale-independent: integer counts and token
+totals use comma grouping; non-integral percentiles use comma grouping and two
+decimal places; concentration and profile shares use one decimal place plus
+`%`; and maintenance-pressure scores use one decimal place. JSON keeps numeric
+values and types instead of formatted strings.
+
 An abridged Markdown dashboard looks like this:
 
 ```markdown
@@ -131,6 +161,12 @@ git-slop explain --top 5 --format json
 With no selector, `explain` uses the top five action-queue entries. Its output
 keeps stable detector costs separate from overlay context. Findings are
 evidence, not correctness proofs or refactor mandates.
+
+For a folder selector, `explain` provides at most five descendant hotspots,
+falling back to the highest maintenance-pressure descendants when none are in
+the action queue. The health dashboard intentionally previews only the single
+highest-ranked `agent_context` descendant, so the folder-scoped command is the
+bounded drill-down for the remaining evidence.
 
 ### Plan
 

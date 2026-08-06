@@ -52,9 +52,10 @@ The stable detector fields are:
 - `context_band`
 - `action_queue`
 
-`slop_score` is a deterministic maintenance-pressure score, not an overall
-quality score. `git slop check` evaluates file bands from an existing report
-against configured or explicit thresholds.
+`slop_score` and `slop_band` are deterministic maintenance-pressure evidence,
+not overall quality scores. `context_band` is the separate file context/load
+classification. `git slop check` evaluates those file bands from an existing
+report against configured or explicit thresholds.
 
 ### Additive Overlays
 
@@ -127,7 +128,7 @@ top-1/top-5/top-10 concentration shares. Findings contain path, severity,
 human-readable reason, stable detector fields, and a deterministic
 `next_command`.
 
-Health file bands are a human-facing projection of context bands:
+Health file bands are a human-facing projection of context/load bands:
 
 - `compact`
 - `healthy`
@@ -136,6 +137,46 @@ Health file bands are a human-facing projection of context bands:
 
 Folder health bands use direct child-file counts and direct token totals from
 the `health.folder_bands` config. They do not alter file-level stable scoring.
+
+For every warning or refactor-required folder surfaced in Markdown, the
+projection names each direct metric that crossed the boundary for the displayed
+band. Warning rows compare against the configured healthy ceilings, for example
+`19 direct files > 17 healthy ceiling` or
+`128,001 direct tokens > 128,000 healthy ceiling`. Refactor-required rows
+compare against the warning ceilings. When both direct metrics cross the
+relevant ceiling, the two clauses are joined with `; `.
+
+Each surfaced folder also receives a copyable
+`git-slop explain --path <folder>/` next command; the repository root uses
+`git-slop explain --path .`. Its bounded preview contains exactly one recursive
+`agent_context` descendant, ranked deterministically by descending
+`slop_score`, descending tokens, and ascending path. The preview reports that
+descendant's maintenance-pressure band and score separately from its
+context/load band and token count. This selection does not change detector
+ordering, scores, thresholds, or the action queue.
+
+Rendered finding severity is a third, presentation-level concept:
+
+- `notice` maps to the GitHub `::notice` workflow command.
+- `warning` maps to `::warning`.
+- `error` maps to `::error`.
+
+The mapping is one-to-one for recognized health severities and does not depend
+on advisory versus enforcing Action policy. A defensive unknown-severity
+fallback may emit `warning`; it does not redefine the three supported levels.
+`--max-annotations` bounds the ordered stream without changing the retained
+findings' levels.
+
+Health Markdown uses one locale-independent number policy:
+
+- integer counts and token totals use comma grouping;
+- non-integral percentiles use comma grouping and exactly two decimal places;
+- concentration and profile shares use exactly one decimal place plus `%`;
+- maintenance-pressure scores use exactly one decimal place.
+
+These strings are projection-only. JSON retains its existing numeric values
+and types, and the folder guidance and formatting changes do not change schema
+4.
 
 ## Bundle Contract
 

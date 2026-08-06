@@ -23,31 +23,23 @@ fn github_message_escape(value: &str) -> String {
         .replace('\n', "%0A")
 }
 
-fn health_enforcement_enabled(report: &Value) -> bool {
-    report
-        .pointer("/health/enforcement/enabled")
-        .and_then(Value::as_bool)
-        .or_else(|| {
-            report
-                .pointer("/health/enforcement")
-                .and_then(Value::as_bool)
-        })
-        .or_else(|| report.pointer("/health/enforced").and_then(Value::as_bool))
-        .unwrap_or(false)
+fn github_annotation_level(severity: &str) -> &'static str {
+    if severity.eq_ignore_ascii_case("notice") {
+        "notice"
+    } else if severity.eq_ignore_ascii_case("error") {
+        "error"
+    } else {
+        "warning"
+    }
 }
 
 pub fn render_github_annotations(report: &Value, max_annotations: usize) -> String {
-    let enforced = health_enforcement_enabled(report);
     let lines: Vec<String> = array_at(report, &["health", "findings"])
         .iter()
         .take(max_annotations)
         .map(|finding| {
-            let command =
-                if enforced && string(finding.get("severity")).eq_ignore_ascii_case("error") {
-                    "error"
-                } else {
-                    "warning"
-                };
+            let severity = string(finding.get("severity"));
+            let command = github_annotation_level(&severity);
             let path = github_property_escape(&string(finding.get("path")));
             let title = github_property_escape(&string(finding.get("title")));
             let mut message = string(finding.get("message"));

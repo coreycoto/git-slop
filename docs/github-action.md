@@ -56,7 +56,8 @@ The default is advisory:
 
 - `git-slop find` runs exactly once.
 - `.slop/latest/health.md` is appended to the job summary.
-- at most 10 workflow annotations are emitted.
+- at most 10 workflow annotations are emitted, preserving each finding's
+  `notice`, `warning`, or `error` level.
 - only `health.md` is uploaded as the `git-slop` artifact.
 - the artifact is retained for 14 days.
 - pull request comments are disabled.
@@ -70,13 +71,38 @@ The publication sequence is explicit:
 3. When annotations are enabled, run `git-slop health --report
    .slop/latest/report.json --format github --max-annotations <count>` and emit
    its standard output as bounded workflow annotations. This projection does
-   not rewrite `health.md`.
+   not rewrite `health.md` or rerun `find`.
 4. Publish the selected artifact and optional pull request comment, then, only
    for `policy: enforce`, run `git-slop check` against the same `report.json`.
 
 The dashboard and annotation findings are advisory projections. A successful
 `health` render exits 0 even when findings are present; `check` is the step that
 turns configured stable thresholds into an enforcing exit status.
+
+### Finding Levels And Annotation Bounds
+
+The health renderer owns finding severity, and the Action streams its bounded
+workflow commands without reclassifying them:
+
+| Rendered finding | GitHub workflow command |
+| --- | --- |
+| `notice` | `::notice` |
+| `warning` | `::warning` |
+| `error` | `::error` |
+
+`max-annotations` caps the ordered finding stream as a whole; it is not a
+per-level quota. An advisory run therefore does not turn an `error` into a
+warning, and `policy: enforce` does not turn a notice into an error. Enforcement
+is evaluated later by `git-slop check` against the same persisted
+`report.json`.
+
+The job-summary Markdown uses **context/load bands** for token and direct-folder
+load, **maintenance-pressure** for stable `slop_score`/`slop_band` evidence,
+and `notice`/`warning`/`error` for rendered review severity. Surfaced folder
+rows name their exact crossed boundary, provide a folder-scoped
+`git-slop explain --path <folder>/` command, and preview one deterministically
+highest-ranked descendant. Number grouping and decimal precision are fixed by
+the Markdown projection; machine-readable JSON values are unchanged.
 
 The Action supports GitHub-hosted Linux x64/ARM64, macOS Apple Silicon, and
 Windows x64/ARM64 runners. The release must contain the matching
@@ -195,7 +221,7 @@ report remains in the job summary and artifact.
 | `fail-on-context-band` | empty | Optional check threshold override |
 | `fail-on-slop-band` | empty | Optional check threshold override |
 | `annotations` | `true` | Emit workflow annotations |
-| `max-annotations` | `10` | Annotation cap from 0 through 50 |
+| `max-annotations` | `10` | Ordered annotation cap from 0 through 50; finding levels are preserved |
 | `upload-artifact` | `true` | Upload the bounded artifact |
 | `artifact-name` | `git-slop` | Artifact name |
 | `artifact-contents` | `summary` | `summary`, `report`, or `full` |
