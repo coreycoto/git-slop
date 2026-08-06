@@ -272,7 +272,9 @@ exact current main
   -> verified draft GitHub Release
   -> manual Marketplace publication with 2FA
   -> read-only release.published verification
-  -> receiver verifies public assets and updates the Homebrew tap
+  -> receiver verifies public assets and opens an exact two-file tap PR
+  -> exact-head two-platform bottle tests
+  -> trusted-main publisher reverifies and updates the Homebrew tap
 ```
 
 If crates.io has already accepted those immutable bytes and `main` advances
@@ -305,8 +307,13 @@ already-approved protected publication job exposes the existing Homebrew token
 only while dispatching the immutable version, revision, crate URL, and crate
 digest. The tap receiver waits for the exact stable public release, derives and
 reverifies its Formula and manifest digests, and cannot create a tap PR from a
-draft. The `release.published` event uses no cross-repository credential and is
-read-only verification, so it introduces no second protected approval. Manual
+draft. The PR must have the current tap `main` as its sole parent and exactly
+the Formula and release metadata files. Its canonical exact-head bottle test
+run triggers trusted `main` workflow code, which independently rechecks the
+event, artifacts, bot PR, parent, head, and two-file boundary immediately before
+publishing. The `release.published` event uses no cross-repository credential
+and is read-only verification, so it introduces no second protected approval;
+the trusted-main tap publisher adds no label or environment approval. Manual
 `homebrew-handoff.yml` dispatch remains a protected recovery path. The draft
 must not be published until the terminal `marketplace-ready` job confirms all
 five Action smoke lanes.
