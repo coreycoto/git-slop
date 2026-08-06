@@ -3,7 +3,7 @@ description: Find repository context hotspots and publish actionable health summ
 author: Corey Coto
 
 branding:
-  icon: activity
+  icon: shield
   color: purple
 
 inputs:

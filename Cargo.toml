@@ -19,6 +19,7 @@ include = [
     "/src/**/*.rs",
     "/README.md",
     "/LICENSE",
+    "/assets/brand/*",
     "/docs/*.md",
     "/man/git-slop.1",
     "/tests/*.rs",
