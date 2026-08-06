@@ -1,7 +1,0 @@
-interface:
-  display_name: "Plan Git Slop Work"
-  short_description: "Plan maintenance from git-slop evidence"
-  default_prompt: "Use $git-slop:plan-maintenance to turn reviewed git-slop evidence into bounded maintenance work."
-
-policy:
-  allow_implicit_invocation: true

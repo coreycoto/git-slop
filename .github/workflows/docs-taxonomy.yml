@@ -8,7 +8,7 @@ on:
       - ".agents/**"
       - ".codex/**"
       - "config/**"
-      - "plugins/git-slop/skills/**"
+      - "plugins/git-slop/**"
       - ".github/codex/**"
       - ".github/workflows/docs-taxonomy.yml"
   schedule:

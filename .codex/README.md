@@ -10,9 +10,9 @@ Use the runtime layers like this:
 - `.codex/rules/*.rules`: interactive approval prompts for sensitive shell commands
 - `.codex/agents/*.toml`: custom execution roles
 - `.agents/plugins/marketplace-source.json`: pinned marketplace source manifest
-- `.agents/plugins/marketplace.json`: local manifest for the `git-slop` Codex plugin
+- `.agents/plugins/marketplace.json`: local Codex marketplace for the portable `git-slop` Agent Plugin
 - installed `project-management-workflows` plugin from `coreycoto/agent-plugins`: canonical reusable workflow contract
-- `plugins/git-slop`: product-owned plugin for installing, running, interpreting, and adopting `git-slop`
+- `plugins/git-slop`: product-owned Agent Plugin for installing, running, interpreting, and adopting `git-slop`
 - `.github/codex/prompts/*`: workflow prompts that explicitly name the custom agents to use
 - `.github/codex/schemas/*`: structured-output schemas for Codex-driven workflows
 - `xtask/`: private standalone Rust validation and release automation for repo-owned contracts
@@ -82,9 +82,19 @@ They should:
 - keep only role, sandbox, model, and delegation guidance
 - avoid becoming the primary store for reusable workflow or repo policy
 
-The `git-slop` Codex plugin is the canonical reusable guidance surface for the
-product CLI itself. Keep generic backlog, governance, and release workflows in
-the installed `project-management-workflows` plugin.
+The portable `git-slop` Agent Plugin is the canonical reusable guidance surface
+for the product CLI itself. Its root `plugin.json` follows Agent Plugins 1.0.0;
+Codex discovers the four skills directly, and the intended plugin-level Codex
+UI metadata lives under `extensions.com.openai`. Keep the metadata-only
+`.codex-plugin/plugin.json` as an exact Codex 0.146.x compatibility mirror until
+a shipped Codex app-server resolves the root metadata without it; never add
+skills, MCP servers, apps, or hooks to that overlay. Each skill keeps its
+portable behavior in `SKILL.md`; optional `agents/openai.yaml` files provide
+only OpenAI UI labels, starter prompts, and the shared Git Slop icon. VS Code,
+Cursor, GitHub Copilot, and Kiro load those same portable skills without
+client-specific copies. Keep
+generic backlog, governance, and release workflows in the installed
+`project-management-workflows` plugin.
 
 Current project-scoped agents:
 

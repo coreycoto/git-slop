@@ -197,11 +197,15 @@ workspace validates Codex, plugin, workflow, repository, distribution, and
 release wiring. It is excluded from the public workspace and the `git-slop`
 Cargo package.
 
-The `git-slop` Codex plugin is published from this repo. It owns
+The portable `git-slop` Agent Plugin is published from this repo. It owns
 product-specific install, report, interpretation, planning, and
-consumer-adoption guidance. Reusable project and backlog workflows live in the
-separate `coreycoto/agent-plugins` plugin, which also owns its runtime behavior
-tests, pinned marketplace bootstrap, and clean-room consumer smoke coverage.
+consumer-adoption guidance. Its root `plugin.json` follows Agent Plugins 1.0.0,
+and the repo-local Codex marketplace distributes the same portable plugin. A
+metadata-only `.codex-plugin/plugin.json` temporarily mirrors the root metadata
+for Codex 0.146.x without owning component discovery.
+Reusable project and backlog workflows live in the separate
+`coreycoto/agent-plugins` plugin, which also owns its runtime behavior tests,
+pinned marketplace bootstrap, and clean-room consumer smoke coverage.
 Maintainer workflows acquire and verify that pinned prebuilt runtime in an
 ephemeral job directory before invoking its direct CLI through
 `scripts/with-agent-plugins.sh`. Acquisition credentials remain step-scoped,

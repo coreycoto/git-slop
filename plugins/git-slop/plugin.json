@@ -1,0 +1,53 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "git-slop",
+  "version": "0.3.0",
+  "description": "Agent guidance for installing, running, interpreting, automating, and adopting the native git-slop CLI.",
+  "author": {
+    "name": "Corey Coto",
+    "email": "support@coreycoto.com",
+    "url": "https://github.com/coreycoto"
+  },
+  "homepage": "https://github.com/coreycoto/git-slop/tree/main/plugins/git-slop",
+  "repository": "https://github.com/coreycoto/git-slop",
+  "license": "MIT",
+  "keywords": [
+    "agent-plugin",
+    "agent-skills",
+    "codex",
+    "cursor",
+    "git-slop",
+    "github-copilot",
+    "kiro",
+    "repo-health",
+    "hotspots",
+    "vscode"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Git Slop",
+        "shortDescription": "Run and automate git-slop health reports",
+        "longDescription": "Agent guidance for installing or updating the native git-slop CLI, running deterministic hotspot and repository-health reports, using the advisory GitHub Action, interpreting report artifacts, planning bounded maintenance slices, and adopting git-slop in consumer repositories without mixing product guidance into shared project-management workflows.",
+        "developerName": "Corey Coto",
+        "category": "Developer Tools",
+        "capabilities": [
+          "Interactive",
+          "Read"
+        ],
+        "websiteURL": "https://github.com/coreycoto/git-slop/tree/main/plugins/git-slop",
+        "privacyPolicyURL": "https://github.com/coreycoto/git-slop",
+        "termsOfServiceURL": "https://github.com/coreycoto/git-slop",
+        "defaultPrompt": [
+          "Use git-slop guidance to install, run, automate, and interpret repository-health reports.",
+          "Keep git-slop as an observational detector unless the repository explicitly promotes its results into required gates.",
+          "Reference project-management workflow skills only when converting reviewed git-slop maintenance plans into backlog work."
+        ],
+        "brandColor": "#6f42c1",
+        "composerIcon": "./assets/git-slop.svg",
+        "logo": "./assets/git-slop.svg",
+        "screenshots": []
+      }
+    }
+  }
+}

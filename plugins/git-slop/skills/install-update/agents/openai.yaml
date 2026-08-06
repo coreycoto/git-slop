@@ -1,7 +1,10 @@
 interface:
   display_name: "Install Git Slop"
-  short_description: "Install and verify git-slop"
-  default_prompt: "Use $git-slop:install-update to install or update a published git-slop CLI and verify its version and source revision."
+  short_description: "Install and verify the native Git Slop CLI"
+  icon_small: "./assets/git-slop.svg"
+  icon_large: "./assets/git-slop.svg"
+  brand_color: "#6f42c1"
+  default_prompt: "Use $git-slop:install-update to install or update the native Git Slop CLI and verify its provenance."
 
 policy:
   allow_implicit_invocation: true

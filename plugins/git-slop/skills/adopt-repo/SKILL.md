@@ -1,6 +1,6 @@
 ---
 name: adopt-repo
-description: Add git-slop to a consumer repository using the canonical plugin, native CLI, and advisory GitHub Action contract.
+description: Integrate git-slop into a consumer repository through durable plugin source metadata, local configuration and wrapper conventions, and the advisory GitHub Action contract. Use when a user wants repository or CI adoption; use install-update instead when the outcome is only a native CLI installation.
 ---
 
 # Adopt Git Slop In A Repository
@@ -9,17 +9,22 @@ Use this skill when a repository should start consuming `git-slop`.
 
 ## Adoption Contract
 
-- Add `git-slop` Codex plugin source metadata alongside any existing shared
-  workflow plugin sources.
+- Add `git-slop` Agent Plugin source metadata alongside any existing shared
+  workflow plugin sources. For Codex consumers, retain the stable
+  `git-slop-marketplace` distribution name while pinning a release that carries
+  the root Agent Plugins 1.0.0 `plugin.json`.
 - Treat the published crates.io package as the canonical source identity for a
   release. The Homebrew Formula installs that exact crate; a bottle is only its
-  faster prebuilt transport. The public Action installs GitHub Release archives
-  built from and verifiably bound to the same crate.
+  faster prebuilt transport. The public Action and external Scoop bucket install
+  checksummed GitHub Release archives built from and verifiably bound to the
+  same crate; Scoop publishes only after trusted Windows x64 and ARM64
+  qualification.
 - Verify that the intended version exists on crates.io and on the selected
   distribution surface before pinning it. Until publication is confirmed,
   describe that surface as pending rather than available.
 - For local use, prefer a repo wrapper such as `./scripts/git_slop.sh` and
-  require the native `git-slop` executable on `PATH`, usually from Homebrew.
+  require the native `git-slop` executable on `PATH`, usually from Homebrew on
+  macOS/Linux or Scoop on Windows.
 - Pin the expected minimum CLI version in a repo-owned tool contract when the
   consumer needs an explicit version gate.
 - Verify installed release provenance with `git-slop build-info --format json`.

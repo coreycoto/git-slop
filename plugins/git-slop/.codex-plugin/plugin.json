@@ -1,7 +1,7 @@
 {
   "name": "git-slop",
-  "version": "0.2.3",
-  "description": "Codex guidance for installing, running, interpreting, automating, and adopting the native git-slop CLI.",
+  "version": "0.3.0",
+  "description": "Agent guidance for installing, running, interpreting, automating, and adopting the native git-slop CLI.",
   "author": {
     "name": "Corey Coto",
     "email": "support@coreycoto.com",
@@ -11,16 +11,21 @@
   "repository": "https://github.com/coreycoto/git-slop",
   "license": "MIT",
   "keywords": [
+    "agent-plugin",
+    "agent-skills",
     "codex",
+    "cursor",
     "git-slop",
+    "github-copilot",
+    "kiro",
     "repo-health",
-    "hotspots"
+    "hotspots",
+    "vscode"
   ],
-  "skills": "./skills/",
   "interface": {
     "displayName": "Git Slop",
     "shortDescription": "Run and automate git-slop health reports",
-    "longDescription": "Codex guidance for installing or updating the native git-slop CLI, running deterministic hotspot and repository-health reports, using the advisory GitHub Action, interpreting report artifacts, planning bounded maintenance slices, and adopting git-slop in consumer repositories without mixing product guidance into shared project-management workflows.",
+    "longDescription": "Agent guidance for installing or updating the native git-slop CLI, running deterministic hotspot and repository-health reports, using the advisory GitHub Action, interpreting report artifacts, planning bounded maintenance slices, and adopting git-slop in consumer repositories without mixing product guidance into shared project-management workflows.",
     "developerName": "Corey Coto",
     "category": "Developer Tools",
     "capabilities": [
@@ -35,7 +40,7 @@
       "Keep git-slop as an observational detector unless the repository explicitly promotes its results into required gates.",
       "Reference project-management workflow skills only when converting reviewed git-slop maintenance plans into backlog work."
     ],
-    "brandColor": "#24292f",
+    "brandColor": "#6f42c1",
     "composerIcon": "./assets/git-slop.svg",
     "logo": "./assets/git-slop.svg",
     "screenshots": []

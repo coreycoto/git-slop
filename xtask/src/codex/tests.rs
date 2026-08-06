@@ -58,12 +58,277 @@ fn contract_inventory_is_stable() {
         [
             "adopt-repo",
             "install-update",
-            "interpret-results",
-            "plan-maintenance",
+            "review-results",
             "run-report",
         ]
         .into_iter()
         .collect()
+    );
+    assert_eq!(
+        GIT_SLOP_PLUGIN_CLIENTS,
+        [
+            "ChatGPT & Codex",
+            "VS Code",
+            "Cursor",
+            "GitHub Copilot",
+            "Kiro",
+        ]
+    );
+}
+
+#[test]
+fn portable_agent_plugin_contract_passes() {
+    let temp = TempDir::new().unwrap();
+    write_product_plugin_fixture(
+        temp.path(),
+        include_str!("../../../plugins/git-slop/plugin.json"),
+    );
+
+    let mut errors = Vec::new();
+    validate_product_plugin(temp.path(), &mut errors);
+
+    assert_eq!(errors, Vec::<String>::new());
+}
+
+#[test]
+fn portable_agent_plugin_requires_codex_compatibility_overlay() {
+    let temp = TempDir::new().unwrap();
+    write_product_plugin_fixture(
+        temp.path(),
+        include_str!("../../../plugins/git-slop/plugin.json"),
+    );
+    fs::remove_file(temp.path().join(GIT_SLOP_CODEX_COMPAT_MANIFEST)).unwrap();
+
+    let mut errors = Vec::new();
+    validate_product_plugin(temp.path(), &mut errors);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains(".codex-plugin/plugin.json is missing"))
+    );
+}
+
+#[test]
+fn portable_agent_plugin_rejects_codex_compatibility_overlay_drift() {
+    let temp = TempDir::new().unwrap();
+    write_product_plugin_fixture(
+        temp.path(),
+        include_str!("../../../plugins/git-slop/plugin.json"),
+    );
+    let compatibility_path = temp.path().join(GIT_SLOP_CODEX_COMPAT_MANIFEST);
+    let mut compatibility_manifest: JsonValue =
+        serde_json::from_str(&fs::read_to_string(&compatibility_path).unwrap()).unwrap();
+    compatibility_manifest["version"] = json!("0.2.9");
+    compatibility_manifest["skills"] = json!("./skills");
+    fs::write(
+        compatibility_path,
+        serde_json::to_string_pretty(&compatibility_manifest).unwrap(),
+    )
+    .unwrap();
+
+    let mut errors = Vec::new();
+    validate_product_plugin(temp.path(), &mut errors);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("exact metadata-only mirror"))
+    );
+}
+
+#[test]
+fn portable_agent_plugin_rejects_wrong_schema_and_legacy_fields() {
+    let temp = TempDir::new().unwrap();
+    let mut manifest: JsonValue =
+        serde_json::from_str(include_str!("../../../plugins/git-slop/plugin.json")).unwrap();
+    manifest["$schema"] = json!("https://example.com/plugin.schema.json");
+    manifest["skills"] = json!("./skills/");
+    write_product_plugin_fixture(
+        temp.path(),
+        &serde_json::to_string_pretty(&manifest).unwrap(),
+    );
+
+    let mut errors = Vec::new();
+    validate_product_plugin(temp.path(), &mut errors);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("portable Agent Plugins fields"))
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains(AGENT_PLUGIN_SCHEMA))
+    );
+}
+
+#[test]
+fn portable_agent_plugin_rejects_missing_codex_extension_and_asset() {
+    let temp = TempDir::new().unwrap();
+    let mut manifest: JsonValue =
+        serde_json::from_str(include_str!("../../../plugins/git-slop/plugin.json")).unwrap();
+    manifest["extensions"] = json!({});
+    write_product_plugin_fixture(
+        temp.path(),
+        &serde_json::to_string_pretty(&manifest).unwrap(),
+    );
+    fs::remove_file(temp.path().join("plugins/git-slop/assets/git-slop.svg")).unwrap();
+
+    let mut errors = Vec::new();
+    validate_product_plugin(temp.path(), &mut errors);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("extensions.com.openai"))
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("only the com.openai"))
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("referenced asset is missing"))
+    );
+}
+
+#[test]
+fn portable_agent_plugin_rejects_invalid_skill_frontmatter() {
+    let temp = TempDir::new().unwrap();
+    write_product_plugin_fixture(
+        temp.path(),
+        include_str!("../../../plugins/git-slop/plugin.json"),
+    );
+    fs::write(
+        temp.path()
+            .join("plugins/git-slop/skills/adopt-repo/SKILL.md"),
+        "---\nname: wrong-name\ndescription: ''\n---\n",
+    )
+    .unwrap();
+
+    let mut errors = Vec::new();
+    validate_product_plugin(temp.path(), &mut errors);
+
+    assert!(errors.iter().any(|error| error.contains("name must match")));
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("non-empty description"))
+    );
+}
+
+#[test]
+fn portable_agent_plugin_rejects_skill_presentation_and_icon_drift() {
+    let temp = TempDir::new().unwrap();
+    write_product_plugin_fixture(
+        temp.path(),
+        include_str!("../../../plugins/git-slop/plugin.json"),
+    );
+    let skill_root = temp.path().join("plugins/git-slop/skills/adopt-repo");
+    fs::write(
+        skill_root.join("agents/openai.yaml"),
+        "interface:\n  display_name: Wrong\n",
+    )
+    .unwrap();
+    fs::write(skill_root.join("assets/git-slop.svg"), "<svg>wrong</svg>").unwrap();
+    fs::write(skill_root.join("agents/cursor.yaml"), "interface: {}\n").unwrap();
+
+    let mut errors = Vec::new();
+    validate_product_plugin(temp.path(), &mut errors);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("expected OpenAI presentation contract"))
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("must be the same Git Slop icon"))
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("must contain only the optional OpenAI presentation"))
+    );
+}
+
+#[test]
+fn portable_agent_plugin_requires_implicit_skill_invocation() {
+    let temp = TempDir::new().unwrap();
+    write_product_plugin_fixture(
+        temp.path(),
+        include_str!("../../../plugins/git-slop/plugin.json"),
+    );
+    let openai_path = temp
+        .path()
+        .join("plugins/git-slop/skills/install-update/agents/openai.yaml");
+    let openai_yaml = fs::read_to_string(&openai_path).unwrap().replace(
+        "allow_implicit_invocation: true",
+        "allow_implicit_invocation: false",
+    );
+    fs::write(openai_path, openai_yaml).unwrap();
+
+    let mut errors = Vec::new();
+    validate_product_plugin(temp.path(), &mut errors);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| { error.contains("policy.allow_implicit_invocation set to true") })
+    );
+}
+
+#[test]
+fn portable_agent_plugin_rejects_implicit_trigger_description_drift() {
+    let temp = TempDir::new().unwrap();
+    write_product_plugin_fixture(
+        temp.path(),
+        include_str!("../../../plugins/git-slop/plugin.json"),
+    );
+    fs::write(
+        temp.path()
+            .join("plugins/git-slop/skills/run-report/SKILL.md"),
+        "---\nname: run-report\ndescription: Do Git Slop things.\n---\n",
+    )
+    .unwrap();
+
+    let mut errors = Vec::new();
+    validate_product_plugin(temp.path(), &mut errors);
+
+    assert!(errors.iter().any(|error| {
+        error.contains("must preserve its expected implicit-invocation trigger description")
+    }));
+}
+
+#[test]
+fn portable_agent_plugin_rejects_undersized_or_fixed_color_brand_icon() {
+    let temp = TempDir::new().unwrap();
+    write_product_plugin_fixture(
+        temp.path(),
+        include_str!("../../../plugins/git-slop/plugin.json"),
+    );
+    let icon_path = temp.path().join(GIT_SLOP_ICON);
+    let icon = fs::read_to_string(&icon_path)
+        .unwrap()
+        .replace(r#"width="64" height="64""#, r#"width="24" height="24""#)
+        .replace(" role=", r##" color="#24292f" role=""##);
+    fs::write(icon_path, icon).unwrap();
+
+    let mut errors = Vec::new();
+    validate_product_plugin(temp.path(), &mut errors);
+
+    assert!(errors.iter().any(|error| {
+        error.contains("must declare 64x64 dimensions and preserve viewBox 0 0 24 24")
+    }));
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("must inherit its foreground color"))
     );
 }
 
@@ -187,5 +452,51 @@ fn write_profiles(codex_root: &Path) {
             format!("approval_policy = \"never\"\nsandbox_mode = \"{sandbox_mode}\"\n"),
         )
         .unwrap();
+    }
+}
+
+fn write_product_plugin_fixture(root: &Path, manifest: &str) {
+    let plugin_root = root.join(GIT_SLOP_PLUGIN_ROOT);
+    fs::create_dir_all(plugin_root.join("assets")).unwrap();
+    fs::create_dir_all(plugin_root.join(".codex-plugin")).unwrap();
+    fs::write(plugin_root.join("plugin.json"), manifest).unwrap();
+    fs::write(
+        plugin_root.join(".codex-plugin/plugin.json"),
+        include_str!("../../../plugins/git-slop/.codex-plugin/plugin.json"),
+    )
+    .unwrap();
+    let icon = include_str!("../../../plugins/git-slop/assets/git-slop.svg");
+    fs::write(plugin_root.join("assets/git-slop.svg"), icon).unwrap();
+    for skill in GIT_SLOP_PLUGIN_SKILLS {
+        let skill_root = plugin_root.join("skills").join(skill);
+        fs::create_dir_all(skill_root.join("agents")).unwrap();
+        fs::create_dir_all(skill_root.join("assets")).unwrap();
+        let trigger_description = GIT_SLOP_SKILL_CONTRACTS
+            .iter()
+            .find(|presentation| presentation.skill_name == skill)
+            .unwrap()
+            .trigger_description;
+        fs::write(
+            skill_root.join("SKILL.md"),
+            format!("---\nname: {skill}\ndescription: {trigger_description}\n---\n"),
+        )
+        .unwrap();
+        let openai_yaml = match skill {
+            "adopt-repo" => {
+                include_str!("../../../plugins/git-slop/skills/adopt-repo/agents/openai.yaml")
+            }
+            "install-update" => {
+                include_str!("../../../plugins/git-slop/skills/install-update/agents/openai.yaml")
+            }
+            "review-results" => {
+                include_str!("../../../plugins/git-slop/skills/review-results/agents/openai.yaml")
+            }
+            "run-report" => {
+                include_str!("../../../plugins/git-slop/skills/run-report/agents/openai.yaml")
+            }
+            _ => unreachable!("unexpected git-slop skill fixture: {skill}"),
+        };
+        fs::write(skill_root.join("agents/openai.yaml"), openai_yaml).unwrap();
+        fs::write(skill_root.join("assets/git-slop.svg"), icon).unwrap();
     }
 }
