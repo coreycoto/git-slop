@@ -35,7 +35,7 @@
       "Keep git-slop as an observational detector unless the repository explicitly promotes its results into required gates.",
       "Reference project-management workflow skills only when converting reviewed git-slop maintenance plans into backlog work."
     ],
-    "brandColor": "#475569",
+    "brandColor": "#24292f",
     "composerIcon": "./assets/git-slop.svg",
     "logo": "./assets/git-slop.svg",
     "screenshots": []

@@ -1,4 +1,10 @@
-# 🧑‍💻🤖🫟 Git Slop
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/git-slop-inverse.svg">
+    <img src="assets/brand/git-slop.svg" alt="" width="32" height="32">
+  </picture>
+  Git Slop
+</h1>
 
 Find the files that cost too much context.
 
@@ -135,6 +141,7 @@ The local `git-slop` CLI does not:
 
 ## Documentation
 
+- [Brand mark](assets/brand/README.md)
 - [Installation](docs/install.md)
 - [Command Guide](docs/commands.md)
 - [Report and Config Contract](docs/report-contract.md)
@@ -162,3 +169,5 @@ Maintainer workflows acquire and verify that pinned prebuilt runtime in an
 ephemeral job directory before invoking its direct CLI through
 `scripts/with-agent-plugins.sh`. Acquisition credentials remain step-scoped,
 and the public Git Slop release workflow is independent of the private runtime.
+
+🧑‍💻🤖🫟
