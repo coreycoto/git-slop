@@ -25,6 +25,9 @@ on that identity.
   `HOMEBREW_TAP_DISPATCH_TOKEN`.
 - Keep the tap receiver at `.github/workflows/update-git-slop.yml` on that
   repository's `main` branch.
+- Keep the trusted-main publisher at `.github/workflows/publish.yml` on the tap
+  repository's `main` branch. It runs only from a successful canonical
+  `Release git-slop bottles` `workflow_run` for the exact automation head.
 
 The normal `github.token` creates the exact tag and GitHub Release in this
 repository. No additional GitHub PAT is needed for those same-repository
@@ -251,11 +254,23 @@ receiver fails or times out, explicitly dispatch `homebrew-handoff.yml` from
 current `main` with the exact published version and source revision. That is a
 recovery path, not part of a normal release.
 
-Verify the tap workflow and Formula before merging its change. The Formula must
-retain `coreycoto/tap/git-slop`, build from the exact `.crate` source, and
-introduce no auxiliary runtime dependency. Homebrew derives the version from
-the crates.io URL, so the Formula must not declare a redundant `version` stanza;
-its embedded-provenance assertions must also pass Homebrew's strict Ruby style.
+The receiver opens an exact two-file automation PR and dispatches the canonical
+two-platform `Release git-slop bottles` workflow. A successful exact-head run
+then triggers the trusted-main publisher. Before publication it independently
+rechecks the event run and artifact provenance, unique same-repository bot PR,
+current `main` parent, exact head SHA, two-file allowlist, release identity,
+Formula, manifest, and both unexpired bottle artifacts. It repeats the
+parent/head/PR/two-file checks immediately before `brew pr-pull`, publishes with
+the expected head SHA, and removes only the consumed automation branch. A
+matching formula already on `main` is an idempotent success only after the same
+canonical bottle block is verified. No label or additional manual Actions
+approval is part of the normal path.
+
+The resulting Formula must retain `coreycoto/tap/git-slop`, build from the exact
+`.crate` source, and introduce no auxiliary runtime dependency. Homebrew derives
+the version from the crates.io URL, so the Formula must not declare a redundant
+`version` stanza; its embedded-provenance assertions must also pass Homebrew's
+strict Ruby style.
 
 Test both upgrade and clean-install lanes:
 

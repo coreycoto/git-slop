@@ -73,8 +73,11 @@ to GitHub Marketplace through GitHub's required web approval.
    Homebrew receiver. The receiver waits for the exact public stable release
    before deriving and reverifying Formula/manifest digests. The
    `release.published` workflow is read-only verification and requires no
-   second environment approval; `homebrew-handoff.yml` is protected manual
-   recovery only.
+   second environment approval. After the receiver's exact-head bottle tests
+   pass, trusted tap `main` workflow code reverifies the current-parent,
+   exact-head, two-file, artifact, and release contracts and publishes the tap
+   change automatically; no label or tap environment approval is part of the
+   normal path. `homebrew-handoff.yml` is protected manual recovery only.
 6. Report rerun state explicitly. A matching package/tag/draft is resumable; a
    digest or revision mismatch fails closed; a published release is
    verification-only. `artifact_paths` may be empty when this job does not
