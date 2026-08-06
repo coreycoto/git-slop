@@ -35,7 +35,10 @@ if (args[0] === "find") {
   fs.mkdirSync(latest, { recursive: true });
   const counter = path.join(process.cwd(), ".find-count");
   fs.writeFileSync(counter, String(Number(fs.existsSync(counter) ? fs.readFileSync(counter, "utf8") : "0") + 1));
-  fs.writeFileSync(path.join(latest, "report.json"), JSON.stringify({ health: { findings: [{}, {}] } }));
+  fs.writeFileSync(
+    path.join(latest, "report.json"),
+    JSON.stringify({ health: { findings: [{}, {}, {}, {}] } }),
+  );
   fs.writeFileSync(path.join(latest, "report.yaml"), "schema_version: 4\\n");
   fs.writeFileSync(path.join(latest, "summary.md"), "# Summary\\n");
   fs.writeFileSync(path.join(latest, "health.md"), "# Repository Health\\n\\nHealthy fixture.\\n");
@@ -43,7 +46,17 @@ if (args[0] === "find") {
   process.exit(0);
 }
 if (args[0] === "health") {
-  process.stdout.write("::warning file=src/example.rs,title=Git Slop::Fixture finding%0ANext: git-slop explain --path src/example.rs\\n");
+  const counter = path.join(process.cwd(), ".health-count");
+  fs.writeFileSync(counter, String(Number(fs.existsSync(counter) ? fs.readFileSync(counter, "utf8") : "0") + 1));
+  const annotations = [
+    "::notice file=src/notice.rs,title=Git Slop::Notice finding%0ANext: git-slop explain --path src/notice.rs\\n",
+    "::warning file=src/warning.rs,title=Git Slop::Warning finding%0ANext: git-slop explain --path src/warning.rs\\n",
+    "::error file=src/error.rs,title=Git Slop::Error finding%0ANext: git-slop explain --path src/error.rs\\n",
+    "::warning file=src/omitted.rs,title=Git Slop::Omitted finding%0ANext: git-slop explain --path src/omitted.rs\\n",
+  ];
+  const limitIndex = args.indexOf("--max-annotations");
+  const maximum = limitIndex === -1 ? annotations.length : Number(args[limitIndex + 1]);
+  process.stdout.write(annotations.slice(0, maximum).join(""));
   process.exit(0);
 }
 if (args[0] === "check") {
@@ -104,7 +117,7 @@ test("safe defaults analyze once and select only health.md", () => {
   assert.match(outputs, /policy<<[\s\S]*\nadvisory\n/u);
   assert.match(outputs, /artifact-contents<<[\s\S]*\nsummary\n/u);
   assert.match(outputs, /retention-days<<[\s\S]*\n14\n/u);
-  assert.match(outputs, /finding-count<<[\s\S]*\n2\n/u);
+  assert.match(outputs, /finding-count<<[\s\S]*\n4\n/u);
 
   writeFileSync(state.output, "");
   const artifacts = run("artifacts", {
@@ -121,7 +134,7 @@ test("safe defaults analyze once and select only health.md", () => {
   assert.doesNotMatch(artifactOutput, /report\.json/u);
 });
 
-test("annotations are bounded without rerunning analysis", () => {
+test("bounded annotations preserve notice, warning, and error without rerunning analysis", () => {
   const state = fixture();
   const analysis = run("analyze", {
     GITHUB_OUTPUT: state.output,
@@ -136,13 +149,21 @@ test("annotations are bounded without rerunning analysis", () => {
     GITHUB_OUTPUT: state.output,
     GIT_SLOP_BINARY: state.fakeBinary,
     GIT_SLOP_REPORT_PATH: join(state.repository, ".slop", "latest", "report.json"),
-    GIT_SLOP_FINDING_COUNT: "2",
-    GIT_SLOP_MAX_ANNOTATIONS: "1",
+    GIT_SLOP_FINDING_COUNT: "4",
+    GIT_SLOP_MAX_ANNOTATIONS: "3",
     GIT_SLOP_WORKING_DIRECTORY_RESOLVED: state.repository,
   });
   assert.equal(annotation.status, 0, annotation.stderr);
-  assert.match(annotation.stdout, /::warning/u);
-  assert.match(readFileSync(state.output, "utf8"), /annotation-count<<[\s\S]*\n1\n/u);
+  const levels = [...annotation.stdout.matchAll(/^::(notice|warning|error) /gmu)].map(
+    (match) => match[1],
+  );
+  assert.deepEqual(levels, ["notice", "warning", "error"]);
+  assert.match(annotation.stdout, /file=src\/notice\.rs/u);
+  assert.match(annotation.stdout, /file=src\/warning\.rs/u);
+  assert.match(annotation.stdout, /file=src\/error\.rs/u);
+  assert.doesNotMatch(annotation.stdout, /src\/omitted\.rs/u);
+  assert.match(readFileSync(state.output, "utf8"), /annotation-count<<[\s\S]*\n3\n/u);
+  assert.equal(readFileSync(join(state.repository, ".health-count"), "utf8"), "1");
   assert.equal(readFileSync(join(state.repository, ".find-count"), "utf8"), "1");
 });
 

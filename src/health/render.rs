@@ -82,16 +82,34 @@ fn format_int(value: usize) -> String {
     rendered
 }
 
-fn format_number(value: f64) -> String {
-    if (value - value.round()).abs() < 0.005 {
-        format_int(value.round().max(0.0) as usize)
-    } else {
-        format!("{value:.2}")
+pub(super) fn format_number(value: f64) -> String {
+    let rounded = ((value.max(0.0) * 100.0).round()) / 100.0;
+    if rounded.fract().abs() < f64::EPSILON {
+        return format_int(rounded as usize);
     }
+    let fixed = format!("{rounded:.2}");
+    let (whole, fraction) = fixed.split_once('.').unwrap_or((&fixed, "00"));
+    let whole = whole.parse::<usize>().unwrap_or_default();
+    format!("{}.{fraction}", format_int(whole))
 }
 
-fn format_percent(value: f64) -> String {
+pub(super) fn format_percent(value: f64) -> String {
     format!("{:.1}%", value * 100.0)
+}
+
+pub(super) fn format_score(value: f64) -> String {
+    let fixed = format!("{:.1}", value.max(0.0));
+    let (whole, fraction) = fixed.split_once('.').unwrap_or((&fixed, "0"));
+    let whole = whole.parse::<usize>().unwrap_or_default();
+    format!("{}.{fraction}", format_int(whole))
+}
+
+pub(super) fn format_finding_reason(reason: &str, tokens: usize) -> String {
+    reason.replacen(
+        &format!("{tokens} tokens"),
+        &format!("{} tokens", format_int(tokens)),
+        1,
+    )
 }
 
 fn repository_slug(remote: Option<&str>) -> Option<String> {
@@ -196,12 +214,151 @@ fn candidate_parent_share(report: &Value, candidate: &Value) -> Option<f64> {
     }
 }
 
+#[derive(Clone, Copy)]
+struct FolderBoundaries {
+    healthy_tokens: usize,
+    warning_tokens: usize,
+    warning_files: usize,
+    refactor_files: usize,
+}
+
+fn maintenance_pressure(candidate: &Value) -> String {
+    let band = string_field(candidate, "slop_band");
+    if band.is_empty() {
+        "-".to_string()
+    } else {
+        format!(
+            "{} · score {}",
+            inline_code(band),
+            format_score(float_field(candidate, "slop_score"))
+        )
+    }
+}
+
+fn folder_trigger(candidate: &Value, boundaries: FolderBoundaries) -> String {
+    let band = string_field(candidate, "band");
+    let files = usize_field(candidate, "files");
+    let tokens = usize_field(candidate, "tokens");
+    let (token_ceiling, file_ceiling, boundary_label) = match band {
+        "refactor_required" => (
+            boundaries.warning_tokens,
+            boundaries.refactor_files,
+            "warning",
+        ),
+        "warning" => (
+            boundaries.healthy_tokens,
+            boundaries.warning_files,
+            "healthy",
+        ),
+        _ => {
+            return format!(
+                "no warning trigger: {} direct files <= configured healthy ceiling of {}; {} direct tokens <= configured healthy ceiling of {}",
+                format_int(files),
+                format_int(boundaries.warning_files),
+                format_int(tokens),
+                format_int(boundaries.healthy_tokens),
+            );
+        }
+    };
+    let file_trigger = (files > file_ceiling).then(|| {
+        format!(
+            "{} direct files > {} {boundary_label} ceiling",
+            format_int(files),
+            format_int(file_ceiling)
+        )
+    });
+    let token_trigger = (tokens > token_ceiling).then(|| {
+        format!(
+            "{} direct tokens > {} {boundary_label} ceiling",
+            format_int(tokens),
+            format_int(token_ceiling)
+        )
+    });
+    match (file_trigger, token_trigger) {
+        (Some(files), Some(tokens)) => format!("both: {files}; {tokens}"),
+        (Some(files), None) => format!("files: {files}"),
+        (None, Some(tokens)) => format!("tokens: {tokens}"),
+        (None, None) => format!(
+            "no {band} trigger in current direct load: {} files, {} tokens",
+            format_int(files),
+            format_int(tokens)
+        ),
+    }
+}
+
+fn folder_contains_file(folder: &str, path: &str) -> bool {
+    let folder = folder.trim_matches('/');
+    folder.is_empty()
+        || folder == "."
+        || path
+            .strip_prefix(folder)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn highest_ranked_descendant<'a>(report: &'a Value, folder: &str) -> Option<&'a Value> {
+    let mut files = report
+        .get("files")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|file| file_profile(file) == "agent_context")
+        .filter(|file| folder_contains_file(folder, string_field(file, "path")))
+        .collect::<Vec<_>>();
+    files.sort_by(|left, right| {
+        float_field(right, "slop_score")
+            .total_cmp(&float_field(left, "slop_score"))
+            .then_with(|| usize_field(right, "tokens").cmp(&usize_field(left, "tokens")))
+            .then_with(|| string_field(left, "path").cmp(string_field(right, "path")))
+    });
+    files.into_iter().next()
+}
+
+fn descendant_evidence(report: &Value, folder: &str) -> String {
+    let Some(file) = highest_ranked_descendant(report, folder) else {
+        return "-".to_string();
+    };
+    format!(
+        "{} — maintenance {} · score {}; context/load {} · {} tokens",
+        path_cell(report, string_field(file, "path")),
+        inline_code(string_field(file, "slop_band")),
+        format_score(float_field(file, "slop_score")),
+        inline_code(string_field(file, "context_band")),
+        format_int(usize_field(file, "tokens")),
+    )
+}
+
+fn shell_quote(value: &str) -> String {
+    if !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"/._-".contains(&byte))
+    {
+        value.to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\"'\"'"))
+    }
+}
+
+pub(super) fn folder_next_command(path: &str) -> String {
+    let normalized = path.trim_matches('/');
+    let selector = if normalized.is_empty() || normalized == "." {
+        ".".to_string()
+    } else {
+        format!("{normalized}/")
+    };
+    format!(
+        "git-slop explain --path {}",
+        shell_quote(&visible_controls(&selector))
+    )
+}
+
 fn render_candidate_tables(
     lines: &mut Vec<String>,
     report: &Value,
     candidates: &[Value],
     file_limit: usize,
     folder_limit: usize,
+    folder_boundaries: FolderBoundaries,
 ) {
     let files = candidates
         .iter()
@@ -212,19 +369,21 @@ fn render_candidate_tables(
         lines.extend([
             "#### File Risks".to_string(),
             String::new(),
-            "| Path | Class | Tokens | Band | % of parent |".to_string(),
-            "| --- | --- | ---: | --- | ---: |".to_string(),
+            "| Path | Class | Tokens | Context/load band | Maintenance pressure | % of parent |"
+                .to_string(),
+            "| --- | --- | ---: | --- | --- | ---: |".to_string(),
         ]);
         for item in files {
             let share = candidate_parent_share(report, item)
                 .map(format_percent)
                 .unwrap_or_else(|| "-".to_string());
             lines.push(format!(
-                "| {} | {} | {} | {} | {} |",
+                "| {} | {} | {} | {} | {} | {} |",
                 path_cell(report, string_field(item, "path")),
                 markdown_escape(string_field(item, "class")),
                 format_int(usize_field(item, "tokens")),
                 inline_code(string_field(item, "band")),
+                maintenance_pressure(item),
                 share
             ));
         }
@@ -239,21 +398,27 @@ fn render_candidate_tables(
         lines.extend([
             "#### Folder Risks".to_string(),
             String::new(),
-            "| Path | Class | Direct files | Direct tokens | Band | % of parent |".to_string(),
-            "| --- | --- | ---: | ---: | --- | ---: |".to_string(),
+            "| Path | Class | Direct load | Direct-load band and trigger | Maintenance pressure | Highest-ranked descendant | Next step |"
+                .to_string(),
+            "| --- | --- | --- | --- | --- | --- | --- |".to_string(),
         ]);
         for item in folders {
             let share = candidate_parent_share(report, item)
                 .map(format_percent)
                 .unwrap_or_else(|| "-".to_string());
+            let path = string_field(item, "path");
             lines.push(format!(
-                "| {} | {} | {} | {} | {} | {} |",
-                path_cell(report, string_field(item, "path")),
+                "| {} | {} | {} files · {} tokens · {} of parent | {} — {} | {} | {} | {} |",
+                path_cell(report, path),
                 markdown_escape(string_field(item, "class")),
                 format_int(usize_field(item, "files")),
                 format_int(usize_field(item, "tokens")),
+                share,
                 inline_code(string_field(item, "band")),
-                share
+                markdown_escape(&folder_trigger(item, folder_boundaries)),
+                maintenance_pressure(item),
+                descendant_evidence(report, path),
+                inline_code(&folder_next_command(path)),
             ));
         }
         lines.push(String::new());
@@ -302,6 +467,12 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
         "/health/folder_bands/refactor_required_max_direct_files",
         DEFAULT_FOLDER_REFACTOR_FILES,
     );
+    let folder_boundaries = FolderBoundaries {
+        healthy_tokens: folder_healthy_max as usize,
+        warning_tokens: folder_warning_max as usize,
+        warning_files: folder_warning_files as usize,
+        refactor_files: folder_refactor_files as usize,
+    };
     let top_files = config_usize(config, "/health/summary_top_files", DEFAULT_TOP_FILES);
     let top_folders = config_usize(config, "/health/summary_top_folders", DEFAULT_TOP_FOLDERS);
     let repo = report.get("repo").unwrap_or(&Value::Null);
@@ -335,12 +506,14 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
     let status = if file_failures + folder_failures > 0 {
         format!(
             "❌ **Review required** — {} file(s) and {} folder(s) exceed configured refactor thresholds.",
-            file_failures, folder_failures
+            format_int(file_failures),
+            format_int(folder_failures)
         )
     } else if file_warnings + folder_warnings > 0 {
         format!(
             "⚠️ **Advisory** — {} file(s) and {} folder(s) are in warning bands.",
-            file_warnings, folder_warnings
+            format_int(file_warnings),
+            format_int(folder_warnings)
         )
     } else {
         "✅ **Within configured context budgets.**".to_string()
@@ -378,64 +551,70 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
         String::new(),
         "### `agent_context`".to_string(),
         String::new(),
-        "#### Status".to_string(),
+        "> **Reading the signals:** Context/load bands measure deterministic size against configured context budgets. Maintenance pressure and review severity are separate deterministic review signals; neither is a correctness claim or an automatic refactor mandate.".to_string(),
         String::new(),
-        "| Band | Definition | Files |".to_string(),
+        "#### Context/load status".to_string(),
+        String::new(),
+        "| Context/load band | Definition | Files |".to_string(),
         "| --- | --- | ---: |".to_string(),
         format!(
             "| `compact` | `<= {}` tokens | {} |",
             format_int(compact_max as usize),
-            rollup.file_band_counts.get("compact").unwrap_or(&0)
+            format_int(*rollup.file_band_counts.get("compact").unwrap_or(&0))
         ),
         format!(
             "| `healthy` | `{}-{}` tokens | {} |",
             format_int(compact_max.saturating_add(1) as usize),
             format_int(healthy_max as usize),
-            rollup.file_band_counts.get("healthy").unwrap_or(&0)
+            format_int(*rollup.file_band_counts.get("healthy").unwrap_or(&0))
         ),
         format!(
             "| `warning` | `{}-{}` tokens | {} |",
             format_int(healthy_max.saturating_add(1) as usize),
             format_int(warning_max as usize),
-            rollup.file_band_counts.get("warning").unwrap_or(&0)
+            format_int(*rollup.file_band_counts.get("warning").unwrap_or(&0))
         ),
         format!(
             "| `refactor_required` | `>{}` tokens | {} |",
             format_int(warning_max as usize),
-            rollup
-                .file_band_counts
-                .get("refactor_required")
-                .unwrap_or(&0)
+            format_int(
+                *rollup
+                    .file_band_counts
+                    .get("refactor_required")
+                    .unwrap_or(&0)
+            )
         ),
         String::new(),
-        "| Band | Definition | Folders |".to_string(),
+        "| Direct-load band | Definition | Folders |".to_string(),
         "| --- | --- | ---: |".to_string(),
         format!(
             "| `compact` | direct tokens `<= {}` | {} |",
             format_int(folder_compact_max as usize),
-            rollup.folder_band_counts.get("compact").unwrap_or(&0)
+            format_int(*rollup.folder_band_counts.get("compact").unwrap_or(&0))
         ),
         format!(
             "| `healthy` | direct tokens `{}-{}` | {} |",
             format_int(folder_compact_max.saturating_add(1) as usize),
             format_int(folder_healthy_max as usize),
-            rollup.folder_band_counts.get("healthy").unwrap_or(&0)
+            format_int(*rollup.folder_band_counts.get("healthy").unwrap_or(&0))
         ),
         format!(
             "| `warning` | direct tokens `{}-{}` or direct files `>{}` | {} |",
             format_int(folder_healthy_max.saturating_add(1) as usize),
             format_int(folder_warning_max as usize),
-            folder_warning_files,
-            rollup.folder_band_counts.get("warning").unwrap_or(&0)
+            format_int(folder_warning_files as usize),
+            format_int(*rollup.folder_band_counts.get("warning").unwrap_or(&0))
         ),
         format!(
             "| `refactor_required` | direct tokens `>{}` or direct files `>{}` | {} |",
             format_int(folder_warning_max as usize),
-            folder_refactor_files,
-            rollup
-                .folder_band_counts
-                .get("refactor_required")
-                .unwrap_or(&0)
+            format_int(folder_refactor_files as usize),
+            format_int(
+                *rollup
+                    .folder_band_counts
+                    .get("refactor_required")
+                    .unwrap_or(&0)
+            )
         ),
         String::new(),
         "#### Token Stats".to_string(),
@@ -482,7 +661,14 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
             "### Policy Failures".to_string(),
             String::new(),
         ]);
-        render_candidate_tables(&mut lines, report, &must_refactor, top_files, top_folders);
+        render_candidate_tables(
+            &mut lines,
+            report,
+            &must_refactor,
+            top_files,
+            top_folders,
+            folder_boundaries,
+        );
     }
     if !should_refactor.is_empty() {
         lines.extend([
@@ -490,7 +676,14 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
             "### Review Candidates".to_string(),
             String::new(),
         ]);
-        render_candidate_tables(&mut lines, report, &should_refactor, top_files, top_folders);
+        render_candidate_tables(
+            &mut lines,
+            report,
+            &should_refactor,
+            top_files,
+            top_folders,
+            folder_boundaries,
+        );
     }
     if !rollup.watchlist.is_empty() {
         lines.extend([String::new(), "### Watchlist".to_string(), String::new()]);
@@ -500,6 +693,7 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
             &rollup.watchlist,
             top_files,
             top_folders,
+            folder_boundaries,
         );
     }
 
@@ -508,15 +702,25 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
             String::new(),
             "## Actionable Findings".to_string(),
             String::new(),
-            "| Severity | Path | Why it surfaced | Next step |".to_string(),
-            "| --- | --- | --- | --- |".to_string(),
+            "| Review severity | Path | Context/load band | Maintenance pressure | Why it surfaced | Next step |".to_string(),
+            "| --- | --- | --- | --- | --- | --- |".to_string(),
         ]);
         for finding in rollup.findings.iter().take(top_files.max(1)) {
             lines.push(format!(
-                "| {} | {} | {} | {} |",
+                "| {} | {} | {} | {} · score {} | {} | {} |",
                 inline_code(&finding.severity),
                 path_cell(report, &finding.path),
-                markdown_escape(&finding.reasons.join("; ")),
+                inline_code(&finding.context_band),
+                inline_code(&finding.slop_band),
+                format_score(finding.slop_score),
+                markdown_escape(
+                    &finding
+                        .reasons
+                        .iter()
+                        .map(|reason| format_finding_reason(reason, finding.tokens))
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                ),
                 inline_code(&finding.next_command),
             ));
         }
@@ -594,11 +798,11 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
             String::new(),
             format!(
                 "- Skipped {} tracked path(s): ignored {}, missing {}, binary {}, undecodable {}.",
-                skipped_total,
-                usize_field(stats, "skipped_ignored_count"),
-                usize_field(stats, "skipped_missing_count"),
-                usize_field(stats, "skipped_binary_count"),
-                usize_field(stats, "skipped_undecodable_count"),
+                format_int(skipped_total),
+                format_int(usize_field(stats, "skipped_ignored_count")),
+                format_int(usize_field(stats, "skipped_missing_count")),
+                format_int(usize_field(stats, "skipped_binary_count")),
+                format_int(usize_field(stats, "skipped_undecodable_count")),
             ),
         ]);
     }
