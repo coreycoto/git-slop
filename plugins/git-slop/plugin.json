@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "git-slop",
-  "version": "0.3.0",
+  "version": "0.9.6",
   "description": "Agent guidance for installing, running, interpreting, automating, and adopting the native git-slop CLI.",
   "author": {
     "name": "Corey Coto",

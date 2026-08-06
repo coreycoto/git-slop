@@ -91,6 +91,36 @@ fn portable_agent_plugin_contract_passes() {
 }
 
 #[test]
+fn portable_agent_plugin_version_matches_cli_version() {
+    let temp = TempDir::new().unwrap();
+    let mut manifest: JsonValue =
+        serde_json::from_str(include_str!("../../../plugins/git-slop/plugin.json")).unwrap();
+    manifest["version"] = json!("0.9.5");
+    write_product_plugin_fixture(
+        temp.path(),
+        &serde_json::to_string_pretty(&manifest).unwrap(),
+    );
+    let compatibility_path = temp.path().join(GIT_SLOP_CODEX_COMPAT_MANIFEST);
+    let mut compatibility_manifest: JsonValue =
+        serde_json::from_str(&fs::read_to_string(&compatibility_path).unwrap()).unwrap();
+    compatibility_manifest["version"] = json!("0.9.5");
+    fs::write(
+        compatibility_path,
+        serde_json::to_string_pretty(&compatibility_manifest).unwrap(),
+    )
+    .unwrap();
+
+    let mut errors = Vec::new();
+    validate_product_plugin(temp.path(), &mut errors);
+
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("must match Cargo.toml package.version"))
+    );
+}
+
+#[test]
 fn portable_agent_plugin_requires_codex_compatibility_overlay() {
     let temp = TempDir::new().unwrap();
     write_product_plugin_fixture(
@@ -456,6 +486,7 @@ fn write_profiles(codex_root: &Path) {
 }
 
 fn write_product_plugin_fixture(root: &Path, manifest: &str) {
+    fs::write(root.join("Cargo.toml"), include_str!("../../../Cargo.toml")).unwrap();
     let plugin_root = root.join(GIT_SLOP_PLUGIN_ROOT);
     fs::create_dir_all(plugin_root.join("assets")).unwrap();
     fs::create_dir_all(plugin_root.join(".codex-plugin")).unwrap();

@@ -16,6 +16,8 @@ use std::process::Command;
 use serde_json::{Value as JsonValue, json};
 use toml::Value as TomlValue;
 
+use crate::manifest::project_version;
+
 const EXPECTED_PLUGIN_URL: &str = "https://github.com/coreycoto/agent-plugins.git";
 const AGENT_PLUGIN_SCHEMA: &str = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
 const GIT_SLOP_MARKETPLACE: &str = ".agents/plugins/marketplace.json";
@@ -24,7 +26,6 @@ const GIT_SLOP_PLUGIN_MANIFEST: &str = "plugins/git-slop/plugin.json";
 const GIT_SLOP_PLUGIN_ROOT: &str = "plugins/git-slop";
 const GIT_SLOP_PLUGIN_DOC_NAME: &str = "`git-slop` Agent Plugin";
 const GIT_SLOP_PLUGIN_NAME: &str = "git-slop";
-const GIT_SLOP_PLUGIN_VERSION: &str = "0.3.0";
 const GIT_SLOP_CODEX_COMPAT_MANIFEST: &str = "plugins/git-slop/.codex-plugin/plugin.json";
 const GIT_SLOP_BRAND_COLOR: &str = "#6f42c1";
 const GIT_SLOP_ICON: &str = "plugins/git-slop/assets/git-slop.svg";
@@ -399,6 +400,15 @@ fn validate_marketplaces(repo_root: &Path, errors: &mut Vec<String>) {
 
 fn validate_product_plugin(repo_root: &Path, errors: &mut Vec<String>) {
     let codex_compatibility_manifest = load_json(repo_root, GIT_SLOP_CODEX_COMPAT_MANIFEST, errors);
+    let project_version = match project_version(repo_root) {
+        Ok(version) => Some(version),
+        Err(error) => {
+            errors.push(format!(
+                "unable to resolve the git-slop package version for Agent Plugin validation: {error}"
+            ));
+            None
+        }
+    };
 
     if let Some(manifest) = load_json(repo_root, GIT_SLOP_PLUGIN_MANIFEST, errors) {
         let expected_keys = [
@@ -436,9 +446,12 @@ fn validate_product_plugin(repo_root: &Path, errors: &mut Vec<String>) {
         if json_string(&manifest, "name") != Some(GIT_SLOP_PLUGIN_NAME) {
             errors.push("git-slop Agent Plugin manifest must use name git-slop.".into());
         }
-        if json_string(&manifest, "version") != Some(GIT_SLOP_PLUGIN_VERSION) {
+        if let Some(project_version) = project_version.as_deref()
+            && json_string(&manifest, "version") != Some(project_version)
+        {
             errors.push(format!(
-                "git-slop Agent Plugin manifest must use version {GIT_SLOP_PLUGIN_VERSION}."
+                "git-slop Agent Plugin manifest version must match Cargo.toml package.version \
+                 {project_version}."
             ));
         }
         let expected_portable_metadata = json!({

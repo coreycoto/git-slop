@@ -390,12 +390,28 @@ scoop uninstall git-slop
 After the exact bucket head merges, repeat a clean public-bucket install on each
 architecture and record the source release SHA, current git-slop main SHA,
 bucket main SHA, manifest URL, automation PR, exact-head and exact-main run IDs,
-and two archive SHA-256 values. A later release must also prove
-`scoop update git-slop` upgrades the existing installation in place; the first
-such cross-version proof belongs to the next release after v0.9.5. If receiver
-recovery is necessary, manually dispatch `Update git-slop manifest` on exact
-bucket `main` with the same four immutable values; it is idempotent and accepts
-no caller-supplied archive URL or Windows hash.
+and two archive SHA-256 values.
+
+Beginning with v0.9.6, every release after the first Scoop-published version
+must also prove a cross-version upgrade-in-place on both Windows architectures.
+For v0.9.6, begin with a verified public v0.9.5 installation, record its version
+and full source revision, refresh the bucket, and update the existing package:
+
+```powershell
+git-slop version
+git-slop build-info --format json
+scoop update
+scoop update git-slop
+git-slop version
+git-slop build-info --format json
+git slop version
+```
+
+Record the pre-update and post-update versions, source revisions, architecture,
+bucket main SHA, and manifest URL. If receiver recovery is necessary, manually
+dispatch `Update git-slop manifest` on exact bucket `main` with the same four
+immutable values; it is idempotent and accepts no caller-supplied archive URL
+or Windows hash.
 
 ## Verify Consumers And Close Out
 
