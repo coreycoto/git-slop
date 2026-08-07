@@ -83,9 +83,9 @@ jobs:
 
           - version: \`${VERSION}\`
           - source revision: \`${REVISION}\`
-          - Homebrew: the protected publication job already dispatched this immutable version, revision, crate URL, and crate digest; the tap receiver can now complete its exact-release verification without another environment approval
+          - Homebrew: the dispatch-authorized publication job already dispatched this immutable version, revision, crate URL, and crate digest; the tap receiver can now complete its exact-release verification without any Actions environment approval
           - Scoop: the verified public version, release ID, revision, and manifest digest are handed to the external bucket receiver, which independently reverifies the release before creating and governed-merging a manifest-only pull request
-          - recovery: \`homebrew-handoff.yml\` remains available for an explicit protected redispatch if the receiver run must be recovered
+          - recovery: \`homebrew-handoff.yml\` remains available for an explicit branch-restricted redispatch if the receiver run must be recovered
           EOF
 
   dispatch-scoop:
