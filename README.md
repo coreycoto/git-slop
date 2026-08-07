@@ -37,6 +37,26 @@ it is for a human or agent to work in.
 The deeper product thesis and non-goals are documented in
 [Vision](docs/vision.md).
 
+## Sponsors
+
+Git Slop is supported by people and companies who want transparent,
+local-first developer tooling to remain thoughtfully maintained. Sponsorship
+funds releases, documentation, compatibility work, and ongoing maintenance.
+
+[Become a sponsor](https://github.com/sponsors/coreycoto) or see
+[Sponsors](SPONSORS.md) for current acknowledgments and the recognition policy.
+
+### Founding company sponsors
+
+_No active founding company sponsors yet._
+
+### Company sponsors
+
+_No active company sponsors yet._
+
+Sponsorship provides recognition and a feedback channel. It does not include a
+support SLA, guaranteed issue priority, or roadmap control.
+
 ## Install
 
 The examples below pin the 0.9.3 release identity. Use each command only after
