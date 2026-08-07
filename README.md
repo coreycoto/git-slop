@@ -59,18 +59,18 @@ support SLA, guaranteed issue priority, or roadmap control.
 
 ## Install
 
-The examples below pin the 0.9.4 release identity. Use each command only after
+The examples below pin the 0.9.5 release identity. Use each command only after
 that exact version is published on the requested distribution surface;
 documentation or a source tag is not proof that every surface is available.
 
-After crates.io lists 0.9.4, install the canonical package:
+After crates.io lists 0.9.5, install the canonical package:
 
 ```bash
-cargo install git-slop --version 0.9.4 --locked
+cargo install git-slop --version 0.9.5 --locked
 git-slop build-info --format json
 ```
 
-After the tap lists 0.9.4, install the Homebrew Formula:
+After the tap lists 0.9.5, install the Homebrew Formula:
 
 ```bash
 brew tap coreycoto/tap
@@ -80,12 +80,25 @@ git-slop build-info --format json
 ```
 
 The Formula builds the exact checksummed crates.io source package; it is not a
-cask. See [Installation](docs/install.md) for availability, provenance, and
-contributor setup.
+cask.
+
+After the external Scoop bucket lists 0.9.5, Windows users can install the
+matching checksummed native archive:
+
+```powershell
+scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket
+scoop install coreycoto/git-slop
+git-slop version
+git-slop build-info --format json
+git slop version
+```
+
+See [Installation](docs/install.md) for availability, provenance, upgrades,
+and contributor setup.
 
 ## GitHub Actions
 
-After the public GitHub Release and Marketplace listing resolve `v0.9.4`, add a
+After the public GitHub Release and Marketplace listing resolve `v0.9.5`, add a
 complete checkout and the Git Slop Action to get a detailed repository health
 summary, bounded annotations, and a small review artifact:
 
@@ -97,7 +110,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.9.4
+  - uses: coreycoto/git-slop@v0.9.5
 ```
 
 The Action is advisory by default. It verifies a prebuilt native binary built
