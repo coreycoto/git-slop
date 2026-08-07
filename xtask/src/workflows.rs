@@ -64,6 +64,7 @@ const CRATES_IO_PUBLISH_STEP: &str = "Publish exact crates.io package";
 const CRATES_IO_PUBLISH_CONDITION: &str =
     "needs.candidate.outputs.mode == 'publish' && steps.state.outputs.crate-exists != 'true'";
 const CRATES_IO_TEMP_TOKEN: &str = "${{ steps.crates-io-auth.outputs.token }}";
+const RELEASE_DISPATCH_AUTHORIZATION: &str = "Explicitly authorize publishing exact current main, or recover an already-published immutable crate.";
 
 pub fn validate(repo_root: &Path) -> Vec<String> {
     let mut errors = Vec::new();
@@ -220,6 +221,15 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
     {
         errors.push(format!(
             "{name} workflow_dispatch must require an exact publish-or-recover mode choice."
+        ));
+    }
+    if mode_input
+        .and_then(|input| input.get("description"))
+        .and_then(YamlValue::as_str)
+        != Some(RELEASE_DISPATCH_AUTHORIZATION)
+    {
+        errors.push(format!(
+            "{name} workflow_dispatch must describe dispatch as explicit publication authorization."
         ));
     }
     for recovery_input in ["recovery_revision", "recovery_crate_sha256"] {
@@ -599,6 +609,13 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
     }
 
     if let Some(publish_crate) = publish_crate {
+        if publish_crate.get("name").and_then(YamlValue::as_str)
+            != Some("Dispatch-authorized crates.io publication and exact tag")
+        {
+            errors.push(format!(
+                "{name} publish-crate must identify the dispatch-authorized publication boundary."
+            ));
+        }
         require_needs(
             publish_crate,
             name,
@@ -634,22 +651,22 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
         validate_publish_order_and_registry(publish_crate, errors);
         let Some(revalidate) = step_run(
             publish_crate,
-            "Revalidate protected release identity after environment approval",
+            "Revalidate dispatch-authorized release identity",
         ) else {
             errors.push(format!(
-                "{name} publish-crate must revalidate the protected release identity after environment approval."
+                "{name} publish-crate must revalidate the dispatch-authorized release identity."
             ));
             return;
         };
         if named_step(
             publish_crate,
-            "Revalidate protected release identity after environment approval",
+            "Revalidate dispatch-authorized release identity",
         )
         .and_then(|step| step_env(step, "CONTROL_REVISION"))
             != Some("${{ needs.candidate.outputs.control-revision }}")
         {
             errors.push(format!(
-                "{name} protected release revalidation must bind the exact trusted workflow control revision."
+                "{name} dispatch-authorized release revalidation must bind the exact trusted workflow control revision."
             ));
         }
         for required in [
@@ -669,6 +686,20 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             "cmp registry-recovery.crate \"${CANDIDATE_DIR}/git-slop-${VERSION}.crate\"",
         ] {
             require(revalidate, required, name, errors);
+        }
+        let Some(summary) = step_run(publish_crate, "Summarize dispatch-authorized publication")
+        else {
+            errors.push(format!(
+                "{name} publish-crate must summarize the dispatch-authorized publication."
+            ));
+            return;
+        };
+        for required in [
+            "explicit Release Publish workflow dispatch",
+            "branch-restricted",
+            "adds no reviewer gate",
+        ] {
+            require(summary, required, name, errors);
         }
     }
 
@@ -1290,8 +1321,9 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
         for required in [
             "Marketplace-ready",
             "Open the draft release",
+            "only manual approval for the release",
             "already-dispatched Homebrew receiver",
-            "existing published release was reverified without mutation, and the protected publication job redispatched",
+            "existing published release was reverified without mutation, and the dispatch-authorized publication job redispatched",
         ] {
             require(summary, required, name, errors);
         }
@@ -1780,10 +1812,10 @@ fn validate_release_relay(text: &str, payload: &YamlValue, errors: &mut Vec<Stri
         return;
     };
     for required in [
-        "protected publication job already dispatched",
-        "without another environment approval",
+        "dispatch-authorized publication job already dispatched",
+        "without any Actions environment approval",
         "homebrew-handoff.yml",
-        "explicit protected redispatch",
+        "explicit branch-restricted redispatch",
         "external bucket receiver",
         "manifest-only pull request",
     ] {
@@ -1922,12 +1954,10 @@ fn validate_homebrew_handoff(payload: &YamlValue, errors: &mut Vec<String>) {
             "{name} must checkout main without persisted credentials."
         ));
     }
-    let Some(main_check) = step_run(
-        handoff,
-        "Revalidate trusted main after environment approval",
-    ) else {
+    let Some(main_check) = step_run(handoff, "Revalidate trusted main for explicit recovery")
+    else {
         errors.push(format!(
-            "{name} must revalidate trusted main after approval."
+            "{name} must revalidate trusted main for explicit recovery."
         ));
         return;
     };
@@ -2235,7 +2265,7 @@ fn require_environment(
 ) {
     if job.get("environment").and_then(YamlValue::as_str) != Some(expected) {
         errors.push(format!(
-            "{name} {job_name} must use the protected {expected} environment."
+            "{name} {job_name} must use the required {expected} environment."
         ));
     }
 }
@@ -2817,6 +2847,14 @@ mod tests {
         let cases = [
             (
                 valid.replacen(
+                    RELEASE_DISPATCH_AUTHORIZATION,
+                    "Publish exact current main, or recover an already-published immutable crate.",
+                    1,
+                ),
+                "explicit publication authorization",
+            ),
+            (
+                valid.replacen(
                     CRATES_IO_RELEASE_USER_AGENT,
                     r#"--user-agent "curl/8""#,
                     1,
@@ -2825,7 +2863,19 @@ mod tests {
             ),
             (
                 valid.replacen("environment: release", "environment: unprotected", 1),
-                "protected release environment",
+                "required release environment",
+            ),
+            (
+                valid.replacen(
+                    "name: Dispatch-authorized crates.io publication and exact tag",
+                    "name: Publish crates.io",
+                    1,
+                ),
+                "dispatch-authorized publication boundary",
+            ),
+            (
+                valid.replacen("adds no reviewer gate", "requires a reviewer", 1),
+                "adds no reviewer gate",
             ),
             (
                 valid.replacen(
@@ -3433,7 +3483,7 @@ mod tests {
         for (drifted, expected) in [
             (
                 homebrew.replacen("environment: release", "environment: unprotected", 1),
-                "protected release environment",
+                "required release environment",
             ),
             (
                 homebrew.replacen("ref: main", "ref: feature", 1),

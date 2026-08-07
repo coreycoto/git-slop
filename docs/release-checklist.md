@@ -13,7 +13,9 @@ on that identity.
 - Enable two-factor authentication on the GitHub account that publishes the
   Marketplace listing and accept the GitHub Marketplace Developer Agreement.
 - Keep a protected GitHub environment named `release`, restricted to the
-  `main` branch, with exactly one required approval on the normal release path.
+  `main` branch with administrator bypass disabled and no required reviewers.
+  The environment binds the crates.io OIDC identity and release-scoped secrets;
+  it must not add a second manual approval.
 - In the `git-slop` crate settings on crates.io, add one GitHub
   [Trusted Publisher](https://crates.io/docs/trusted-publishing) with this exact
   identity:
@@ -51,16 +53,32 @@ on that identity.
   native qualification, governed merge, and exact-main proof. Keep its Actions
   setting that permits workflows to create pull requests enabled.
 
+Verify the live `release` environment contract without mutating it:
+
+```bash
+gh api repos/coreycoto/git-slop/environments/release \
+  | jq -e '
+      .can_admins_bypass == false
+      and .deployment_branch_policy.protected_branches == false
+      and .deployment_branch_policy.custom_branch_policies == true
+      and ([.protection_rules[].type] | index("required_reviewers") | not)'
+gh api repos/coreycoto/git-slop/environments/release/deployment-branch-policies \
+  | jq -e '
+      .total_count == 1
+      and .branch_policies[0].name == "main"
+      and .branch_policies[0].type == "branch"'
+```
+
 The normal `github.token` creates the exact tag and GitHub Release in this
 repository. No additional GitHub PAT is needed for those same-repository
 operations. The Homebrew token is used only by the deliberate cross-repository
-dispatch step inside the already-approved protected publication job. The Scoop
-token is used only after the stable release is public, by one exact step in the
-read-only publication-verification workflow; it introduces no second
-environment approval. Neither token should be reused for the other package
-manager. The existing `HOMEBREW_TAP_DISPATCH_TOKEN` does not need to be replaced
-for this release unless it was exposed or its repository/permission scope is
-wrong.
+dispatch step inside the dispatch-authorized, branch-restricted publication
+job. The Scoop token is used only after the stable release is public, by one
+exact step in the read-only publication-verification workflow; it introduces
+no Actions environment approval. Neither token should be reused for the other
+package manager. The existing `HOMEBREW_TAP_DISPATCH_TOKEN` does not need to be
+replaced for this release unless it was exposed or its repository/permission
+scope is wrong.
 
 ## Prepare Main
 
@@ -71,8 +89,9 @@ wrong.
   Marketplace name, description, branding, inputs, and outputs are current.
 - Confirm the nested Actions in `action.yml` and release workflows are pinned
   to full commit SHAs.
-- For crates.io authentication, confirm only the protected `publish-crate` job
-  uses the minimum OIDC permission, `id-token: write`, and invokes
+- For crates.io authentication, confirm only the branch-restricted
+  `publish-crate` job uses the minimum OIDC permission, `id-token: write`, and
+  invokes
   `rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18`
   (`v1.0.5`). The action must have no custom registry input or fail-open
   behavior.
@@ -112,7 +131,13 @@ gh workflow run release-publish.yml \
   --field version=<version>
 ```
 
-Before the protected environment is entered, the workflow:
+This explicit dispatch is the authorization to publish the crate, create the
+exact tag, and send the immutable Homebrew handoff. Do not dispatch `publish`
+mode merely to preview a candidate; use the local `release-prepare` checks for
+that purpose. The only later manual approval is GitHub Marketplace publication
+with 2FA.
+
+Before the branch-restricted publication job begins, the workflow:
 
 1. revalidates that the dispatch revision is the live `main` revision;
 2. runs the full product, `xtask`, Action, package, and publish dry-run gates;
@@ -125,25 +150,25 @@ Before the protected environment is entered, the workflow:
 The five targets are Linux x86-64, Linux ARM64, macOS Apple Silicon, Windows
 x86-64, and Windows ARM64. macOS Intel is not a release target.
 
-## Approve crates.io Publication
+## Dispatch-Authorized crates.io Publication
 
-Review the preflight jobs, then approve the `release` environment. After
-approval the protected job re-fetches live `main`; any drift from the candidate
-revision fails closed in normal `publish` mode. In both modes, the separate
-workflow control revision must still equal live `main` after approval and again
-at the tag mutation boundary. If `main` advances while the run is waiting,
-dispatch the workflow again from the new head. Recovery permits only the
-immutable release revision—not the workflow control revision—to be an older
-ancestor of `main`.
+After every preflight dependency succeeds, the branch-restricted `release` job
+starts without a reviewer gate and re-fetches live `main`; any drift from the
+candidate revision fails closed in normal `publish` mode. In both modes, the
+separate workflow control revision must still equal live `main` when the job
+starts and again at the tag mutation boundary. If `main` advances while the run
+is executing, dispatch the workflow again from the new head. Recovery permits
+only the immutable release revision—not the workflow control revision—to be an
+older ancestor of `main`.
 
-The protected publication job cannot start until the native Homebrew audit has
-accepted the exact candidate Formula. The first public mutation is crates.io
-publication. In normal `publish` mode, and only when the version is still absent,
-the job exchanges its GitHub OIDC identity through the reviewed crates.io auth
-action. The resulting 30-minute token is passed as `CARGO_REGISTRY_TOKEN` only
-to the immediately following `cargo publish --no-verify` step; the action's
-post-step revokes it when the job completes. The standing GitHub environment
-secret is not read.
+The branch-restricted publication job cannot start until the native Homebrew
+audit has accepted the exact candidate Formula. The first public mutation is
+crates.io publication. In normal `publish` mode, and only when the version is
+still absent, the job exchanges its GitHub OIDC identity through the reviewed
+crates.io auth action. The resulting 30-minute token is passed as
+`CARGO_REGISTRY_TOKEN` only to the immediately following
+`cargo publish --no-verify` step; the action's post-step revokes it when the job
+completes. The standing GitHub environment secret is not read.
 
 The workflow packages the candidate again, requires byte-for-byte equality
 with the preflight package, and then reconciles the registry even when Cargo
@@ -164,12 +189,14 @@ are both skipped. Recovery mode is likewise unable to request or consume a
 crates.io credential. These rerun paths reverify the immutable registry bytes
 before any missing tag or release work.
 
-After registry and tag verification, that same protected job sends only the
-immutable version, source revision, canonical crates.io URL, and crate SHA-256
-to the Homebrew tap receiver. The token is scoped to that one dispatch step.
+After registry and tag verification, that same branch-restricted job sends
+only the immutable version, source revision, canonical crates.io URL, and crate
+SHA-256 to the Homebrew tap receiver. The token is scoped to that one dispatch
+step.
 The receiver waits for the exact public GitHub Release; it does not create a
 tap PR from the unpublished draft or trust precomputed Formula/manifest
-digests. This is the normal release path's only Actions environment approval.
+digests. No Actions environment approval occurs on the normal path; the later
+Marketplace publication with 2FA is its only manual approval.
 
 ## Reruns And Failures
 
@@ -182,8 +209,8 @@ The workflow is deliberately restartable without weakening immutable identity:
   crates.io and proceeds only when the local, index, and static-package digests
   are identical.
 - If crates.io accepted the package but `main` advanced before the exact tag or
-  draft was completed, use the explicit protected recovery mode. Supply the
-  original full source revision and crate SHA-256; do not substitute the new
+  draft was completed, use the explicit branch-restricted recovery mode. Supply
+  the original full source revision and crate SHA-256; do not substitute the new
   `main` revision or a newly packaged digest. Copy both values from the failed
   run's **Immutable release identity** job summary and cross-check the SHA-256
   against the crates.io API before dispatching:
@@ -200,15 +227,16 @@ The workflow is deliberately restartable without weakening immutable identity:
 
   Recovery runs the workflow definition from exact current `main`, carries that
   workflow control revision separately from the historical release revision,
-  and requires the control revision to remain live `main` after protected
-  approval and at any missing-tag push. The supplied release revision must
-  remain an ancestor of current `origin/main`. The non-yanked crates.io API
-  checksum, downloaded static `.crate`, embedded Cargo VCS revision, and
-  supplied digest must agree. Recovery reacquires the immutable crate instead
-  of repackaging advanced `main`, re-runs all five target lanes, and enters the
-  same protected `release` environment before any missing tag is pushed. The
-  OIDC authentication action and Cargo publication step are unreachable in
-  recovery mode, so recovery cannot request or consume a crates.io credential.
+  and requires the control revision to remain live `main` when the
+  branch-restricted job starts and at any missing-tag push. The supplied
+  release revision must remain an ancestor of current `origin/main`. The
+  non-yanked crates.io API checksum, downloaded static `.crate`, embedded Cargo
+  VCS revision, and supplied digest must agree. Recovery reacquires the
+  immutable crate instead of repackaging advanced `main`, re-runs all five
+  target lanes, and enters the same branch-restricted `release` environment
+  without a reviewer gate before any missing tag is pushed. The OIDC
+  authentication action and Cargo publication step are unreachable in recovery
+  mode, so recovery cannot request or consume a crates.io credential.
   The historical release revision remains the source of every artifact and of
   the composite Action that Marketplace consumers receive. Draft discovery,
   asset repair, and an initial installer verification may use current trusted
@@ -228,9 +256,9 @@ The workflow is deliberately restartable without weakening immutable identity:
   endpoint does not expose drafts.
 - A failed Homebrew receiver can be recovered by manually dispatching
   `homebrew-handoff.yml` from current `main` with the published version and
-  source revision. That protected recovery workflow reverifies the public
-  identity before redispatch; it cannot change the package, tag, or release
-  assets.
+  source revision. That explicit dispatch authorizes the branch-restricted
+  recovery workflow to reverify the public identity before redispatch; it
+  cannot change the package, tag, or release assets and adds no reviewer gate.
 
 ## Review The Verified Draft
 
@@ -249,8 +277,6 @@ The draft must contain exactly eight assets:
 `SHA256SUMS` covers the five archives, manifest, and Formula. GitHub's release
 asset digests, the manifest's target matrix and source provenance, the exact
 tag commit, the crate checksum, and the Action installer must all verify before
-the draft is ready.
-
 Inspect the draft and workflow summary:
 
 ```bash
@@ -277,14 +303,15 @@ Open the verified draft release in GitHub's web interface:
 
 This UI approval is intentional: GitHub does not expose a supported workflow
 or REST API switch for a new Action listing's Marketplace checkbox and
-categories. Publishing the release makes `coreycoto/git-slop@v<version>`
+categories. It is the normal release path's only manual approval. Publishing
+the release makes `coreycoto/git-slop@v<version>`
 available; the Action still installs the verified prebuilt archive, never
 Homebrew and never an unverified executable.
 
 ## Verify The Homebrew Handoff
 
-The protected crates.io publication approval also authorizes one narrowly
-scoped Homebrew receiver dispatch. The receiver starts with the immutable
+The explicit Release Publish dispatch also authorizes one narrowly scoped
+Homebrew receiver dispatch. The receiver starts with the immutable
 version, revision, canonical crate URL, and crate SHA-256, then waits for the
 exact stable GitHub Release to become public. Once the Marketplace publication
 step makes that release public, the receiver downloads and verifies all release
@@ -299,7 +326,7 @@ verifies the immutable public release; a dependency-ordered job then exposes
 `SCOOP_BUCKET_DISPATCH_TOKEN` to exactly one `gh workflow run` command and sends
 only the verified version, release ID, revision, and release-manifest digest to
 the Scoop receiver. It never redispatches Homebrew and introduces no second
-protected environment approval. If the early Homebrew receiver fails or times
+Actions environment approval. If the early Homebrew receiver fails or times
 out, explicitly dispatch `homebrew-handoff.yml` from current `main` with the
 exact published version and source revision. That is a recovery path, not part
 of a normal release.
@@ -316,7 +343,7 @@ bottle artifacts. It repeats the parent/head/PR/two-file checks immediately
 before `brew pr-pull`, publishes with the expected head SHA, and removes only
 the consumed automation branch. A matching formula already on `main` is an
 idempotent success only after the same canonical bottle block is verified. No
-label or additional manual Actions approval is part of the normal path.
+label or manual Actions approval is part of the normal path.
 
 For bounded recovery after a publisher-only failure, the tap owner may resend
 `git-slop-bottles-ready` with the same exact successful run ID while both
@@ -351,8 +378,8 @@ coreycoto/tap/git-slop`.
 ## Publish And Verify The External Scoop Manifest
 
 Scoop publication follows the stable public GitHub Release. It is not a ninth
-release asset, an eighth checksum entry, another protected-environment
-approval, or a bucket credential shared with the source repository.
+release asset, an eighth checksum entry, an Actions environment approval, or a
+bucket credential shared with the source repository.
 
 The automatic trusted-main Scoop receiver starts only after the read-only
 public-release verifier has bound the exact version, numeric release ID, source
@@ -422,6 +449,8 @@ or Windows hash.
 - Confirm `cargo install git-slop --version <version> --locked` succeeds.
 - Confirm the GitHub Release, Marketplace listing, crates.io version, Homebrew
   Formula, executable version, and full source revision all agree.
+- Confirm Release Publish required no deployment review and Marketplace
+  publication with 2FA was the release's only manual approval.
 - For the Issue #69 migration proof, reserve v0.9.4 for this OIDC-backed patch
   release. Record the successful Release Publish run ID and exact source
   revision, then require the crates.io version API to attribute publication to

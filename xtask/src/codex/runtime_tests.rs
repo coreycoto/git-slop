@@ -465,11 +465,13 @@ fn public_release_workflows_reject_private_runtime_surfaces() {
         (
             "release-publish.yml",
             r#"workflow_dispatch:
+Explicitly authorize publishing exact current main
 cargo publish -p git-slop --locked --no-verify
 cargo xtask verify-crate
 verified-registry-crate
 gh release create "$TAG" --draft --generate-notes --title "$TAG" --verify-tag
 marketplace-ready:
+only manual approval for the release
 Dispatch immutable release identity to Homebrew tap
 secrets.HOMEBREW_TAP_DISPATCH_TOKEN
 "#,
@@ -479,7 +481,7 @@ secrets.HOMEBREW_TAP_DISPATCH_TOKEN
             r#"types: [published]
 release-manifest.json
 Summarize publication verification
-without another environment approval
+without any Actions environment approval
 Dispatch immutable release identity to Scoop bucket
 secrets.SCOOP_BUCKET_DISPATCH_TOKEN
 --repo coreycoto/scoop-bucket

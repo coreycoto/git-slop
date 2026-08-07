@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Publish exact current main, or recover an already-published immutable crate.
+        description: Explicitly authorize publishing exact current main, or recover an already-published immutable crate.
         required: true
         default: publish
         type: choice
@@ -434,7 +434,7 @@ jobs:
           brew style --formula "$tap/git-slop"
 
   publish-crate:
-    name: Publish and verify crates.io, then create exact tag
+    name: Dispatch-authorized crates.io publication and exact tag
     needs: [candidate, candidate-distribution, candidate-homebrew-audit]
     runs-on: ubuntu-24.04
     environment: release
@@ -468,7 +468,7 @@ jobs:
           name: source-package
           path: ${{ runner.temp }}/source-package
 
-      - name: Revalidate protected release identity after environment approval
+      - name: Revalidate dispatch-authorized release identity
         shell: bash
         env:
           MODE: ${{ needs.candidate.outputs.mode }}
@@ -652,7 +652,7 @@ jobs:
             --field crate_url="$CRATE_URL" \
             --field crate_sha256="$CRATE_SHA256"
 
-      - name: Summarize protected publication
+      - name: Summarize dispatch-authorized publication
         shell: bash
         env:
           VERSION: ${{ steps.registry.outputs.version }}
@@ -660,8 +660,9 @@ jobs:
           CRATE_SHA256: ${{ steps.registry.outputs.crate-sha256 }}
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
-          ## Protected publication approved
+          ## Dispatch-authorized publication
 
+          - authorization: explicit Release Publish workflow dispatch by \`${GITHUB_ACTOR}\`; the branch-restricted \`release\` environment adds no reviewer gate
           - version: \`${VERSION}\`
           - source revision: \`${REVISION}\`
           - crate SHA-256: \`${CRATE_SHA256}\`
@@ -1118,8 +1119,8 @@ jobs:
             printf '%s\n\n' 'The crate, exact source tag, five archives, checksums, release manifest, crates-backed Formula, and immutable tagged composite Action verify on all five supported runner targets.'
             if test "$RELEASE_STATE" != "published"; then
               printf '%s\n\n' 'The workflow intentionally did **not** publish the GitHub Release.'
-              printf '%s\n' 'Open the draft release, select **Publish this Action to the GitHub Marketplace**, choose **Code quality** and **Continuous integration**, and publish with 2FA. The already-dispatched Homebrew receiver will then verify the exact public release before preparing the tap update.'
+              printf '%s\n' 'Open the draft release, select **Publish this Action to the GitHub Marketplace**, choose **Code quality** and **Continuous integration**, and publish with 2FA. This is the only manual approval for the release. The already-dispatched Homebrew receiver will then verify the exact public release before preparing the tap update.'
             else
-              printf '%s\n' 'The existing published release was reverified without mutation, and the protected publication job redispatched its immutable identity to the Homebrew receiver.'
+              printf '%s\n' 'The existing published release was reverified without mutation, and the dispatch-authorized publication job redispatched its immutable identity to the Homebrew receiver.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"

@@ -39,7 +39,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Revalidate trusted main after environment approval
+      - name: Revalidate trusted main for explicit recovery
         shell: bash
         run: |
           set -euo pipefail
