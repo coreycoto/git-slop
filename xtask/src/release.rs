@@ -208,10 +208,11 @@ pub fn release_messages(state: &ReleaseState) -> Vec<String> {
         "Validated formatting, linting, tests, Cargo packaging, and crates.io dry-run.".to_owned(),
         "Release preparation performed no publication and wrote no Homebrew formula.".to_owned(),
         format!(
-            "Dispatch the protected Release Publish workflow from exact main revision {}; automation owns crate publication, tag {}, draft release creation, and the immutable Homebrew receiver handoff.",
+            "Dispatch the branch-restricted Release Publish workflow from exact main revision {}; that explicit dispatch authorizes crate publication, tag {}, draft release creation, and the immutable Homebrew receiver handoff.",
             state.revision, state.tag
         ),
-        "Publish the verified draft only after the separate Marketplace approval gate.".to_owned(),
+        "Publish the verified draft only through the sole manual Marketplace approval with 2FA."
+            .to_owned(),
     ]
 }
 

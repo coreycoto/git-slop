@@ -261,9 +261,10 @@ treat Homebrew, GitHub Release, or Marketplace as independent builds.
 
 ```text
 exact current main
+  -> explicit Release Publish dispatch authorizes crates.io and tag mutation
   -> local candidate .crate
   -> five-target preflight
-  -> protected release environment
+  -> branch-restricted release environment with no reviewer gate
   -> crates.io publication and local/index/static SHA equality
   -> exact v<version> tag
   -> immutable Homebrew receiver dispatch
@@ -286,13 +287,14 @@ before the tag or draft is completed, an explicit `recover` dispatch rejoins
 the chain at the registry package. It is keyed by the original full revision
 and crate SHA-256. The workflow separately pins its control revision to the
 exact dispatch-time `main` and rechecks that it is still live `main` after the
-protected approval and at tag mutation; only the immutable release revision may
-be an older ancestor. Recovery re-verifies the API/index checksum, static
-package, and embedded VCS revision and passes through the same protected
-environment. It cannot publish a crate, move a tag, or derive artifacts from
-advanced `main`. Recovery may execute the current trusted Action installer to
-inspect a numeric draft-release ID, while the artifacts and their provenance
-remain bound to the historical release revision. Marketplace readiness still
+branch-restricted job starts and at tag mutation; only the immutable release
+revision may be an older ancestor. Recovery re-verifies the API/index checksum,
+static package, and embedded VCS revision and passes through the same
+branch-restricted environment without a reviewer gate. It cannot publish a
+crate, move a tag, or derive artifacts from advanced `main`. Recovery may
+execute the current trusted Action installer to inspect a numeric draft-release
+ID, while the artifacts and their provenance remain bound to the historical
+release revision. Marketplace readiness still
 executes the full composite Action from that exact historical tag across all
 five targets; current control tooling cannot substitute for public tagged code.
 
@@ -307,9 +309,10 @@ compiles Rust in a consumer repository.
 The Homebrew artifact is a Formula, not a cask or an alternate binary source.
 It downloads the static crates.io package at the manifest's exact digest,
 builds it with Rust, and checks the same embedded revision. The
-already-approved protected publication job exposes the existing Homebrew token
-only while dispatching the immutable version, revision, crate URL, and crate
-digest. The tap receiver waits for the exact stable public release, derives and
+dispatch-authorized, branch-restricted publication job exposes the existing
+Homebrew token only while dispatching the immutable version, revision, crate
+URL, and crate digest. The tap receiver waits for the exact stable public
+release, derives and
 reverifies its Formula and manifest digests, and cannot create a tap PR from a
 draft. The PR must have the current tap `main` as its sole parent and exactly
 the Formula and release metadata files. Its canonical exact-head bottle test
@@ -318,10 +321,11 @@ event, artifacts, bot PR, parent, head, and two-file boundary immediately before
 publishing. The `release.published` verifier itself remains read-only; only its
 dependency-ordered Scoop dispatch step receives a separate fine-grained token,
 scoped to Actions dispatch in `coreycoto/scoop-bucket`. It sends no URL or
-Windows hash and introduces no second protected approval. The trusted-main tap
-publisher adds no label or environment approval. Manual `homebrew-handoff.yml`
-dispatch remains a protected recovery path. The draft must not be published
-until the terminal `marketplace-ready` job confirms all five Action smoke lanes.
+Windows hash and introduces no Actions environment approval. The trusted-main
+tap publisher adds no label or environment approval. Manual
+`homebrew-handoff.yml` dispatch remains an explicit branch-restricted recovery
+path with no reviewer gate. The draft must not be published until the terminal
+`marketplace-ready` job confirms all five Action smoke lanes.
 
 Scoop is an external Windows package-manager consumer, not another release
 artifact or source-build job. After the stable release is public, the source
