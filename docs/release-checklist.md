@@ -36,8 +36,10 @@ on that identity.
 - Keep the tap receiver at `.github/workflows/update-git-slop.yml` on that
   repository's `main` branch.
 - Keep the trusted-main publisher at `.github/workflows/publish.yml` on the tap
-  repository's `main` branch. It runs only from a successful canonical
-  `Release git-slop bottles` `workflow_run` for the exact automation head.
+  repository's `main` branch. The final successful job in the canonical
+  `Release git-slop bottles` workflow sends a `repository_dispatch` containing
+  only its exact run ID; the publisher treats that payload as a pointer and
+  revalidates the run and automation head through the Actions API.
 
 The normal `github.token` creates the exact tag and GitHub Release in this
 repository. No additional GitHub PAT is needed for those same-repository
@@ -287,16 +289,23 @@ current `main` with the exact published version and source revision. That is a
 recovery path, not part of a normal release.
 
 The receiver opens an exact two-file automation PR and dispatches the canonical
-two-platform `Release git-slop bottles` workflow. A successful exact-head run
-then triggers the trusted-main publisher. Before publication it independently
-rechecks the event run and artifact provenance, unique same-repository bot PR,
-current `main` parent, exact head SHA, two-file allowlist, release identity,
-Formula, manifest, and both unexpired bottle artifacts. It repeats the
-parent/head/PR/two-file checks immediately before `brew pr-pull`, publishes with
-the expected head SHA, and removes only the consumed automation branch. A
-matching formula already on `main` is an idempotent success only after the same
-canonical bottle block is verified. No label or additional manual Actions
-approval is part of the normal path.
+two-platform `Release git-slop bottles` workflow. After every required
+validation, bottle, and upgrade job succeeds, its final job sends a
+`repository_dispatch` containing the exact successful run ID. The publisher
+runs from trusted tap `main`, derives the run attempt, head SHA, branch, actor,
+and conclusion from the Actions API, and then independently rechecks artifact
+provenance, the unique same-repository bot PR, current `main` parent, exact head
+SHA, two-file allowlist, release identity, Formula, manifest, and both unexpired
+bottle artifacts. It repeats the parent/head/PR/two-file checks immediately
+before `brew pr-pull`, publishes with the expected head SHA, and removes only
+the consumed automation branch. A matching formula already on `main` is an
+idempotent success only after the same canonical bottle block is verified. No
+label or additional manual Actions approval is part of the normal path.
+
+For bounded recovery after a publisher-only failure, the tap owner may resend
+`git-slop-bottles-ready` with the same exact successful run ID while both
+artifacts remain unexpired; the publisher revalidates the run and all current
+state rather than trusting additional payload fields.
 
 The resulting Formula must retain `coreycoto/tap/git-slop`, build from the exact
 `.crate` source, and introduce no auxiliary runtime dependency. Homebrew derives
