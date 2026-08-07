@@ -480,6 +480,9 @@ secrets.HOMEBREW_TAP_DISPATCH_TOKEN
 release-manifest.json
 Summarize publication verification
 without another environment approval
+Dispatch immutable release identity to Scoop bucket
+secrets.SCOOP_BUCKET_DISPATCH_TOKEN
+--repo coreycoto/scoop-bucket
 "#,
         ),
         (

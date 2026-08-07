@@ -546,6 +546,9 @@ fn validate_release_workflow(repo_root: &Path, errors: &mut Vec<String>) {
                 "release-manifest.json",
                 "Summarize publication verification",
                 "without another environment approval",
+                "Dispatch immutable release identity to Scoop bucket",
+                "secrets.SCOOP_BUCKET_DISPATCH_TOKEN",
+                "--repo coreycoto/scoop-bucket",
             ],
         ),
         (

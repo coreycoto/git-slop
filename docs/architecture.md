@@ -271,10 +271,14 @@ exact current main
   -> schema-3 manifest + SHA256SUMS + crates-backed Formula
   -> verified draft GitHub Release
   -> manual Marketplace publication with 2FA
-  -> read-only release.published verification
+  -> read-only public-release identity verification
+  -> immutable Scoop receiver dispatch
   -> receiver verifies public assets and opens an exact two-file tap PR
   -> exact-head two-platform bottle tests
   -> trusted-main publisher reverifies and updates the Homebrew tap
+  -> trusted bucket main reverifies and opens a manifest-only Scoop PR
+  -> exact-head Windows x64/ARM64 qualification
+  -> governed Scoop merge and explicit exact-main qualification
 ```
 
 If crates.io has already accepted those immutable bytes and `main` advances
@@ -311,22 +315,26 @@ draft. The PR must have the current tap `main` as its sole parent and exactly
 the Formula and release metadata files. Its canonical exact-head bottle test
 run triggers trusted `main` workflow code, which independently rechecks the
 event, artifacts, bot PR, parent, head, and two-file boundary immediately before
-publishing. The `release.published` event uses no cross-repository credential
-and is read-only verification, so it introduces no second protected approval;
-the trusted-main tap publisher adds no label or environment approval. Manual
-`homebrew-handoff.yml` dispatch remains a protected recovery path. The draft
-must not be published until the terminal `marketplace-ready` job confirms all
-five Action smoke lanes.
+publishing. The `release.published` verifier itself remains read-only; only its
+dependency-ordered Scoop dispatch step receives a separate fine-grained token,
+scoped to Actions dispatch in `coreycoto/scoop-bucket`. It sends no URL or
+Windows hash and introduces no second protected approval. The trusted-main tap
+publisher adds no label or environment approval. Manual `homebrew-handoff.yml`
+dispatch remains a protected recovery path. The draft must not be published
+until the terminal `marketplace-ready` job confirms all five Action smoke lanes.
 
 Scoop is an external Windows package-manager consumer, not another release
-artifact or publication job. After the stable release is public,
-`coreycoto/scoop-bucket` maps the existing x86-64 and ARM64 Windows ZIPs to one
-`git-slop` manifest, verifies their entries against the authoritative
-`SHA256SUMS` and `release-manifest.json`, and tests the installed binary's full
-source revision. That separate repository boundary neither changes the exact
-eight-asset/seven-checksum release inventory nor receives a release credential.
-The read-only `release.published` workflow remains unchanged; publishing or
-updating the Scoop manifest is a separately reviewed bucket pull request.
+artifact or source-build job. After the stable release is public, the source
+workflow hands only its verified version, numeric release ID, full revision,
+and manifest digest to `coreycoto/scoop-bucket`. That repository's trusted-main
+receiver independently requires the exact eight-asset/seven-checksum release,
+rederives both Windows hashes, and tests the installed binary's full source
+revision. The trusted-main receiver creates a manifest-only bucket pull request,
+explicitly dispatches required native qualification for its exact head,
+rechecks the single-file bot PR and successful run immediately before a
+ruleset-governed merge, then explicitly qualifies the resulting exact main.
+The source repository never receives bucket write permission, and the bucket
+never receives a release-environment or cross-repository secret.
 
 ## Rust Maintainer Surface
 

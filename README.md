@@ -93,6 +93,10 @@ git-slop build-info --format json
 git slop version
 ```
 
+The stable public release automatically hands its immutable identity to trusted
+bucket automation, which publishes only after native Windows x64 and ARM64
+qualification and a ruleset-governed manifest-only merge.
+
 See [Installation](docs/install.md) for availability, provenance, upgrades,
 and contributor setup.
 

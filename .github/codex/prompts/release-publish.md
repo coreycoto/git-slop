@@ -60,8 +60,9 @@ to GitHub Marketplace through GitHub's required web approval.
   creation; the final archives and Formula derive from those registry bytes.
 - Never move or delete an existing tag.
 - Never publish a draft release, select Marketplace categories, or dispatch a
-  Homebrew update from this Codex job. The protected workflow code owns its
-  narrowly scoped immutable-identity dispatch; Codex does not.
+  Homebrew or Scoop update from this Codex job. The protected publication
+  workflow owns the early Homebrew handoff, and the public-release verification
+  workflow owns the later Scoop handoff; Codex owns neither dispatch.
 - Marketplace publication is a manual GitHub UI gate with **Code quality** as
   the primary category and **Continuous integration** as the secondary. Do not
   publish the visible draft until the five-target Action smoke matrix and the
@@ -81,8 +82,13 @@ to GitHub Marketplace through GitHub's required web approval.
    the immutable version, revision, canonical crate URL, and crate digest to the
    Homebrew receiver. The receiver waits for the exact public stable release
    before deriving and reverifying Formula/manifest digests. The
-   `release.published` workflow is read-only verification and requires no
-   second environment approval. After the receiver's exact-head bottle tests
+   `release.published` verifier requires no second environment approval. Its
+   dependency-ordered dispatch step sends only the verified version, release
+   ID, source revision, and manifest digest to the external Scoop receiver with
+   a dedicated Actions-only token. The bucket independently reverifies the
+   public release, opens a manifest-only PR, runs both required native Windows
+   jobs, exact-head merges through its ruleset, and qualifies exact main without
+   per-release maintainer action. After the Homebrew receiver's exact-head bottle tests
    pass, trusted tap `main` workflow code reverifies the current-parent,
    exact-head, two-file, artifact, and release contracts and publishes the tap
    change automatically; no label or tap environment approval is part of the
