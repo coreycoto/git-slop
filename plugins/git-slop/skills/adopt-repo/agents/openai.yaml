@@ -1,7 +1,10 @@
 interface:
   display_name: "Adopt Git Slop"
-  short_description: "Adopt git-slop locally and in CI"
-  default_prompt: "Use $git-slop:adopt-repo to wire a repository to the crates.io-backed native CLI and advisory GitHub Action distribution contract."
+  short_description: "Integrate Git Slop into repositories and CI"
+  icon_small: "./assets/git-slop.svg"
+  icon_large: "./assets/git-slop.svg"
+  brand_color: "#6f42c1"
+  default_prompt: "Use $git-slop:adopt-repo to integrate Git Slop into this repository and its CI workflow."
 
 policy:
   allow_implicit_invocation: true

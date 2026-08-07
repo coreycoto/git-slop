@@ -84,7 +84,11 @@ fn validate_version_alignment(repo_root: &Path, errors: &mut Vec<String>) {
     for (relative, markers) in [
         (
             "README.md",
-            &["coreycoto/git-slop@v", "cargo install git-slop --version "][..],
+            &[
+                "coreycoto/git-slop@v",
+                "cargo install git-slop --version ",
+                "After the external Scoop bucket lists ",
+            ][..],
         ),
         (
             "docs/github-action.md",
@@ -92,7 +96,11 @@ fn validate_version_alignment(repo_root: &Path, errors: &mut Vec<String>) {
         ),
         (
             "docs/install.md",
-            &["release=v", "cargo install git-slop --version "][..],
+            &[
+                "release=v",
+                "cargo install git-slop --version ",
+                "After the bucket lists ",
+            ][..],
         ),
         (
             "plugins/git-slop/skills/adopt-repo/SKILL.md",
@@ -293,6 +301,8 @@ fn validate_scoop_boundary(repo_root: &Path, errors: &mut Vec<String>) {
                 "automatic trusted-main Scoop receiver",
                 "git-slop-v<version>-x86_64-pc-windows-msvc.zip",
                 "git-slop-v<version>-aarch64-pc-windows-msvc.zip",
+                "cross-version upgrade-in-place",
+                "scoop update git-slop",
                 "scoop uninstall git-slop",
             ][..],
         ),
@@ -450,7 +460,9 @@ mod tests {
         .unwrap();
         fs::write(
             root.join("README.md"),
-            "uses: coreycoto/git-slop@v0.9.0\ncargo install git-slop --version 0.9.0\n",
+            "uses: coreycoto/git-slop@v0.9.0\n\
+             cargo install git-slop --version 0.9.0\n\
+             After the external Scoop bucket lists 0.9.0\n",
         )
         .unwrap();
         fs::write(
@@ -460,7 +472,9 @@ mod tests {
         .unwrap();
         fs::write(
             root.join("docs/install.md"),
-            "release=v0.9.0\ncargo install git-slop --version 0.9.0\n",
+            "release=v0.9.0\n\
+             cargo install git-slop --version 0.9.0\n\
+             After the bucket lists 0.9.0\n",
         )
         .unwrap();
         fs::write(
@@ -515,8 +529,17 @@ mod tests {
         )
         .unwrap();
         fs::write(
+            temp.path().join("README.md"),
+            "uses: coreycoto/git-slop@v0.9.1\n\
+             cargo install git-slop --version 0.9.1\n\
+             After the external Scoop bucket lists 0.9.1\n",
+        )
+        .unwrap();
+        fs::write(
             temp.path().join("docs/install.md"),
-            "release=v0.9.1\ncargo install git-slop --version 0.9.1\n",
+            "release=v0.9.1\n\
+             cargo install git-slop --version 0.9.1\n\
+             After the bucket lists 0.9.1\n",
         )
         .unwrap();
         fs::write(
@@ -539,6 +562,7 @@ mod tests {
             "action.yml",
             "action/install.mjs",
             ".github/workflows/release-publish.yml",
+            "README.md",
             "docs/install.md",
             "plugins/git-slop/skills/adopt-repo/SKILL.md",
             "xtask/README.md",
@@ -602,6 +626,8 @@ mod tests {
              automatic trusted-main Scoop receiver\n\
              git-slop-v<version>-x86_64-pc-windows-msvc.zip\n\
              git-slop-v<version>-aarch64-pc-windows-msvc.zip\n\
+             cross-version upgrade-in-place\n\
+             scoop update git-slop\n\
              scoop uninstall git-slop\n",
         )
         .unwrap();

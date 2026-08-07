@@ -1,6 +1,6 @@
 ---
 name: install-update
-description: Install, update, and verify the native git-slop CLI through its crates.io-backed Cargo, Homebrew, or GitHub Release distribution paths. Use when a repository or machine needs a usable binary or when an installed binary's version and source revision must be proven before running reports.
+description: Install, update, and verify the native git-slop CLI through Cargo, Homebrew, or the SHA256SUMS-backed Scoop bucket. Use when a machine needs a usable binary on PATH or an installed binary's version and source revision must be proven; repository configuration and GitHub Action adoption belong to the adopt-repo skill.
 ---
 
 # Install Or Update Git Slop
@@ -15,12 +15,12 @@ published and verified:
 - Cargo installation requires the exact version on crates.io.
 - Homebrew installation requires the crates.io package plus the matching tap
   formula; a bottle may provide the fast path after it is published.
-- The GitHub Action requires the crates.io package, matching GitHub Release
-  archives and manifest, and the immutable Action tag.
+- Scoop installation requires the matching public GitHub Release plus the
+  external bucket manifest after native Windows x64 and ARM64 qualification.
 
 Do not infer availability from a source tag, documentation, or another
-distribution surface. Verify the exact crates.io version, tap Formula, or
-public GitHub Release before recommending its corresponding install command.
+distribution surface. Verify the exact crates.io version, tap Formula, or Scoop
+manifest before recommending its corresponding install command.
 
 ## Distribution Contract
 
@@ -29,10 +29,9 @@ public GitHub Release before recommending its corresponding install command.
 - The Homebrew Formula identifies that exact `.crate` by crates.io URL and
   SHA-256 and installs it with Cargo. A Homebrew bottle is only a faster,
   prebuilt transport of that Formula; it is not a separate source identity.
-- The public GitHub Action installs a prebuilt GitHub Release archive built
-  from, and verifiably bound to, the same crate. Its installer verifies the
-  release tag, release manifest, crate checksum, archive checksum, and installed
-  binary provenance before analysis begins.
+- The external Scoop manifest selects a checksummed Windows GitHub Release
+  archive whose hash comes from the authoritative `SHA256SUMS`; trusted bucket
+  automation publishes it only after exact-release and native qualification.
 
 ## Install Paths
 
@@ -42,11 +41,14 @@ public GitHub Release before recommending its corresponding install command.
   - `brew tap coreycoto/tap`
   - `brew install coreycoto/tap/git-slop`
   - `brew upgrade coreycoto/tap/git-slop`
-- GitHub Actions, after confirming the matching immutable tag and release:
-  - `uses: coreycoto/git-slop@v<version>`
+- Scoop, after confirming the external bucket manifest is published:
+  - `scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket`
+  - `scoop install coreycoto/git-slop`
+  - `scoop update git-slop`
 
 The public CLI is a native Rust executable. Do not add alternate runtime
-dependencies.
+dependencies. Use the separate `adopt-repo` skill when the requested outcome
+is durable repository configuration or GitHub Action integration.
 
 ## Verification
 
@@ -61,4 +63,6 @@ The version must match the repository's pinned contract. For a published
 release, build-info schema 1 must report `project: "git-slop"`, the same version,
 the full canonical `source_revision`, and `source_dirty: false`. Reject a
 release install with a missing or mismatched revision or a dirty source marker;
-the version string alone does not prove source identity.
+the version string alone does not prove source identity. For Scoop, also run
+`git slop version` to prove the Git subcommand resolves through the installed
+shim.

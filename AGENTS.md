@@ -5,9 +5,9 @@
 - `AGENTS.md`: always-on repo-wide policy and execution constraints
 - `.codex/README.md`: Codex runtime map for config, rules, agents, prompts, and schemas
 - `.agents/plugins/marketplace-source.json`: pinned marketplace source and prebuilt-runtime integrity manifest
-- `.agents/plugins/marketplace.json`: local publication manifest for the `git-slop` Codex plugin
+- `.agents/plugins/marketplace.json`: local Codex marketplace for the portable `git-slop` Agent Plugin
 - installed `project-management-workflows` plugin from `coreycoto/agent-plugins`: reusable workflow contract and metadata
-- local `git-slop` plugin under `plugins/git-slop`: product-specific usage, install, report, interpretation, planning, and adoption guidance
+- local `git-slop` Agent Plugin under `plugins/git-slop`: portable product-specific usage, install, report, interpretation, planning, and adoption guidance
 - private standalone Rust `xtask/` workspace: repo-owned Codex, workflow, repository, distribution, and release validation
 - `config/github/README.md`: repo-owned backlog/project overlay
 - `config/labels/README.md`: repo-owned label palette overlay
@@ -22,7 +22,8 @@
 
 - Keep the public `git slop` CLI focused on detector, report, explain, and plan behavior.
 - Keep reusable maintainer workflow instructions in the installed project-management plugin from `coreycoto/agent-plugins`.
-- Keep the local `git-slop` Codex plugin focused on product-specific CLI usage and consumer adoption guidance.
+- Keep the local `git-slop` Agent Plugin focused on portable product-specific CLI usage and consumer adoption guidance.
+- Keep `plugins/git-slop/plugin.json` authoritative. Until a shipped Codex app-server resolves its complete metadata, retain `.codex-plugin/plugin.json` only as an exact metadata-only compatibility mirror with no skills, MCP, app, or hook declarations.
 - Keep repo-owned maintainer contract validation in the private standalone Rust `xtask/` workspace and validate it with its committed lockfile.
 - Keep only the pinned marketplace-source manifest and workflow invocation in this consumer repo; invoke the publisher-owned prebuilt runtime only through `scripts/with-agent-plugins.sh`.
 - Keep `agent_plugins` behavior tests, bootstrap implementation, and clean-room consumer smoke in `coreycoto/agent-plugins`.

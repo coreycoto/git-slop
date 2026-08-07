@@ -1,7 +1,10 @@
 interface:
-  display_name: "Run Git Slop"
-  short_description: "Run git-slop health reports"
-  default_prompt: "Use $git-slop:run-report to run git-slop through the current repository's preferred wrapper or native CLI and preserve its generated-artifact boundaries."
+  display_name: "Run Git Slop Reports"
+  short_description: "Generate and render Git Slop health reports"
+  icon_small: "./assets/git-slop.svg"
+  icon_large: "./assets/git-slop.svg"
+  brand_color: "#6f42c1"
+  default_prompt: "Use $git-slop:run-report to generate a fresh Git Slop report with the repository's preferred wrapper or native CLI."
 
 policy:
   allow_implicit_invocation: true

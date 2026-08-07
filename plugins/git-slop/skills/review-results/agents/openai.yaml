@@ -1,0 +1,10 @@
+interface:
+  display_name: "Review Git Slop Results"
+  short_description: "Interpret Git Slop evidence and plan bounded work"
+  icon_small: "./assets/git-slop.svg"
+  icon_large: "./assets/git-slop.svg"
+  brand_color: "#6f42c1"
+  default_prompt: "Use $git-slop:review-results to explain these Git Slop findings and, if requested, plan one bounded maintenance slice."
+
+policy:
+  allow_implicit_invocation: true

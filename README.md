@@ -59,18 +59,18 @@ support SLA, guaranteed issue priority, or roadmap control.
 
 ## Install
 
-The examples below pin the 0.9.5 release identity. Use each command only after
+The examples below pin the 0.9.6 release identity. Use each command only after
 that exact version is published on the requested distribution surface;
 documentation or a source tag is not proof that every surface is available.
 
-After crates.io lists 0.9.5, install the canonical package:
+After crates.io lists 0.9.6, install the canonical package:
 
 ```bash
-cargo install git-slop --version 0.9.5 --locked
+cargo install git-slop --version 0.9.6 --locked
 git-slop build-info --format json
 ```
 
-After the tap lists 0.9.5, install the Homebrew Formula:
+After the tap lists 0.9.6, install the Homebrew Formula:
 
 ```bash
 brew tap coreycoto/tap
@@ -82,7 +82,7 @@ git-slop build-info --format json
 The Formula builds the exact checksummed crates.io source package; it is not a
 cask.
 
-After the external Scoop bucket lists 0.9.5, Windows users can install the
+After the external Scoop bucket lists 0.9.6, Windows users can install the
 matching checksummed native archive:
 
 ```powershell
@@ -102,7 +102,7 @@ and contributor setup.
 
 ## GitHub Actions
 
-After the public GitHub Release and Marketplace listing resolve `v0.9.5`, add a
+After the public GitHub Release and Marketplace listing resolve `v0.9.6`, add a
 complete checkout and the Git Slop Action to get a detailed repository health
 summary, bounded annotations, and a small review artifact:
 
@@ -114,7 +114,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.9.5
+  - uses: coreycoto/git-slop@v0.9.6
 ```
 
 The Action is advisory by default. It verifies a prebuilt native binary built
@@ -197,11 +197,15 @@ workspace validates Codex, plugin, workflow, repository, distribution, and
 release wiring. It is excluded from the public workspace and the `git-slop`
 Cargo package.
 
-The `git-slop` Codex plugin is published from this repo. It owns
+The portable `git-slop` Agent Plugin is published from this repo. It owns
 product-specific install, report, interpretation, planning, and
-consumer-adoption guidance. Reusable project and backlog workflows live in the
-separate `coreycoto/agent-plugins` plugin, which also owns its runtime behavior
-tests, pinned marketplace bootstrap, and clean-room consumer smoke coverage.
+consumer-adoption guidance. Its root `plugin.json` follows Agent Plugins 1.0.0,
+and the repo-local Codex marketplace distributes the same portable plugin. A
+metadata-only `.codex-plugin/plugin.json` temporarily mirrors the root metadata
+for Codex 0.146.x without owning component discovery.
+Reusable project and backlog workflows live in the separate
+`coreycoto/agent-plugins` plugin, which also owns its runtime behavior tests,
+pinned marketplace bootstrap, and clean-room consumer smoke coverage.
 Maintainer workflows acquire and verify that pinned prebuilt runtime in an
 ephemeral job directory before invoking its direct CLI through
 `scripts/with-agent-plugins.sh`. Acquisition credentials remain step-scoped,
