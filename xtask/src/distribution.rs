@@ -11,6 +11,7 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
     crate::workflows::validate_public_release_workflows(repo_root, &mut errors);
     validate_package_boundary(repo_root, &mut errors);
     validate_version_alignment(repo_root, &mut errors);
+    validate_scoop_boundary(repo_root, &mut errors);
     validate_removed_runtime_surfaces(repo_root, &mut errors);
     errors
 }
@@ -266,6 +267,71 @@ fn validate_document_versions(
     }
 }
 
+fn validate_scoop_boundary(repo_root: &Path, errors: &mut Vec<String>) {
+    for (relative, markers) in [
+        (
+            "README.md",
+            &[
+                "scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket",
+                "scoop install coreycoto/git-slop",
+            ][..],
+        ),
+        (
+            "docs/install.md",
+            &[
+                "https://github.com/coreycoto/scoop-bucket",
+                "scoop install coreycoto/git-slop",
+                "scoop update git-slop",
+                "SHA256SUMS",
+                "release-manifest.json",
+            ][..],
+        ),
+        (
+            "docs/release-checklist.md",
+            &[
+                "## Publish And Verify The External Scoop Manifest",
+                "git-slop-v<version>-x86_64-pc-windows-msvc.zip",
+                "git-slop-v<version>-aarch64-pc-windows-msvc.zip",
+                "scoop uninstall git-slop",
+            ][..],
+        ),
+        (
+            "docs/architecture.md",
+            &[
+                "coreycoto/scoop-bucket",
+                "eight-asset/seven-checksum",
+                "separately reviewed bucket pull request",
+            ][..],
+        ),
+    ] {
+        let path = repo_root.join(relative);
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) => {
+                errors.push(format!("Unable to read {relative}: {error}"));
+                continue;
+            }
+        };
+        for marker in markers {
+            require(&text, marker, relative, errors);
+        }
+    }
+
+    for relative in [
+        ".github/workflows/release-publish.yml",
+        ".github/workflows/release-published.yml",
+    ] {
+        let path = repo_root.join(relative);
+        match fs::read_to_string(&path) {
+            Ok(text) if text.to_ascii_lowercase().contains("scoop") => errors.push(format!(
+                "{relative} must remain independent of the external Scoop bucket."
+            )),
+            Ok(_) => {}
+            Err(error) => errors.push(format!("Unable to read {relative}: {error}")),
+        }
+    }
+}
+
 fn validate_removed_runtime_surfaces(repo_root: &Path, errors: &mut Vec<String>) {
     for removed in ["pyproject.toml", "uv.lock", "src/git_slop"] {
         if repo_root.join(removed).exists() {
@@ -495,6 +561,81 @@ mod tests {
         assert_eq!(
             repository_owned_py_files(root).unwrap(),
             [".github/contract.py", "root_helper.py"]
+        );
+    }
+
+    #[test]
+    fn scoop_contract_stays_documented_and_external() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::create_dir_all(root.join(".github/workflows")).unwrap();
+        fs::write(
+            root.join("README.md"),
+            "scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket\n\
+             scoop install coreycoto/git-slop\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("docs/install.md"),
+            "https://github.com/coreycoto/scoop-bucket\n\
+             scoop install coreycoto/git-slop\n\
+             scoop update git-slop\n\
+             SHA256SUMS\n\
+             release-manifest.json\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("docs/release-checklist.md"),
+            "## Publish And Verify The External Scoop Manifest\n\
+             git-slop-v<version>-x86_64-pc-windows-msvc.zip\n\
+             git-slop-v<version>-aarch64-pc-windows-msvc.zip\n\
+             scoop uninstall git-slop\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("docs/architecture.md"),
+            "coreycoto/scoop-bucket\n\
+             eight-asset/seven-checksum\n\
+             separately reviewed bucket pull request\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join(".github/workflows/release-publish.yml"),
+            "name: Release\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join(".github/workflows/release-published.yml"),
+            "name: Verify release\n",
+        )
+        .unwrap();
+
+        let mut errors = Vec::new();
+        validate_scoop_boundary(root, &mut errors);
+        assert_eq!(errors, Vec::<String>::new());
+
+        fs::write(
+            root.join(".github/workflows/release-publish.yml"),
+            "name: Dispatch Scoop update\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("docs/install.md"),
+            "https://github.com/coreycoto/scoop-bucket\n\
+             scoop install coreycoto/git-slop\n\
+             SHA256SUMS\n\
+             release-manifest.json\n",
+        )
+        .unwrap();
+
+        let mut errors = Vec::new();
+        validate_scoop_boundary(root, &mut errors);
+        let rendered = errors.join("\n");
+        assert!(rendered.contains("scoop update git-slop"), "{rendered}");
+        assert!(
+            rendered.contains("must remain independent of the external Scoop bucket"),
+            "{rendered}"
         );
     }
 }

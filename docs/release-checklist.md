@@ -332,6 +332,41 @@ brew test coreycoto/tap/git-slop
 On a clean host, replace `brew upgrade` with `brew install
 coreycoto/tap/git-slop`.
 
+## Publish And Verify The External Scoop Manifest
+
+Scoop publication follows the stable public GitHub Release. It is not a ninth
+release asset, an eighth checksum entry, another protected-environment
+approval, or a write-capable `release.published` handoff.
+
+In `coreycoto/scoop-bucket`, prepare one reviewed `bucket/git-slop.json` update
+for the exact public version. The manifest must select
+`git-slop-v<version>-x86_64-pc-windows-msvc.zip` for `64bit` and
+`git-slop-v<version>-aarch64-pc-windows-msvc.zip` for `arm64`; each literal
+hash must match both `SHA256SUMS` and the corresponding
+`release-manifest.json` entry. Keep `checkver` and `autoupdate` read-only so a
+future candidate can be proposed without granting the bucket workflow write
+access.
+
+Require the bucket pull request to pass its schema, release-identity, hash
+failure, and clean install/uninstall jobs on both Windows x86-64 and Windows
+ARM64. The installed binary must report the public tag's full source revision
+with `source_dirty: false`, and both invocation forms must resolve:
+
+```powershell
+scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket
+scoop install coreycoto/git-slop
+git-slop version
+git-slop build-info --format json
+git slop version
+scoop uninstall git-slop
+```
+
+After the exact bucket head merges, repeat a clean public-bucket install on each
+architecture and record the git-slop main SHA, bucket main SHA, manifest URL,
+two archive SHA-256 values, and validation run IDs. A later release must also
+prove `scoop update git-slop` upgrades the existing installation in place; the
+first such cross-version proof belongs to the next release after v0.9.5.
+
 ## Verify Consumers And Close Out
 
 - Run the public Action on a clean Linux consumer and on the supported runner

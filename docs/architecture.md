@@ -318,6 +318,16 @@ the trusted-main tap publisher adds no label or environment approval. Manual
 must not be published until the terminal `marketplace-ready` job confirms all
 five Action smoke lanes.
 
+Scoop is an external Windows package-manager consumer, not another release
+artifact or publication job. After the stable release is public,
+`coreycoto/scoop-bucket` maps the existing x86-64 and ARM64 Windows ZIPs to one
+`git-slop` manifest, verifies their entries against the authoritative
+`SHA256SUMS` and `release-manifest.json`, and tests the installed binary's full
+source revision. That separate repository boundary neither changes the exact
+eight-asset/seven-checksum release inventory nor receives a release credential.
+The read-only `release.published` workflow remains unchanged; publishing or
+updating the Scoop manifest is a separately reviewed bucket pull request.
+
 ## Rust Maintainer Surface
 
 The public runtime, release artifacts, and repository-owned maintainer contract
