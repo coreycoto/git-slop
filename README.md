@@ -37,40 +37,23 @@ it is for a human or agent to work in.
 The deeper product thesis and non-goals are documented in
 [Vision](docs/vision.md).
 
-## Sponsors
-
-Git Slop is supported by people and companies who want transparent,
-local-first developer tooling to remain thoughtfully maintained. Sponsorship
-funds releases, documentation, compatibility work, and ongoing maintenance.
-
-[Become a sponsor](https://github.com/sponsors/coreycoto) or see
-[Sponsors](SPONSORS.md) for current acknowledgments and the recognition policy.
-
-### Founding company sponsors
-
-_No active founding company sponsors yet._
-
-### Company sponsors
-
-_No active company sponsors yet._
-
-Sponsorship provides recognition and a feedback channel. It does not include a
-support SLA, guaranteed issue priority, or roadmap control.
-
 ## Install
 
 The examples below pin the 0.9.6 release identity. Use each command only after
 that exact version is published on the requested distribution surface;
 documentation or a source tag is not proof that every surface is available.
 
-After crates.io lists 0.9.6, install the canonical package:
+See [Installation](docs/install.md) for availability, provenance, upgrades,
+and contributor setup.
+
+### Crates.io
 
 ```bash
 cargo install git-slop --version 0.9.6 --locked
 git-slop build-info --format json
 ```
 
-After the tap lists 0.9.6, install the Homebrew Formula:
+### Homebrew (macOS and Linux)
 
 ```bash
 brew tap coreycoto/tap
@@ -79,11 +62,8 @@ git-slop version
 git-slop build-info --format json
 ```
 
-The Formula builds the exact checksummed crates.io source package; it is not a
-cask.
+### Scoop (Windows)
 
-After the external Scoop bucket lists 0.9.6, Windows users can install the
-matching checksummed native archive:
 
 ```powershell
 scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket
@@ -93,18 +73,7 @@ git-slop build-info --format json
 git slop version
 ```
 
-The stable public release automatically hands its immutable identity to trusted
-bucket automation, which publishes only after native Windows x64 and ARM64
-qualification and a ruleset-governed manifest-only merge.
-
-See [Installation](docs/install.md) for availability, provenance, upgrades,
-and contributor setup.
-
 ## GitHub Actions
-
-After the public GitHub Release and Marketplace listing resolve `v0.9.6`, add a
-complete checkout and the Git Slop Action to get a detailed repository health
-summary, bounded annotations, and a small review artifact:
 
 ```yaml
 permissions:
@@ -191,24 +160,15 @@ The local `git-slop` CLI does not:
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 
-The current release retains report schema 4, config schema 2, and the existing
-`check` threshold semantics. A private, non-publishable Rust `xtask`
-workspace validates Codex, plugin, workflow, repository, distribution, and
-release wiring. It is excluded from the public workspace and the `git-slop`
-Cargo package.
+## Sponsors
 
-The portable `git-slop` Agent Plugin is published from this repo. It owns
-product-specific install, report, interpretation, planning, and
-consumer-adoption guidance. Its root `plugin.json` follows Agent Plugins 1.0.0,
-and the repo-local Codex marketplace distributes the same portable plugin. A
-metadata-only `.codex-plugin/plugin.json` temporarily mirrors the root metadata
-for Codex 0.146.x without owning component discovery.
-Reusable project and backlog workflows live in the separate
-`coreycoto/agent-plugins` plugin, which also owns its runtime behavior tests,
-pinned marketplace bootstrap, and clean-room consumer smoke coverage.
-Maintainer workflows acquire and verify that pinned prebuilt runtime in an
-ephemeral job directory before invoking its direct CLI through
-`scripts/with-agent-plugins.sh`. Acquisition credentials remain step-scoped,
-and the public Git Slop release workflow is independent of the private runtime.
+Git Slop is supported by people and companies who want transparent,
+local-first developer tooling to remain thoughtfully maintained. Sponsorship
+funds releases, documentation, compatibility work, and ongoing maintenance.
+
+[Become a sponsor](https://github.com/sponsors/coreycoto) or see
+[Sponsors](SPONSORS.md) for current acknowledgments and the recognition policy.
+
+-----
 
 🧑‍💻🤖🫟
