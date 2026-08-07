@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const releaseVersion = (process.env.GIT_SLOP_ACTION_VERSION || "0.9.3").trim();
+const releaseVersion = (process.env.GIT_SLOP_ACTION_VERSION || "0.9.4").trim();
 const releaseRepository = (
   process.env.GIT_SLOP_RELEASE_REPOSITORY || "coreycoto/git-slop"
 ).trim();
