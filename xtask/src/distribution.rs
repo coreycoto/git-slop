@@ -84,11 +84,7 @@ fn validate_version_alignment(repo_root: &Path, errors: &mut Vec<String>) {
     for (relative, markers) in [
         (
             "README.md",
-            &[
-                "coreycoto/git-slop@v",
-                "cargo install git-slop --version ",
-                "After the external Scoop bucket lists ",
-            ][..],
+            &["coreycoto/git-slop@v", "cargo install git-slop --version "][..],
         ),
         (
             "docs/github-action.md",
@@ -461,8 +457,7 @@ mod tests {
         fs::write(
             root.join("README.md"),
             "uses: coreycoto/git-slop@v0.9.0\n\
-             cargo install git-slop --version 0.9.0\n\
-             After the external Scoop bucket lists 0.9.0\n",
+             cargo install git-slop --version 0.9.0\n",
         )
         .unwrap();
         fs::write(
@@ -531,8 +526,7 @@ mod tests {
         fs::write(
             temp.path().join("README.md"),
             "uses: coreycoto/git-slop@v0.9.1\n\
-             cargo install git-slop --version 0.9.1\n\
-             After the external Scoop bucket lists 0.9.1\n",
+             cargo install git-slop --version 0.9.1\n",
         )
         .unwrap();
         fs::write(
