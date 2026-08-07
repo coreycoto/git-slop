@@ -57,6 +57,13 @@ const CRATES_IO_VERSION_ENDPOINT: &str = "https://crates.io/api/v1/crates/git-sl
 const CRATES_IO_RELEASE_USER_AGENT: &str =
     r#"--user-agent "git-slop-release-workflow/1 (https://github.com/coreycoto/git-slop)""#;
 const CRATES_IO_VERSION_REQUESTS: usize = 4;
+const CRATES_IO_AUTH_ACTION: &str =
+    "rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18";
+const CRATES_IO_AUTH_STEP: &str = "Exchange GitHub OIDC identity for crates.io token";
+const CRATES_IO_PUBLISH_STEP: &str = "Publish exact crates.io package";
+const CRATES_IO_PUBLISH_CONDITION: &str =
+    "needs.candidate.outputs.mode == 'publish' && steps.state.outputs.crate-exists != 'true'";
+const CRATES_IO_TEMP_TOKEN: &str = "${{ steps.crates-io-auth.outputs.token }}";
 
 pub fn validate(repo_root: &Path) -> Vec<String> {
     let mut errors = Vec::new();
@@ -622,7 +629,7 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
                 ));
             }
         }
-        validate_publish_token_scope(payload, errors);
+        validate_trusted_publishing(text, payload, publish_crate, errors);
         validate_release_homebrew_token_scope(payload, publish_crate, errors);
         validate_publish_order_and_registry(publish_crate, errors);
         let Some(revalidate) = step_run(
@@ -1311,42 +1318,152 @@ fn validate_crates_io_api_client(text: &str, name: &str, errors: &mut Vec<String
     }
 }
 
-fn validate_publish_token_scope(payload: &YamlValue, errors: &mut Vec<String>) {
+fn validate_trusted_publishing(
+    text: &str,
+    payload: &YamlValue,
+    publish_crate: &YamlValue,
+    errors: &mut Vec<String>,
+) {
     let name = "release-publish.yml";
-    let token = "${{ secrets.CARGO_REGISTRY_TOKEN }}";
+    if text
+        .lines()
+        .any(|line| line.contains("secrets") && line.contains("CARGO_REGISTRY_TOKEN"))
+    {
+        errors.push(format!(
+            "{name} must not reference a long-lived CARGO_REGISTRY_TOKEN secret."
+        ));
+    }
     if workflow_or_job_env_contains(payload, "CARGO_REGISTRY_TOKEN") {
         errors.push(format!(
             "{name} must not expose CARGO_REGISTRY_TOKEN at workflow or job scope."
         ));
     }
-    if yaml_string_occurrences(payload, token) != 1 {
+
+    if payload
+        .get("permissions")
+        .and_then(|permissions| permissions.get("id-token"))
+        .is_some()
+    {
         errors.push(format!(
-            "{name} must reference the Cargo registry secret exactly once."
+            "{name} must not grant id-token permission at workflow scope."
         ));
     }
+    if let Some(jobs) = payload.get("jobs").and_then(YamlValue::as_mapping) {
+        for (job_name, job) in jobs {
+            let Some(job_name) = job_name.as_str() else {
+                continue;
+            };
+            if !matches!(job_name, "publish-crate" | "draft-release")
+                && job
+                    .get("permissions")
+                    .and_then(|permissions| permissions.get("id-token"))
+                    .is_some()
+            {
+                errors.push(format!(
+                    "{name} must not grant id-token permission to {job_name}."
+                ));
+            }
+        }
+    }
+    let publish_permissions = publish_crate
+        .get("permissions")
+        .and_then(YamlValue::as_mapping);
+    let exact_publish_permissions = publish_permissions.is_some_and(|permissions| {
+        permissions.len() == 2
+            && permissions.get("contents").and_then(YamlValue::as_str) == Some("write")
+            && permissions.get("id-token").and_then(YamlValue::as_str) == Some("write")
+    });
+    if !exact_publish_permissions {
+        errors.push(format!(
+            "{name} publish-crate must grant exactly contents: write and id-token: write."
+        ));
+    }
+
+    let auth_action_steps = workflow_steps(payload)
+        .into_iter()
+        .filter(|step| {
+            step.get("uses")
+                .and_then(YamlValue::as_str)
+                .is_some_and(|uses| uses.starts_with("rust-lang/crates-io-auth-action@"))
+        })
+        .collect::<Vec<_>>();
+    if auth_action_steps.len() != 1 {
+        errors.push(format!(
+            "{name} must invoke the crates.io Trusted Publishing action exactly once."
+        ));
+    }
+
+    let auth_step = named_step(publish_crate, CRATES_IO_AUTH_STEP);
+    let auth_step_valid = auth_step.is_some_and(|step| {
+        step.get("uses").and_then(YamlValue::as_str) == Some(CRATES_IO_AUTH_ACTION)
+            && step.get("id").and_then(YamlValue::as_str) == Some("crates-io-auth")
+            && step.get("if").and_then(YamlValue::as_str) == Some(CRATES_IO_PUBLISH_CONDITION)
+            && step.as_mapping().is_some_and(|step| {
+                mapping_keys(step)
+                    == BTreeSet::from([
+                        "id".to_owned(),
+                        "if".to_owned(),
+                        "name".to_owned(),
+                        "uses".to_owned(),
+                    ])
+            })
+    });
+    if !auth_step_valid {
+        errors.push(format!(
+            "{name} {CRATES_IO_AUTH_STEP} must use the reviewed SHA-pinned action, stable step id, exact publish-only condition that is unreachable in recovery mode, and no inputs or fail-open behavior."
+        ));
+    }
+
+    let step_names = steps(publish_crate)
+        .into_iter()
+        .map(|step| {
+            step.get("name")
+                .and_then(YamlValue::as_str)
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>();
+    let state = step_names
+        .iter()
+        .position(|step| *step == "Inspect immutable registry and tag state");
+    let auth = step_names
+        .iter()
+        .position(|step| *step == CRATES_IO_AUTH_STEP);
+    let publish = step_names
+        .iter()
+        .position(|step| *step == CRATES_IO_PUBLISH_STEP);
+    if !matches!((state, auth, publish), (Some(state), Some(auth), Some(publish)) if auth == state + 1 && publish == auth + 1)
+    {
+        errors.push(format!(
+            "{name} must authenticate immediately after immutable registry inspection and publish immediately afterward."
+        ));
+    }
+
     let token_steps = workflow_steps(payload)
         .into_iter()
         .filter(|step| env_has_key(step, "CARGO_REGISTRY_TOKEN"))
         .collect::<Vec<_>>();
     if token_steps.len() != 1 {
         errors.push(format!(
-            "{name} must bind CARGO_REGISTRY_TOKEN to exactly one step."
+            "{name} must bind the temporary CARGO_REGISTRY_TOKEN to exactly one step."
         ));
         return;
     }
     let step = token_steps[0];
-    if step.get("name").and_then(YamlValue::as_str) != Some("Publish exact crates.io package") {
+    if step.get("name").and_then(YamlValue::as_str) != Some(CRATES_IO_PUBLISH_STEP) {
         errors.push(format!(
-            "{name} must expose CARGO_REGISTRY_TOKEN only to Publish exact crates.io package."
+            "{name} must expose the temporary CARGO_REGISTRY_TOKEN only to {CRATES_IO_PUBLISH_STEP}."
         ));
     }
-    let token = step
-        .get("env")
-        .and_then(|env| env.get("CARGO_REGISTRY_TOKEN"))
-        .and_then(YamlValue::as_str);
-    if token != Some("${{ secrets.CARGO_REGISTRY_TOKEN }}") {
+    let publish_env = step.get("env").and_then(YamlValue::as_mapping);
+    if !publish_env.is_some_and(|env| {
+        env.len() == 1
+            && env.get("CARGO_REGISTRY_TOKEN").and_then(YamlValue::as_str)
+                == Some(CRATES_IO_TEMP_TOKEN)
+    }) || yaml_string_occurrences(payload, CRATES_IO_TEMP_TOKEN) != 1
+        || yaml_string_occurrences(payload, "steps.crates-io-auth.outputs.token") != 1
+    {
         errors.push(format!(
-            "{name} publish step must source CARGO_REGISTRY_TOKEN from the release secret."
+            "{name} publish step must bind only the short-lived crates.io-auth action output."
         ));
     }
     let run = step
@@ -1358,13 +1475,12 @@ fn validate_publish_token_scope(payload: &YamlValue, errors: &mut Vec<String>) {
             "{name} credentialed publish step must run cargo publish -p git-slop --locked --no-verify exactly."
         ));
     }
-    if step.get("if").and_then(YamlValue::as_str)
-        != Some(
-            "needs.candidate.outputs.mode == 'publish' && steps.state.outputs.crate-exists != 'true'",
-        )
+    if step.get("id").and_then(YamlValue::as_str) != Some("publish")
+        || step.get("if").and_then(YamlValue::as_str) != Some(CRATES_IO_PUBLISH_CONDITION)
+        || step.get("continue-on-error").and_then(YamlValue::as_bool) != Some(true)
     {
         errors.push(format!(
-            "{name} credentialed publish step must be unreachable in recovery mode."
+            "{name} credentialed publish step must be fail-reconciled and unreachable in recovery mode or when the crate already exists."
         ));
     }
 }
@@ -2940,6 +3056,100 @@ mod tests {
         );
         let errors = publish_errors(&job_scoped_homebrew_token).join("\n");
         assert!(errors.contains("workflow or job scope"), "{errors}");
+    }
+
+    #[test]
+    fn release_publish_trusted_publishing_contract_rejects_auth_regressions() {
+        let valid = workflow_text("release-publish.yml");
+        assert_eq!(publish_errors(&valid), Vec::<String>::new());
+
+        let cases = [
+            (
+                valid.replacen(
+                    "    environment: release\n    permissions:\n      contents: write\n      id-token: write\n    outputs:",
+                    "    environment: release\n    permissions:\n      contents: write\n    outputs:",
+                    1,
+                ),
+                "grant exactly contents: write and id-token: write",
+            ),
+            (
+                valid.replacen(
+                    "      contents: write\n      id-token: write\n    outputs:",
+                    "      contents: write\n      id-token: write\n      packages: write\n    outputs:",
+                    1,
+                ),
+                "grant exactly contents: write and id-token: write",
+            ),
+            (
+                valid.replacen(
+                    "env:\n  CARGO_TERM_COLOR: always",
+                    "permissions:\n  id-token: write\n\nenv:\n  CARGO_TERM_COLOR: always",
+                    1,
+                ),
+                "must not grant id-token permission at workflow scope",
+            ),
+            (
+                valid.replacen(
+                    "  candidate:\n    name: Validate exact release identity\n    runs-on: ubuntu-24.04\n    permissions:\n      contents: read",
+                    "  candidate:\n    name: Validate exact release identity\n    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n      id-token: write",
+                    1,
+                ),
+                "must not grant id-token permission to candidate",
+            ),
+            (
+                valid.replacen(CRATES_IO_AUTH_ACTION, "rust-lang/crates-io-auth-action@v1", 1),
+                "reviewed SHA-pinned action",
+            ),
+            (
+                valid.replacen(
+                    "        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5",
+                    "        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5\n        with:\n          url: https://staging.crates.io",
+                    1,
+                ),
+                "no inputs or fail-open behavior",
+            ),
+            (
+                valid.replacen(
+                    "        id: crates-io-auth\n        if: needs.candidate.outputs.mode == 'publish' && steps.state.outputs.crate-exists != 'true'",
+                    "        id: crates-io-auth\n        if: needs.candidate.outputs.mode == 'recover'",
+                    1,
+                ),
+                "exact publish-only condition",
+            ),
+            (
+                valid.replacen(
+                    "          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}",
+                    "          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}",
+                    1,
+                ),
+                "must not reference a long-lived CARGO_REGISTRY_TOKEN secret",
+            ),
+            (
+                valid.replacen(
+                    "          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}",
+                    "          CARGO_REGISTRY_TOKEN: ${{ steps.untrusted.outputs.token }}",
+                    1,
+                ),
+                "bind only the short-lived crates.io-auth action output",
+            ),
+            (
+                valid.replacen(
+                    "        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5\n\n      - name: Publish exact crates.io package",
+                    "        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5\n\n      - name: Delay credential use\n        run: true\n\n      - name: Publish exact crates.io package",
+                    1,
+                ),
+                "authenticate immediately after immutable registry inspection",
+            ),
+            (
+                valid.replacen("        continue-on-error: true", "        continue-on-error: false", 1),
+                "fail-reconciled and unreachable in recovery mode",
+            ),
+        ];
+        for (drifted, expected) in cases {
+            assert_ne!(drifted, valid, "mutation fixture did not match: {expected}");
+            let errors = publish_errors(&drifted).join("\n");
+            assert!(errors.contains(expected), "missing {expected}: {errors}");
+        }
     }
 
     #[test]

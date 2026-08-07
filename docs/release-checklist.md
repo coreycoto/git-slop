@@ -12,14 +12,24 @@ on that identity.
 - Enable two-factor authentication on the GitHub account that publishes the
   Marketplace listing and accept the GitHub Marketplace Developer Agreement.
 - Keep a protected GitHub environment named `release`, restricted to the
-  `main` branch. A required reviewer is recommended.
-- For the first publication only, store a short-lived crates.io token scoped to
-  `publish-new` as the environment secret `CARGO_REGISTRY_TOKEN`. Treat it as a
-  namespace-bootstrap credential, not the permanent release mechanism.
-- Until the Trusted Publishing migration in issue #69 is implemented and
-  verified, subsequent releases use a crates.io API token scoped to
-  `publish-update` for exactly the `git-slop` crate under the same environment
-  secret name. Keep it available only to the deliberate publication step.
+  `main` branch, with exactly one required approval on the normal release path.
+- In the `git-slop` crate settings on crates.io, add one GitHub
+  [Trusted Publisher](https://crates.io/docs/trusted-publishing) with this exact
+  identity:
+
+  - repository owner: `coreycoto`;
+  - repository name: `git-slop`;
+  - workflow filename: `release-publish.yml`; and
+  - environment: `release`.
+
+- Leave **Require trusted publishing for all new versions** disabled until the
+  first complete OIDC-backed patch release has been proven. Both credential
+  methods remain accepted by crates.io during this migration window.
+- Keep the existing crate-scoped API token and the GitHub `release` environment
+  secret `CARGO_REGISTRY_TOKEN` available only as an inert rollback resource
+  during that proof. `release-publish.yml` must not reference the secret or
+  silently fall back to it; restoring token publication would require a
+  separately reviewed exact-`main` workflow change.
 - Store a fine-grained GitHub token that can dispatch the receiver workflow in
   `coreycoto/homebrew-tap` as the environment secret
   `HOMEBREW_TAP_DISPATCH_TOKEN`.
@@ -46,6 +56,15 @@ scope is wrong.
   Marketplace name, description, branding, inputs, and outputs are current.
 - Confirm the nested Actions in `action.yml` and release workflows are pinned
   to full commit SHAs.
+- For crates.io authentication, confirm only the protected `publish-crate` job
+  uses the minimum OIDC permission, `id-token: write`, and invokes
+  `rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18`
+  (`v1.0.5`). The action must have no custom registry input or fail-open
+  behavior.
+- Confirm `.github/workflows/release-publish.yml` contains no
+  `secrets.CARGO_REGISTRY_TOKEN` reference. Its temporary
+  `CARGO_REGISTRY_TOKEN` environment value must come only from
+  `steps.crates-io-auth.outputs.token` on the exact Cargo publication step.
 - Run the complete local validation from a clean worktree:
 
 ```bash
@@ -104,11 +123,17 @@ ancestor of `main`.
 
 The protected publication job cannot start until the native Homebrew audit has
 accepted the exact candidate Formula. The first public mutation is crates.io
-publication. The workflow packages the candidate again, requires byte-for-byte
-equality with the preflight package, and runs `cargo publish --no-verify`. It
-then reconciles the registry even when Cargo returns a timeout or another
-nonzero status. Publication is accepted only when all of these values equal the
-candidate SHA-256:
+publication. In normal `publish` mode, and only when the version is still absent,
+the job exchanges its GitHub OIDC identity through the reviewed crates.io auth
+action. The resulting 30-minute token is passed as `CARGO_REGISTRY_TOKEN` only
+to the immediately following `cargo publish --no-verify` step; the action's
+post-step revokes it when the job completes. The standing GitHub environment
+secret is not read.
+
+The workflow packages the candidate again, requires byte-for-byte equality
+with the preflight package, and then reconciles the registry even when Cargo
+returns a timeout or another nonzero status. Publication is accepted only when
+all of these values equal the candidate SHA-256:
 
 - the crates.io index/API checksum;
 - the downloaded static `.crate` checksum; and
@@ -118,6 +143,11 @@ A yanked version is rejected. Only after this verification does the workflow
 create the immutable lightweight `v<version>` tag at the exact source revision.
 An existing version/tag is a valid rerun only when version, revision, and crate
 digest all agree; the workflow never moves or deletes a tag.
+
+If the version already exists, the OIDC exchange and Cargo publication steps
+are both skipped. Recovery mode is likewise unable to request or consume a
+crates.io credential. These rerun paths reverify the immutable registry bytes
+before any missing tag or release work.
 
 After registry and tag verification, that same protected job sends only the
 immutable version, source revision, canonical crates.io URL, and crate SHA-256
@@ -162,13 +192,15 @@ The workflow is deliberately restartable without weakening immutable identity:
   supplied digest must agree. Recovery reacquires the immutable crate instead
   of repackaging advanced `main`, re-runs all five target lanes, and enters the
   same protected `release` environment before any missing tag is pushed. The
-  Cargo publication step and its secret are unreachable in recovery mode. The
-  historical release revision remains the source of every artifact and of the
-  composite Action that Marketplace consumers receive. Draft discovery, asset
-  repair, and an initial installer verification may use current trusted control
-  tooling, but terminal Marketplace readiness requires the exact historical tag
-  to pass the full five-platform composite-Action smoke. If that tagged Action
-  cannot pass, recovery stops instead of masking it with newer control code.
+  OIDC authentication action and Cargo publication step are unreachable in
+  recovery mode, so recovery cannot request or consume a crates.io credential.
+  The historical release revision remains the source of every artifact and of
+  the composite Action that Marketplace consumers receive. Draft discovery,
+  asset repair, and an initial installer verification may use current trusted
+  control tooling, but terminal Marketplace readiness requires the exact
+  historical tag to pass the full five-platform composite-Action smoke. If that
+  tagged Action cannot pass, recovery stops instead of masking it with newer
+  control code.
 - A missing tag is created only after the registry package has been reverified.
   An existing tag must already resolve to the supplied revision; the workflow
   never moves or deletes it. A missing/yanked package, a revision no longer
@@ -272,6 +304,12 @@ the version from the crates.io URL, so the Formula must not declare a redundant
 `version` stanza; its embedded-provenance assertions must also pass Homebrew's
 strict Ruby style.
 
+The v0.9.3 closeout proved a crates.io-backed source Formula only. The Actions
+incident and manual tap merge bypassed the exact-PR, two-bottle trusted-main
+publication path, so v0.9.3 is not bottle-publication evidence. Record bottle
+proof for a later release only when both exact artifacts and the automatic
+trusted-main publication complete through the canonical path.
+
 Test both upgrade and clean-install lanes:
 
 ```bash
@@ -294,14 +332,52 @@ coreycoto/tap/git-slop`.
 - Confirm `cargo install git-slop --version <version> --locked` succeeds.
 - Confirm the GitHub Release, Marketplace listing, crates.io version, Homebrew
   Formula, executable version, and full source revision all agree.
-- [Issue #69](https://github.com/coreycoto/git-slop/issues/69) tracks
-  configuring a crates.io Trusted Publisher for
-  `coreycoto/git-slop`, the exact release workflow, and the protected `release`
-  environment. That migration updates the publish job to the reviewed OIDC
-  contract and proves one token-free release before removing the API-token
-  path; an open migration issue does not weaken or bypass the current protected
-  token-backed release contract.
-- Revoke the crates.io API token and remove `CARGO_REGISTRY_TOKEN` only after
-  Trusted Publishing is configured and verified.
+- For the Issue #69 migration proof, reserve v0.9.4 for this OIDC-backed patch
+  release. Record the successful Release Publish run ID and exact source
+  revision, then require the crates.io version API to attribute publication to
+  that same GitHub repository, run, and revision:
+
+  ```bash
+  release_version=0.9.4
+  release_revision=<40-character-release-revision>
+  release_run_id=<release-publish-run-id>
+  curl --fail --silent --show-error \
+    --user-agent "git-slop-release-checklist/1 (https://github.com/coreycoto/git-slop)" \
+    "https://crates.io/api/v1/crates/git-slop/${release_version}" \
+    | jq -e \
+      --arg version "$release_version" \
+      --arg revision "$release_revision" \
+      --arg run_id "$release_run_id" \
+      '.version.num == $version
+       and .version.trustpub_data.provider == "github"
+       and .version.trustpub_data.repository == "coreycoto/git-slop"
+       and .version.trustpub_data.sha == $revision
+       and .version.trustpub_data.run_id == $run_id'
+  ```
+
+- Do not remove the rollback token merely because crates.io accepted v0.9.4.
+  First complete the exact tag, package checksum, draft and published GitHub
+  Release, Marketplace Action smoke, Homebrew Formula, consumer install, and
+  post-publication verification gates above.
+- Only after that proof is terminal, enable **Require trusted publishing for all
+  new versions** in the crates.io `git-slop` settings and verify the public API:
+
+  ```bash
+  curl --fail --silent --show-error \
+    --user-agent "git-slop-release-checklist/1 (https://github.com/coreycoto/git-slop)" \
+    https://crates.io/api/v1/crates/git-slop \
+    | jq -e '.crate.trustpub_only == true'
+  ```
+
+- Revoke the old crates.io API token in crates.io account settings, delete the
+  inert GitHub environment secret, and verify it is absent:
+
+  ```bash
+  gh secret delete CARGO_REGISTRY_TOKEN \
+    --repo coreycoto/git-slop \
+    --env release
+  gh secret list --repo coreycoto/git-slop --env release
+  ```
+
   Keep the existing Homebrew dispatch token on its normal rotation schedule;
   rotate it immediately only if its value or scope was exposed.
