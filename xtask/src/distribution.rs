@@ -290,6 +290,7 @@ fn validate_scoop_boundary(repo_root: &Path, errors: &mut Vec<String>) {
             "docs/release-checklist.md",
             &[
                 "## Publish And Verify The External Scoop Manifest",
+                "automatic trusted-main Scoop receiver",
                 "git-slop-v<version>-x86_64-pc-windows-msvc.zip",
                 "git-slop-v<version>-aarch64-pc-windows-msvc.zip",
                 "scoop uninstall git-slop",
@@ -300,7 +301,7 @@ fn validate_scoop_boundary(repo_root: &Path, errors: &mut Vec<String>) {
             &[
                 "coreycoto/scoop-bucket",
                 "eight-asset/seven-checksum",
-                "separately reviewed bucket pull request",
+                "trusted-main receiver creates a manifest-only bucket pull request",
             ][..],
         ),
     ] {
@@ -317,18 +318,28 @@ fn validate_scoop_boundary(repo_root: &Path, errors: &mut Vec<String>) {
         }
     }
 
-    for relative in [
-        ".github/workflows/release-publish.yml",
-        ".github/workflows/release-published.yml",
-    ] {
-        let path = repo_root.join(relative);
-        match fs::read_to_string(&path) {
-            Ok(text) if text.to_ascii_lowercase().contains("scoop") => errors.push(format!(
-                "{relative} must remain independent of the external Scoop bucket."
-            )),
-            Ok(_) => {}
-            Err(error) => errors.push(format!("Unable to read {relative}: {error}")),
+    let publish_relative = ".github/workflows/release-publish.yml";
+    match fs::read_to_string(repo_root.join(publish_relative)) {
+        Ok(text) if text.to_ascii_lowercase().contains("scoop") => errors.push(format!(
+            "{publish_relative} must remain independent of the external Scoop bucket."
+        )),
+        Ok(_) => {}
+        Err(error) => errors.push(format!("Unable to read {publish_relative}: {error}")),
+    }
+
+    let relay_relative = ".github/workflows/release-published.yml";
+    match fs::read_to_string(repo_root.join(relay_relative)) {
+        Ok(text) => {
+            for marker in [
+                "Dispatch immutable release identity to Scoop bucket",
+                "secrets.SCOOP_BUCKET_DISPATCH_TOKEN",
+                "--repo coreycoto/scoop-bucket",
+                "--field release_manifest_sha256=",
+            ] {
+                require(&text, marker, relay_relative, errors);
+            }
         }
+        Err(error) => errors.push(format!("Unable to read {relay_relative}: {error}")),
     }
 }
 
@@ -588,6 +599,7 @@ mod tests {
         fs::write(
             root.join("docs/release-checklist.md"),
             "## Publish And Verify The External Scoop Manifest\n\
+             automatic trusted-main Scoop receiver\n\
              git-slop-v<version>-x86_64-pc-windows-msvc.zip\n\
              git-slop-v<version>-aarch64-pc-windows-msvc.zip\n\
              scoop uninstall git-slop\n",
@@ -597,7 +609,7 @@ mod tests {
             root.join("docs/architecture.md"),
             "coreycoto/scoop-bucket\n\
              eight-asset/seven-checksum\n\
-             separately reviewed bucket pull request\n",
+             trusted-main receiver creates a manifest-only bucket pull request\n",
         )
         .unwrap();
         fs::write(
@@ -607,7 +619,11 @@ mod tests {
         .unwrap();
         fs::write(
             root.join(".github/workflows/release-published.yml"),
-            "name: Verify release\n",
+            "name: Verify release\n\
+             Dispatch immutable release identity to Scoop bucket\n\
+             secrets.SCOOP_BUCKET_DISPATCH_TOKEN\n\
+             --repo coreycoto/scoop-bucket\n\
+             --field release_manifest_sha256=\n",
         )
         .unwrap();
 

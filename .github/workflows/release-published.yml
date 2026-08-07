@@ -16,6 +16,11 @@ jobs:
     name: Verify immutable public release
     if: github.event.release.draft == false && github.event.release.prerelease == false
     runs-on: ubuntu-24.04
+    outputs:
+      release-id: ${{ steps.release.outputs.release-id }}
+      release-manifest-sha256: ${{ steps.release.outputs.release-manifest-sha256 }}
+      revision: ${{ steps.release.outputs.revision }}
+      version: ${{ steps.release.outputs.version }}
     steps:
       - name: Verify published release identity and required assets
         id: release
@@ -28,6 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]]
           version="${TAG#v}"
           gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}" > release.json
           jq -e --arg tag "$TAG" --argjson release_id "$RELEASE_ID" \
@@ -59,8 +65,12 @@ jobs:
           jq -e --arg digest "sha256:${manifest_sha256}" \
             '.assets[] | select(.name == "release-manifest.json") | .digest == $digest' \
             release.json >/dev/null
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          {
+            echo "release-id=$RELEASE_ID"
+            echo "release-manifest-sha256=$manifest_sha256"
+            echo "version=$version"
+            echo "revision=$revision"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Summarize publication verification
         shell: bash
@@ -74,5 +84,44 @@ jobs:
           - version: \`${VERSION}\`
           - source revision: \`${REVISION}\`
           - Homebrew: the protected publication job already dispatched this immutable version, revision, crate URL, and crate digest; the tap receiver can now complete its exact-release verification without another environment approval
+          - Scoop: the verified public version, release ID, revision, and manifest digest are handed to the external bucket receiver, which independently reverifies the release before creating and governed-merging a manifest-only pull request
           - recovery: \`homebrew-handoff.yml\` remains available for an explicit protected redispatch if the receiver run must be recovered
           EOF
+
+  dispatch-scoop:
+    name: Dispatch verified Scoop update
+    needs: verify-publication
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Dispatch immutable release identity to Scoop bucket
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_DISPATCH_TOKEN }}
+          RELEASE_ID: ${{ needs.verify-publication.outputs.release-id }}
+          RELEASE_MANIFEST_SHA256: ${{ needs.verify-publication.outputs.release-manifest-sha256 }}
+          REVISION: ${{ needs.verify-publication.outputs.revision }}
+          VERSION: ${{ needs.verify-publication.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RELEASE_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          gh workflow run update-git-slop.yml \
+            --repo coreycoto/scoop-bucket \
+            --ref main \
+            --field version="$VERSION" \
+            --field revision="$REVISION" \
+            --field release_id="$RELEASE_ID" \
+            --field release_manifest_sha256="$RELEASE_MANIFEST_SHA256"
+          # Markdown backticks below are literal format text.
+          # shellcheck disable=SC2016
+          {
+            printf '## Scoop bucket handoff dispatched\n\n'
+            printf -- '- Version: `%s`\n' "$VERSION"
+            printf -- '- Source revision: `%s`\n' "$REVISION"
+            printf -- '- GitHub Release ID: `%s`\n' "$RELEASE_ID"
+            printf -- '- Release manifest SHA-256: `%s`\n' "$RELEASE_MANIFEST_SHA256"
+            printf '%s\n' '- Receiver: trusted `coreycoto/scoop-bucket` main will independently verify, qualify, and merge the manifest update.'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -68,8 +68,11 @@ ARM64 ZIP for the host, verifies its SHA-256 from the release's authoritative
 `SHA256SUMS`, extracts the versioned target directory, and exposes
 `git-slop.exe` through a Scoop shim. Git then discovers the same shim as the
 `git slop` subcommand. Scoop publication happens only after the stable GitHub
-Release is public and does not add another release-environment approval or a
-write-capable `release.published` handoff.
+Release is public. The public-release verifier dispatches only the immutable
+version, release ID, revision, and manifest digest; trusted bucket `main`
+reverifies the release, creates a manifest-only PR, runs native Windows x64 and
+ARM64 qualification, and ruleset-merges it without another release-environment
+approval or per-release maintainer action.
 
 ## GitHub Release Archives
 

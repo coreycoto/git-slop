@@ -1,7 +1,8 @@
 # Git Slop Release Checklist
 
 Use this checklist for stable releases of the Rust CLI, crates.io package,
-GitHub Release archives, public GitHub Marketplace Action, and Homebrew Formula.
+GitHub Release archives, public GitHub Marketplace Action, Homebrew Formula,
+and external Scoop manifest.
 The canonical release identity is one strict `X.Y.Z` version and one full Git
 commit. The crates.io package, `vX.Y.Z` tag, five native archives, release
 manifest, installed binary, Action outputs, and Homebrew Formula must all agree
@@ -40,14 +41,26 @@ on that identity.
   `Release git-slop bottles` workflow sends a `repository_dispatch` containing
   only its exact run ID; the publisher treats that payload as a pointer and
   revalidates the run and automation head through the Actions API.
+- Store a separate fine-grained GitHub token as the `git-slop` repository
+  secret `SCOOP_BUCKET_DISPATCH_TOKEN`. Give it access only to
+  `coreycoto/scoop-bucket` with **Actions: read and write**; do not grant source,
+  administration, pull-request, or contents write permission through that
+  cross-repository token.
+- Keep `.github/workflows/update-git-slop.yml` on exact trusted bucket `main`.
+  The bucket repository's own workflow token performs the manifest branch, PR,
+  native qualification, governed merge, and exact-main proof. Keep its Actions
+  setting that permits workflows to create pull requests enabled.
 
 The normal `github.token` creates the exact tag and GitHub Release in this
 repository. No additional GitHub PAT is needed for those same-repository
 operations. The Homebrew token is used only by the deliberate cross-repository
-dispatch step inside the already-approved protected publication job. The
-existing `HOMEBREW_TAP_DISPATCH_TOKEN` does not need to be
-replaced for this release unless it was exposed or its repository/permission
-scope is wrong.
+dispatch step inside the already-approved protected publication job. The Scoop
+token is used only after the stable release is public, by one exact step in the
+read-only publication-verification workflow; it introduces no second
+environment approval. Neither token should be reused for the other package
+manager. The existing `HOMEBREW_TAP_DISPATCH_TOKEN` does not need to be replaced
+for this release unless it was exposed or its repository/permission scope is
+wrong.
 
 ## Prepare Main
 
@@ -280,13 +293,16 @@ crates.io package, Formula, and seven-line checksum inventory. It derives the
 Formula and manifest URLs/digests from those verified public assets before
 creating the tap PR.
 
-The `release.published` event still runs
-`.github/workflows/release-published.yml`, but that workflow is read-only
-verification. It receives no named secret, does not dispatch another workflow,
-and does not introduce a second protected environment approval. If the early
-receiver fails or times out, explicitly dispatch `homebrew-handoff.yml` from
-current `main` with the exact published version and source revision. That is a
-recovery path, not part of a normal release.
+The `release.published` event runs
+`.github/workflows/release-published.yml`. Its first job remains read-only and
+verifies the immutable public release; a dependency-ordered job then exposes
+`SCOOP_BUCKET_DISPATCH_TOKEN` to exactly one `gh workflow run` command and sends
+only the verified version, release ID, revision, and release-manifest digest to
+the Scoop receiver. It never redispatches Homebrew and introduces no second
+protected environment approval. If the early Homebrew receiver fails or times
+out, explicitly dispatch `homebrew-handoff.yml` from current `main` with the
+exact published version and source revision. That is a recovery path, not part
+of a normal release.
 
 The receiver opens an exact two-file automation PR and dispatches the canonical
 two-platform `Release git-slop bottles` workflow. After every required
@@ -336,21 +352,31 @@ coreycoto/tap/git-slop`.
 
 Scoop publication follows the stable public GitHub Release. It is not a ninth
 release asset, an eighth checksum entry, another protected-environment
-approval, or a write-capable `release.published` handoff.
+approval, or a bucket credential shared with the source repository.
 
-In `coreycoto/scoop-bucket`, prepare one reviewed `bucket/git-slop.json` update
-for the exact public version. The manifest must select
+The automatic trusted-main Scoop receiver starts only after the read-only
+public-release verifier has bound the exact version, numeric release ID, source
+revision, and release-manifest SHA-256. Trusted bucket `main` independently
+downloads the public release, requires the exact eight assets and seven
+checksum entries, verifies every GitHub asset digest, resolves the tag, and
+rerenders `bucket/git-slop.json`. The manifest must select
 `git-slop-v<version>-x86_64-pc-windows-msvc.zip` for `64bit` and
 `git-slop-v<version>-aarch64-pc-windows-msvc.zip` for `arm64`; each literal
 hash must match both `SHA256SUMS` and the corresponding
-`release-manifest.json` entry. Keep `checkver` and `autoupdate` read-only so a
-future candidate can be proposed without granting the bucket workflow write
-access.
+`release-manifest.json` entry.
 
-Require the bucket pull request to pass its schema, release-identity, hash
-failure, and clean install/uninstall jobs on both Windows x86-64 and Windows
-ARM64. The installed binary must report the public tag's full source revision
-with `source_dirty: false`, and both invocation forms must resolve:
+The receiver creates or reuses an exact one-file automation branch and
+manifest-only pull request. It explicitly dispatches CI for that exact head,
+requires the `Windows 64bit` and `Windows arm64` jobs to pass schema,
+release-identity, hash-failure, and clean install/uninstall tests, then rechecks
+the current base, bot PR, single-file allowlist, head, run, and job identities
+immediately before merging through the active ruleset. Because merges made by a
+workflow token do not recursively start ordinary push workflows, it explicitly
+dispatches and awaits the same qualification on the resulting exact bucket
+`main`. No per-release approval or manual merge is part of the normal path.
+
+The installed binary must report the public tag's full source revision with
+`source_dirty: false`, and both invocation forms must resolve:
 
 ```powershell
 scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket
@@ -362,10 +388,14 @@ scoop uninstall git-slop
 ```
 
 After the exact bucket head merges, repeat a clean public-bucket install on each
-architecture and record the git-slop main SHA, bucket main SHA, manifest URL,
-two archive SHA-256 values, and validation run IDs. A later release must also
-prove `scoop update git-slop` upgrades the existing installation in place; the
-first such cross-version proof belongs to the next release after v0.9.5.
+architecture and record the source release SHA, current git-slop main SHA,
+bucket main SHA, manifest URL, automation PR, exact-head and exact-main run IDs,
+and two archive SHA-256 values. A later release must also prove
+`scoop update git-slop` upgrades the existing installation in place; the first
+such cross-version proof belongs to the next release after v0.9.5. If receiver
+recovery is necessary, manually dispatch `Update git-slop manifest` on exact
+bucket `main` with the same four immutable values; it is idempotent and accepts
+no caller-supplied archive URL or Windows hash.
 
 ## Verify Consumers And Close Out
 

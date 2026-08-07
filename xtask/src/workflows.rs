@@ -1683,17 +1683,59 @@ fn validate_release_relay(text: &str, payload: &YamlValue, errors: &mut Vec<Stri
             "{name} publication verification must not receive Actions write permission."
         ));
     }
-    if text.contains("secrets.") {
-        errors.push(format!("{name} must not consume named secrets."));
-    }
     let Some(jobs) = payload.get("jobs").and_then(YamlValue::as_mapping) else {
         errors.push(format!("{name} must define jobs."));
         return;
     };
-    require_exact_job_set(jobs, name, &["verify-publication"], errors);
+    require_exact_job_set(
+        jobs,
+        name,
+        &["verify-publication", "dispatch-scoop"],
+        errors,
+    );
     let Some(relay) = job(jobs, "verify-publication", name, errors) else {
         return;
     };
+    let Some(dispatch_scoop) = job(jobs, "dispatch-scoop", name, errors) else {
+        return;
+    };
+    require_needs(
+        dispatch_scoop,
+        name,
+        "dispatch-scoop",
+        &["verify-publication"],
+        errors,
+    );
+    if dispatch_scoop
+        .get("permissions")
+        .and_then(YamlValue::as_mapping)
+        .is_none_or(|permissions| !permissions.is_empty())
+    {
+        errors.push(format!(
+            "{name} dispatch-scoop must receive no same-repository GitHub token permissions."
+        ));
+    }
+    let expected_outputs = [
+        ("release-id", "${{ steps.release.outputs.release-id }}"),
+        (
+            "release-manifest-sha256",
+            "${{ steps.release.outputs.release-manifest-sha256 }}",
+        ),
+        ("revision", "${{ steps.release.outputs.revision }}"),
+        ("version", "${{ steps.release.outputs.version }}"),
+    ];
+    for (key, expected) in expected_outputs {
+        if relay
+            .get("outputs")
+            .and_then(|outputs| outputs.get(key))
+            .and_then(YamlValue::as_str)
+            != Some(expected)
+        {
+            errors.push(format!(
+                "{name} verify-publication output {key} must bind {expected}."
+            ));
+        }
+    }
     let condition = relay
         .get("if")
         .and_then(YamlValue::as_str)
@@ -1718,6 +1760,9 @@ fn validate_release_relay(text: &str, payload: &YamlValue, errors: &mut Vec<Stri
         ".schema_version == 3",
         ".crate_source.revision == $revision",
         "sha256:${manifest_sha256}",
+        "echo \"release-id=$RELEASE_ID\"",
+        "echo \"release-manifest-sha256=$manifest_sha256\"",
+        "} >> \"$GITHUB_OUTPUT\"",
     ] {
         require(verify, required, name, errors);
     }
@@ -1729,6 +1774,7 @@ fn validate_release_relay(text: &str, payload: &YamlValue, errors: &mut Vec<Stri
             "{name} must remain verification-only and must not dispatch Homebrew."
         ));
     }
+    validate_scoop_relay_token_scope(payload, dispatch_scoop, errors);
     let Some(summary) = step_run(relay, "Summarize publication verification") else {
         errors.push(format!("{name} must summarize publication verification."));
         return;
@@ -1738,8 +1784,91 @@ fn validate_release_relay(text: &str, payload: &YamlValue, errors: &mut Vec<Stri
         "without another environment approval",
         "homebrew-handoff.yml",
         "explicit protected redispatch",
+        "external bucket receiver",
+        "manifest-only pull request",
     ] {
         require(summary, required, name, errors);
+    }
+}
+
+fn validate_scoop_relay_token_scope(
+    payload: &YamlValue,
+    dispatch_scoop: &YamlValue,
+    errors: &mut Vec<String>,
+) {
+    let name = "release-published.yml";
+    let token = "${{ secrets.SCOOP_BUCKET_DISPATCH_TOKEN }}";
+    if workflow_or_job_env_contains_value(payload, token) {
+        errors.push(format!(
+            "{name} must not expose SCOOP_BUCKET_DISPATCH_TOKEN at workflow or job scope."
+        ));
+    }
+    if yaml_string_occurrences(payload, token) != 1 {
+        errors.push(format!(
+            "{name} must reference the Scoop dispatch secret exactly once."
+        ));
+    }
+    let token_steps = steps(dispatch_scoop)
+        .into_iter()
+        .filter(|step| step_env(step, "GH_TOKEN") == Some(token))
+        .collect::<Vec<_>>();
+    if token_steps.len() != 1 {
+        errors.push(format!(
+            "{name} must bind the Scoop token to exactly one step."
+        ));
+        return;
+    }
+    let step = token_steps[0];
+    if step.get("name").and_then(YamlValue::as_str)
+        != Some("Dispatch immutable release identity to Scoop bucket")
+    {
+        errors.push(format!(
+            "{name} must expose the Scoop token only to its deliberate immutable-identity dispatch step."
+        ));
+    }
+    for (key, expected) in [
+        (
+            "RELEASE_ID",
+            "${{ needs.verify-publication.outputs.release-id }}",
+        ),
+        (
+            "RELEASE_MANIFEST_SHA256",
+            "${{ needs.verify-publication.outputs.release-manifest-sha256 }}",
+        ),
+        (
+            "REVISION",
+            "${{ needs.verify-publication.outputs.revision }}",
+        ),
+        ("VERSION", "${{ needs.verify-publication.outputs.version }}"),
+    ] {
+        if step_env(step, key) != Some(expected) {
+            errors.push(format!(
+                "{name} immutable Scoop dispatch must bind {key} to {expected}."
+            ));
+        }
+    }
+    let run = step
+        .get("run")
+        .and_then(YamlValue::as_str)
+        .unwrap_or_default();
+    for required in [
+        "gh workflow run update-git-slop.yml",
+        "--repo coreycoto/scoop-bucket",
+        "--ref main",
+        "--field version=\"$VERSION\"",
+        "--field revision=\"$REVISION\"",
+        "--field release_id=\"$RELEASE_ID\"",
+        "--field release_manifest_sha256=\"$RELEASE_MANIFEST_SHA256\"",
+    ] {
+        require(run, required, name, errors);
+    }
+    for forbidden in [
+        "--field x86_64_sha256=",
+        "--field arm64_sha256=",
+        "--field asset_url=",
+        "--field checksums_url=",
+    ] {
+        forbid(run, forbidden, name, errors);
     }
 }
 
@@ -3273,6 +3402,26 @@ mod tests {
             (
                 format!("{relay}\n# gh workflow run homebrew-handoff.yml\n"),
                 "must remain verification-only",
+            ),
+            (
+                relay.replacen(
+                    "${{ secrets.SCOOP_BUCKET_DISPATCH_TOKEN }}",
+                    "${{ github.token }}",
+                    1,
+                ),
+                "reference the Scoop dispatch secret exactly once",
+            ),
+            (
+                relay.replacen("needs: verify-publication", "needs: []", 1),
+                "dispatch-scoop needs do not match",
+            ),
+            (
+                relay.replacen(
+                    "--field release_manifest_sha256=\"$RELEASE_MANIFEST_SHA256\"",
+                    "--field x86_64_sha256=\"$RELEASE_MANIFEST_SHA256\"",
+                    1,
+                ),
+                "--field release_manifest_sha256",
             ),
         ] {
             let errors = relay_errors(&drifted).join("\n");
