@@ -59,18 +59,18 @@ support SLA, guaranteed issue priority, or roadmap control.
 
 ## Install
 
-The examples below pin the 0.9.3 release identity. Use each command only after
+The examples below pin the 0.9.4 release identity. Use each command only after
 that exact version is published on the requested distribution surface;
 documentation or a source tag is not proof that every surface is available.
 
-After crates.io lists 0.9.3, install the canonical package:
+After crates.io lists 0.9.4, install the canonical package:
 
 ```bash
-cargo install git-slop --version 0.9.3 --locked
+cargo install git-slop --version 0.9.4 --locked
 git-slop build-info --format json
 ```
 
-After the tap lists 0.9.3, install the Homebrew Formula:
+After the tap lists 0.9.4, install the Homebrew Formula:
 
 ```bash
 brew tap coreycoto/tap
@@ -85,7 +85,7 @@ contributor setup.
 
 ## GitHub Actions
 
-After the public GitHub Release and Marketplace listing resolve `v0.9.3`, add a
+After the public GitHub Release and Marketplace listing resolve `v0.9.4`, add a
 complete checkout and the Git Slop Action to get a detailed repository health
 summary, bounded annotations, and a small review artifact:
 
@@ -97,7 +97,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.9.3
+  - uses: coreycoto/git-slop@v0.9.4
 ```
 
 The Action is advisory by default. It verifies a prebuilt native binary built

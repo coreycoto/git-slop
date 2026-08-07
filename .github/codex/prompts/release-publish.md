@@ -40,12 +40,21 @@ to GitHub Marketplace through GitHub's required web approval.
   control revision separate: it must remain exact live `main` after protected
   approval and at tag mutation, while only the immutable release revision may
   be an older ancestor of `origin/main`. Reverify the non-yanked API/index and
-  static package bytes plus embedded VCS revision, and do not invoke the Cargo
-  publication step or its secret.
-- Until issue #69 migrates publishing to short-lived OIDC credentials,
-  `CARGO_REGISTRY_TOKEN` is the crate-scoped credential for the package
-  publication step only. Do not print, persist, or pass it to notes, build,
-  archive, tag, release, Action, or Homebrew operations.
+  static package bytes plus embedded VCS revision, and do not invoke the OIDC
+  authentication action or Cargo publication step. Recovery must not request
+  or consume a crates.io credential.
+- The crates.io Trusted Publisher identity is exactly repository
+  `coreycoto/git-slop`, workflow filename `release-publish.yml`, and environment
+  `release`. For crates.io authentication, only the protected `publish-crate`
+  job may use an `id-token: write` grant to invoke the reviewed SHA-pinned
+  `rust-lang/crates-io-auth-action`; the draft job's separate OIDC grant remains
+  confined to build-provenance attestations.
+- Exchange OIDC identity only in normal `publish` mode when the version is
+  absent. Pass `steps.crates-io-auth.outputs.token` as
+  `CARGO_REGISTRY_TOKEN` only to the immediately following exact Cargo
+  publication step. Do not reference a long-lived crates.io secret, add a
+  silent token fallback, print or persist the temporary token, or pass it to
+  notes, build, archive, tag, release, Action, recovery, or Homebrew operations.
 - Require the candidate `.crate`, crates.io index checksum, and downloaded
   static `.crate` to have one exact SHA-256. Crates.io publication precedes tag
   creation; the final archives and Formula derive from those registry bytes.
