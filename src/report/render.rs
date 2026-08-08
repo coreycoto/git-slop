@@ -376,6 +376,12 @@ pub fn render_terminal(report: &Value) -> String {
         .and_then(Value::as_array)
         .map(Vec::as_slice)
         .unwrap_or(&[]);
+    let file_total = report
+        .get("files")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
+    let repo = report.get("repo").unwrap_or(&Value::Null);
     let limit = summary_limit(report);
     let path_width = queue
         .iter()
@@ -387,28 +393,48 @@ pub fn render_terminal(report: &Value) -> String {
     let mut lines = vec![
         "Repository Health".to_string(),
         format!(
-            "  files: compact={} healthy={} warning={} refactor_required={}",
+            "  files: compact={} healthy={} warning={} budget_exceeded={}",
             usize_field(file_counts, "compact"),
             usize_field(file_counts, "healthy"),
             usize_field(file_counts, "warning"),
             usize_field(file_counts, "refactor_required"),
         ),
         format!(
-            "  folders: compact={} healthy={} warning={} refactor_required={}",
+            "  folders: compact={} healthy={} warning={} budget_exceeded={}",
             usize_field(folder_counts, "compact"),
             usize_field(folder_counts, "healthy"),
             usize_field(folder_counts, "warning"),
             usize_field(folder_counts, "refactor_required"),
         ),
+        format!(
+            "  git: branch={} detached={} shallow={} clean={} staged={} modified={} untracked={}",
+            string_field(repo, "branch"),
+            repo.get("detached_head")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            repo.get("is_shallow")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            repo.get("worktree_clean")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            usize_field(repo, "staged_change_count"),
+            usize_field(repo, "modified_tracked_file_count"),
+            usize_field(repo, "untracked_file_count"),
+        ),
         String::new(),
     ];
+    if file_total == 0 {
+        lines.push("Nothing analyzed: no tracked files matched the selected scope.".to_string());
+        return format!("{}\n", lines.join("\n"));
+    }
     if queue.is_empty() {
-        lines.push("No hotspot records found.".to_string());
+        lines.push("No investigation candidates found.".to_string());
         return format!("{}\n", lines.join("\n"));
     }
     lines.push(format!(
         "{:<path_width$}  {:<8}  {:<8}  {:>9}  {:>8}  {:>5}  {:>5}  {:>6}",
-        "Path", "Slop", "Context", "Score", "Tokens", "Age", "Revs", "Churn"
+        "Path", "Maint", "Context", "Score", "Tokens", "Age", "Revs", "Churn"
     ));
     lines.push(format!(
         "{:-<path_width$}  {:-<8}  {:-<8}  {:-<9}  {:-<8}  {:-<5}  {:-<5}  {:-<6}",

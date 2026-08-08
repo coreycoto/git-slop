@@ -27,7 +27,7 @@ pub struct ReleaseTarget {
 }
 
 /// The complete supported release matrix, kept in deterministic target order.
-pub const RELEASE_TARGETS: [ReleaseTarget; 5] = [
+pub const RELEASE_TARGETS: [ReleaseTarget; 7] = [
     ReleaseTarget {
         target: "aarch64-apple-darwin",
         os: "macos",
@@ -47,6 +47,12 @@ pub const RELEASE_TARGETS: [ReleaseTarget; 5] = [
         archive: "tar.gz",
     },
     ReleaseTarget {
+        target: "x86_64-apple-darwin",
+        os: "macos",
+        arch: "x86_64",
+        archive: "tar.gz",
+    },
+    ReleaseTarget {
         target: "x86_64-pc-windows-msvc",
         os: "windows",
         arch: "x86_64",
@@ -54,6 +60,12 @@ pub const RELEASE_TARGETS: [ReleaseTarget; 5] = [
     },
     ReleaseTarget {
         target: "x86_64-unknown-linux-gnu",
+        os: "linux",
+        arch: "x86_64",
+        archive: "tar.gz",
+    },
+    ReleaseTarget {
+        target: "x86_64-unknown-linux-musl",
         os: "linux",
         arch: "x86_64",
         archive: "tar.gz",
@@ -894,7 +906,7 @@ mod tests {
                 .validate()
                 .unwrap_err()
                 .to_string()
-                .contains("exactly 5")
+                .contains("exactly 7")
         );
 
         let mut artifact_drift = manifest.clone();

@@ -108,14 +108,41 @@ function reportFindingCount(reportPath) {
   return 0;
 }
 
-function appendHealthSummary(healthPath) {
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\\''")}'`;
+}
+
+function appendHealthSummary(healthPath, inputs = {}) {
   const summaryTarget = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryTarget) {
     console.warn("GITHUB_STEP_SUMMARY is unavailable; health.md was not appended.");
     return;
   }
   const health = readFileSync(healthPath, "utf8");
-  writeFileSync(summaryTarget, `${health.trimEnd()}\n`, { flag: "a" });
+  const findArgs = ["git slop find", "--quiet"];
+  if (inputs.allowShallow) findArgs.push("--allow-shallow");
+  const scope = (process.env.GIT_SLOP_SCOPE || "").trim();
+  if (scope) findArgs.push("--scope", shellQuote(scope));
+  const reproduce = [
+    "",
+    "## Reproduce locally",
+    "",
+    "```bash",
+    findArgs.join(" "),
+    "git slop health --format markdown",
+    "```",
+  ].join("\n");
+  writeFileSync(summaryTarget, `${health.trimEnd()}\n${reproduce}\n`, { flag: "a" });
+}
+
+function appendArtifactLink() {
+  const summaryTarget = process.env.GITHUB_STEP_SUMMARY;
+  const artifactUrl = (process.env.GIT_SLOP_ARTIFACT_URL || "").trim();
+  if (summaryTarget && artifactUrl) {
+    writeFileSync(summaryTarget, `\n[Download the bounded Git Slop artifact](${artifactUrl})\n`, {
+      flag: "a",
+    });
+  }
 }
 
 function writeFallbackHealth(healthPath, message) {
@@ -149,6 +176,7 @@ function validateInputs() {
     ]),
     retentionDays: boundedInteger("GIT_SLOP_RETENTION_DAYS", 14, 1, 90),
     prComment: normalizedBoolean("GIT_SLOP_PR_COMMENT", "false"),
+    allowShallow: normalizedBoolean("GIT_SLOP_ALLOW_SHALLOW", "false"),
     failOnContextBand: optionalBand("GIT_SLOP_FAIL_ON_CONTEXT_BAND", [
       "compact",
       "healthy",
@@ -164,6 +192,34 @@ function validateInputs() {
   };
 }
 
+function regressionComparison(basePath, headPath, outputPath) {
+  const base = JSON.parse(readFileSync(basePath, "utf8"));
+  const head = JSON.parse(readFileSync(headPath, "utf8"));
+  const byPath = (report) => new Map((report.files || []).map((file) => [file.path, file]));
+  const baseFiles = byPath(base);
+  const regressions = [];
+  for (const [path, file] of byPath(head)) {
+    const previous = baseFiles.get(path);
+    const finding = ["warning", "critical", "refactor_required"].includes(file.context_band)
+      || ["high", "critical"].includes(file.slop_band);
+    const worsened = previous && Number(file.slop_score || 0) > Number(previous.slop_score || 0);
+    if ((finding && !previous) || worsened) {
+      regressions.push({
+        path,
+        status: previous ? "worsened" : "new",
+        base_slop_score: previous?.slop_score ?? null,
+        head_slop_score: file.slop_score ?? null,
+        context_band: file.context_band,
+        slop_band: file.slop_band,
+      });
+    }
+  }
+  regressions.sort((left, right) => String(left.path).localeCompare(String(right.path)));
+  const payload = { schema_version: 1, command: "compare", regression_count: regressions.length, regressions };
+  writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return payload;
+}
+
 function analyze() {
   let cwd;
   let inputs;
@@ -177,6 +233,7 @@ function analyze() {
       ? fallbackCwd
       : resolve(process.env.RUNNER_TEMP || workspace, "git-slop-action-fallback");
   let { healthPath, reportPath, reportYamlPath, summaryPath } = reportPaths(fallbackRoot);
+  let comparisonPath = "";
 
   try {
     inputs = validateInputs();
@@ -195,7 +252,7 @@ function analyze() {
     if (shallow.status !== 0) {
       throw new Error(`could not inspect Git history: ${shallow.stderr.trim()}`);
     }
-    if (shallow.stdout.trim() === "true") {
+    if (shallow.stdout.trim() === "true" && !inputs.allowShallow) {
       throw new Error(
         "the checkout is shallow; use actions/checkout with fetch-depth: 0 for accurate history analysis",
       );
@@ -210,7 +267,11 @@ function analyze() {
     // Repository-controlled filenames appear in detector output. Keep raw
     // stdout/stderr away from the workflow-command parser; the escaped health
     // summary and annotation renderer are the supported publication surfaces.
-    const result = run(binary, ["find"], cwd, "pipe");
+    const findArgs = ["find", "--quiet"];
+    if (inputs.allowShallow) findArgs.push("--allow-shallow");
+    const scope = (process.env.GIT_SLOP_SCOPE || "").trim();
+    if (scope) findArgs.push("--scope", scope);
+    const result = run(binary, findArgs, cwd, "pipe");
     analysisExitCode = result.status;
     if (analysisExitCode !== 0) {
       throw new Error(`git-slop find exited with status ${analysisExitCode}`);
@@ -230,8 +291,6 @@ function analyze() {
     analysisExitCode = 2;
     writeFallbackHealth(healthPath, failureMessage);
   }
-  appendHealthSummary(healthPath);
-
   const safeInputs = inputs || {
     policy: "advisory",
     annotations: false,
@@ -240,13 +299,23 @@ function analyze() {
     artifactContents: "summary",
     retentionDays: 14,
     prComment: false,
+    allowShallow: false,
     failOnContextBand: "",
     failOnSlopBand: "",
   };
-  const findingCount = analysisExitCode === 0 ? reportFindingCount(reportPath) : 0;
+  appendHealthSummary(healthPath, safeInputs);
+  let findingCount = analysisExitCode === 0 ? reportFindingCount(reportPath) : 0;
+  const baselineInput = (process.env.GIT_SLOP_BASELINE_REPORT || "").trim();
+  if (analysisExitCode === 0 && baselineInput) {
+    const baselinePath = isAbsolute(baselineInput) ? baselineInput : resolve(cwd, baselineInput);
+    if (!existsSync(baselinePath)) throw new Error(`baseline report does not exist: ${baselinePath}`);
+    comparisonPath = join(dirname(reportPath), "comparison.json");
+    findingCount = regressionComparison(baselinePath, reportPath, comparisonPath).regression_count;
+  }
   const artifactContents = analysisExitCode === 0 ? safeInputs.artifactContents : "summary";
   setOutput("analysis-exit-code", analysisExitCode);
   setOutput("finding-count", findingCount);
+  setOutput("comparison-path", comparisonPath);
   setOutput("health-path", healthPath);
   setOutput("report-path", analysisExitCode === 0 ? reportPath : "");
   setOutput("report-yaml-path", analysisExitCode === 0 ? reportYamlPath : "");
@@ -273,6 +342,15 @@ function annotate() {
   setOutput("annotation-count", annotationCount);
   if (maximum === 0 || findingCount === 0) {
     console.log("No Git Slop annotations requested.");
+    return;
+  }
+  const comparisonPath = (process.env.GIT_SLOP_COMPARISON_PATH || "").trim();
+  if (comparisonPath && existsSync(comparisonPath)) {
+    const comparison = JSON.parse(readFileSync(comparisonPath, "utf8"));
+    for (const finding of comparison.regressions.slice(0, maximum)) {
+      const safePath = String(finding.path).replace(/[\r\n\x1b]/gu, " ").replace(/%/gu, "%25").replace(/,/gu, "%2C");
+      console.log(`::warning file=${safePath}::Git Slop ${finding.status}: score ${finding.base_slop_score ?? "new"} -> ${finding.head_slop_score}`);
+    }
     return;
   }
   const result = run(
@@ -330,6 +408,7 @@ function finalize() {
     setOutput("policy-exit-code", 2);
     throw new Error(`Git Slop publication failed: ${failedPublications.join(", ")}`);
   }
+  appendArtifactLink();
 
   const policy = enumValue("GIT_SLOP_POLICY", "advisory", ["advisory", "enforce"]);
   if (policy === "advisory") {

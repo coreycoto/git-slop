@@ -263,12 +263,12 @@ treat Homebrew, GitHub Release, or Marketplace as independent builds.
 exact current main
   -> explicit Release Publish dispatch authorizes crates.io and tag mutation
   -> local candidate .crate
-  -> five-target preflight
+  -> seven-target preflight
   -> branch-restricted release environment with no reviewer gate
   -> crates.io publication and local/index/static SHA equality
   -> exact v<version> tag
   -> immutable Homebrew receiver dispatch
-  -> five archives built from downloaded registry bytes
+  -> seven archives built from downloaded registry bytes
   -> schema-3 manifest + SHA256SUMS + crates-backed Formula
   -> verified draft GitHub Release
   -> manual Marketplace publication with 2FA
@@ -296,10 +296,10 @@ execute the current trusted Action installer to inspect a numeric draft-release
 ID, while the artifacts and their provenance remain bound to the historical
 release revision. Marketplace readiness still
 executes the full composite Action from that exact historical tag across all
-five targets; current control tooling cannot substitute for public tagged code.
+seven targets; current control tooling cannot substitute for public tagged code.
 
-The five targets are Linux x86-64 and ARM64, macOS Apple Silicon, and Windows
-x86-64 and ARM64. `git-slop build-info --format json` binds each packaged
+The seven targets are Linux GNU x86-64 and ARM64, static Linux musl x86-64,
+macOS Apple Silicon and Intel, and Windows x86-64 and ARM64. `git-slop build-info --format json` binds each packaged
 binary to the full revision with `source_dirty: false`. The composite Action
 downloads one of those prebuilt archives and verifies the tag, GitHub asset
 digests, checksum inventory, manifest, canonical crate digest, safe archive
@@ -325,13 +325,13 @@ Windows hash and introduces no Actions environment approval. The trusted-main
 tap publisher adds no label or environment approval. Manual
 `homebrew-handoff.yml` dispatch remains an explicit branch-restricted recovery
 path with no reviewer gate. The draft must not be published until the terminal
-`marketplace-ready` job confirms all five Action smoke lanes.
+`marketplace-ready` job confirms all seven Action smoke lanes.
 
 Scoop is an external Windows package-manager consumer, not another release
 artifact or source-build job. After the stable release is public, the source
 workflow hands only its verified version, numeric release ID, full revision,
 and manifest digest to `coreycoto/scoop-bucket`. That repository's trusted-main
-receiver independently requires the exact eight-asset/seven-checksum release,
+receiver independently requires the exact ten-asset/nine-checksum release,
 rederives both Windows hashes, and tests the installed binary's full source
 revision. The trusted-main receiver creates a manifest-only bucket pull request,
 explicitly dispatches required native qualification for its exact head,

@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::Result;
+use globset::Glob;
 use serde_json::{Value, json};
 
+use crate::config::{pointer_strings, pointer_u64};
 use crate::model::{CommitRecord, FileAnalysis, OrganizationAnalysis, top_level_root};
 
 mod clusters;
@@ -20,12 +22,52 @@ use coordination::{cochange_pagerank, coordination_facts};
 use folders::folder_overlay_map;
 use relationships::build_relationships;
 
+fn language_common_term(term: &str) -> bool {
+    matches!(
+        term,
+        "let"
+            | "if"
+            | "else"
+            | "for"
+            | "while"
+            | "match"
+            | "return"
+            | "self"
+            | "this"
+            | "true"
+            | "false"
+            | "none"
+            | "null"
+            | "some"
+            | "result"
+            | "string"
+            | "str"
+            | "path"
+            | "format"
+            | "from"
+            | "into"
+            | "impl"
+            | "pub"
+            | "use"
+            | "mod"
+            | "fn"
+            | "const"
+            | "static"
+            | "class"
+            | "def"
+            | "func"
+            | "var"
+            | "import"
+            | "export"
+    )
+}
+
 pub fn analyze(
     files: &mut [FileAnalysis],
     commits: &[CommitRecord],
     config: &Value,
 ) -> Result<OrganizationAnalysis> {
-    let coordination = coordination_facts(files, commits);
+    let coordination = coordination_facts(files, commits, config);
     let pagerank = cochange_pagerank(&coordination);
     let file_count = files.len().max(1);
     let total_tokens = files.iter().map(|file| file.tokens).sum::<usize>().max(1);
@@ -73,15 +115,41 @@ pub fn analyze(
             *map.entry(immediate_parent(&file.path)).or_default() += 1;
             map
         });
+    let test_markers = pointer_strings(config, "/verification/test_path_markers");
+    let configured_test_path = |path: &str| {
+        let lower = path.to_ascii_lowercase();
+        is_test_path(path)
+            || test_markers
+                .iter()
+                .any(|marker| lower.contains(&marker.to_ascii_lowercase()))
+    };
     let test_paths: Vec<String> = files
         .iter()
-        .filter(|file| is_test_path(&file.path))
+        .filter(|file| configured_test_path(&file.path))
         .map(|file| file.path.clone())
         .collect();
+    let source_test_mappings = config
+        .pointer("/verification/source_test_mappings")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|mapping| {
+            let source = Glob::new(mapping.get("source_glob")?.as_str()?)
+                .ok()?
+                .compile_matcher();
+            let test = Glob::new(mapping.get("test_glob")?.as_str()?)
+                .ok()?
+                .compile_matcher();
+            Some((source, test))
+        })
+        .collect::<Vec<_>>();
     let mut term_roots: HashMap<String, BTreeSet<String>> = HashMap::new();
+    let mut term_documents: HashMap<String, usize> = HashMap::new();
     for file in files.iter() {
         let root = top_level_root(&file.path);
-        for term in &file.top_structural_terms {
+        let unique_terms = file.top_structural_terms.iter().collect::<BTreeSet<_>>();
+        for term in unique_terms {
+            *term_documents.entry(term.clone()).or_default() += 1;
             term_roots
                 .entry(term.clone())
                 .or_default()
@@ -162,24 +230,45 @@ pub fn analyze(
             })
             .cloned()
             .collect();
+        for (source, test) in &source_test_mappings {
+            if source.is_match(&file.path) {
+                nearby_tests.extend(
+                    test_paths
+                        .iter()
+                        .filter(|path| test.is_match(path))
+                        .cloned(),
+                );
+            }
+        }
         nearby_tests.sort();
+        nearby_tests.dedup();
         nearby_tests.truncate(5);
-        let test_adjacency = if is_test_path(&file.path) || !nearby_tests.is_empty() {
+        let test_adjacency = if configured_test_path(&file.path)
+            || file.has_inline_tests
+            || !nearby_tests.is_empty()
+        {
             1.0
         } else {
             0.0
         };
         let test_neighbors = neighbors
-            .map(|items| items.keys().filter(|path| is_test_path(path)).count())
+            .map(|items| {
+                items
+                    .keys()
+                    .filter(|path| configured_test_path(path))
+                    .count()
+            })
             .unwrap_or_default();
         let test_cochange_ratio = if degree == 0 {
             0.0
         } else {
             test_neighbors as f64 / degree as f64
         };
-        let hotspot_without_nearby_tests =
-            !is_test_path(&file.path) && file.slop_score >= 50.0 && nearby_tests.is_empty();
-        let verification_gap = if is_test_path(&file.path) {
+        let hotspot_without_nearby_tests = !configured_test_path(&file.path)
+            && !file.has_inline_tests
+            && file.slop_score >= 50.0
+            && nearby_tests.is_empty();
+        let verification_gap = if configured_test_path(&file.path) || file.has_inline_tests {
             0.0
         } else {
             ((1.0 - test_adjacency) * 0.6
@@ -204,26 +293,69 @@ pub fn analyze(
             .min(1.0);
         let blast_radius_pressure =
             (centrality * 0.45 + cross_ratio * 0.35 + change_diffusion * 0.20).min(1.0);
+        let ownership_concentration_pressure = if file.author_count_window == 0 {
+            0.0
+        } else {
+            file.top_author_share
+        };
+        let coordination_authorship_pressure = if file.author_count_window == 0 {
+            0.0
+        } else {
+            ((file.author_entropy / 4.0).min(1.0) * 0.6
+                + (file.author_count_window as f64 / 10.0).min(1.0) * 0.4)
+                .min(1.0)
+        };
+        let stale_ownership_pressure = file
+            .days_since_non_bot_edit
+            .map(|days| (days as f64 / 365.0).min(1.0))
+            .unwrap_or(1.0);
         let stewardship_pressure = if file.author_count_window == 0 {
             0.0
         } else {
-            ((1.0 - file.top_author_share) * 0.45
-                + (file.author_entropy / 4.0).min(1.0) * 0.35
-                + (file.author_count_window as f64 / 10.0).min(1.0) * 0.20)
+            (ownership_concentration_pressure * 0.4
+                + coordination_authorship_pressure * 0.35
+                + stale_ownership_pressure * 0.25)
                 .min(1.0)
         };
+        let mut distinctive_terms = file
+            .top_structural_terms
+            .iter()
+            .filter(|term| !language_common_term(term))
+            .cloned()
+            .collect::<Vec<_>>();
+        distinctive_terms.sort_by(|left, right| {
+            term_documents
+                .get(left)
+                .cmp(&term_documents.get(right))
+                .then_with(|| left.cmp(right))
+        });
+        let navigation_term_limit =
+            pointer_u64(config, "/navigation/top_distinctive_terms", 5) as usize;
+        distinctive_terms.truncate(navigation_term_limit);
+        let max_common_documents = (file_count / 4).max(2);
         let mut drift_terms: Vec<String> = file
             .top_structural_terms
             .iter()
+            .filter(|term| !language_common_term(term))
             .filter(|term| term_roots.get(*term).is_some_and(|roots| roots.len() > 1))
+            .filter(|term| {
+                term_documents.get(*term).copied().unwrap_or_default() <= max_common_documents
+            })
             .cloned()
             .collect();
         drift_terms.sort();
-        drift_terms.truncate(5);
+        let semantic_term_limit =
+            pointer_u64(config, "/semantic_drift/top_term_limit", 25) as usize;
+        drift_terms.truncate(semantic_term_limit);
         let semantic_drift_pressure = if file.top_structural_terms.is_empty() {
             0.0
         } else {
-            drift_terms.len() as f64 / file.top_structural_terms.len().min(5) as f64
+            drift_terms.len() as f64
+                / file
+                    .top_structural_terms
+                    .len()
+                    .min(semantic_term_limit)
+                    .max(1) as f64
         };
 
         let related_relationship_ids = relationship_ids
@@ -301,6 +433,7 @@ pub fn analyze(
             "verification": {
                 "path": file.path,
                 "test_adjacency_score": round6(test_adjacency),
+                "inline_tests_detected": file.has_inline_tests,
                 "nearby_test_paths": nearby_tests,
                 "test_cochange_ratio": round6(test_cochange_ratio),
                 "hotspot_without_nearby_tests": hotspot_without_nearby_tests,
@@ -314,6 +447,7 @@ pub fn analyze(
                 "folder_width": sibling_count,
                 "search_ambiguity": round6(search_ambiguity),
                 "term_dispersion": round6(semantic_drift_pressure),
+                "top_distinctive_terms": distinctive_terms,
                 "duplicate_name_count": duplicate_name_count,
                 "navigation_pressure": round6(navigation_pressure)
             },
@@ -333,6 +467,9 @@ pub fn analyze(
                 "top_author_share": round6(file.top_author_share),
                 "days_since_non_bot_edit": file.days_since_non_bot_edit,
                 "recent_maintainer_diversity": file.recent_maintainer_diversity,
+                "ownership_concentration_pressure": round6(ownership_concentration_pressure),
+                "many_author_coordination_pressure": round6(coordination_authorship_pressure),
+                "stale_ownership_pressure": round6(stale_ownership_pressure),
                 "stewardship_pressure": round6(stewardship_pressure)
             },
             "semantic_drift": {

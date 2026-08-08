@@ -1,5 +1,5 @@
 name: Git Slop Repository Health
-description: Find repository context hotspots and publish actionable health summaries, annotations, and artifacts.
+description: Defragment repository context with deterministic health summaries, regression annotations, and artifacts.
 author: Corey Coto
 
 branding:
@@ -10,11 +10,15 @@ inputs:
   version:
     description: Git Slop release version to install, with or without a leading v.
     required: false
-    default: "0.9.6"
+    default: "0.10.0"
   release-repository:
     description: GitHub repository that owns the versioned release assets.
     required: false
     default: coreycoto/git-slop
+  target:
+    description: Optional compatible release target override; primarily used for Linux musl.
+    required: false
+    default: ""
   github-token:
     description: Token used to download release assets and, when enabled, update a pull request comment.
     required: false
@@ -23,6 +27,18 @@ inputs:
     description: Directory inside the Git worktree; analysis resolves and runs at that worktree's top level.
     required: false
     default: "."
+  scope:
+    description: Optional repo-relative monorepo scope; Git evidence remains repository-wide.
+    required: false
+    default: ""
+  baseline-report:
+    description: Optional base report.json used to emit only new or worsened pull-request findings.
+    required: false
+    default: ""
+  allow-shallow:
+    description: Explicitly acknowledge incomplete history instead of failing a shallow checkout.
+    required: false
+    default: "false"
   policy:
     description: Advisory publishes findings without failing; enforce runs git-slop check after publication.
     required: false
@@ -136,6 +152,7 @@ runs:
       env:
         GIT_SLOP_ACTION_VERSION: ${{ inputs.version }}
         GIT_SLOP_RELEASE_REPOSITORY: ${{ inputs.release-repository }}
+        GIT_SLOP_TARGET: ${{ inputs.target }}
         GIT_SLOP_GITHUB_TOKEN: ${{ inputs.github-token || github.token }}
       run: node "${{ github.action_path }}/action/install.mjs"
 
@@ -147,6 +164,9 @@ runs:
         GIT_SLOP_BINARY: ${{ steps.install.outputs.binary-path }}
         GIT_SLOP_INSTALL_OUTCOME: ${{ steps.install.outcome }}
         GIT_SLOP_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        GIT_SLOP_SCOPE: ${{ inputs.scope }}
+        GIT_SLOP_BASELINE_REPORT: ${{ inputs.baseline-report }}
+        GIT_SLOP_ALLOW_SHALLOW: ${{ inputs.allow-shallow }}
         GIT_SLOP_POLICY: ${{ inputs.policy }}
         GIT_SLOP_FAIL_ON_CONTEXT_BAND: ${{ inputs.fail-on-context-band }}
         GIT_SLOP_FAIL_ON_SLOP_BAND: ${{ inputs.fail-on-slop-band }}
@@ -168,6 +188,7 @@ runs:
         GIT_SLOP_FINDING_COUNT: ${{ steps.analyze.outputs.finding-count }}
         GIT_SLOP_MAX_ANNOTATIONS: ${{ steps.analyze.outputs.max-annotations }}
         GIT_SLOP_WORKING_DIRECTORY_RESOLVED: ${{ steps.analyze.outputs.working-directory }}
+        GIT_SLOP_COMPARISON_PATH: ${{ steps.analyze.outputs.comparison-path }}
       run: node "${{ github.action_path }}/action/runner.mjs" annotate
 
     - name: Select bounded artifact files
@@ -252,5 +273,6 @@ runs:
         GIT_SLOP_ANNOTATE_OUTCOME: ${{ steps.annotate.outcome }}
         GIT_SLOP_ARTIFACT_SELECTION_OUTCOME: ${{ steps.artifact-files.outcome }}
         GIT_SLOP_UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
+        GIT_SLOP_ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
         GIT_SLOP_COMMENT_OUTCOME: ${{ steps.comment.outcome }}
       run: node "${{ github.action_path }}/action/runner.mjs" finalize

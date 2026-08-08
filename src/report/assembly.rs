@@ -2,8 +2,10 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 use super::support::{float_field, string_array, string_field, usize_field};
+use crate::VERSION;
 use crate::model::{Analysis, HealthRollup};
 
 const REPORT_SCHEMA_VERSION: u64 = 4;
@@ -24,9 +26,41 @@ fn serialize_values<T: serde::Serialize>(items: &[T]) -> Vec<Value> {
         .collect()
 }
 
+fn suppress_saturated_overlays(files: &mut [Value]) -> Vec<String> {
+    let specs = [
+        ("verification", "verification_gap"),
+        ("navigation", "navigation_pressure"),
+        ("blast_radius", "blast_radius_pressure"),
+        ("stewardship", "stewardship_pressure"),
+        ("semantic_drift", "semantic_drift_pressure"),
+    ];
+    let mut suppressed = Vec::new();
+    for (family, pressure) in specs {
+        let measured = files
+            .iter()
+            .filter_map(|file| {
+                file.pointer(&format!("/overlays/{family}/{pressure}"))
+                    .and_then(Value::as_f64)
+            })
+            .collect::<Vec<_>>();
+        if measured.len() >= 10
+            && measured.iter().filter(|value| **value >= 0.999).count() * 10 >= measured.len() * 9
+        {
+            suppressed.push(family.to_string());
+            for file in files.iter_mut() {
+                if let Some(overlays) = file.get_mut("overlays").and_then(Value::as_object_mut) {
+                    overlays.remove(family);
+                }
+            }
+        }
+    }
+    suppressed
+}
+
 fn repo_payload(analysis: &Analysis) -> Value {
     let mut repo = serde_json::to_value(&analysis.repo).unwrap_or_else(|_| json!({}));
     if let Some(object) = repo.as_object_mut() {
+        object.remove("repo_root");
         object.insert(
             "head_sha".to_string(),
             analysis
@@ -198,7 +232,8 @@ fn top_structural_paths(analysis: &Analysis) -> Vec<String> {
 }
 
 pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
-    let files = serialize_values(&analysis.files);
+    let mut files = serialize_values(&analysis.files);
+    let suppressed_saturated_overlays = suppress_saturated_overlays(&mut files);
     let folders = serialize_values(&analysis.folders);
     let action_queue = if analysis.action_queue.is_empty() {
         action_queue_from_files(&files)
@@ -226,8 +261,17 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
     let health_value = serde_json::to_value(health).unwrap_or_else(|_| json!({}));
+    let config_bytes = serde_json::to_vec(&analysis.config).unwrap_or_default();
+    let config_digest = hex::encode(Sha256::digest(config_bytes));
     json!({
         "schema_version": REPORT_SCHEMA_VERSION,
+        "analyzer": {
+            "name": "git-slop",
+            "version": VERSION,
+            "config_digest": config_digest,
+            "context_tokenizer": analysis.config.pointer("/tokenization/context_tokenizer_name")
+                .and_then(Value::as_str).unwrap_or("cl100k_base")
+        },
         "generated_at": analysis.generated_at,
         "analyzed_revision_at": analysis.analyzed_revision_at
             .as_ref()
@@ -253,6 +297,23 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
             "critical_context_file_count": critical_context_file_count,
             "critical_slop_file_count": critical_slop_file_count,
             "history_complete": !analysis.repo.is_shallow
+        },
+        "evidence_completeness": {
+            "history": if analysis.repo.is_shallow { "incomplete_shallow" } else { "complete" },
+            "repository_size": if files.len() < 10 { "low_support" } else { "sufficient" },
+            "history_window_days": analysis.config.pointer("/history/churn_window_days").cloned().unwrap_or(Value::Null),
+            "history_max_commits": analysis.config.pointer("/history/max_commits").cloned().unwrap_or(Value::Null),
+            "missing_test_evidence_count": overlays.pointer("/verification/files")
+                .and_then(Value::as_array)
+                .map(|records| records.iter().filter(|record| record.get("verification_gap").and_then(Value::as_f64).unwrap_or_default() >= 0.8).count())
+                .unwrap_or_default(),
+            "relationship_support": if analysis.organization.relationships.pointer("/temporal_coupling_edges").and_then(Value::as_array).is_some_and(Vec::is_empty) { "low_support" } else { "available" }
+        },
+        "diagnostics": {
+            "suppressed_saturated_overlays": suppressed_saturated_overlays,
+            "relationship_count": analysis.organization.relationships.as_object().map(|collections| collections.values().filter_map(Value::as_array).map(Vec::len).sum::<usize>()).unwrap_or_default(),
+            "structural_tokens_omitted": true,
+            "analysis": analysis.diagnostics
         },
         "files": files,
         "folders": folders,

@@ -3,7 +3,7 @@
 Git Slop is distributed as one `git-slop` executable. When it is on `PATH`, Git
 also accepts `git slop`.
 
-The examples below pin 0.9.6. Confirm that the requested distribution surface
+The examples below pin 0.10.0. Confirm that the requested distribution surface
 publishes that exact version before installing it; documentation on `main` does
 not itself prove availability.
 
@@ -43,7 +43,7 @@ manifest lives in the separate, public
 repository and consumes the existing Windows release archives; it is not an
 additional `git-slop` release asset.
 
-After the bucket lists 0.9.6, install it from PowerShell:
+After the bucket lists 0.10.0, install it from PowerShell:
 
 ```powershell
 scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket
@@ -83,6 +83,8 @@ Each semver GitHub Release publishes checksummed archives for:
 | Linux x86-64 | `x86_64-unknown-linux-gnu` | `.tar.gz` |
 | Linux ARM64 | `aarch64-unknown-linux-gnu` | `.tar.gz` |
 | macOS Apple Silicon | `aarch64-apple-darwin` | `.tar.gz` |
+| macOS Intel | `x86_64-apple-darwin` | `.tar.gz` |
+| Static Linux x86-64 (Alpine/minimal containers) | `x86_64-unknown-linux-musl` | `.tar.gz` |
 | Windows x86-64 | `x86_64-pc-windows-msvc` | `.zip` |
 | Windows ARM64 | `aarch64-pc-windows-msvc` | `.zip` |
 
@@ -97,7 +99,7 @@ Download the archive plus `SHA256SUMS`, verify the exact filename, then place
 `git-slop` (`git-slop.exe` on Windows) on `PATH`. For example:
 
 ```bash
-release=v0.9.6
+release=v0.10.0
 target=x86_64-unknown-linux-gnu
 gh release download "$release" \
   --repo coreycoto/git-slop \
@@ -105,6 +107,15 @@ gh release download "$release" \
   --pattern SHA256SUMS
 sha256sum --check SHA256SUMS --ignore-missing
 tar -xzf "git-slop-${release}-${target}.tar.gz"
+```
+
+On Unix, verify the archive against both `SHA256SUMS` and
+`release-manifest.json`, then extract without applying archive ownership:
+
+```bash
+tar --no-same-owner -xzf "git-slop-${release}-${target}.tar.gz"
+install -m 0755 "git-slop-${release}-${target}/git-slop" "$HOME/.local/bin/git-slop"
+install -m 0644 "git-slop-${release}-${target}/man/git-slop.1" "$HOME/.local/share/man/man1/git-slop.1"
 ```
 
 macOS users can select the downloaded archive's line from the same GNU-format
@@ -124,12 +135,12 @@ automated consumers.
 Install the canonical crates.io package directly:
 
 ```bash
-cargo install git-slop --version 0.9.6 --locked
+cargo install git-slop --version 0.10.0 --locked
 git-slop build-info --format json
 ```
 
-For a verified 0.9.6 release, `source_revision` is the full commit named by
-`v0.9.6` and `source_dirty` is `false`. A local source build can report `null`
+For a verified 0.10.0 release, `source_revision` is the full commit named by
+`v0.10.0` and `source_dirty` is `false`. A local source build can report `null`
 for provenance it cannot prove; that is not equivalent to a release build.
 
 CI jobs should prefer the repository's GitHub Action or a checksummed prebuilt

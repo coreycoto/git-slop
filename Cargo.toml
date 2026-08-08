@@ -1,9 +1,9 @@
 [package]
 name = "git-slop"
-version = "0.9.6"
+version = "0.10.0"
 edition = "2024"
 rust-version = "1.85"
-description = "Deterministic repository health and maintenance-pressure analysis for humans and AI agents."
+description = "A deterministic repository token-defragmenter for humans and AI agents."
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/coreycoto/git-slop"
@@ -36,6 +36,8 @@ anyhow = "1.0"
 blake2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 clap = { version = "4.5", features = ["derive"] }
+clap_complete = "4.5"
+clap_complete_nushell = "4.5"
 globset = "0.4"
 hex = "0.4"
 percent-encoding = "2.3"

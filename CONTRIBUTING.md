@@ -61,6 +61,14 @@ does not create or sync a project dependency environment in this repository.
 Run these before submitting a pull request:
 
 ```bash
+./scripts/verify_changed.sh
+```
+
+The changed-files command selects the relevant public Rust, maintainer-contract,
+Action, and repository validation gates. Run the complete matrix when changing
+shared contracts or before a release:
+
+```bash
 cargo fmt -p git-slop -- --check
 cargo clippy -p git-slop --all-targets --all-features --locked -- -D warnings
 cargo test -p git-slop --all-targets --all-features --locked

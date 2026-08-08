@@ -653,12 +653,12 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
         .cloned()
         .collect::<Vec<_>>();
     if !must_refactor.is_empty() || !should_refactor.is_empty() || !rollup.watchlist.is_empty() {
-        lines.extend([String::new(), "## Refactor Recommendations".to_string()]);
+        lines.extend([String::new(), "## Investigation Candidates".to_string()]);
     }
     if !must_refactor.is_empty() {
         lines.extend([
             String::new(),
-            "### Policy Failures".to_string(),
+            "### Context Budget Exceeded".to_string(),
             String::new(),
         ]);
         render_candidate_tables(

@@ -5,7 +5,7 @@ mod write;
 
 pub use assembly::assemble_report;
 pub use render::{render_compatibility_summary, render_terminal, render_terminal_output};
-pub use write::{load_report, write_report_bundle};
+pub use write::{load_report, validate_report_shape, write_report_bundle};
 
 #[cfg(test)]
 mod tests {
@@ -30,6 +30,13 @@ mod tests {
                 head_commit_timestamp: Some("2026-07-29T08:00:00Z".to_string()),
                 git_remote_url: Some("git@github.com:example/fixture.git".to_string()),
                 is_shallow: false,
+                detached_head: false,
+                worktree_clean: true,
+                staged_change_count: 0,
+                modified_tracked_file_count: 0,
+                untracked_file_count: 0,
+                worktree_state_digest: String::new(),
+                analyzed_content_digest: None,
             },
             config: crate::config::default_config(),
             generated_at: "2026-07-30T10:11:12Z".to_string(),
@@ -41,6 +48,7 @@ mod tests {
             commits: vec![],
             organization: OrganizationAnalysis::default(),
             action_queue: vec![],
+            diagnostics: json!({}),
             report: Value::Null,
         }
     }

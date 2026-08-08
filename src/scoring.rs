@@ -516,6 +516,7 @@ mod tests {
             language: "Rust".to_string(),
             profile: "agent_context".to_string(),
             classification: "source".to_string(),
+            has_inline_tests: false,
             tokens,
             context_band: "compact".to_string(),
             context_pressure: 0.0,

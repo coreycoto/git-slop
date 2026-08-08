@@ -241,10 +241,7 @@ pub(super) fn build_health_rollup_from_values(
     let mut agent_direct_folder_totals: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     let mut agent_recursive_folder_totals: BTreeMap<String, (usize, usize)> = BTreeMap::new();
 
-    for file in files
-        .iter()
-        .filter(|file| file_profile(file) == "agent_context")
-    {
+    for file in files {
         let path = string_field(file, "path");
         let tokens = usize_field(file, "tokens");
         let direct = direct_parent(path);
@@ -275,9 +272,6 @@ pub(super) fn build_health_rollup_from_values(
             .entry((profile.clone(), language))
             .or_default()
             .add_file(file);
-        if profile != "agent_context" {
-            continue;
-        }
         let tokens = usize_field(file, "tokens");
         file_tokens.push(tokens);
         let band = health_file_band(file);

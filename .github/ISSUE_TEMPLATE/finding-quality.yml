@@ -1,0 +1,41 @@
+name: Finding quality
+description: Report evidence that is noisy, missing, saturated, or misleading without sharing source code.
+title: "Finding quality: "
+labels: ["type: research"]
+body:
+  - type: markdown
+    attributes:
+      value: Run `git slop doctor --bundle` and share only the redacted bundle. Do not paste source, raw tokens, credentials, absolute paths, or author identities.
+  - type: input
+    id: version
+    attributes:
+      label: Git Slop version
+      placeholder: 0.10.0
+    validations: {required: true}
+  - type: input
+    id: config_digest
+    attributes:
+      label: Configuration digest
+      description: From report analyzer metadata or the redacted doctor bundle.
+    validations: {required: true}
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Sanitized report metrics
+      description: File count, history completeness, relationship counts, saturation suppression, runtime, and report size only.
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: Expected interpretation}
+    validations: {required: true}
+  - type: textarea
+    id: actual
+    attributes: {label: Actual interpretation}
+    validations: {required: true}
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed source, raw tokens, credentials, absolute paths, and author identities.
+          required: true

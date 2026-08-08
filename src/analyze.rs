@@ -1,10 +1,13 @@
 use std::collections::{BTreeMap, HashMap};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use chrono::{SecondsFormat, Utc};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tiktoken_rs::{
@@ -28,6 +31,39 @@ static NUMBER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b\d+(?:\.\d+)?\b").expect("valid number regex"));
 static WORD_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[a-z][a-z0-9_]{1,}").expect("valid word regex"));
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CachedTokenData {
+    token_count: usize,
+    structural_tokens: Vec<String>,
+    content_fingerprint: String,
+}
+
+fn token_cache_key(path: &str, text: &str, tokenizer: &str, large_file_bytes: usize) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"git-slop-token-cache-v1\0");
+    digest.update(tokenizer.as_bytes());
+    digest.update([0]);
+    digest.update(large_file_bytes.to_le_bytes());
+    digest.update(path.as_bytes());
+    digest.update([0]);
+    digest.update(text.as_bytes());
+    hex::encode(digest.finalize())
+}
+
+fn load_cached_tokens(path: &Path) -> Option<CachedTokenData> {
+    serde_json::from_slice(&fs::read(path).ok()?).ok()
+}
+
+fn write_cached_tokens(path: &Path, cached: &CachedTokenData) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension(format!("json.tmp-{}", std::process::id()));
+    fs::write(&temporary, serde_json::to_vec(cached)?)?;
+    fs::rename(&temporary, path)?;
+    Ok(())
+}
 
 fn replace_quoted_strings(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
@@ -80,7 +116,7 @@ fn content_fingerprint(text: &str) -> String {
     hex::encode(Sha256::digest(text.as_bytes()))
 }
 
-fn top_terms(tokens: &[String]) -> Vec<String> {
+fn top_terms(tokens: &[String], limit: usize) -> Vec<String> {
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for token in tokens {
         *counts.entry(token).or_default() += 1;
@@ -89,9 +125,22 @@ fn top_terms(tokens: &[String]) -> Vec<String> {
     ranked.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
     ranked
         .into_iter()
-        .take(12)
+        .take(limit)
         .map(|(term, _)| term.to_string())
         .collect()
+}
+
+fn has_inline_tests(language: &str, text: &str) -> bool {
+    match language {
+        "Rust" => text.contains("#[cfg(test)]") || text.contains("#[test]"),
+        "Go" => text.contains("func Test") || text.contains("func Benchmark"),
+        "Python" => text.contains("def test_") || text.contains("class Test"),
+        "JavaScript" | "JSX" | "TypeScript" | "TSX" => {
+            text.contains("describe(") || text.contains("test(") || text.contains("it(")
+        }
+        "Swift" => text.contains("XCTestCase") || text.contains("@Test"),
+        _ => false,
+    }
 }
 
 fn configured_context_encoder(config: &Value) -> Result<CoreBPE> {
@@ -159,31 +208,125 @@ pub fn run_find() -> Result<FindResult> {
 }
 
 pub fn run_find_in(repo_root: &Path) -> Result<FindResult> {
-    config::ensure_state_dirs(repo_root)?;
+    run_find_scoped(repo_root, false, None, false)
+}
+
+pub fn run_find_in_with_options(repo_root: &Path, allow_shallow: bool) -> Result<FindResult> {
+    run_find_scoped(repo_root, allow_shallow, None, false)
+}
+
+pub fn run_find_scoped(
+    repo_root: &Path,
+    allow_shallow: bool,
+    scope: Option<&str>,
+    progress: bool,
+) -> Result<FindResult> {
+    let started = Instant::now();
+    let phase = |name: &str| {
+        if progress {
+            eprintln!("git-slop: {name} ({:.1}s)", started.elapsed().as_secs_f64());
+        }
+    };
+    phase("preflight");
+    config::ensure_runtime_gitignore(repo_root)?;
     let loaded_config = config::load(repo_root)?;
-    let repo = git::repo_metadata(repo_root)?;
-    let tracked_paths = git::list_tracked_files(repo_root)?;
+    let mut repo = git::repo_metadata(repo_root)?;
+    if repo.is_shallow && !allow_shallow {
+        bail!(
+            "repository history is shallow; rerun with git slop find --allow-shallow to acknowledge incomplete history"
+        );
+    }
+    let all_tracked_paths = git::list_tracked_files(repo_root)?;
+    let scope = scope
+        .map(|value| value.trim_matches('/'))
+        .filter(|value| !value.is_empty() && *value != ".");
+    let tracked_paths = all_tracked_paths
+        .iter()
+        .filter(|path| {
+            scope.is_none_or(|scope| *path == scope || path.starts_with(&format!("{scope}/")))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let memory_budget = config::pointer_u64(&loaded_config, "/resources/memory_budget_mb", 1024)
+        as u128
+        * 1024
+        * 1024;
+    let inventory_bytes = tracked_paths
+        .iter()
+        .filter_map(|path| fs::metadata(repo_root.join(path)).ok())
+        .map(|metadata| metadata.len() as u128)
+        .sum::<u128>();
+    let graph_estimate = tracked_paths.len() as u128
+        * config::pointer_u64(&loaded_config, "/organization/max_pairs_per_file", 20) as u128
+        * 192;
+    let estimated_peak = inventory_bytes
+        .saturating_mul(3)
+        .saturating_add(graph_estimate);
+    if estimated_peak > memory_budget {
+        bail!(
+            "analysis bounded before inventory: estimated {} MiB exceeds resources.memory_budget_mb={}; narrow --scope or raise the explicit budget",
+            estimated_peak.div_ceil(1024 * 1024),
+            memory_budget / 1024 / 1024
+        );
+    }
     let (inventory_files, skipped) = inventory::build(repo_root, &tracked_paths, &loaded_config)?;
+    phase("inventory");
     let encoder = configured_context_encoder(&loaded_config)?;
+    let mut analyzed_content = Sha256::new();
     let mut token_counts = BTreeMap::new();
     let mut line_counts = BTreeMap::new();
     let mut token_data = HashMap::new();
+    let tokenizer = config::pointer_str(&loaded_config, "/tokenization/context_tokenizer_name")
+        .unwrap_or("cl100k_base")
+        .to_string();
+    let large_file_bytes =
+        config::pointer_u64(&loaded_config, "/resources/large_file_bytes", 2_097_152) as usize;
+    let cache_root = config::cache_dir(repo_root).join("token-v1");
+    let mut cache_hits = 0usize;
+    let mut cache_misses = 0usize;
     for file in &inventory_files {
-        let count = encoder.encode_ordinary(&file.text).len();
-        let structural = structural_tokens(&file.path, &file.text);
-        let fingerprint = content_fingerprint(&file.text);
+        analyzed_content.update(file.path.as_bytes());
+        analyzed_content.update([0]);
+        analyzed_content.update(file.text.as_bytes());
+        analyzed_content.update([0]);
+        let cache_key = token_cache_key(&file.path, &file.text, &tokenizer, large_file_bytes);
+        let cache_path = cache_root.join(format!("{cache_key}.json"));
+        let cached = if let Some(cached) = load_cached_tokens(&cache_path) {
+            cache_hits += 1;
+            cached
+        } else {
+            cache_misses += 1;
+            let cached = CachedTokenData {
+                token_count: encoder.encode_ordinary(&file.text).len(),
+                structural_tokens: if file.bytes > large_file_bytes {
+                    Vec::new()
+                } else {
+                    structural_tokens(&file.path, &file.text)
+                },
+                content_fingerprint: content_fingerprint(&file.text),
+            };
+            write_cached_tokens(&cache_path, &cached)?;
+            cached
+        };
+        let count = cached.token_count;
+        let structural = cached.structural_tokens;
+        let top_term_limit =
+            config::pointer_u64(&loaded_config, "/semantic_drift/top_term_limit", 25) as usize;
+        let fingerprint = cached.content_fingerprint;
         token_counts.insert(file.path.clone(), count);
         line_counts.insert(file.path.clone(), file.lines);
         token_data.insert(
             file.path.clone(),
             (
                 structural.len(),
-                top_terms(&structural),
+                top_terms(&structural, top_term_limit),
                 structural,
                 fingerprint,
             ),
         );
     }
+    phase("tokenization");
+    repo.analyzed_content_digest = Some(hex::encode(analyzed_content.finalize()));
     let analyzed_paths: Vec<String> = inventory_files
         .iter()
         .map(|file| file.path.clone())
@@ -197,9 +340,11 @@ pub fn run_find_in(repo_root: &Path) -> Result<FindResult> {
         &loaded_config,
         now,
     )?;
+    phase("history");
     let mut files = Vec::with_capacity(inventory_files.len());
     for file in inventory_files {
         let tokens = token_counts.get(&file.path).copied().unwrap_or_default();
+        let inline_tests = has_inline_tests(&file.language, &file.text);
         let (structural_token_count, top_structural_terms, structural_tokens, content_fingerprint) =
             token_data
                 .remove(&file.path)
@@ -215,6 +360,7 @@ pub fn run_find_in(repo_root: &Path) -> Result<FindResult> {
             language: file.language,
             profile: file.profile,
             classification: file.classification,
+            has_inline_tests: inline_tests,
             tokens,
             context_band: scoring::context_band_for_tokens(tokens, &loaded_config),
             context_pressure: scoring::context_pressure_for_tokens(tokens, &loaded_config),
@@ -250,10 +396,15 @@ pub fn run_find_in(repo_root: &Path) -> Result<FindResult> {
     }
     scoring::apply_scoring(&mut files, &loaded_config);
     let organization = overlays::analyze(&mut files, &commits, &loaded_config)?;
+    phase("relationships");
     let folders = scoring::build_folder_analyses(&files, &loaded_config);
     let queue = action_queue(&files);
     let generated_at = now.to_rfc3339_opts(SecondsFormat::Secs, true);
     let analyzed_revision_at = repo.head_commit_timestamp.clone();
+    let ending_worktree = git::worktree_state(repo_root)?;
+    if ending_worktree.digest != repo.worktree_state_digest {
+        bail!("repository changed during analysis; no mixed-snapshot report was published");
+    }
     let analysis = Analysis {
         repo_root: PathBuf::from(repo_root),
         repo,
@@ -261,16 +412,25 @@ pub fn run_find_in(repo_root: &Path) -> Result<FindResult> {
         generated_at,
         analyzed_revision_at,
         skipped,
-        tracked_file_count: tracked_paths.len(),
+        tracked_file_count: all_tracked_paths.len(),
         files,
         folders,
         commits,
         organization,
         action_queue: queue,
+        diagnostics: json!({
+            "analysis_elapsed_ms_before_report": started.elapsed().as_millis(),
+            "estimated_peak_memory_bytes": estimated_peak,
+            "memory_budget_bytes": memory_budget,
+            "cache_hits": cache_hits,
+            "cache_misses": cache_misses,
+            "scope": scope
+        }),
         report: Value::Null,
     };
     let rollup = health::build_health_rollup(&analysis);
     let result = report::write_report_bundle(&analysis, &rollup)?;
+    phase("report writing");
     if result.report.get("schema_version").and_then(Value::as_u64) != Some(4) {
         bail!("internal error: report writer did not produce schema 4");
     }
@@ -299,6 +459,7 @@ mod tests {
             language: "Rust".to_string(),
             profile: "agent_context".to_string(),
             classification: "source".to_string(),
+            has_inline_tests: false,
             tokens: 100,
             context_band: "compact".to_string(),
             context_pressure: 0.0,

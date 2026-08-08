@@ -23,19 +23,23 @@ const AGENT_PLUGIN_WRAPPER: &str = "scripts/with-agent-plugins.sh";
 const PREPARE_COMMAND: &str = "scripts/with-agent-plugins.sh --prepare";
 const VERIFY_COMMAND: &str = "scripts/with-agent-plugins.sh --verify";
 const MARKETPLACE_COMMAND: &str = "scripts/with-agent-plugins.sh marketplace install";
-const RELEASE_TARGETS: [&str; 5] = [
+const RELEASE_TARGETS: [&str; 7] = [
     "aarch64-apple-darwin",
     "aarch64-pc-windows-msvc",
     "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
     "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
 ];
-const RELEASE_TARGET_RUNNERS: [(&str, &str); 5] = [
+const RELEASE_TARGET_RUNNERS: [(&str, &str); 7] = [
     ("macos-15", "aarch64-apple-darwin"),
     ("windows-11-arm", "aarch64-pc-windows-msvc"),
     ("ubuntu-22.04-arm", "aarch64-unknown-linux-gnu"),
+    ("macos-15-intel", "x86_64-apple-darwin"),
     ("windows-2025", "x86_64-pc-windows-msvc"),
     ("ubuntu-22.04", "x86_64-unknown-linux-gnu"),
+    ("ubuntu-22.04", "x86_64-unknown-linux-musl"),
 ];
 const RELEASE_CHECKOUT_ACTION: &str = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
 const PUBLIC_RELEASE_WORKFLOWS: [&str; 3] = [
@@ -488,7 +492,7 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             "cargo xtask homebrew-formula",
             "sha256sum git-slop.rb >> SHA256SUMS",
             "wc -l < candidate-dist/SHA256SUMS",
-            "= \"7\"",
+            "= \"9\"",
         ] {
             require(run, required, name, errors);
         }
@@ -816,7 +820,7 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
         );
         require(
             generate,
-            "test \"$(wc -l < dist/SHA256SUMS | tr -d ' ')\" = \"7\"",
+            "test \"$(wc -l < dist/SHA256SUMS | tr -d ' ')\" = \"9\"",
             name,
             errors,
         );
@@ -933,9 +937,7 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
                 ));
             }
         } else {
-            errors.push(format!(
-                "{name} must verify the exact eight release assets."
-            ));
+            errors.push(format!("{name} must verify the exact ten release assets."));
         }
         if let Some(verify_action) =
             named_step(draft, "Verify Action installer against release assets")
@@ -1020,7 +1022,7 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
                         r#"test "$ACTUAL_CRATE_SHA256" = "$EXPECTED_CRATE_SHA256""#,
                         r#"test "$ACTUAL_MANIFEST_SHA256" = "$expected_manifest_sha256""#,
                         "reduce .artifacts[] as $artifact ({}; .[$artifact.target] = $artifact.sha256)",
-                        r#"length == 5 and all(.[]; test("^[0-9a-f]{64}$"))"#,
+                        r#"length == 7 and all(.[]; test("^[0-9a-f]{64}$"))"#,
                         r#"echo "asset-sha256-by-target=$asset_sha256_by_target" >> "$GITHUB_OUTPUT""#,
                     ] {
                         require(run, required, name, errors);
@@ -1982,11 +1984,11 @@ fn validate_homebrew_handoff(payload: &YamlValue, errors: &mut Vec<String>) {
     };
     for required in [
         ".tag_name == $tag and .draft == false and .prerelease == false",
-        "test \"$(wc -l < release-assets/SHA256SUMS | tr -d ' ')\" = \"7\"",
+        "test \"$(wc -l < release-assets/SHA256SUMS | tr -d ' ')\" = \"9\"",
         "sha256sum --check SHA256SUMS",
         ".crate_source.registry == \"crates.io\"",
         "https://static.crates.io/crates/git-slop/git-slop-",
-        "(.artifacts | length) == 5",
+        "(.artifacts | length) == 7",
         "git merge-base --is-ancestor \"$REVISION\" refs/remotes/origin/main",
         "curl --fail --location --retry 5 \"$crate_url\"",
         "test \"$(sha256sum registry.crate | awk '{print $1}')\" = \"$crate_sha256\"",
@@ -2075,13 +2077,15 @@ fn validate_exact_release_assets(run: &str, name: &str, tag: &str, errors: &mut 
          \"git-slop-{tag}-aarch64-apple-darwin.tar.gz\" \
          \"git-slop-{tag}-aarch64-pc-windows-msvc.zip\" \
          \"git-slop-{tag}-aarch64-unknown-linux-gnu.tar.gz\" \
+         \"git-slop-{tag}-x86_64-apple-darwin.tar.gz\" \
          \"git-slop-{tag}-x86_64-pc-windows-msvc.zip\" \
          \"git-slop-{tag}-x86_64-unknown-linux-gnu.tar.gz\" \
+         \"git-slop-{tag}-x86_64-unknown-linux-musl.tar.gz\" \
          release-manifest.json | LC_ALL=C sort > expected-assets.txt"
     );
     if !normalized.contains(&exact) {
         errors.push(format!(
-            "{name} must compare the exact eight release assets against the published inventory."
+            "{name} must compare the exact ten release assets against the published inventory."
         ));
     }
     for required in [
@@ -2338,7 +2342,7 @@ fn validate_target_matrix(
         || targets != RELEASE_TARGETS.into_iter().collect::<BTreeSet<_>>()
     {
         errors.push(format!(
-            "{name} {job_name} must contain exactly the five supported targets."
+            "{name} {job_name} must contain exactly the seven supported targets."
         ));
     }
     let runner_targets = includes
@@ -2907,7 +2911,7 @@ mod tests {
                     "target: unsupported-target",
                     1,
                 ),
-                "exactly the five supported targets",
+                "exactly the seven supported targets",
             ),
             (
                 valid.replacen(
@@ -3447,7 +3451,7 @@ mod tests {
                     "\"unexpected.zip\"",
                     1,
                 ),
-                "exact eight release assets",
+                "exact ten release assets",
             ),
             (
                 format!("{relay}\n# gh workflow run homebrew-handoff.yml\n"),
@@ -3503,11 +3507,11 @@ mod tests {
                     "\"unexpected.zip\"",
                     1,
                 ),
-                "exact eight release assets",
+                "exact ten release assets",
             ),
             (
                 homebrew.replacen(
-                    "wc -l < release-assets/SHA256SUMS | tr -d ' ')\" = \"7\"",
+                    "wc -l < release-assets/SHA256SUMS | tr -d ' ')\" = \"9\"",
                     "wc -l < release-assets/SHA256SUMS | tr -d ' ')\" = \"6\"",
                     1,
                 ),

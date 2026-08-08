@@ -90,6 +90,7 @@ fn classification_for_path(path: &str) -> &'static str {
     {
         "config"
     } else if lower.starts_with("src/")
+        || lower.starts_with("xtask/src/")
         || lower.starts_with("app/")
         || lower.starts_with("lib/")
         || lower.starts_with("crates/")

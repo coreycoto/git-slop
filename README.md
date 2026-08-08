@@ -113,8 +113,12 @@ Routine generated output stays untracked. Commit `.slop/config.yaml` and
 
 ## Install
 
-The examples below use Git Slop 0.9.6. See [Installation](docs/install.md) for
-release archives, upgrades, provenance details, and contributor setup.
+The examples below pin the 0.10.0 release identity. Use each command only after
+that exact version is published on the requested distribution surface;
+documentation or a source tag is not proof that every surface is available.
+
+See [Installation](docs/install.md) for availability, provenance, upgrades,
+and contributor setup.
 
 ### Homebrew (macOS and Linux)
 
@@ -122,10 +126,10 @@ release archives, upgrades, provenance details, and contributor setup.
 brew install coreycoto/tap/git-slop
 ```
 
-### Cargo
+### Cargo (Crates.io)
 
 ```bash
-cargo install git-slop --version 0.9.6 --locked
+cargo install git-slop --version 0.10.0 --locked
 ```
 
 ### Scoop (Windows)
@@ -157,7 +161,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.9.6
+  - uses: coreycoto/git-slop@v0.10.0
 ```
 
 The Action is advisory by default. It verifies the native release, writes the
@@ -192,6 +196,10 @@ explicit scope. The repository also ships a portable [Git Slop Agent
 Plugin](plugins/git-slop/README.md) for installation, reporting, review,
 planning, and adoption workflows.
 
+Start with `git slop doctor`; see [Troubleshooting](docs/troubleshooting.md),
+[Configuration Recipes](docs/config-recipes.md), the neutral [Worked
+Example](docs/worked-example.md), and the [0.10.0 upgrade notes](CHANGELOG.md).
+
 ## Trust Boundaries
 
 The local Git Slop CLI does not:
@@ -213,10 +221,16 @@ layer.
 - [Vision](docs/vision.md)
 - [Installation](docs/install.md)
 - [Command Guide](docs/commands.md)
+- [Configuration Recipes](docs/config-recipes.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Worked Example](docs/worked-example.md)
 - [Report and Config Contract](docs/report-contract.md)
+- [.slop Directory Policy](docs/slop-directory.md)
 - [Scoring Model](docs/scoring-model.md)
 - [Architecture](docs/architecture.md)
 - [GitHub Action](docs/github-action.md)
+- [Release Checklist](docs/release-checklist.md)
+- [Changelog](CHANGELOG.md)
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 - [Brand Mark](assets/brand/README.md)

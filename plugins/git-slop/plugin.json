@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "git-slop",
-  "version": "0.9.6",
-  "description": "Agent guidance for installing, running, interpreting, automating, and adopting the native git-slop CLI.",
+  "version": "0.10.0",
+  "description": "Agent guidance for the deterministic git-slop repository token-defragmenter.",
   "author": {
     "name": "Corey Coto",
     "email": "support@coreycoto.com",
@@ -27,8 +27,8 @@
     "com.openai": {
       "interface": {
         "displayName": "Git Slop",
-        "shortDescription": "Run and automate git-slop health reports",
-        "longDescription": "Agent guidance for installing or updating the native git-slop CLI, running deterministic hotspot and repository-health reports, using the advisory GitHub Action, interpreting report artifacts, planning bounded maintenance slices, and adopting git-slop in consumer repositories without mixing product guidance into shared project-management workflows.",
+        "shortDescription": "Defragment repository context deterministically",
+        "longDescription": "Agent guidance for installing or updating the native git-slop repository token-defragmenter, running deterministic context-cost and repository-health reports, ratcheting pull requests against compatible baselines, interpreting evidence, and planning bounded maintenance slices.",
         "developerName": "Corey Coto",
         "category": "Developer Tools",
         "capabilities": [
@@ -46,7 +46,7 @@
         "brandColor": "#6f42c1",
         "composerIcon": "./assets/git-slop.svg",
         "logo": "./assets/git-slop.svg",
-        "screenshots": []
+        "screenshots": ["./assets/repository-health.png"]
       }
     }
   }

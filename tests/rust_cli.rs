@@ -123,6 +123,9 @@ fn health_report() -> Value {
             }
         },
         "stats": {},
+        "summary": {},
+        "overlays": {},
+        "health": {},
         "files": [{
             "path": "src/a,b%file.rs",
             "profile": "agent_context",
@@ -593,7 +596,7 @@ fn health_github_preserves_error_warning_and_notice_severity() {
 }
 
 #[test]
-fn health_json_derives_the_persisted_contract_for_legacy_schema_four_reports() {
+fn health_json_derives_the_persisted_contract_for_complete_schema_four_reports() {
     let report = write_report(&health_report());
     let output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
@@ -626,7 +629,7 @@ fn report_missing_and_check_failure_keep_their_exit_codes() {
         ])
         .assert()
         .code(2)
-        .stdout(predicate::str::contains(
+        .stderr(predicate::str::contains(
             "Report not found: definitely-not-a-report.json",
         ));
 

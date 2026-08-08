@@ -1,4 +1,5 @@
 use super::*;
+use sha2::{Digest, Sha256};
 
 fn sarif_level(record: &Value) -> &'static str {
     let slop_band = string(record.get("slop_band"));
@@ -48,10 +49,21 @@ fn sarif_result(record: &Value, rank: usize) -> Value {
         .into_iter()
         .map(|(label, value)| (label, json!(round6(value))))
         .collect();
+    let context_finding = matches!(
+        string(record.get("context_band")).as_str(),
+        "warning" | "critical" | "refactor_required"
+    );
+    let rule_id = if context_finding {
+        "git-slop.context-budget"
+    } else {
+        "git-slop.maintenance-pressure"
+    };
+    let fingerprint = hex::encode(Sha256::digest(format!("{rule_id}\0{path}").as_bytes()));
     json!({
-        "ruleId": "git-slop.hotspot",
-        "ruleIndex": 0,
+        "ruleId": rule_id,
+        "ruleIndex": if context_finding { 0 } else { 1 },
         "level": sarif_level(record),
+        "baselineState": record.get("baseline_state").and_then(Value::as_str).unwrap_or("unchanged"),
         "message": {
             "text": format!(
                 "{path} is ranked {} with slop_score {} and context {} ({reasons_text}).",
@@ -65,6 +77,7 @@ fn sarif_result(record: &Value, rank: usize) -> Value {
                 "artifactLocation": {"uri": path},
             },
         }],
+        "partialFingerprints": {"gitSlopFinding/v1": fingerprint},
         "properties": {
             "git_slop": {
                 "rank": rank,
@@ -122,15 +135,23 @@ pub fn sarif_payload(
                     "name": "git-slop",
                     "informationUri": "https://github.com/coreycoto/git-slop",
                     "rules": [{
-                        "id": "git-slop.hotspot",
-                        "name": "Git Slop hotspot",
-                        "shortDescription": {"text": "File ranked in the git-slop action queue."},
-                        "fullDescription": {"text": "A deterministic git-slop hotspot based on context cost. Overlay evidence is exported separately in result properties and does not change detector scoring."},
+                        "id": "git-slop.context-budget",
+                        "name": "Git Slop context budget",
+                        "shortDescription": {"text": "File meets a configured context-cost threshold."},
+                        "fullDescription": {"text": "A deterministic context-cost finding from Git Slop."},
+                        "helpUri": "https://github.com/coreycoto/git-slop/blob/main/docs/scoring-model.md",
                         "help": {"text": "Review the git-slop report, explain output, or plan output for supporting evidence before deciding whether maintenance work is appropriate."},
                         "properties": {
                             "precision": "medium",
                             "tags": ["maintainability", "context-cost", "git-slop"],
                         },
+                    }, {
+                        "id": "git-slop.maintenance-pressure",
+                        "name": "Git Slop maintenance pressure",
+                        "shortDescription": {"text": "File meets a configured maintenance-pressure threshold."},
+                        "fullDescription": {"text": "A deterministic maintenance-pressure finding from Git Slop."},
+                        "helpUri": "https://github.com/coreycoto/git-slop/blob/main/docs/scoring-model.md",
+                        "properties": {"precision": "medium", "tags": ["maintainability", "git-slop"]}
                     }],
                 },
             },
@@ -146,6 +167,7 @@ pub fn sarif_payload(
                         "schema_version": SARIF_SCHEMA_VERSION,
                         "report_schema_version": report.get("schema_version").cloned().unwrap_or(Value::Null),
                         "report_path": report_path,
+                        "analyzer": report.get("analyzer").cloned().unwrap_or_else(|| json!({})),
                         "boundary_note": SARIF_BOUNDARY_NOTE,
                     },
                 },
