@@ -9,7 +9,6 @@ use crate::VERSION;
 use crate::model::{Analysis, HealthRollup};
 
 const REPORT_SCHEMA_VERSION: u64 = 4;
-const MAX_SUMMARY_LIMIT: usize = 25;
 const ORGANIZATION_OVERLAY: &str = "organization_health";
 const ADDITIVE_OVERLAYS: [&str; 5] = [
     "verification",
@@ -96,7 +95,6 @@ fn action_queue_from_files(files: &[Value]) -> Vec<Value> {
     });
     ranked
         .into_iter()
-        .take(MAX_SUMMARY_LIMIT)
         .map(|file| {
             let reasons = string_array(file.get("reason_codes"));
             let pure_context = !reasons.is_empty()
@@ -263,6 +261,12 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
     let health_value = serde_json::to_value(health).unwrap_or_else(|_| json!({}));
     let config_bytes = serde_json::to_vec(&analysis.config).unwrap_or_default();
     let config_digest = hex::encode(Sha256::digest(config_bytes));
+    let history_cap_reached = analysis
+        .diagnostics
+        .pointer("/history/history_cap_reached")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let history_complete = !analysis.repo.is_shallow && !history_cap_reached;
     json!({
         "schema_version": REPORT_SCHEMA_VERSION,
         "analyzer": {
@@ -286,6 +290,7 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
             }
         },
         "repo": repo_payload(analysis),
+        "scope": analysis.scope,
         "config": analysis.config,
         "stats": {
             "tracked_file_count": analysis.tracked_file_count,
@@ -296,13 +301,23 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
             "skipped_undecodable_count": analysis.skipped.undecodable,
             "critical_context_file_count": critical_context_file_count,
             "critical_slop_file_count": critical_slop_file_count,
-            "history_complete": !analysis.repo.is_shallow
+            "history_complete": history_complete
         },
         "evidence_completeness": {
-            "history": if analysis.repo.is_shallow { "incomplete_shallow" } else { "complete" },
+            "history": if analysis.repo.is_shallow {
+                "incomplete_shallow"
+            } else if history_cap_reached {
+                "incomplete_commit_cap"
+            } else {
+                "complete"
+            },
             "repository_size": if files.len() < 10 { "low_support" } else { "sufficient" },
             "history_window_days": analysis.config.pointer("/history/churn_window_days").cloned().unwrap_or(Value::Null),
             "history_max_commits": analysis.config.pointer("/history/max_commits").cloned().unwrap_or(Value::Null),
+            "first_seen_age": if history_complete { "complete" } else { "bounded" },
+            "churn_window": if analysis.repo.is_shallow { "incomplete_shallow" } else { "complete_window" },
+            "author_evidence": if analysis.repo.is_shallow { "incomplete_shallow" } else { "complete_window" },
+            "relationship_evidence": if history_complete { "complete" } else { "bounded" },
             "missing_test_evidence_count": overlays.pointer("/verification/files")
                 .and_then(Value::as_array)
                 .map(|records| records.iter().filter(|record| record.get("verification_gap").and_then(Value::as_f64).unwrap_or_default() >= 0.8).count())
@@ -325,6 +340,14 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
         },
         "overlays": overlays,
         "health": health_value,
+        "collection_metadata": {
+            "files": {"total": files.len(), "returned": files.len(), "limit": null, "truncated": false},
+            "folders": {"total": folders.len(), "returned": folders.len(), "limit": null, "truncated": false},
+            "action_queue": {"total": action_queue.len(), "returned": action_queue.len(), "limit": null, "truncated": false},
+            "health.findings": {"total": health.findings.len(), "returned": health.findings.len(), "limit": null, "truncated": false},
+            "health.refactor_candidates": {"total": health.refactor_candidates.len(), "returned": health.refactor_candidates.len(), "limit": null, "truncated": false},
+            "health.watchlist": {"total": health.watchlist.len(), "returned": health.watchlist.len(), "limit": null, "truncated": false}
+        },
         "organization_metrics": analysis.organization.organization_metrics,
         "relationships": analysis.organization.relationships,
         "clusters": analysis.organization.clusters

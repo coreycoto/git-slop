@@ -1,10 +1,15 @@
 use std::fs;
+use std::fs::{File, OpenOptions};
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use fs2::FileExt;
+use globset::Glob;
+use serde_json::Map;
 use serde_json::{Value, json};
 
-pub const DEFAULT_SLOP_GITIGNORE: &str = "/latest/\n/runs/\n/cache/\n";
+pub const DEFAULT_SLOP_GITIGNORE: &str = "/latest/\n/runs/\n/cache/\n/scan.lock\n";
 pub const MINIMAL_CONFIG: &str = r#"# Git Slop configuration overrides.
 # Run `git slop config show --effective` to inspect every default.
 schema_version: 2
@@ -19,6 +24,39 @@ schema_version: 2
 pub struct InitResult {
     pub config: &'static str,
     pub gitignore: &'static str,
+}
+
+pub struct ScanLock {
+    file: File,
+}
+
+impl Drop for ScanLock {
+    fn drop(&mut self) {
+        let _ = FileExt::unlock(&self.file);
+    }
+}
+
+pub fn acquire_scan_lock(repo_root: &Path) -> Result<ScanLock> {
+    ensure_state_dirs(repo_root)?;
+    let path = slop_dir(repo_root).join("scan.lock");
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("failed to open scan lock {}", path.display()))?;
+    file.try_lock_exclusive().with_context(|| {
+        format!(
+            "another git-slop scan is already active for {}; wait for it to finish before retrying",
+            repo_root.display()
+        )
+    })?;
+    file.set_len(0)?;
+    file.seek(SeekFrom::Start(0))?;
+    writeln!(file, "pid={}", std::process::id())?;
+    file.sync_data()?;
+    Ok(ScanLock { file })
 }
 
 pub fn slop_dir(repo_root: &Path) -> PathBuf {
@@ -49,7 +87,8 @@ pub fn default_config() -> Value {
                 "uv.lock", "poetry.lock", "Pipfile.lock", "package-lock.json",
                 "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb",
                 "Cargo.lock", "Gemfile.lock", "composer.lock", "Podfile.lock"
-            ]
+            ],
+            "path_overrides": []
         },
         "tokenization": {
             "context_tokenizer_name": "cl100k_base",
@@ -81,7 +120,7 @@ pub fn default_config() -> Value {
             "max_temporal_edges": 10000,
             "max_commit_files": 200,
             "min_cochange_support": 3,
-            "min_coupling_lift": 2.0
+            "min_coupling_lift": 1.0
         },
         "verification": {
             "test_path_markers": [
@@ -95,12 +134,17 @@ pub fn default_config() -> Value {
         "semantic_drift": {"top_term_limit": 25},
         "resources": {
             "memory_budget_mb": 1024,
-            "large_file_bytes": 2097152
+            "large_file_bytes": 2097152,
+            "cache_max_bytes": 536870912,
+            "cache_max_entries": 10000
         },
         "output": {
-            "retention_runs": 20
+            "retention_runs": 20,
+            "pretty_json": false,
+            "yaml": false
         },
         "health": {
+            "profile_threshold_policy": "shared",
             "data_context_min_bytes": 262144,
             "folder_bands": {
                 "compact_max_direct_tokens": 31999,
@@ -114,7 +158,8 @@ pub fn default_config() -> Value {
         },
         "check": {
             "fail_on_context_band": "critical",
-            "fail_on_slop_band": "critical"
+            "fail_on_slop_band": "critical",
+            "regression_score_delta": 5.0
         }
     })
 }
@@ -150,22 +195,88 @@ fn validate_override_shape(value: &Value, defaults: &Value, path: &str) -> Resul
             }
         }
         (Value::Array(values), Value::Array(defaults)) => {
-            if path == "verification.source_test_mappings" {
+            if matches!(
+                path,
+                "verification.source_test_mappings" | "inventory.path_overrides"
+            ) {
                 for (index, mapping) in values.iter().enumerate() {
                     let Some(mapping) = mapping.as_object() else {
                         bail!("{path}[{index}] must be a mapping");
                     };
-                    if mapping
-                        .keys()
-                        .any(|key| key != "source_glob" && key != "test_glob")
-                    {
-                        bail!("{path}[{index}] supports only source_glob and test_glob");
+                    let keys: &[&str] = if path == "verification.source_test_mappings" {
+                        &["source_glob", "test_glob"]
+                    } else {
+                        &[
+                            "glob",
+                            "classification",
+                            "profile",
+                            "language",
+                            "verification_applicability",
+                        ]
+                    };
+                    if mapping.keys().any(|key| !keys.contains(&key.as_str())) {
+                        bail!("{path}[{index}] contains an unsupported key");
                     }
-                    for key in ["source_glob", "test_glob"] {
-                        if mapping.get(key).and_then(Value::as_str).is_none() {
+                    let required: &[&str] = if path == "verification.source_test_mappings" {
+                        &["source_glob", "test_glob"]
+                    } else {
+                        &["glob"]
+                    };
+                    for key in required {
+                        let Some(pattern) = mapping.get(*key).and_then(Value::as_str) else {
                             bail!("{path}[{index}].{key} must be a string");
+                        };
+                        Glob::new(pattern).with_context(|| {
+                            format!("{path}[{index}].{key} is not a valid glob")
+                        })?;
+                    }
+                    if path == "inventory.path_overrides" {
+                        if !mapping.contains_key("classification")
+                            && !mapping.contains_key("profile")
+                            && !mapping.contains_key("language")
+                            && !mapping.contains_key("verification_applicability")
+                        {
+                            bail!("{path}[{index}] must set at least one supported override");
+                        }
+                        if let Some(classification) =
+                            mapping.get("classification").and_then(Value::as_str)
+                        {
+                            if !["source", "test", "docs", "tool", "config", "data", "other"]
+                                .contains(&classification)
+                            {
+                                bail!("{path}[{index}].classification has an unsupported value");
+                            }
+                        }
+                        if let Some(profile) = mapping.get("profile").and_then(Value::as_str) {
+                            if !["agent_context", "data_context"].contains(&profile) {
+                                bail!("{path}[{index}].profile has an unsupported value");
+                            }
+                        }
+                        if mapping
+                            .get("language")
+                            .is_some_and(|value| value.as_str().is_none_or(str::is_empty))
+                        {
+                            bail!("{path}[{index}].language must be a non-empty string");
+                        }
+                        if let Some(applicability) = mapping
+                            .get("verification_applicability")
+                            .and_then(Value::as_str)
+                        {
+                            if !["auto", "applicable", "not_applicable"].contains(&applicability) {
+                                bail!(
+                                    "{path}[{index}].verification_applicability has an unsupported value"
+                                );
+                            }
                         }
                     }
+                }
+            } else if path == "inventory.ignore_globs" {
+                for (index, value) in values.iter().enumerate() {
+                    let Some(pattern) = value.as_str() else {
+                        bail!("{path}[{index}] must be a string");
+                    };
+                    Glob::new(pattern)
+                        .with_context(|| format!("{path}[{index}] is not a valid glob"))?;
                 }
             } else if let Some(default) = defaults.first() {
                 for (index, child) in values.iter().enumerate() {
@@ -210,11 +321,22 @@ pub fn validate(config: &Value) -> Result<()> {
         "/organization/max_pairs_per_file",
         "/organization/max_temporal_edges",
         "/organization/max_commit_files",
+        "/organization/min_cochange_support",
         "/navigation/top_distinctive_terms",
         "/semantic_drift/top_term_limit",
         "/resources/memory_budget_mb",
         "/resources/large_file_bytes",
+        "/resources/cache_max_bytes",
+        "/resources/cache_max_entries",
         "/output/retention_runs",
+        "/health/data_context_min_bytes",
+        "/health/folder_bands/compact_max_direct_tokens",
+        "/health/folder_bands/healthy_max_direct_tokens",
+        "/health/folder_bands/warning_max_direct_tokens",
+        "/health/folder_bands/warning_max_direct_files",
+        "/health/folder_bands/refactor_required_max_direct_files",
+        "/health/summary_top_files",
+        "/health/summary_top_folders",
     ] {
         require_positive(config, pointer)?;
     }
@@ -224,6 +346,28 @@ pub fn validate(config: &Value) -> Result<()> {
     let warning = bands["warning_max_tokens"].as_u64().unwrap_or_default();
     if !(compact < healthy && healthy < warning) {
         bail!("tokenization.context_bands must be strictly increasing");
+    }
+    let folder_bands = &config["health"]["folder_bands"];
+    let folder_compact = folder_bands["compact_max_direct_tokens"]
+        .as_u64()
+        .unwrap_or_default();
+    let folder_healthy = folder_bands["healthy_max_direct_tokens"]
+        .as_u64()
+        .unwrap_or_default();
+    let folder_warning = folder_bands["warning_max_direct_tokens"]
+        .as_u64()
+        .unwrap_or_default();
+    let folder_warning_files = folder_bands["warning_max_direct_files"]
+        .as_u64()
+        .unwrap_or_default();
+    let folder_refactor_files = folder_bands["refactor_required_max_direct_files"]
+        .as_u64()
+        .unwrap_or_default();
+    if !(folder_compact < folder_healthy && folder_healthy < folder_warning) {
+        bail!("health.folder_bands direct-token thresholds must be strictly increasing");
+    }
+    if folder_warning_files >= folder_refactor_files {
+        bail!("health.folder_bands direct-file thresholds must be strictly increasing");
     }
     let min_tokens = config["organization"]["min_file_tokens"]
         .as_u64()
@@ -237,6 +381,7 @@ pub fn validate(config: &Value) -> Result<()> {
     for pointer in [
         "/organization/min_similarity",
         "/organization/min_coupling_lift",
+        "/check/regression_score_delta",
     ] {
         let Some(value) = config.pointer(pointer).and_then(Value::as_f64) else {
             bail!(
@@ -249,6 +394,9 @@ pub fn validate(config: &Value) -> Result<()> {
                 "{} must be finite and non-negative",
                 pointer.trim_start_matches('/').replace('/', ".")
             );
+        }
+        if pointer == "/organization/min_similarity" && value > 1.0 {
+            bail!("organization.min_similarity must be at most 1.0");
         }
     }
     let weights = ["context_weight", "age_weight", "churn_weight"]
@@ -334,25 +482,10 @@ fn normalize_legacy(mut payload: Value) -> Result<Value> {
     Ok(payload)
 }
 
-fn add_legacy_aliases(mut payload: Value) -> Value {
-    let tokenizer_name = pointer_str(&payload, "/tokenization/context_tokenizer_name")
-        .unwrap_or("cl100k_base")
-        .to_string();
-    let bands = payload
-        .pointer("/tokenization/context_bands")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    if let Some(object) = payload.as_object_mut() {
-        object.insert("tokenizer".into(), json!({"name": tokenizer_name}));
-        object.insert("context_bands".into(), bands);
-    }
-    payload
-}
-
 pub fn load(repo_root: &Path) -> Result<Value> {
     let path = config_path(repo_root);
     if !path.exists() {
-        return Ok(add_legacy_aliases(default_config()));
+        return Ok(default_config());
     }
     let source =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
@@ -365,7 +498,137 @@ pub fn load(repo_root: &Path) -> Result<Value> {
     let mut merged = default_config();
     deep_merge(&mut merged, override_value);
     validate(&merged)?;
-    Ok(add_legacy_aliases(merged))
+    Ok(merged)
+}
+
+fn schema_for_value(value: &Value, path: &str) -> Value {
+    match value {
+        Value::Object(values) => {
+            let properties = values
+                .iter()
+                .map(|(key, value)| {
+                    let child = if path.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{path}.{key}")
+                    };
+                    (key.clone(), schema_for_value(value, &child))
+                })
+                .collect::<Map<String, Value>>();
+            json!({
+                "type": "object",
+                "description": format!("Git Slop {path} configuration."),
+                "additionalProperties": false,
+                "properties": properties
+            })
+        }
+        Value::Array(values) => {
+            let items = if path == "verification.source_test_mappings" {
+                json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["source_glob", "test_glob"],
+                    "properties": {
+                        "source_glob": {"type": "string", "minLength": 1, "description": "Source-path glob."},
+                        "test_glob": {"type": "string", "minLength": 1, "description": "Test-path glob."}
+                    }
+                })
+            } else if path == "inventory.path_overrides" {
+                json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["glob"],
+                    "properties": {
+                        "glob": {"type": "string", "minLength": 1},
+                        "classification": {"type": "string", "enum": ["source", "test", "docs", "tool", "config", "data", "other"]},
+                        "profile": {"type": "string", "enum": ["agent_context", "data_context"]},
+                        "language": {"type": "string", "minLength": 1},
+                        "verification_applicability": {"type": "string", "enum": ["auto", "applicable", "not_applicable"]}
+                    },
+                    "anyOf": [
+                        {"required": ["classification"]},
+                        {"required": ["profile"]},
+                        {"required": ["language"]},
+                        {"required": ["verification_applicability"]}
+                    ]
+                })
+            } else {
+                values.first().map_or_else(
+                    || json!({}),
+                    |value| schema_for_value(value, &format!("{path}[]")),
+                )
+            };
+            json!({"type": "array", "default": value, "items": items})
+        }
+        Value::String(default) => {
+            let mut schema = json!({"type": "string", "default": default});
+            let allowed: Option<&[&str]> = match path {
+                "tokenization.context_tokenizer_name" => Some(&[
+                    "cl100k_base",
+                    "o200k_base",
+                    "o200k_harmony",
+                    "p50k_base",
+                    "p50k_edit",
+                    "r50k_base",
+                ]),
+                "check.fail_on_context_band" => {
+                    Some(&["compact", "healthy", "warning", "critical"])
+                }
+                "check.fail_on_slop_band" => Some(&["low", "moderate", "high", "critical"]),
+                "health.profile_threshold_policy" => Some(&["shared"]),
+                _ => None,
+            };
+            if let Some(allowed) = allowed {
+                schema["enum"] = json!(allowed);
+            }
+            schema
+        }
+        Value::Number(default) => {
+            let minimum = if path.starts_with("scoring.")
+                || matches!(
+                    path,
+                    "organization.min_similarity"
+                        | "organization.min_coupling_lift"
+                        | "check.regression_score_delta"
+                ) {
+                0
+            } else {
+                1
+            };
+            let mut schema = json!({
+                "type": if default.is_u64() { "integer" } else { "number" },
+                "default": default,
+                "minimum": minimum
+            });
+            if matches!(path, "organization.min_similarity") {
+                schema["maximum"] = json!(1.0);
+            }
+            schema
+        }
+        Value::Bool(default) => json!({"type": "boolean", "default": default}),
+        Value::Null => json!({"type": "null"}),
+    }
+}
+
+pub fn schema() -> Value {
+    let defaults = default_config();
+    let mut schema = schema_for_value(&defaults, "");
+    schema["$schema"] = json!("https://json-schema.org/draft/2020-12/schema");
+    schema["$id"] = json!("https://github.com/coreycoto/git-slop/blob/main/config/schema-2.json");
+    schema["title"] = json!("Git Slop configuration schema 2");
+    schema["required"] = json!(["schema_version"]);
+    schema["properties"]["schema_version"] = json!({
+        "type": "integer",
+        "const": 2,
+        "default": 2,
+        "description": "Configuration contract version. Schema 1 is accepted only as migration input."
+    });
+    schema["x-git-slop-deprecated-keys"] = json!({
+        "tokenizer": "Use tokenization.context_tokenizer_name.",
+        "context_bands": "Use tokenization.context_bands.",
+        "check.fail_on_priority_band": "Use check.fail_on_slop_band."
+    });
+    schema
 }
 
 pub fn ensure_state_dirs(repo_root: &Path) -> Result<()> {
@@ -385,7 +648,26 @@ pub fn ensure_runtime_gitignore(repo_root: &Path) -> Result<bool> {
     ensure_state_dirs(repo_root)?;
     let target = slop_dir(repo_root).join(".gitignore");
     if target.exists() {
-        return Ok(false);
+        let current = fs::read_to_string(&target)
+            .with_context(|| format!("failed to read {}", target.display()))?;
+        let mut missing = DEFAULT_SLOP_GITIGNORE
+            .lines()
+            .filter(|line| !current.lines().any(|existing| existing == *line))
+            .collect::<Vec<_>>();
+        if missing.is_empty() {
+            return Ok(false);
+        }
+        let mut updated = current;
+        if !updated.ends_with('\n') {
+            updated.push('\n');
+        }
+        for line in missing.drain(..) {
+            updated.push_str(line);
+            updated.push('\n');
+        }
+        fs::write(&target, updated)
+            .with_context(|| format!("failed to update {}", target.display()))?;
+        return Ok(true);
     }
     fs::write(&target, DEFAULT_SLOP_GITIGNORE)
         .with_context(|| format!("failed to write {}", target.display()))?;
@@ -507,8 +789,8 @@ mod tests {
             3_072
         );
         assert_eq!(normalized["history"]["follow_renames"], true);
-        assert_eq!(normalized["tokenizer"]["name"], "r50k_base");
-        assert_eq!(normalized["context_bands"]["warning_max_tokens"], 9_000);
+        assert!(normalized.get("tokenizer").is_none());
+        assert!(normalized.get("context_bands").is_none());
     }
 
     #[test]
@@ -581,5 +863,53 @@ mod tests {
             let error = load(repository.path()).expect_err("invalid config must fail closed");
             assert!(error.to_string().contains(expected), "{error:#}");
         }
+    }
+
+    #[test]
+    fn strict_validation_rejects_invalid_globs_and_non_monotonic_folder_bands() {
+        for (payload, expected) in [
+            (
+                json!({"schema_version": 2, "inventory": {"ignore_globs": ["["]}}),
+                "valid glob",
+            ),
+            (
+                json!({"schema_version": 2, "health": {"folder_bands": {"compact_max_direct_tokens": 200000}}}),
+                "strictly increasing",
+            ),
+        ] {
+            let repository = tempdir().expect("temporary repository");
+            let path = config_path(repository.path());
+            fs::create_dir_all(path.parent().expect("config parent")).expect("config directory");
+            fs::write(&path, serde_yaml::to_string(&payload).expect("config YAML"))
+                .expect("config");
+            let error = load(repository.path()).expect_err("invalid config");
+            assert!(error.to_string().contains(expected), "{error:#}");
+        }
+    }
+
+    #[test]
+    fn scan_lock_is_process_exclusive_and_reusable() {
+        let repository = tempdir().expect("temporary repository");
+        let first = super::acquire_scan_lock(repository.path()).expect("first lock");
+        assert!(super::acquire_scan_lock(repository.path()).is_err());
+        drop(first);
+        super::acquire_scan_lock(repository.path()).expect("reacquired lock");
+    }
+
+    #[test]
+    fn generated_schema_describes_real_nested_defaults_and_bounds() {
+        let schema = super::schema();
+        assert_eq!(schema["properties"]["schema_version"]["const"], 2);
+        assert_eq!(
+            schema["properties"]["organization"]["properties"]["min_similarity"]["maximum"],
+            1.0
+        );
+        assert_eq!(
+            schema["properties"]["check"]["properties"]["fail_on_slop_band"]["enum"][3],
+            "critical"
+        );
+        let published: Value = serde_json::from_str(include_str!("../schemas/config-2.json"))
+            .expect("published config schema");
+        assert_eq!(published, schema);
     }
 }

@@ -47,20 +47,24 @@ non-destructive `.slop/.gitignore` when needed:
 ```bash
 git-slop find
 git-slop find --scope packages/example
+git-slop find --scope intentionally-empty --allow-empty-scope
+git-slop find --no-progress
 git-slop find --quiet
 git-slop find --allow-shallow
 ```
 
-It writes the same four-file bundle to `.slop/latest/` and to one timestamped
+It writes the same compact bundle to `.slop/latest/` and to one timestamped
 directory under `.slop/runs/`:
 
 - `report.json`
-- `report.yaml`
+- optional `report.yaml` when `output.yaml: true`
 - `summary.md`
 - `health.md`
 
 Shallow history fails by default. `--allow-shallow` is an explicit
 acknowledgement and the report records incomplete evidence.
+`--no-progress` keeps the final report summary but disables phase updates;
+`--quiet` suppresses both.
 
 ### Health
 
@@ -304,6 +308,16 @@ git-slop compare \
 It reports added, removed, changed, and unchanged file/folder records, stable
 score and band movement, overlay pressure deltas, and action-queue movement. It
 does not rerun the detector, write `.slop/`, change scoring, or imply causality.
+
+`--fail-on-regression` uses the same policy as the Action: a new file regresses
+only when it is a finding; an existing file regresses on a worse band or a
+configured material score increase with changed content. `--force` records
+exact compatibility mismatches in JSON.
+
+```bash
+git-slop report validate .slop/latest/report.json
+git-slop report schema
+```
 
 ### SARIF
 

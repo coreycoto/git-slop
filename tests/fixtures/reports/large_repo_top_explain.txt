@@ -32,8 +32,8 @@ Explain: top 5 hotspots
 
 Evidence Summary
 - strongest detector costs: top explanations preserve the current action_queue order
-- strongest overlays: none
-- supporting relationships: none
+- strongest overlays: blast_radius pressure 0.628; blast_radius pressure 0.651; blast_radius pressure 0.658; blast_radius pressure 0.723; navigation pressure 0.601; organization.boundary pressure 0.971; organization.boundary pressure 1.000; organization.diffusion pressure 0.778; organization.diffusion pressure 1.000; semantic_drift pressure 0.993
+- supporting relationships: boundary_leakage_edge-4b9731494fde, lexical_affinity_edge-4843bcaf58e4, temporal_coupling_edge-4f9b24ae42af
 - supporting clusters: none
 - interpretation: Top explanations describe detector ordering; they do not rerank hotspots or prove a refactor is required.
 

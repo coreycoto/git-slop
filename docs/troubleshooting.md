@@ -14,7 +14,10 @@ Use `git slop doctor`, set `resources.memory_budget_mb`, tune `organization.max_
 
 ## Unexpectedly large reports
 
-Version 0.10.0 omits structural token arrays and hard-links `latest/` to immutable runs when the filesystem supports it. Use `git slop prune --dry-run`, then `git slop prune`. YAML remains available for compatibility; prefer JSON for automation.
+Version 0.10 omits structural token arrays and hard-links `latest/` to immutable
+runs when the filesystem supports it. Use `git slop prune --dry-run`, then
+`git slop prune`. JSON is compact by default. Enable compatibility YAML
+explicitly with `output.yaml: true` and prefer JSON for automation.
 
 ## Missing or invalid reports
 

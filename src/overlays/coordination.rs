@@ -11,6 +11,8 @@ const PAGERANK_DAMPING: f64 = 0.85;
 
 #[derive(Default)]
 pub(super) struct CoordinationFacts {
+    pub(super) observation_commit_count: usize,
+    pub(super) bulk_commits_skipped: usize,
     pub(super) commit_count: usize,
     pub(super) touched_file_total: usize,
     pub(super) touched_folder_total: usize,
@@ -94,6 +96,7 @@ pub(super) fn coordination_facts(
         .iter()
         .map(|file| (file.path.clone(), CoordinationFacts::default()))
         .collect();
+    let mut bulk_commits_skipped = 0usize;
     for commit in commits {
         let mut touched: Vec<&str> = commit
             .paths
@@ -104,6 +107,7 @@ pub(super) fn coordination_facts(
         touched.sort_unstable();
         touched.dedup();
         if touched.len() > max_commit_files {
+            bulk_commits_skipped += 1;
             continue;
         }
         let roots: BTreeSet<String> = touched.iter().map(|path| top_level_root(path)).collect();
@@ -155,6 +159,8 @@ pub(super) fn coordination_facts(
         }
     }
     for facts in result.values_mut() {
+        facts.observation_commit_count = commits.len();
+        facts.bulk_commits_skipped = bulk_commits_skipped;
         if facts.neighbors.len() > max_neighbors {
             let mut ranked: Vec<(String, usize)> =
                 std::mem::take(&mut facts.neighbors).into_iter().collect();

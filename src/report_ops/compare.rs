@@ -127,21 +127,41 @@ fn compatibility_value<'a>(report: &'a Value, pointer: &str) -> Option<&'a Value
     report.pointer(pointer)
 }
 
-fn require_compatible_reports(base: &Value, head: &Value) -> Result<()> {
+fn compatibility_mismatches(base: &Value, head: &Value) -> Vec<Value> {
+    let mut mismatches = Vec::new();
     for (label, pointer) in [
         ("repository identity", "/repo/remote_url"),
         ("tokenizer", "/analyzer/context_tokenizer"),
         ("configuration digest", "/analyzer/config_digest"),
         ("analyzer version", "/analyzer/version"),
         ("history completeness", "/stats/history_complete"),
+        ("analysis scope mode", "/scope/mode"),
+        ("analysis scope path", "/scope/path"),
+        ("selected path count", "/scope/selected_path_count"),
+        ("selected path digest", "/scope/selected_path_digest"),
     ] {
         let left = compatibility_value(base, pointer);
         let right = compatibility_value(head, pointer);
         if left != right {
-            bail!(
-                "reports have incompatible {label}; rerun compare with --force only if this mismatch is intentional"
-            );
+            mismatches.push(json!({
+                "field": label,
+                "pointer": pointer,
+                "base": left.cloned().unwrap_or(Value::Null),
+                "head": right.cloned().unwrap_or(Value::Null),
+            }));
         }
+    }
+    mismatches
+}
+
+fn require_compatible_reports(mismatches: &[Value]) -> Result<()> {
+    if let Some(first) = mismatches.first() {
+        let label = string(first.get("field"));
+        let base = first.get("base").cloned().unwrap_or(Value::Null);
+        let head = first.get("head").cloned().unwrap_or(Value::Null);
+        bail!(
+            "reports have incompatible {label}: base={base}, head={head}; rerun compare with --force only if this mismatch is intentional"
+        );
     }
     Ok(())
 }
@@ -157,6 +177,14 @@ fn build_record_delta(path: &str, base: Option<&Value>, head: Option<&Value>) ->
     let head_context = record_band(head, "context_band");
     let base_slop = record_band(base, "slop_band");
     let head_slop = record_band(head, "slop_band");
+    let base_fingerprint =
+        optional_string(base.and_then(|record| record.get("content_fingerprint")));
+    let head_fingerprint =
+        optional_string(head.and_then(|record| record.get("content_fingerprint")));
+    let content_changed = match (&base_fingerprint, &head_fingerprint) {
+        (Some(base), Some(head)) => Some(base != head),
+        _ => None,
+    };
     let context_delta = band_delta(base_context.as_deref(), head_context.as_deref());
     let slop_delta = band_delta(base_slop.as_deref(), head_slop.as_deref());
     json!({
@@ -177,8 +205,75 @@ fn build_record_delta(path: &str, base: Option<&Value>, head: Option<&Value>) ->
         "base_slop_band": base_slop,
         "head_slop_band": head_slop,
         "slop_band_delta": slop_delta,
+        "base_content_fingerprint": base_fingerprint,
+        "head_content_fingerprint": head_fingerprint,
+        "content_changed": content_changed,
         "overlay_deltas": record_overlay_delta(base, head),
     })
+}
+
+fn regression_for_delta(delta: &Value, base: &Value) -> Option<Value> {
+    let path = string(delta.get("path"));
+    let status = string(delta.get("status"));
+    let head_context_band = string(delta.get("head_context_band"));
+    let head_slop_band = string(delta.get("head_slop_band"));
+    let severity = if matches!(head_context_band.as_str(), "critical" | "refactor_required")
+        || head_slop_band == "critical"
+    {
+        "error"
+    } else if head_context_band == "warning" || head_slop_band == "high" {
+        "warning"
+    } else {
+        "notice"
+    };
+    let reason = if status == "added" {
+        if !matches!(
+            head_context_band.as_str(),
+            "warning" | "critical" | "refactor_required"
+        ) && !matches!(head_slop_band.as_str(), "high" | "critical")
+        {
+            return None;
+        }
+        "new_finding"
+    } else if status == "changed" {
+        let context_delta = delta
+            .get("context_band_delta")
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
+        let slop_delta = delta
+            .get("slop_band_delta")
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
+        let score_delta = number(delta.get("slop_score_delta"));
+        let threshold = base
+            .pointer("/config/check/regression_score_delta")
+            .and_then(Value::as_f64)
+            .unwrap_or(5.0);
+        let content_changed = delta
+            .get("content_changed")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        if context_delta > 0 || slop_delta > 0 {
+            "worse_band"
+        } else if score_delta >= threshold && content_changed {
+            "material_score_increase"
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    };
+    Some(json!({
+        "path": path,
+        "status": if status == "added" { "new" } else { "worsened" },
+        "reason": reason,
+        "severity": severity,
+        "base_slop_score": delta.get("base_slop_score").cloned().unwrap_or(Value::Null),
+        "head_slop_score": delta.get("head_slop_score").cloned().unwrap_or(Value::Null),
+        "slop_score_delta": delta.get("slop_score_delta").cloned().unwrap_or(Value::Null),
+        "context_band": delta.get("head_context_band").cloned().unwrap_or(Value::Null),
+        "slop_band": delta.get("head_slop_band").cloned().unwrap_or(Value::Null),
+    }))
 }
 
 fn build_record_deltas(base: &Value, head: &Value, collection: &str) -> Vec<Value> {
@@ -313,6 +408,9 @@ fn aggregate_overlay_deltas(items: &[Value]) -> Vec<Value> {
 
 fn report_descriptor(report: &Value, path: Option<&str>) -> Value {
     let repo = report.get("repo").unwrap_or(&Value::Null);
+    let report_digest = serde_json::to_vec(report)
+        .map(|bytes| hex::encode(Sha256::digest(bytes)))
+        .unwrap_or_default();
     json!({
         "path": path,
         "repo_name": repo.get("repo_name").cloned().unwrap_or(Value::Null),
@@ -321,18 +419,16 @@ fn report_descriptor(report: &Value, path: Option<&str>) -> Value {
             .or_else(|| value_at(report, &["summary", "generated_at"]))
             .cloned()
             .unwrap_or(Value::Null),
+        "analyzed_revision_at": report.get("analyzed_revision_at").cloned().unwrap_or(Value::Null),
         "schema_version": report.get("schema_version").cloned().unwrap_or(Value::Null),
+        "report_digest": report_digest,
+        "content_digest": repo.get("analyzed_content_digest").cloned().unwrap_or(Value::Null),
+        "scope": report.get("scope").cloned().unwrap_or(Value::Null),
+        "analyzer_version": report.pointer("/analyzer/version").cloned().unwrap_or(Value::Null),
+        "config_digest": report.pointer("/analyzer/config_digest").cloned().unwrap_or(Value::Null),
+        "context_tokenizer": report.pointer("/analyzer/context_tokenizer").cloned().unwrap_or(Value::Null),
+        "history_complete": report.pointer("/stats/history_complete").cloned().unwrap_or(Value::Null),
     })
-}
-
-pub fn compare_payload(
-    base_report: &Value,
-    head_report: &Value,
-    base_path: Option<&str>,
-    head_path: Option<&str>,
-    top: usize,
-) -> Result<Value> {
-    compare_payload_with_force(base_report, head_report, base_path, head_path, top, false)
 }
 
 pub fn compare_payload_with_force(
@@ -352,8 +448,9 @@ pub fn compare_payload_with_force(
     if top == 0 {
         bail!("--top must be greater than zero.");
     }
+    let compatibility_mismatches = compatibility_mismatches(base_report, head_report);
     if !force {
-        require_compatible_reports(base_report, head_report)?;
+        require_compatible_reports(&compatibility_mismatches)?;
     }
     let file_deltas = build_record_deltas(base_report, head_report, "files");
     let folder_deltas = build_record_deltas(base_report, head_report, "folders");
@@ -372,6 +469,10 @@ pub fn compare_payload_with_force(
     let mut queue_movement = build_queue_movement(base_report, head_report);
     queue_movement.truncate(top);
     let overlay_deltas = aggregate_overlay_deltas(&file_deltas);
+    let regressions = file_deltas
+        .iter()
+        .filter_map(|delta| regression_for_delta(delta, base_report))
+        .collect::<Vec<_>>();
     Ok(json!({
         "schema_version": COMPARE_SCHEMA_VERSION,
         "report_schema_version": REPORT_SCHEMA_VERSION,
@@ -383,43 +484,45 @@ pub fn compare_payload_with_force(
             "folders": delta_counts(&folder_deltas),
             "worsened_file_count": worsened,
             "improved_file_count": improved,
+            "regression_count": regressions.len(),
         },
         "file_deltas": file_deltas,
         "folder_deltas": folder_deltas,
         "queue_movement": queue_movement,
         "overlay_deltas": overlay_deltas,
+        "regressions": regressions,
         "boundary_note": COMPARE_BOUNDARY_NOTE,
         "compatibility_forced": force,
+        "baseline_compatible": compatibility_mismatches.is_empty(),
+        "compatibility_mismatches": compatibility_mismatches,
     }))
-}
-
-fn file_name_or_fallback(value: &str, fallback: &str) -> String {
-    std::path::Path::new(value)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or(fallback)
-        .to_string()
 }
 
 pub fn render_compare_text(payload: &Value, top: usize) -> String {
     let base_path = string(value_at(payload, &["base_report", "path"]));
     let head_path = string(value_at(payload, &["head_report", "path"]));
-    let base_name = file_name_or_fallback(
-        if base_path.is_empty() {
-            "<base>"
-        } else {
-            &base_path
-        },
-        "<base>",
-    );
-    let head_name = file_name_or_fallback(
-        if head_path.is_empty() {
-            "<head>"
-        } else {
-            &head_path
-        },
-        "<head>",
-    );
+    let basename = |value: &str, fallback: &str| {
+        std::path::Path::new(value)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(fallback)
+            .to_string()
+    };
+    let base_short = basename(&base_path, "<base>");
+    let head_short = basename(&head_path, "<head>");
+    let (base_name, head_name) = if base_short == head_short && !base_path.is_empty() {
+        (base_path, head_path)
+    } else {
+        (base_short, head_short)
+    };
+    let base_digest = string(value_at(payload, &["base_report", "report_digest"]));
+    let head_digest = string(value_at(payload, &["head_report", "report_digest"]));
+    if !base_digest.is_empty() && base_digest == head_digest {
+        return format!(
+            "Compare: {base_name} -> {head_name}\n\nIdentical reports (sha256:{base_digest}).\n\n{}",
+            string(payload.get("boundary_note"))
+        );
+    }
     let mut lines = vec![
         format!("Compare: {base_name} -> {head_name}"),
         String::new(),

@@ -277,6 +277,61 @@ fn compare_reports_missing_invalid_and_incomplete_inputs_as_usage_errors() {
 }
 
 #[test]
+fn regression_gate_ignores_a_new_healthy_file_and_records_forced_scope_mismatches() {
+    let directory = TempDir::new().expect("temporary report directory");
+    let mut base = load_fixture("compare_base_report.json");
+    let mut head = base.clone();
+    head["files"].as_array_mut().expect("files").push(json!({
+        "path": "src/healthy.rs",
+        "tokens": 100,
+        "context_band": "compact",
+        "slop_score": 2.0,
+        "slop_band": "low",
+        "reason_codes": [],
+        "costs": {},
+        "overlays": {}
+    }));
+    base["scope"] =
+        json!({"mode":"scoped","path":"src","selected_path_count":3,"selected_path_digest":"aaa"});
+    head["scope"] =
+        json!({"mode":"scoped","path":"lib","selected_path_count":4,"selected_path_digest":"bbb"});
+    let base_path = write_report(&directory, "base.json", &base);
+    let head_path = write_report(&directory, "head.json", &head);
+
+    cargo_bin_cmd!("git-slop")
+        .args(["compare", "--base"])
+        .arg(&base_path)
+        .arg("--head")
+        .arg(&head_path)
+        .arg("--fail-on-regression")
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("analysis scope path"));
+
+    let output = cargo_bin_cmd!("git-slop")
+        .args(["compare", "--base"])
+        .arg(&base_path)
+        .arg("--head")
+        .arg(&head_path)
+        .args(["--force", "--fail-on-regression", "--format", "json"])
+        .output()
+        .expect("forced compare");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("comparison JSON");
+    assert_eq!(payload["summary"]["regression_count"], 0);
+    assert_eq!(payload["baseline_compatible"], false);
+    assert!(
+        payload["compatibility_mismatches"]
+            .as_array()
+            .is_some_and(|items| items.len() >= 2)
+    );
+}
+
+#[test]
 fn sarif_stdout_preserves_sarif_tool_finding_and_evidence_contracts() {
     let report_path = fixture("large_repo_top_report.json");
     let report = load_fixture("large_repo_top_report.json");

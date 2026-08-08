@@ -36,6 +36,11 @@ fn read_json(path: &Path) -> Value {
 fn assert_prompt_pack_safety(pack: &Path) -> Value {
     assert!(pack.join("prompt.md").is_file(), "missing prompt.md");
     assert!(pack.join("README.md").is_file(), "missing README.md");
+    let manifest = read_json(&pack.join("manifest.json"));
+    assert_eq!(manifest["schema_version"], 1);
+    for name in ["context.json", "prompt.md", "README.md"] {
+        assert_eq!(manifest["files"][name].as_str().map(str::len), Some(64));
+    }
 
     let context = read_json(&pack.join("context.json"));
     assert_eq!(context["prompt_pack_version"], 1);
@@ -268,7 +273,8 @@ fn prompt_pack_rejects_an_existing_file_target() {
         ])
         .assert()
         .code(2)
-        .stdout(predicate::str::contains(format!(
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains(format!(
             "Prompt pack path is not a directory: {}",
             pack.display()
         )));
@@ -312,6 +318,6 @@ fn init_writes_schema_two_config_ignore_rules_and_state_directories() {
 
     assert_eq!(
         fs::read_to_string(gitignore_path).expect("read generated .gitignore"),
-        "/latest/\n/runs/\n/cache/\n"
+        "/latest/\n/runs/\n/cache/\n/scan.lock\n"
     );
 }

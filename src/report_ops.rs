@@ -5,6 +5,7 @@ use std::path::Path;
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 mod compare;
 mod explain;
@@ -12,7 +13,7 @@ mod github;
 mod plan;
 mod sarif;
 
-pub use compare::{compare_payload, compare_payload_with_force, render_compare_text};
+pub use compare::{compare_payload_with_force, render_compare_text};
 pub use explain::{explain_payload, render_explain_text};
 pub use github::{health_json_payload, render_github_annotations, write_prompt_pack};
 pub use plan::{plan_payload, render_plan_text};
@@ -43,12 +44,6 @@ pub const EXPLAIN_BOUNDARY_NOTE: &str = "Interpretation boundary: this is struct
 pub const PLAN_BOUNDARY_NOTE: &str = "Plan boundary: this is a bounded proposal only. It does not mutate code, GitHub, or detector truth, and it does not guarantee correctness or safety.";
 pub const COMPARE_BOUNDARY_NOTE: &str = "Compare boundary: this is a read-only comparison of two existing reports. It does not rerun the detector, imply causality, mutate repo state, or change detector scoring semantics.";
 pub const SARIF_BOUNDARY_NOTE: &str = "SARIF export boundary: this is a deterministic projection of existing git-slop report evidence. It does not rerun the detector, upload results, mutate code, or change detector scoring semantics.";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputFormat {
-    Text,
-    Json,
-}
 
 #[derive(Debug, Clone)]
 pub enum ExplainSelector {

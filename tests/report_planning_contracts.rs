@@ -190,7 +190,7 @@ fn large_repo_top_explain_matches_the_text_golden_and_defaults_to_five() {
     );
     assert_eq!(
         default_payload["target"],
-        json!({"kind": "top", "count": 5})
+        json!({"kind": "top", "count": 5, "requested_count": 5})
     );
     assert_eq!(default_payload["items"].as_array().map(Vec::len), Some(5));
     assert_fixture_unchanged(&report, &original_report);

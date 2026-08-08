@@ -1,0 +1,508 @@
+{
+  "$id": "https://github.com/coreycoto/git-slop/blob/main/config/schema-2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Git Slop  configuration.",
+  "properties": {
+    "blast_radius": {
+      "additionalProperties": false,
+      "description": "Git Slop blast_radius configuration.",
+      "properties": {},
+      "type": "object"
+    },
+    "check": {
+      "additionalProperties": false,
+      "description": "Git Slop check configuration.",
+      "properties": {
+        "fail_on_context_band": {
+          "default": "critical",
+          "enum": [
+            "compact",
+            "healthy",
+            "warning",
+            "critical"
+          ],
+          "type": "string"
+        },
+        "fail_on_slop_band": {
+          "default": "critical",
+          "enum": [
+            "low",
+            "moderate",
+            "high",
+            "critical"
+          ],
+          "type": "string"
+        },
+        "regression_score_delta": {
+          "default": 5.0,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "health": {
+      "additionalProperties": false,
+      "description": "Git Slop health configuration.",
+      "properties": {
+        "data_context_min_bytes": {
+          "default": 262144,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "folder_bands": {
+          "additionalProperties": false,
+          "description": "Git Slop health.folder_bands configuration.",
+          "properties": {
+            "compact_max_direct_tokens": {
+              "default": 31999,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "healthy_max_direct_tokens": {
+              "default": 128000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "refactor_required_max_direct_files": {
+              "default": 37,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "warning_max_direct_files": {
+              "default": 17,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "warning_max_direct_tokens": {
+              "default": 256000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "profile_threshold_policy": {
+          "default": "shared",
+          "enum": [
+            "shared"
+          ],
+          "type": "string"
+        },
+        "summary_top_files": {
+          "default": 10,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "summary_top_folders": {
+          "default": 10,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "history": {
+      "additionalProperties": false,
+      "description": "Git Slop history configuration.",
+      "properties": {
+        "age_half_life_days": {
+          "default": 180,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "churn_window_days": {
+          "default": 180,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "follow_renames": {
+          "default": false,
+          "type": "boolean"
+        },
+        "max_commits": {
+          "default": 10000,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "inventory": {
+      "additionalProperties": false,
+      "description": "Git Slop inventory configuration.",
+      "properties": {
+        "ignore_globs": {
+          "default": [
+            "uv.lock",
+            "poetry.lock",
+            "Pipfile.lock",
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+            "bun.lock",
+            "bun.lockb",
+            "Cargo.lock",
+            "Gemfile.lock",
+            "composer.lock",
+            "Podfile.lock"
+          ],
+          "items": {
+            "default": "uv.lock",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path_overrides": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "classification"
+                ]
+              },
+              {
+                "required": [
+                  "profile"
+                ]
+              },
+              {
+                "required": [
+                  "language"
+                ]
+              },
+              {
+                "required": [
+                  "verification_applicability"
+                ]
+              }
+            ],
+            "properties": {
+              "classification": {
+                "enum": [
+                  "source",
+                  "test",
+                  "docs",
+                  "tool",
+                  "config",
+                  "data",
+                  "other"
+                ],
+                "type": "string"
+              },
+              "glob": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "language": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "profile": {
+                "enum": [
+                  "agent_context",
+                  "data_context"
+                ],
+                "type": "string"
+              },
+              "verification_applicability": {
+                "enum": [
+                  "auto",
+                  "applicable",
+                  "not_applicable"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "glob"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "navigation": {
+      "additionalProperties": false,
+      "description": "Git Slop navigation configuration.",
+      "properties": {
+        "top_distinctive_terms": {
+          "default": 5,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "organization": {
+      "additionalProperties": false,
+      "description": "Git Slop organization configuration.",
+      "properties": {
+        "candidate_file_limit": {
+          "default": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_commit_files": {
+          "default": 200,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_file_tokens": {
+          "default": 50000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_pairs_per_file": {
+          "default": 20,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_temporal_edges": {
+          "default": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "min_cochange_support": {
+          "default": 3,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "min_coupling_lift": {
+          "default": 1.0,
+          "minimum": 0,
+          "type": "number"
+        },
+        "min_file_tokens": {
+          "default": 300,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "min_similarity": {
+          "default": 0.72,
+          "maximum": 1.0,
+          "minimum": 0,
+          "type": "number"
+        },
+        "shingle_size": {
+          "default": 8,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "window_step": {
+          "default": 32,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "output": {
+      "additionalProperties": false,
+      "description": "Git Slop output configuration.",
+      "properties": {
+        "pretty_json": {
+          "default": false,
+          "type": "boolean"
+        },
+        "retention_runs": {
+          "default": 20,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "yaml": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "resources": {
+      "additionalProperties": false,
+      "description": "Git Slop resources configuration.",
+      "properties": {
+        "cache_max_bytes": {
+          "default": 536870912,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "cache_max_entries": {
+          "default": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "large_file_bytes": {
+          "default": 2097152,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "memory_budget_mb": {
+          "default": 1024,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 2,
+      "default": 2,
+      "description": "Configuration contract version. Schema 1 is accepted only as migration input.",
+      "type": "integer"
+    },
+    "scoring": {
+      "additionalProperties": false,
+      "description": "Git Slop scoring configuration.",
+      "properties": {
+        "age_weight": {
+          "default": 0.2,
+          "minimum": 0,
+          "type": "number"
+        },
+        "churn_weight": {
+          "default": 0.2,
+          "minimum": 0,
+          "type": "number"
+        },
+        "context_weight": {
+          "default": 0.6,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "semantic_drift": {
+      "additionalProperties": false,
+      "description": "Git Slop semantic_drift configuration.",
+      "properties": {
+        "top_term_limit": {
+          "default": 25,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "stewardship": {
+      "additionalProperties": false,
+      "description": "Git Slop stewardship configuration.",
+      "properties": {
+        "bot_name_markers": {
+          "default": [
+            "bot",
+            "[bot]"
+          ],
+          "items": {
+            "default": "bot",
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "tokenization": {
+      "additionalProperties": false,
+      "description": "Git Slop tokenization configuration.",
+      "properties": {
+        "context_bands": {
+          "additionalProperties": false,
+          "description": "Git Slop tokenization.context_bands configuration.",
+          "properties": {
+            "compact_max_tokens": {
+              "default": 3072,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "healthy_max_tokens": {
+              "default": 8000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "warning_max_tokens": {
+              "default": 10000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "context_tokenizer_name": {
+          "default": "cl100k_base",
+          "enum": [
+            "cl100k_base",
+            "o200k_base",
+            "o200k_harmony",
+            "p50k_base",
+            "p50k_edit",
+            "r50k_base"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "verification": {
+      "additionalProperties": false,
+      "description": "Git Slop verification configuration.",
+      "properties": {
+        "source_test_mappings": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "source_glob": {
+                "description": "Source-path glob.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "test_glob": {
+                "description": "Test-path glob.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "source_glob",
+              "test_glob"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "test_path_markers": {
+          "default": [
+            "test/",
+            "tests/",
+            "spec/",
+            "__tests__/",
+            ".test.",
+            ".spec."
+          ],
+          "items": {
+            "default": "test/",
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version"
+  ],
+  "title": "Git Slop configuration schema 2",
+  "type": "object",
+  "x-git-slop-deprecated-keys": {
+    "check.fail_on_priority_band": "Use check.fail_on_slop_band.",
+    "context_bands": "Use tokenization.context_bands.",
+    "tokenizer": "Use tokenization.context_tokenizer_name."
+  }
+}

@@ -243,18 +243,13 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         .expect("slice object")
         .remove("_selector_class");
     let evidence_summary = plan_evidence_summary(&slice);
-    let title = string(slice.get("title"));
     let rationale = string(slice.get("why_this_slice"));
     let scope_paths = string_array(slice.get("scope_paths"));
+    let scope_path_count = scope_paths.len();
     let out_of_scope_paths = string_array(slice.get("out_of_scope_paths"));
     let relationship_ids = string_array(slice.get("supporting_relationship_ids"));
     let cluster_ids = string_array(slice.get("supporting_cluster_ids"));
-    let selector_kind = string(value_at(context, &["selector", "kind"]));
-    let selector_value = string(value_at(context, &["selector", "value"]));
-    let rerun_command = format!(
-        "git-slop plan --{selector_kind} '{}' --report .slop/latest/report.json",
-        selector_value.replace('\'', "'\\''")
-    );
+    let rerun_command = "git-slop find && git-slop compare --base <baseline-report.json> --head .slop/latest/report.json --fail-on-regression";
     let top_score = string_array(slice.get("scope_paths"))
         .iter()
         .map(|path| record_slop_score(report, path))
@@ -265,6 +260,35 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         "Next"
     } else {
         "Later"
+    };
+    let relationship_labels = relationship_ids
+        .iter()
+        .filter_map(|id| relationship_by_id(report, id))
+        .map(|relationship| {
+            json!({
+                "id": relationship.get("id").cloned().unwrap_or(Value::Null),
+                "kind": relationship.get("kind").cloned().unwrap_or(Value::Null),
+                "paths": [
+                    relationship.get("source_path").cloned().unwrap_or(Value::Null),
+                    relationship.get("target_path").cloned().unwrap_or(Value::Null),
+                ],
+            })
+        })
+        .collect::<Vec<_>>();
+    let repository_paths = array_at(report, &["files"])
+        .iter()
+        .filter_map(|record| record.get("path").and_then(Value::as_str))
+        .collect::<BTreeSet<_>>();
+    let verification_commands = if repository_paths.contains("Cargo.toml") {
+        vec!["cargo test --all-targets"]
+    } else if repository_paths.contains("go.mod") {
+        vec!["go test ./..."]
+    } else if repository_paths.contains("pyproject.toml") {
+        vec!["pytest"]
+    } else if repository_paths.contains("package.json") {
+        vec!["npm test"]
+    } else {
+        Vec::new()
     };
     let backlog = json!({
         "mutation_policy": "preview_only",
@@ -286,13 +310,20 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     });
     let object = slice.as_object_mut().expect("slice object");
     object.remove("why_this_slice");
-    object.insert("objective".to_string(), json!(title));
+    object.insert(
+        "objective".to_string(),
+        json!(format!(
+            "Reduce the bounded maintenance pressure across {} without expanding the reviewed scope.",
+            render_limited(&scope_paths, 3)
+        )),
+    );
     object.insert("rationale".to_string(), json!(rationale));
     object.insert(
         "evidence".to_string(),
         json!({
             "summary": evidence_summary,
             "relationship_ids": relationship_ids,
+            "relationships": relationship_labels,
             "cluster_ids": cluster_ids,
         }),
     );
@@ -301,6 +332,7 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         json!([
             "The cited detector report is the source of truth for scope and ranking.",
             "A human reviews the proposed slice before any repository mutation.",
+            if verification_commands.is_empty() { "No repository-native verification command was discoverable from tracked manifest paths." } else { "Discovered verification commands are inferred from tracked manifest paths and must be reviewed before execution." },
         ]),
     );
     object.insert(
@@ -309,17 +341,32 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     );
     object.insert(
         "verification".to_string(),
-        json!([
-            "Run the repository's focused tests for changed paths.",
-            "Rerun git-slop and compare the new report with the cited report.",
-            "Confirm no unrelated finding or public contract regressed.",
-        ]),
+        json!({
+            "discovered_commands": verification_commands,
+            "required_checks": [
+                "Run focused tests for every changed path.",
+                "Rerun git-slop and compare the new report with the saved baseline.",
+                "Confirm no unrelated finding or public contract regressed.",
+            ]
+        }),
     );
     object.insert(
         "expected_outcome".to_string(),
-        json!("A smaller, reviewable maintenance surface with preserved behavior and refreshed detector evidence."),
+        json!({
+            "maximum_scope_paths": scope_path_count,
+            "baseline_top_slop_score": top_score,
+            "required": [
+                "No new native compare regression.",
+                "No increase in the highest scoped slop score.",
+                "All reviewed verification commands pass."
+            ]
+        }),
     );
     object.insert("rerun_command".to_string(), json!(rerun_command));
+    object.insert(
+        "abandonment_condition".to_string(),
+        json!("Stop and abandon or re-scope this slice if preserving behavior requires an out-of-scope change, verification cannot be identified, or the native comparison reports a regression."),
+    );
     object.insert(
         "rollback".to_string(),
         json!("Revert only the explicitly reviewed code changes; report and prompt artifacts are advisory and can be regenerated."),
@@ -422,10 +469,21 @@ pub fn render_plan_text(payload: &Value) -> String {
                 string(value_at(slice, &["evidence", "summary"]))
             ),
             format!(
-                "   expected_outcome: {}",
-                string(slice.get("expected_outcome"))
+                "   expected_outcome: highest scoped score does not exceed {}; no native compare regression; verification passes",
+                json_scalar_text(value_at(slice, &["expected_outcome", "baseline_top_slop_score"]))
+            ),
+            format!(
+                "   verification: {}",
+                render_limited(
+                    &string_array(value_at(slice, &["verification", "discovered_commands"])),
+                    5
+                )
             ),
             format!("   rerun: {}", string(slice.get("rerun_command"))),
+            format!(
+                "   abandon_if: {}",
+                string(slice.get("abandonment_condition"))
+            ),
             format!("   rollback: {}", string(slice.get("rollback"))),
             format!(
                 "   backlog: {} priority={} policy=preview_only",

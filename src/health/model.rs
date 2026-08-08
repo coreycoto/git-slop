@@ -10,8 +10,6 @@ pub(super) const DEFAULT_FOLDER_WARNING_FILES: u64 = 17;
 pub(super) const DEFAULT_FOLDER_REFACTOR_FILES: u64 = 37;
 pub(super) const DEFAULT_TOP_FILES: usize = 10;
 pub(super) const DEFAULT_TOP_FOLDERS: usize = 10;
-pub(super) const MAX_ROLLUP_CANDIDATES: usize = 100;
-pub(super) const MAX_FINDINGS: usize = 25;
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct Totals {

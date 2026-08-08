@@ -10,7 +10,7 @@ inputs:
   version:
     description: Git Slop release version to install, with or without a leading v.
     required: false
-    default: "0.10.0"
+    default: "0.10.1"
   release-repository:
     description: GitHub repository that owns the versioned release assets.
     required: false
@@ -35,6 +35,10 @@ inputs:
     description: Optional base report.json used to emit only new or worsened pull-request findings.
     required: false
     default: ""
+  baseline-ref:
+    description: Optional Git revision or full SHA to scan in an isolated worktree as the baseline. Mutually exclusive with baseline-report.
+    required: false
+    default: ""
   allow-shallow:
     description: Explicitly acknowledge incomplete history instead of failing a shallow checkout.
     required: false
@@ -43,6 +47,18 @@ inputs:
     description: Advisory publishes findings without failing; enforce runs git-slop check after publication.
     required: false
     default: advisory
+  enforcement:
+    description: Absolute applies configured report thresholds; regression fails only for native compare regressions and requires baseline-report or baseline-ref.
+    required: false
+    default: absolute
+  baseline-force:
+    description: Record and permit baseline compatibility mismatches. Disabled by default.
+    required: false
+    default: "false"
+  max-baseline-age-days:
+    description: Reject a baseline report older than this many days.
+    required: false
+    default: "30"
   fail-on-context-band:
     description: Optional context-band override passed to git-slop check when policy is enforce.
     required: false
@@ -114,6 +130,18 @@ outputs:
   finding-count:
     description: Number of actionable findings in the generated health report.
     value: ${{ steps.analyze.outputs.finding-count }}
+  absolute-finding-count:
+    description: Uncapped actionable finding count in the head report.
+    value: ${{ steps.analyze.outputs.absolute-finding-count }}
+  regression-count:
+    description: Native comparator regression count when baseline-report is supplied.
+    value: ${{ steps.analyze.outputs.regression-count }}
+  baseline-compatible:
+    description: Whether the base and head report identities were compatible without force.
+    value: ${{ steps.analyze.outputs.baseline-compatible }}
+  comparison-path:
+    description: Versioned native comparison JSON path when baseline-report is supplied.
+    value: ${{ steps.analyze.outputs.comparison-path }}
   annotation-count:
     description: Number of requested GitHub annotations, bounded by max-annotations.
     value: ${{ steps.annotate.outputs.annotation-count || '0' }}
@@ -124,7 +152,7 @@ outputs:
     description: Absolute path to report.json.
     value: ${{ steps.analyze.outputs.report-path }}
   report-yaml-path:
-    description: Absolute path to report.yaml.
+    description: Absolute path to report.yaml when output.yaml is enabled; otherwise empty.
     value: ${{ steps.analyze.outputs.report-yaml-path }}
   summary-path:
     description: Absolute path to the legacy-compatible summary.md.
@@ -166,8 +194,12 @@ runs:
         GIT_SLOP_WORKING_DIRECTORY: ${{ inputs.working-directory }}
         GIT_SLOP_SCOPE: ${{ inputs.scope }}
         GIT_SLOP_BASELINE_REPORT: ${{ inputs.baseline-report }}
+        GIT_SLOP_BASELINE_REF: ${{ inputs.baseline-ref }}
         GIT_SLOP_ALLOW_SHALLOW: ${{ inputs.allow-shallow }}
         GIT_SLOP_POLICY: ${{ inputs.policy }}
+        GIT_SLOP_ENFORCEMENT: ${{ inputs.enforcement }}
+        GIT_SLOP_BASELINE_FORCE: ${{ inputs.baseline-force }}
+        GIT_SLOP_MAX_BASELINE_AGE_DAYS: ${{ inputs.max-baseline-age-days }}
         GIT_SLOP_FAIL_ON_CONTEXT_BAND: ${{ inputs.fail-on-context-band }}
         GIT_SLOP_FAIL_ON_SLOP_BAND: ${{ inputs.fail-on-slop-band }}
         GIT_SLOP_ANNOTATIONS: ${{ inputs.annotations }}
@@ -201,6 +233,7 @@ runs:
         GIT_SLOP_REPORT_PATH: ${{ steps.analyze.outputs.report-path }}
         GIT_SLOP_REPORT_YAML_PATH: ${{ steps.analyze.outputs.report-yaml-path }}
         GIT_SLOP_SUMMARY_PATH: ${{ steps.analyze.outputs.summary-path }}
+        GIT_SLOP_COMPARISON_PATH: ${{ steps.analyze.outputs.comparison-path }}
       run: node "${{ github.action_path }}/action/runner.mjs" artifacts
 
     - name: Upload bounded Git Slop artifact
@@ -266,6 +299,8 @@ runs:
         GIT_SLOP_BINARY: ${{ steps.install.outputs.binary-path }}
         GIT_SLOP_ANALYSIS_EXIT_CODE: ${{ steps.analyze.outputs.analysis-exit-code }}
         GIT_SLOP_POLICY: ${{ steps.analyze.outputs.policy }}
+        GIT_SLOP_ENFORCEMENT: ${{ steps.analyze.outputs.enforcement }}
+        GIT_SLOP_REGRESSION_COUNT: ${{ steps.analyze.outputs.regression-count }}
         GIT_SLOP_FAIL_ON_CONTEXT_BAND: ${{ steps.analyze.outputs.fail-on-context-band }}
         GIT_SLOP_FAIL_ON_SLOP_BAND: ${{ steps.analyze.outputs.fail-on-slop-band }}
         GIT_SLOP_REPORT_PATH: ${{ steps.analyze.outputs.report-path }}

@@ -35,6 +35,23 @@ resources:
   large_file_bytes: 1048576
 ```
 
+## Repository-specific path overrides
+
+```yaml
+schema_version: 2
+inventory:
+  path_overrides:
+    - glob: "action/**/*.mjs"
+      classification: source
+      language: JavaScript
+      verification_applicability: applicable
+    - glob: "vendor/**"
+      profile: data_context
+      verification_applicability: not_applicable
+```
+
+Overrides are applied in order. The last matching value wins independently for classification, profile, language, and verification applicability.
+
 ## Documentation repository
 
 ```yaml
@@ -48,7 +65,10 @@ tokenization:
 
 ## Strict CI ratchet
 
-Generate a compatible base report, pass it as the Action's `baseline-report`, and use `compare --fail-on-regression` locally. This gates new or worsened evidence without requiring the existing backlog to disappear first.
+Generate a compatible base report, pass it as the Action's `baseline-report`,
+set `enforcement: regression`, and use `compare --fail-on-regression` locally.
+This gates new or worsened findings without requiring the existing backlog to
+disappear first. A healthy added file is not a regression.
 
 ## Fast local versus full-history
 

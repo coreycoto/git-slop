@@ -1,0 +1,163 @@
+{
+  "$defs": {
+    "file": {
+      "required": [
+        "path",
+        "profile",
+        "classification",
+        "tokens",
+        "context_band",
+        "content_fingerprint",
+        "slop_score",
+        "slop_band",
+        "reason_codes",
+        "costs",
+        "overlays"
+      ],
+      "type": "object"
+    },
+    "folder": {
+      "required": [
+        "path",
+        "tokens",
+        "context_band",
+        "slop_score",
+        "slop_band",
+        "reason_codes",
+        "costs",
+        "overlays"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/coreycoto/git-slop/blob/main/schemas/report-4.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "action_queue": {
+      "items": {
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "analyzer": {
+      "additionalProperties": false,
+      "properties": {
+        "config_digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "context_tokenizer": {
+          "type": "string"
+        },
+        "name": {
+          "const": "git-slop"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "config_digest",
+        "context_tokenizer"
+      ],
+      "type": "object"
+    },
+    "config": {
+      "type": "object"
+    },
+    "diagnostics": {
+      "type": "object"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/file"
+      },
+      "type": "array"
+    },
+    "folders": {
+      "items": {
+        "$ref": "#/$defs/folder"
+      },
+      "type": "array"
+    },
+    "health": {
+      "type": "object"
+    },
+    "overlays": {
+      "type": "object"
+    },
+    "repo": {
+      "required": [
+        "repo_name",
+        "worktree_state_digest",
+        "analyzed_content_digest"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 4
+    },
+    "scope": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "repository",
+            "scoped"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "selected_path_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "selected_path_digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "path",
+        "selected_path_count",
+        "selected_path_digest"
+      ],
+      "type": "object"
+    },
+    "stats": {
+      "type": "object"
+    },
+    "summary": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "analyzer",
+    "generated_at",
+    "repo",
+    "scope",
+    "config",
+    "stats",
+    "summary",
+    "files",
+    "folders",
+    "action_queue",
+    "overlays",
+    "health",
+    "diagnostics"
+  ],
+  "title": "Git Slop report schema 4",
+  "type": "object"
+}

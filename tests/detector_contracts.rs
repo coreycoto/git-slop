@@ -164,8 +164,8 @@ fn native_detector_emits_duplicate_coupling_clusters_and_refreshes_latest() {
     let right_file = record_for_path(&report["files"], original_right);
     assert!(left_file.get("structural_tokens").is_none());
     assert!(right_file.get("structural_tokens").is_none());
-    assert!(left_file.get("content_fingerprint").is_none());
-    assert!(right_file.get("content_fingerprint").is_none());
+    assert!(left_file["content_fingerprint"].as_str().is_some());
+    assert!(right_file["content_fingerprint"].as_str().is_some());
 
     let organization = record_for_path(&report["organization_metrics"]["files"], original_left);
     assert!(
@@ -244,7 +244,7 @@ fn native_detector_emits_duplicate_coupling_clusters_and_refreshes_latest() {
         )
         .is_some()
     );
-    for artifact in ["report.json", "report.yaml", "summary.md", "health.md"] {
+    for artifact in ["report.json", "summary.md", "health.md"] {
         let contents = fs::read_to_string(repository.path().join(".slop/latest").join(artifact))
             .unwrap_or_else(|error| panic!("read refreshed {artifact}: {error}"));
         assert!(
@@ -253,6 +253,7 @@ fn native_detector_emits_duplicate_coupling_clusters_and_refreshes_latest() {
         );
         assert!(!contents.contains(obsolete), "stale deletion in {artifact}");
     }
+    assert!(!repository.path().join(".slop/latest/report.yaml").exists());
     assert!(
         !repository
             .path()

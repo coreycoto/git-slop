@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const releaseVersion = (process.env.GIT_SLOP_ACTION_VERSION || "0.10.0").trim();
+const releaseVersion = (process.env.GIT_SLOP_ACTION_VERSION || "0.10.1").trim();
 const releaseRepository = (
   process.env.GIT_SLOP_RELEASE_REPOSITORY || "coreycoto/git-slop"
 ).trim();
@@ -38,7 +38,9 @@ function appendFileCommand(target, name, value) {
   if (!target) {
     return;
   }
-  const delimiter = `git_slop_${name}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const digest = createHash("sha256").update(`${name}\0${value}`).digest("hex").slice(0, 24);
+  let delimiter = `git_slop_${name}_${digest}`;
+  while (String(value).split(/\r?\n/u).includes(delimiter)) delimiter += "_x";
   writeFileSync(target, `${name}<<${delimiter}\n${value}\n${delimiter}\n`, { flag: "a" });
 }
 
@@ -544,10 +546,11 @@ async function exactTagRevision(repository, tag) {
 }
 
 function materializeArchive(archivePath, installRoot, rootName, executableName) {
-  const expectedFiles = ["LICENSE", "README.md", "git-slop.1", executableName];
+  const expectedFiles = ["LICENSE", "README.md", "man/git-slop.1", executableName];
   const rootMember = `${rootName}/`;
+  const manMember = `${rootName}/man/`;
   const expectedFileMembers = expectedFiles.map((name) => `${rootName}/${name}`);
-  const allowedMembers = new Set([rootMember, ...expectedFileMembers]);
+  const allowedMembers = new Set([rootMember, manMember, ...expectedFileMembers]);
   const inventoryText = runArchiveTar(archivePath, ["-t"]);
   const inventory = inventoryText.split(/\r?\n/u).filter(Boolean);
   const actualMembers = new Set();
@@ -582,7 +585,9 @@ function materializeArchive(archivePath, installRoot, rootName, executableName) 
     if (!Buffer.isBuffer(bytes) || bytes.length === 0 || bytes.length > maximumBytes) {
       throw new Error(`archive member ${member} has an invalid size`);
     }
-    writeFileSync(join(payloadRoot, name), bytes, {
+    const target = join(payloadRoot, name);
+    mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+    writeFileSync(target, bytes, {
       mode: name === executableName ? 0o700 : 0o600,
     });
   }

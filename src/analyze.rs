@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::Instant;
 
@@ -14,24 +14,25 @@ use tiktoken_rs::{
     CoreBPE, cl100k_base, o200k_base, o200k_harmony, p50k_base, p50k_edit, r50k_base,
 };
 use unicode_normalization::UnicodeNormalization;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::config;
+use crate::estimate;
 use crate::git;
 use crate::health;
 use crate::history;
 use crate::inventory;
-use crate::model::{Analysis, FileAnalysis, FindResult};
+use crate::model::{Analysis, FileAnalysis, FindResult, ScopeIdentity};
 use crate::overlays;
 use crate::report;
 use crate::scoring;
 
 static CAMEL_CASE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"([a-z0-9])([A-Z])").expect("valid camel-case regex"));
+static ACRONYM_BOUNDARY_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([A-Z]+)([A-Z][a-z])").expect("valid acronym regex"));
 static NUMBER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b\d+(?:\.\d+)?\b").expect("valid number regex"));
-static WORD_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[a-z][a-z0-9_]{1,}").expect("valid word regex"));
-
 #[derive(Debug, Serialize, Deserialize)]
 struct CachedTokenData {
     token_count: usize,
@@ -39,13 +40,13 @@ struct CachedTokenData {
     content_fingerprint: String,
 }
 
-fn token_cache_key(path: &str, text: &str, tokenizer: &str, large_file_bytes: usize) -> String {
+fn token_cache_key(text: &str, tokenizer: &str, large_file_bytes: usize, mode: &str) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"git-slop-token-cache-v1\0");
+    digest.update(b"git-slop-token-cache-v3\0");
     digest.update(tokenizer.as_bytes());
     digest.update([0]);
     digest.update(large_file_bytes.to_le_bytes());
-    digest.update(path.as_bytes());
+    digest.update(mode.as_bytes());
     digest.update([0]);
     digest.update(text.as_bytes());
     hex::encode(digest.finalize())
@@ -65,12 +66,49 @@ fn write_cached_tokens(path: &Path, cached: &CachedTokenData) -> Result<()> {
     Ok(())
 }
 
+fn enforce_cache_limits(root: &Path, max_entries: usize, max_bytes: u64) -> Result<(usize, u64)> {
+    let mut entries = fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let metadata = entry.metadata().ok()?;
+            metadata
+                .is_file()
+                .then_some((entry.path(), metadata.modified().ok(), metadata.len()))
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|(path, modified, _)| (*modified, path.clone()));
+    let mut total_bytes = entries.iter().map(|entry| entry.2).sum::<u64>();
+    let mut total_entries = entries.len();
+    for (path, _, bytes) in entries {
+        if total_entries <= max_entries && total_bytes <= max_bytes {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            total_entries = total_entries.saturating_sub(1);
+            total_bytes = total_bytes.saturating_sub(bytes);
+        }
+    }
+    Ok((total_entries, total_bytes))
+}
+
 fn replace_quoted_strings(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
+    let mut previous = None;
     while let Some(character) = chars.next() {
         if !matches!(character, '\'' | '"' | '`') {
             result.push(character);
+            previous = Some(character);
+            continue;
+        }
+        if character == '\''
+            && previous.is_some_and(char::is_alphanumeric)
+            && chars.peek().is_some_and(|next| next.is_alphanumeric())
+        {
+            result.push(character);
+            previous = Some(character);
             continue;
         }
         result.push_str(" str ");
@@ -87,28 +125,61 @@ fn replace_quoted_strings(text: &str) -> String {
                 break;
             }
         }
+        previous = Some(' ');
     }
     result
 }
 
-fn structural_tokens(path: &str, text: &str) -> Vec<String> {
+fn structural_mode(path: &str) -> &'static str {
+    if matches!(
+        Path::new(path).extension().and_then(|value| value.to_str()),
+        Some("md" | "mdx" | "txt")
+    ) {
+        "prose"
+    } else {
+        "code"
+    }
+}
+
+fn structural_content_tokens(mode: &str, text: &str) -> Vec<String> {
     let normalized: String = text.nfkc().collect();
+    let normalized = normalized.replace(['\u{2018}', '\u{2019}'], "'");
+    let normalized = ACRONYM_BOUNDARY_RE.replace_all(&normalized, "$1 $2");
     let normalized = CAMEL_CASE_RE.replace_all(&normalized, "$1 $2");
     let normalized = normalized.replace(['-', '/'], " ");
-    let normalized = replace_quoted_strings(&normalized);
+    let normalized = if mode == "prose" {
+        normalized
+    } else {
+        replace_quoted_strings(&normalized)
+    };
     let normalized = NUMBER_RE.replace_all(&normalized, " 0 ");
-    let lower = normalized.to_ascii_lowercase();
-    let mut tokens: Vec<String> = WORD_RE
-        .find_iter(&lower)
-        .map(|item| item.as_str().to_string())
-        .collect();
-    tokens.extend(
-        path.replace(['-', '_', '.'], "/")
-            .to_ascii_lowercase()
-            .split('/')
-            .filter(|item| !item.is_empty())
-            .map(ToOwned::to_owned),
-    );
+    let lower = normalized.to_lowercase();
+    lower
+        .unicode_words()
+        .flat_map(|word| word.split('_'))
+        .map(|word| {
+            word.split_once('\'')
+                .filter(|(prefix, suffix)| prefix.chars().count() == 1 && !suffix.is_empty())
+                .map_or(word, |(_, suffix)| suffix)
+        })
+        .filter(|item| item.chars().count() > 1)
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn structural_path_tokens(path: &str) -> Vec<String> {
+    path.replace(['-', '_', '.'], "/")
+        .to_ascii_lowercase()
+        .split('/')
+        .filter(|item| !item.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+#[cfg(test)]
+fn structural_tokens(path: &str, text: &str) -> Vec<String> {
+    let mut tokens = structural_content_tokens(structural_mode(path), text);
+    tokens.extend(structural_path_tokens(path));
     tokens
 }
 
@@ -181,7 +252,6 @@ fn action_queue(files: &[FileAnalysis]) -> Vec<Value> {
     });
     files
         .into_iter()
-        .take(25)
         .map(|file| {
             let non_context_reasons = file.reason_codes.iter().any(|reason| {
                 !matches!(reason.as_str(), "critical_token_cost" | "high_token_cost")
@@ -215,12 +285,99 @@ pub fn run_find_in_with_options(repo_root: &Path, allow_shallow: bool) -> Result
     run_find_scoped(repo_root, allow_shallow, None, false)
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct FindOptions {
+    pub allow_shallow: bool,
+    pub scope: Option<String>,
+    pub progress: bool,
+    pub allow_empty_scope: bool,
+}
+
+fn normalize_scope(value: Option<&str>) -> Result<Option<String>> {
+    let Some(raw) = value.map(str::trim) else {
+        return Ok(None);
+    };
+    if raw.is_empty() || raw == "." {
+        return Ok(None);
+    }
+    let path = Path::new(raw);
+    if path.is_absolute() {
+        bail!("--scope must be repo-relative, received {raw:?}");
+    }
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => parts.push(
+                part.to_str()
+                    .ok_or_else(|| anyhow::anyhow!("--scope must be valid UTF-8"))?,
+            ),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                bail!("--scope must not escape the repository, received {raw:?}");
+            }
+        }
+    }
+    let normalized = parts.join("/");
+    Ok((!normalized.is_empty()).then_some(normalized))
+}
+
+fn selected_path_digest(paths: &[String]) -> String {
+    let mut digest = Sha256::new();
+    for path in paths {
+        digest.update(path.as_bytes());
+        digest.update([0]);
+    }
+    hex::encode(digest.finalize())
+}
+
+fn selected_content_digest(repo_root: &Path, paths: &[String]) -> Result<String> {
+    let mut digest = Sha256::new();
+    for path in paths {
+        digest.update(path.as_bytes());
+        digest.update([0]);
+        let absolute = repo_root.join(path);
+        let metadata = fs::symlink_metadata(&absolute)
+            .with_context(|| format!("selected tracked path changed or disappeared: {path}"))?;
+        let bytes = if metadata.file_type().is_symlink() {
+            fs::read_link(&absolute)
+                .with_context(|| format!("selected tracked link changed or disappeared: {path}"))?
+                .to_string_lossy()
+                .into_owned()
+                .into_bytes()
+        } else if metadata.is_dir() {
+            b"<gitlink>".to_vec()
+        } else {
+            fs::read(&absolute)
+                .with_context(|| format!("selected tracked path changed or disappeared: {path}"))?
+        };
+        digest.update(bytes);
+        digest.update([0]);
+    }
+    Ok(hex::encode(digest.finalize()))
+}
+
 pub fn run_find_scoped(
     repo_root: &Path,
     allow_shallow: bool,
     scope: Option<&str>,
     progress: bool,
 ) -> Result<FindResult> {
+    run_find_with_options(
+        repo_root,
+        &FindOptions {
+            allow_shallow,
+            scope: scope.map(ToOwned::to_owned),
+            progress,
+            allow_empty_scope: false,
+        },
+    )
+}
+
+pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<FindResult> {
+    let allow_shallow = options.allow_shallow;
+    let scope = options.scope.as_deref();
+    let progress = options.progress;
+    let allow_empty_scope = options.allow_empty_scope;
     let started = Instant::now();
     let phase = |name: &str| {
         if progress {
@@ -229,6 +386,7 @@ pub fn run_find_scoped(
     };
     phase("preflight");
     config::ensure_runtime_gitignore(repo_root)?;
+    let _scan_lock = config::acquire_scan_lock(repo_root)?;
     let loaded_config = config::load(repo_root)?;
     let mut repo = git::repo_metadata(repo_root)?;
     if repo.is_shallow && !allow_shallow {
@@ -237,42 +395,53 @@ pub fn run_find_scoped(
         );
     }
     let all_tracked_paths = git::list_tracked_files(repo_root)?;
-    let scope = scope
-        .map(|value| value.trim_matches('/'))
-        .filter(|value| !value.is_empty() && *value != ".");
+    let scope = normalize_scope(scope)?;
+    if let Some(scope) = scope.as_deref() {
+        if !repo_root.join(scope).exists() {
+            bail!("--scope does not exist in the repository: {scope}");
+        }
+    }
     let tracked_paths = all_tracked_paths
         .iter()
         .filter(|path| {
-            scope.is_none_or(|scope| *path == scope || path.starts_with(&format!("{scope}/")))
+            scope
+                .as_deref()
+                .is_none_or(|scope| *path == scope || path.starts_with(&format!("{scope}/")))
         })
         .cloned()
         .collect::<Vec<_>>();
-    let memory_budget = config::pointer_u64(&loaded_config, "/resources/memory_budget_mb", 1024)
-        as u128
-        * 1024
-        * 1024;
-    let inventory_bytes = tracked_paths
-        .iter()
-        .filter_map(|path| fs::metadata(repo_root.join(path)).ok())
-        .map(|metadata| metadata.len() as u128)
-        .sum::<u128>();
-    let graph_estimate = tracked_paths.len() as u128
-        * config::pointer_u64(&loaded_config, "/organization/max_pairs_per_file", 20) as u128
-        * 192;
-    let estimated_peak = inventory_bytes
-        .saturating_mul(3)
-        .saturating_add(graph_estimate);
-    if estimated_peak > memory_budget {
+    if tracked_paths.is_empty() && !allow_empty_scope {
+        bail!(
+            "{} selected no tracked paths; pass --allow-empty-scope only when an empty report is intentional",
+            scope.as_deref().map_or_else(
+                || "repository".to_string(),
+                |scope| format!("--scope {scope:?}")
+            )
+        );
+    }
+    let scope_identity = ScopeIdentity {
+        mode: if scope.is_some() {
+            "scoped"
+        } else {
+            "repository"
+        }
+        .to_string(),
+        path: scope.clone(),
+        selected_path_count: tracked_paths.len(),
+        selected_path_digest: selected_path_digest(&tracked_paths),
+    };
+    let starting_content_digest = selected_content_digest(repo_root, &tracked_paths)?;
+    let estimate = estimate::build(repo_root, &tracked_paths, &loaded_config);
+    if estimate.estimated_peak_memory_bytes > estimate.memory_budget_bytes {
         bail!(
             "analysis bounded before inventory: estimated {} MiB exceeds resources.memory_budget_mb={}; narrow --scope or raise the explicit budget",
-            estimated_peak.div_ceil(1024 * 1024),
-            memory_budget / 1024 / 1024
+            estimate.estimated_peak_memory_bytes.div_ceil(1024 * 1024),
+            estimate.memory_budget_bytes / 1024 / 1024
         );
     }
     let (inventory_files, skipped) = inventory::build(repo_root, &tracked_paths, &loaded_config)?;
     phase("inventory");
     let encoder = configured_context_encoder(&loaded_config)?;
-    let mut analyzed_content = Sha256::new();
     let mut token_counts = BTreeMap::new();
     let mut line_counts = BTreeMap::new();
     let mut token_data = HashMap::new();
@@ -281,15 +450,40 @@ pub fn run_find_scoped(
         .to_string();
     let large_file_bytes =
         config::pointer_u64(&loaded_config, "/resources/large_file_bytes", 2_097_152) as usize;
-    let cache_root = config::cache_dir(repo_root).join("token-v1");
+    let cache_root = config::cache_dir(repo_root).join("token-v3");
+    let mut cache_cleanup_warnings = Vec::new();
+    for version in ["token-v1", "token-v2"] {
+        let legacy_cache = config::cache_dir(repo_root).join(version);
+        if legacy_cache.exists() {
+            if let Err(error) = fs::remove_dir_all(&legacy_cache) {
+                cache_cleanup_warnings.push(format!(
+                    "failed to remove legacy cache {}: {error}",
+                    legacy_cache.display()
+                ));
+            }
+        }
+    }
+    if let Ok(entries) = fs::read_dir(&cache_root) {
+        for entry in entries.filter_map(Result::ok) {
+            if entry.file_name().to_string_lossy().contains(".tmp-") {
+                if let Err(error) = fs::remove_file(entry.path()) {
+                    cache_cleanup_warnings.push(format!(
+                        "failed to remove abandoned cache temporary {}: {error}",
+                        entry.path().display()
+                    ));
+                }
+            }
+        }
+    }
     let mut cache_hits = 0usize;
     let mut cache_misses = 0usize;
+    let mut structurally_skipped_large_files = 0usize;
     for file in &inventory_files {
-        analyzed_content.update(file.path.as_bytes());
-        analyzed_content.update([0]);
-        analyzed_content.update(file.text.as_bytes());
-        analyzed_content.update([0]);
-        let cache_key = token_cache_key(&file.path, &file.text, &tokenizer, large_file_bytes);
+        if file.bytes > large_file_bytes {
+            structurally_skipped_large_files += 1;
+        }
+        let mode = structural_mode(&file.path);
+        let cache_key = token_cache_key(&file.text, &tokenizer, large_file_bytes, mode);
         let cache_path = cache_root.join(format!("{cache_key}.json"));
         let cached = if let Some(cached) = load_cached_tokens(&cache_path) {
             cache_hits += 1;
@@ -301,7 +495,7 @@ pub fn run_find_scoped(
                 structural_tokens: if file.bytes > large_file_bytes {
                     Vec::new()
                 } else {
-                    structural_tokens(&file.path, &file.text)
+                    structural_content_tokens(mode, &file.text)
                 },
                 content_fingerprint: content_fingerprint(&file.text),
             };
@@ -309,7 +503,10 @@ pub fn run_find_scoped(
             cached
         };
         let count = cached.token_count;
-        let structural = cached.structural_tokens;
+        let mut structural = cached.structural_tokens;
+        if file.bytes <= large_file_bytes {
+            structural.extend(structural_path_tokens(&file.path));
+        }
         let top_term_limit =
             config::pointer_u64(&loaded_config, "/semantic_drift/top_term_limit", 25) as usize;
         let fingerprint = cached.content_fingerprint;
@@ -325,14 +522,19 @@ pub fn run_find_scoped(
             ),
         );
     }
+    let (cache_entries, cache_bytes) = enforce_cache_limits(
+        &cache_root,
+        config::pointer_u64(&loaded_config, "/resources/cache_max_entries", 10_000) as usize,
+        config::pointer_u64(&loaded_config, "/resources/cache_max_bytes", 536_870_912),
+    )?;
     phase("tokenization");
-    repo.analyzed_content_digest = Some(hex::encode(analyzed_content.finalize()));
+    repo.analyzed_content_digest = Some(starting_content_digest.clone());
     let analyzed_paths: Vec<String> = inventory_files
         .iter()
         .map(|file| file.path.clone())
         .collect();
     let now = Utc::now();
-    let (history_by_path, commits, _repo_baselines) = history::analyze_history(
+    let (history_by_path, commits, history_diagnostics) = history::analyze_history(
         repo_root,
         &analyzed_paths,
         &token_counts,
@@ -405,6 +607,11 @@ pub fn run_find_scoped(
     if ending_worktree.digest != repo.worktree_state_digest {
         bail!("repository changed during analysis; no mixed-snapshot report was published");
     }
+    if selected_content_digest(repo_root, &tracked_paths)? != starting_content_digest {
+        bail!(
+            "selected file content changed during analysis; no mixed-snapshot report was published"
+        );
+    }
     let analysis = Analysis {
         repo_root: PathBuf::from(repo_root),
         repo,
@@ -413,20 +620,24 @@ pub fn run_find_scoped(
         analyzed_revision_at,
         skipped,
         tracked_file_count: all_tracked_paths.len(),
+        scope: scope_identity,
         files,
         folders,
-        commits,
         organization,
         action_queue: queue,
         diagnostics: json!({
             "analysis_elapsed_ms_before_report": started.elapsed().as_millis(),
-            "estimated_peak_memory_bytes": estimated_peak,
-            "memory_budget_bytes": memory_budget,
+            "estimate": estimate,
             "cache_hits": cache_hits,
             "cache_misses": cache_misses,
+            "cache_entries": cache_entries,
+            "cache_bytes": cache_bytes,
+            "cache_cleanup_warnings": cache_cleanup_warnings,
+            "structurally_skipped_large_files": structurally_skipped_large_files,
+            "analysis_status": if structurally_skipped_large_files > 0 { "degraded_large_files" } else { "complete" },
+            "history": history_diagnostics,
             "scope": scope
         }),
-        report: Value::Null,
     };
     let rollup = health::build_health_rollup(&analysis);
     let result = report::write_report_bundle(&analysis, &rollup)?;
@@ -508,6 +719,17 @@ mod tests {
             replace_quoted_strings("'one' \"two\" `three`"),
             " str   str   str "
         );
+    }
+
+    #[test]
+    fn structural_normalization_preserves_unicode_and_apostrophe_words() {
+        let tokens = structural_tokens("docs/café.md", "L’équipe can’t rename HTTPServer_value");
+        assert!(tokens.contains(&"équipe".to_string()));
+        assert!(tokens.contains(&"can't".to_string()));
+        assert!(tokens.contains(&"http".to_string()));
+        assert!(tokens.contains(&"server".to_string()));
+        assert!(tokens.contains(&"value".to_string()));
+        assert!(tokens.iter().any(|token| token.contains("café")));
     }
 
     #[test]

@@ -3,21 +3,22 @@ mod render;
 mod support;
 mod write;
 
-pub use assembly::assemble_report;
-pub use render::{render_compatibility_summary, render_terminal, render_terminal_output};
-pub use write::{load_report, validate_report_shape, write_report_bundle};
+pub use render::render_terminal;
+pub use write::{load_report, schema, write_report_bundle};
 
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::path::Path;
 
-    use serde_json::{Value, json};
+    use serde_json::json;
     use tempfile::tempdir;
 
     use super::*;
     use crate::config;
-    use crate::model::{Analysis, HealthRollup, OrganizationAnalysis, RepoMetadata, SkippedCounts};
+    use crate::model::{
+        Analysis, HealthRollup, OrganizationAnalysis, RepoMetadata, ScopeIdentity, SkippedCounts,
+    };
 
     fn analysis(root: &Path) -> Analysis {
         Analysis {
@@ -43,13 +44,17 @@ mod tests {
             analyzed_revision_at: Some("2026-07-29T08:00:00Z".to_string()),
             skipped: SkippedCounts::default(),
             tracked_file_count: 0,
+            scope: ScopeIdentity {
+                mode: "repository".to_string(),
+                path: None,
+                selected_path_count: 0,
+                selected_path_digest: String::new(),
+            },
             files: vec![],
             folders: vec![],
-            commits: vec![],
             organization: OrganizationAnalysis::default(),
             action_queue: vec![],
             diagnostics: json!({}),
-            report: Value::Null,
         }
     }
 
@@ -57,7 +62,7 @@ mod tests {
     fn report_keeps_generation_and_revision_timestamps_distinct() {
         let root = tempdir().expect("temporary directory");
         let analysis = analysis(root.path());
-        let report = assemble_report(&analysis, &HealthRollup::default());
+        let report = assembly::assemble_report(&analysis, &HealthRollup::default());
         assert_eq!(report["generated_at"], "2026-07-30T10:11:12Z");
         assert_eq!(report["analyzed_revision_at"], "2026-07-29T08:00:00Z");
         assert_eq!(report["repo"]["head_commit"], "abc123");
@@ -75,7 +80,7 @@ mod tests {
         let result =
             write_report_bundle(&analysis, &HealthRollup::default()).expect("report bundle");
         assert!(result.report_json.is_file());
-        assert!(result.report_yaml.is_file());
+        assert!(!result.report_yaml.exists());
         assert!(result.summary_md.is_file());
         assert!(result.health_md.is_file());
         assert!(
@@ -117,13 +122,21 @@ mod tests {
                 })
             })
             .collect();
-        let report = assemble_report(&analysis, &HealthRollup::default());
-        let summary = render_compatibility_summary(&report);
+        let report = assembly::assemble_report(&analysis, &HealthRollup::default());
+        let summary = render::render_compatibility_summary(&report);
         assert_eq!(
             summary.matches("| [src/file_").count(),
             super::render::DEFAULT_SUMMARY_LIMIT
         );
         assert!(summary.contains("git-slop explain --path"));
         assert!(summary.contains("changes frequently"));
+    }
+
+    #[test]
+    fn published_report_schema_matches_the_runtime_contract() {
+        let published: serde_json::Value =
+            serde_json::from_str(include_str!("../schemas/report-4.json"))
+                .expect("published report schema");
+        assert_eq!(published, super::write::schema());
     }
 }

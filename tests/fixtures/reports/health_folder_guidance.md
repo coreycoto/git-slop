@@ -67,6 +67,7 @@
 
 | Review severity | Path | Context/load band | Maintenance pressure | Why it surfaced | Next step |
 | --- | --- | --- | --- | --- | --- |
+| `error` | `src/files-only/generated.json` | `refactor_required` | `critical` · score 99.0 | 99,999 tokens exceed the configured fail threshold | `git-slop explain --path src/files-only/generated.json` |
 | `warning` | `src/both/0.rs` | `compact` | `high` · score 80.0 | 900 tokens leave limited context headroom | `git-slop explain --path src/both/0.rs` |
 | `warning` | `src/both/1.rs` | `compact` | `high` · score 79.0 | 900 tokens leave limited context headroom | `git-slop explain --path src/both/1.rs` |
 | `warning` | `src/both/2.rs` | `compact` | `high` · score 78.0 | 900 tokens leave limited context headroom | `git-slop explain --path src/both/2.rs` |

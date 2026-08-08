@@ -62,6 +62,19 @@ if (args[0] === "health") {
 if (args[0] === "check") {
   process.exit(1);
 }
+if (args[0] === "compare") {
+  process.stdout.write(JSON.stringify({
+    schema_version: 1,
+    command: "compare",
+    base_report: { generated_at: new Date().toISOString() },
+    head_report: { generated_at: new Date().toISOString() },
+    summary: { regression_count: 1 },
+    regressions: [{ path: "src/new.rs", status: "new", severity: "error", base_slop_score: null, head_slop_score: 90 }],
+    baseline_compatible: true,
+    compatibility_mismatches: [],
+  }));
+  process.exit(0);
+}
 process.exit(2);
 `,
     { mode: 0o755 },
@@ -165,6 +178,37 @@ test("bounded annotations preserve notice, warning, and error without rerunning 
   assert.match(readFileSync(state.output, "utf8"), /annotation-count<<[\s\S]*\n3\n/u);
   assert.equal(readFileSync(join(state.repository, ".health-count"), "utf8"), "1");
   assert.equal(readFileSync(join(state.repository, ".find-count"), "utf8"), "1");
+});
+
+test("baseline enforcement uses the native comparator and fails only on regressions", () => {
+  const state = fixture();
+  const baseline = join(state.repository, "baseline.json");
+  writeFileSync(baseline, JSON.stringify({ schema_version: 4 }), "utf8");
+  const analysis = run("analyze", {
+    GITHUB_OUTPUT: state.output,
+    GITHUB_STEP_SUMMARY: state.summary,
+    GITHUB_WORKSPACE: state.repository,
+    GIT_SLOP_BINARY: state.fakeBinary,
+    GIT_SLOP_WORKING_DIRECTORY: ".",
+    GIT_SLOP_BASELINE_REPORT: baseline,
+    GIT_SLOP_ENFORCEMENT: "regression",
+  });
+  assert.equal(analysis.status, 0, analysis.stderr);
+  const values = outputs(state.output);
+  assert.equal(values["regression-count"], "1");
+  assert.equal(values["baseline-compatible"], "true");
+  assert.equal(values["finding-count"], "1");
+
+  writeFileSync(state.output, "");
+  const finalized = run("finalize", {
+    GITHUB_OUTPUT: state.output,
+    GIT_SLOP_ANALYSIS_EXIT_CODE: "0",
+    GIT_SLOP_POLICY: "enforce",
+    GIT_SLOP_ENFORCEMENT: "regression",
+    GIT_SLOP_REGRESSION_COUNT: "1",
+  });
+  assert.equal(finalized.status, 1);
+  assert.match(finalized.stderr, /1 repository-health regression/u);
 });
 
 test("nested working-directory resolves outputs at the Git worktree root", () => {

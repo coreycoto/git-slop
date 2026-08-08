@@ -214,9 +214,10 @@ fn find_writes_schema_four_and_all_human_and_machine_surfaces() {
         .stdout(predicate::str::contains("Wrote report to"));
 
     let latest = repository.path().join(".slop/latest");
-    for name in ["report.json", "report.yaml", "summary.md", "health.md"] {
+    for name in ["report.json", "summary.md", "health.md"] {
         assert!(latest.join(name).is_file(), "missing {name}");
     }
+    assert!(!latest.join("report.yaml").exists());
     let report: Value = serde_json::from_slice(
         &fs::read(latest.join("report.json")).expect("read generated report"),
     )
@@ -349,6 +350,71 @@ fn find_writes_schema_four_and_all_human_and_machine_surfaces() {
             .expect("health report")
             .contains("# Repository Health")
     );
+}
+
+#[test]
+fn find_rejects_escaping_missing_and_empty_scopes() {
+    let repository = committed_repository();
+    for scope in ["../outside", "/absolute/path", "missing"] {
+        cargo_bin_cmd!("git-slop")
+            .current_dir(repository.path())
+            .args(["find", "--quiet", "--scope", scope])
+            .assert()
+            .failure();
+    }
+
+    fs::create_dir_all(repository.path().join("empty")).expect("empty directory");
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["find", "--quiet", "--scope", "empty"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("selected no tracked paths"));
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["find", "--quiet", "--scope", "empty", "--allow-empty-scope"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn report_validate_rejects_a_missing_canonical_nested_field() {
+    let repository = committed_repository();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["find", "--quiet"])
+        .assert()
+        .success();
+    let report_path = repository.path().join(".slop/latest/report.json");
+    cargo_bin_cmd!("git-slop")
+        .args([
+            "report",
+            "validate",
+            report_path.to_str().expect("report path"),
+        ])
+        .assert()
+        .success();
+
+    let mut report: Value =
+        serde_json::from_slice(&fs::read(&report_path).expect("report")).expect("report JSON");
+    report["files"][0]
+        .as_object_mut()
+        .expect("file")
+        .remove("content_fingerprint");
+    fs::write(
+        &report_path,
+        serde_json::to_vec(&report).expect("serialize"),
+    )
+    .expect("write invalid report");
+    cargo_bin_cmd!("git-slop")
+        .args([
+            "report",
+            "validate",
+            report_path.to_str().expect("report path"),
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("content_fingerprint"));
 }
 
 #[test]
@@ -613,9 +679,14 @@ fn health_json_derives_the_persisted_contract_for_complete_schema_four_reports()
         .expect("run health");
     assert!(output.status.success());
     let payload: Value = serde_json::from_slice(&output.stdout).expect("health JSON");
-    assert_eq!(payload["file_band_counts"]["refactor_required"], 1);
-    assert_eq!(payload["file_band_counts"]["warning"], 1);
-    assert_eq!(payload["findings"][0]["path"], "src/a,b%file.rs");
+    assert_eq!(payload["schema_version"], 1);
+    assert_eq!(payload["command"], "health");
+    assert_eq!(
+        payload["health"]["file_band_counts"]["refactor_required"],
+        1
+    );
+    assert_eq!(payload["health"]["file_band_counts"]["warning"], 1);
+    assert_eq!(payload["health"]["findings"][0]["path"], "src/a,b%file.rs");
 }
 
 #[test]
