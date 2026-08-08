@@ -12,7 +12,7 @@ mod github;
 mod plan;
 mod sarif;
 
-pub use compare::{compare_payload, render_compare_text};
+pub use compare::{compare_payload, compare_payload_with_force, render_compare_text};
 pub use explain::{explain_payload, render_explain_text};
 pub use github::{health_json_payload, render_github_annotations, write_prompt_pack};
 pub use plan::{plan_payload, render_plan_text};
@@ -342,6 +342,44 @@ pub fn show_payload(report: &Value, target: &str) -> Option<Value> {
     Some(Value::Object(payload))
 }
 
+pub fn render_show_text(payload: &Value) -> String {
+    let kind = string_or(payload.get("record_type"), "record");
+    let path = string(payload.get("path"));
+    let mut lines = vec![format!(
+        "{}: {}",
+        if kind == "file" { "File" } else { "Folder" },
+        path
+    )];
+    lines.push(format!(
+        "tokens={} context={} slop={} score={:.1}",
+        integer(payload.get("tokens")),
+        string_or(payload.get("context_band"), "unknown"),
+        string_or(payload.get("slop_band"), "unknown"),
+        number(payload.get("slop_score")),
+    ));
+    let reasons = string_array(payload.get("reason_codes"));
+    if !reasons.is_empty() {
+        lines.push(format!("reasons: {}", reasons.join(", ")));
+    }
+    let relationships = array_at(payload, &["strongest_relationships"]);
+    if !relationships.is_empty() {
+        lines.push("relationships:".to_string());
+        for item in relationships.iter().take(5) {
+            lines.push(format!(
+                "- {} ↔ {} kind={} support={} strength={:.3} id={}",
+                string(item.get("source_path")),
+                string(item.get("target_path")),
+                string(item.get("kind")),
+                integer(item.get("support_count")),
+                number(item.get("evidence_score")),
+                string(item.get("id")),
+            ));
+        }
+    }
+    lines.push(format!("next: git slop explain --path {}", path));
+    lines.join("\n") + "\n"
+}
+
 pub fn failing_records(
     report: &Value,
     fail_on_context_band: Option<&str>,
@@ -427,15 +465,22 @@ fn resolved_record(report: &Value, path: &str) -> Option<Value> {
 }
 
 fn relationship_by_id(report: &Value, id: &str) -> Option<Value> {
-    all_relationships(report, true)
-        .into_iter()
-        .find(|item| string(item.get("id")) == id)
+    unique_id_match(all_relationships(report, true), id)
 }
 
 fn cluster_by_id(report: &Value, id: &str) -> Option<Value> {
-    all_clusters(report, true)
+    unique_id_match(all_clusters(report, true), id)
+}
+
+fn unique_id_match(items: Vec<Value>, selector: &str) -> Option<Value> {
+    if let Some(exact) = items.iter().find(|item| string(item.get("id")) == selector) {
+        return Some(exact.clone());
+    }
+    let mut prefixes = items
         .into_iter()
-        .find(|item| string(item.get("id")) == id)
+        .filter(|item| string(item.get("id")).starts_with(selector));
+    let selected = prefixes.next()?;
+    prefixes.next().is_none().then_some(selected)
 }
 
 fn descendant_records(report: &Value, folder: &str) -> Vec<Value> {

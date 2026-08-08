@@ -116,19 +116,34 @@ fn record_delta_status(base: Option<&Value>, head: Option<&Value>) -> &'static s
 }
 
 fn option_f64_delta(base: Option<f64>, head: Option<f64>) -> Option<f64> {
-    if base.is_none() && head.is_none() {
-        None
-    } else {
-        Some(round6(head.unwrap_or(0.0) - base.unwrap_or(0.0)))
-    }
+    Some(round6(head? - base?))
 }
 
 fn option_i64_delta(base: Option<i64>, head: Option<i64>) -> Option<i64> {
-    if base.is_none() && head.is_none() {
-        None
-    } else {
-        Some(head.unwrap_or(0) - base.unwrap_or(0))
+    Some(head? - base?)
+}
+
+fn compatibility_value<'a>(report: &'a Value, pointer: &str) -> Option<&'a Value> {
+    report.pointer(pointer)
+}
+
+fn require_compatible_reports(base: &Value, head: &Value) -> Result<()> {
+    for (label, pointer) in [
+        ("repository identity", "/repo/remote_url"),
+        ("tokenizer", "/analyzer/context_tokenizer"),
+        ("configuration digest", "/analyzer/config_digest"),
+        ("analyzer version", "/analyzer/version"),
+        ("history completeness", "/stats/history_complete"),
+    ] {
+        let left = compatibility_value(base, pointer);
+        let right = compatibility_value(head, pointer);
+        if left != right {
+            bail!(
+                "reports have incompatible {label}; rerun compare with --force only if this mismatch is intentional"
+            );
+        }
     }
+    Ok(())
 }
 
 fn build_record_delta(path: &str, base: Option<&Value>, head: Option<&Value>) -> Value {
@@ -317,6 +332,17 @@ pub fn compare_payload(
     head_path: Option<&str>,
     top: usize,
 ) -> Result<Value> {
+    compare_payload_with_force(base_report, head_report, base_path, head_path, top, false)
+}
+
+pub fn compare_payload_with_force(
+    base_report: &Value,
+    head_report: &Value,
+    base_path: Option<&str>,
+    head_path: Option<&str>,
+    top: usize,
+    force: bool,
+) -> Result<Value> {
     if report_schema(base_report) != REPORT_SCHEMA_VERSION {
         bail!("base report must use schema {REPORT_SCHEMA_VERSION}.");
     }
@@ -326,15 +352,22 @@ pub fn compare_payload(
     if top == 0 {
         bail!("--top must be greater than zero.");
     }
+    if !force {
+        require_compatible_reports(base_report, head_report)?;
+    }
     let file_deltas = build_record_deltas(base_report, head_report, "files");
     let folder_deltas = build_record_deltas(base_report, head_report, "folders");
     let worsened = file_deltas
         .iter()
-        .filter(|item| number(item.get("slop_score_delta")) > 0.0)
+        .filter(|item| {
+            string(item.get("status")) == "changed" && number(item.get("slop_score_delta")) > 0.0
+        })
         .count();
     let improved = file_deltas
         .iter()
-        .filter(|item| number(item.get("slop_score_delta")) < 0.0)
+        .filter(|item| {
+            string(item.get("status")) == "changed" && number(item.get("slop_score_delta")) < 0.0
+        })
         .count();
     let mut queue_movement = build_queue_movement(base_report, head_report);
     queue_movement.truncate(top);
@@ -356,6 +389,7 @@ pub fn compare_payload(
         "queue_movement": queue_movement,
         "overlay_deltas": overlay_deltas,
         "boundary_note": COMPARE_BOUNDARY_NOTE,
+        "compatibility_forced": force,
     }))
 }
 

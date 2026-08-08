@@ -306,7 +306,7 @@ fn validate_scoop_boundary(repo_root: &Path, errors: &mut Vec<String>) {
             "docs/architecture.md",
             &[
                 "coreycoto/scoop-bucket",
-                "eight-asset/seven-checksum",
+                "ten-asset/nine-checksum",
                 "trusted-main receiver creates a manifest-only bucket pull request",
             ][..],
         ),
@@ -628,7 +628,7 @@ mod tests {
         fs::write(
             root.join("docs/architecture.md"),
             "coreycoto/scoop-bucket\n\
-             eight-asset/seven-checksum\n\
+             ten-asset/nine-checksum\n\
              trusted-main receiver creates a manifest-only bucket pull request\n",
         )
         .unwrap();

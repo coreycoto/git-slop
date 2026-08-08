@@ -10,6 +10,17 @@ use super::common::{
 };
 use super::coordination::CoordinationFacts;
 
+fn shingles(tokens: &[String], size: usize, step: usize) -> Vec<String> {
+    if tokens.len() < size {
+        return tokens.to_vec();
+    }
+    tokens
+        .windows(size)
+        .step_by(step.max(1))
+        .map(|window| window.join("\u{1f}"))
+        .collect()
+}
+
 fn organization_candidates<'a>(files: &'a [FileAnalysis], config: &Value) -> Vec<&'a FileAnalysis> {
     let limit = pointer_u64(config, "/organization/candidate_file_limit", 500) as usize;
     let min_tokens = pointer_u64(config, "/organization/min_file_tokens", 300) as usize;
@@ -37,6 +48,8 @@ pub(super) fn build_relationships(
 ) -> (Value, Vec<Value>, BTreeMap<String, Vec<String>>) {
     let min_similarity = pointer_f64(config, "/organization/min_similarity", 0.72);
     let max_pairs = pointer_u64(config, "/organization/max_pairs_per_file", 20) as usize;
+    let shingle_size = pointer_u64(config, "/organization/shingle_size", 8) as usize;
+    let window_step = pointer_u64(config, "/organization/window_step", 32) as usize;
     let candidates = organization_candidates(files, config);
 
     let mut duplicate = Vec::new();
@@ -50,7 +63,9 @@ pub(super) fn build_relationships(
             {
                 continue;
             }
-            let similarity = jaccard(&left.structural_tokens, &right.structural_tokens);
+            let left_shingles = shingles(&left.structural_tokens, shingle_size, window_step);
+            let right_shingles = shingles(&right.structural_tokens, shingle_size, window_step);
+            let similarity = jaccard(&left_shingles, &right_shingles);
             let exact = !left.content_fingerprint.is_empty()
                 && left.content_fingerprint == right.content_fingerprint;
             if !exact && similarity < min_similarity {
@@ -96,6 +111,9 @@ pub(super) fn build_relationships(
     }
 
     let min_support = pointer_u64(config, "/organization/min_cochange_support", 3) as usize;
+    let min_lift = pointer_f64(config, "/organization/min_coupling_lift", 2.0);
+    let max_temporal_edges =
+        pointer_u64(config, "/organization/max_temporal_edges", 10_000) as usize;
     let mut temporal = Vec::new();
     let mut seen_pairs = BTreeSet::new();
     for (source, facts) in coordination {
@@ -116,6 +134,10 @@ pub(super) fn build_relationships(
                 .unwrap_or(1);
             let denom = facts.commit_count.min(target_commits).max(1);
             let coupling = *support as f64 / denom as f64;
+            let lift = 1.0 + coupling * 4.0;
+            if lift < min_lift {
+                continue;
+            }
             let id = stable_id("temporal_coupling_edge", &[pair.0, pair.1]);
             let item = json!({
                 "id": id,
@@ -123,7 +145,7 @@ pub(super) fn build_relationships(
                 "source_path": pair.0,
                 "target_path": pair.1,
                 "support_count": support,
-                "lift_score": round6(1.0 + coupling * 4.0),
+                "lift_score": round6(lift),
                 "evidence_score": round6(coupling),
                 "crosses_top_level_boundary": top_level_root(pair.0) != top_level_root(pair.1)
             });
@@ -145,6 +167,7 @@ pub(super) fn build_relationships(
             .total_cmp(&left["evidence_score"].as_f64().unwrap_or_default())
             .then_with(|| left["id"].as_str().cmp(&right["id"].as_str()))
     });
+    temporal.truncate(max_temporal_edges);
 
     let mut lexical = Vec::new();
     for (index, left) in candidates.iter().enumerate() {
@@ -215,10 +238,11 @@ pub(super) fn build_relationships(
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
+    use std::collections::BTreeMap;
 
-    use super::build_relationships;
+    use super::{build_relationships, shingles};
     use crate::model::FileAnalysis;
-    use crate::overlays::coordination::coordination_facts;
+    use crate::overlays::coordination::{CoordinationFacts, coordination_facts};
 
     fn test_file(index: usize) -> FileAnalysis {
         FileAnalysis {
@@ -231,6 +255,7 @@ mod tests {
             language: "Rust".to_string(),
             profile: "agent_context".to_string(),
             classification: "source".to_string(),
+            has_inline_tests: false,
             tokens: 500,
             context_band: "compact".to_string(),
             context_pressure: 0.1,
@@ -268,7 +293,6 @@ mod tests {
     #[test]
     fn lexical_candidate_pairs_are_bounded_by_the_configured_file_limit() {
         let files: Vec<FileAnalysis> = (0..100).map(test_file).collect();
-        let coordination = coordination_facts(&files, &[]);
         let config = json!({
             "organization": {
                 "candidate_file_limit": 5,
@@ -279,6 +303,7 @@ mod tests {
                 "min_cochange_support": 3
             }
         });
+        let coordination = coordination_facts(&files, &[], &config);
         let (relationships, _, _) = build_relationships(&files, &coordination, &config);
 
         assert_eq!(relationships["analysis_version"], 2);
@@ -312,7 +337,6 @@ mod tests {
     #[test]
     fn relationship_metadata_uses_canonical_v2_contract() {
         let files: Vec<FileAnalysis> = (0..2).map(test_file).collect();
-        let coordination = coordination_facts(&files, &[]);
         let config: Value = json!({
             "organization": {
                 "candidate_file_limit": 2,
@@ -323,10 +347,58 @@ mod tests {
                 "min_cochange_support": 3
             }
         });
+        let coordination = coordination_facts(&files, &[], &config);
         let (relationships, _, _) = build_relationships(&files, &coordination, &config);
 
         assert_eq!(relationships["analysis_status"], "experimental");
         assert_eq!(relationships["analysis_version"], 2);
+    }
+
+    #[test]
+    fn shingle_size_and_window_step_are_behaviorally_live() {
+        let tokens = (0..12)
+            .map(|index| format!("token{index}"))
+            .collect::<Vec<_>>();
+        assert_ne!(shingles(&tokens, 2, 1), shingles(&tokens, 3, 1));
+        assert_ne!(shingles(&tokens, 2, 1), shingles(&tokens, 2, 3));
+    }
+
+    #[test]
+    fn minimum_coupling_lift_filters_temporal_edges() {
+        let files: Vec<FileAnalysis> = (0..2).map(test_file).collect();
+        let coordination = BTreeMap::from([
+            (
+                files[0].path.clone(),
+                CoordinationFacts {
+                    commit_count: 10,
+                    neighbors: BTreeMap::from([(files[1].path.clone(), 3)]),
+                    ..CoordinationFacts::default()
+                },
+            ),
+            (
+                files[1].path.clone(),
+                CoordinationFacts {
+                    commit_count: 10,
+                    neighbors: BTreeMap::from([(files[0].path.clone(), 3)]),
+                    ..CoordinationFacts::default()
+                },
+            ),
+        ]);
+        let base = json!({"organization": {"min_file_tokens": 0, "max_file_tokens": 50000, "candidate_file_limit": 2, "min_similarity": 2.0, "max_pairs_per_file": 20, "min_cochange_support": 3, "min_coupling_lift": 2.0}});
+        let strict = json!({"organization": {"min_file_tokens": 0, "max_file_tokens": 50000, "candidate_file_limit": 2, "min_similarity": 2.0, "max_pairs_per_file": 20, "min_cochange_support": 3, "min_coupling_lift": 3.0}});
+        assert_eq!(
+            build_relationships(&files, &coordination, &base).0["temporal_coupling_edges"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            build_relationships(&files, &coordination, &strict).0["temporal_coupling_edges"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -340,9 +412,8 @@ mod tests {
 
         let serialized = serde_json::to_value(&files[0]).expect("serialize file analysis");
         assert!(serialized.get("content_fingerprint").is_none());
-        assert!(serialized.get("structural_tokens").is_some());
+        assert!(serialized.get("structural_tokens").is_none());
 
-        let coordination = coordination_facts(&files, &[]);
         let config = json!({
             "organization": {
                 "candidate_file_limit": 2,
@@ -353,6 +424,7 @@ mod tests {
                 "min_cochange_support": 3
             }
         });
+        let coordination = coordination_facts(&files, &[], &config);
         let (relationships, _, _) = build_relationships(&files, &coordination, &config);
 
         assert_eq!(

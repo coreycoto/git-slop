@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
+use sha2::{Digest, Sha256};
 
 use crate::model::RepoMetadata;
 
@@ -66,6 +67,67 @@ fn optional_git_output(repo_root: &Path, args: &[&str]) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn sanitize_remote_url(remote: String) -> String {
+    if let Some(scheme) = remote.find("://") {
+        let authority = scheme + 3;
+        if let Some(at) = remote[authority..].find('@') {
+            let mut sanitized = remote.clone();
+            sanitized.replace_range(authority..authority + at + 1, "");
+            return sanitized;
+        }
+    }
+    remote
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeState {
+    pub clean: bool,
+    pub staged_change_count: usize,
+    pub modified_tracked_file_count: usize,
+    pub untracked_file_count: usize,
+    pub digest: String,
+}
+
+pub fn worktree_state(repo_root: &Path) -> Result<WorktreeState> {
+    let output = Command::new("git")
+        .current_dir(repo_root)
+        .args(["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+        .output()
+        .context("failed to inspect Git worktree state")?;
+    if !output.status.success() {
+        bail!(
+            "git status failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let mut staged = 0;
+    let mut modified = 0;
+    let mut untracked = 0;
+    for entry in output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|entry| entry.len() >= 3)
+    {
+        if entry.starts_with(b"?? ") {
+            untracked += 1;
+            continue;
+        }
+        if entry[0] != b' ' && entry[0] != b'?' {
+            staged += 1;
+        }
+        if entry[1] != b' ' && entry[1] != b'?' {
+            modified += 1;
+        }
+    }
+    Ok(WorktreeState {
+        clean: output.stdout.is_empty(),
+        staged_change_count: staged,
+        modified_tracked_file_count: modified,
+        untracked_file_count: untracked,
+        digest: hex::encode(Sha256::digest(&output.stdout)),
+    })
+}
+
 pub fn repo_metadata(repo_root: &Path) -> Result<RepoMetadata> {
     let canonical = repo_root
         .canonicalize()
@@ -80,9 +142,12 @@ pub fn repo_metadata(repo_root: &Path) -> Result<RepoMetadata> {
     let head_commit_timestamp = head_commit
         .as_ref()
         .and_then(|_| optional_git_output(repo_root, &["show", "-s", "--format=%cI", "HEAD"]));
-    let git_remote_url = optional_git_output(repo_root, &["config", "--get", "remote.origin.url"]);
+    let git_remote_url = optional_git_output(repo_root, &["config", "--get", "remote.origin.url"])
+        .map(sanitize_remote_url);
     let is_shallow = optional_git_output(repo_root, &["rev-parse", "--is-shallow-repository"])
         .is_some_and(|value| value == "true");
+    let worktree = worktree_state(repo_root)?;
+    let detached_head = branch.is_none() && head_commit.is_some();
     Ok(RepoMetadata {
         repo_name,
         repo_root: canonical.to_string_lossy().into_owned(),
@@ -91,6 +156,13 @@ pub fn repo_metadata(repo_root: &Path) -> Result<RepoMetadata> {
         head_commit_timestamp,
         git_remote_url,
         is_shallow,
+        detached_head,
+        worktree_clean: worktree.clean,
+        staged_change_count: worktree.staged_change_count,
+        modified_tracked_file_count: worktree.modified_tracked_file_count,
+        untracked_file_count: worktree.untracked_file_count,
+        worktree_state_digest: worktree.digest,
+        analyzed_content_digest: None,
     })
 }
 

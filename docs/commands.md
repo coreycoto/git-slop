@@ -3,7 +3,7 @@
 Git Slop commands are local-first and deterministic. A typical workflow is:
 
 ```text
-init -> find -> health/show/explain -> plan -> check
+doctor/config -> init -> find -> health/show/explain -> plan -> compare/check
 ```
 
 `find` runs the detector. The other analysis commands consume existing report
@@ -24,6 +24,7 @@ git-slop plan --path src
 git-slop check
 git-slop version
 git-slop build-info --format json
+git-slop doctor --bundle
 ```
 
 ### Init
@@ -40,10 +41,14 @@ Existing generated config files are kept unless `--force` is supplied.
 
 ### Find
 
-`find` analyzes tracked files in the current Git worktree:
+`find` analyzes tracked files in the current Git worktree. It creates the
+non-destructive `.slop/.gitignore` when needed:
 
 ```bash
 git-slop find
+git-slop find --scope packages/example
+git-slop find --quiet
+git-slop find --allow-shallow
 ```
 
 It writes the same four-file bundle to `.slop/latest/` and to one timestamped
@@ -54,9 +59,8 @@ directory under `.slop/runs/`:
 - `summary.md`
 - `health.md`
 
-Run from a full-history checkout when history-derived age, churn, coupling, and
-stewardship evidence matters. `stats.history_complete` records whether the
-repository was shallow.
+Shallow history fails by default. `--allow-shallow` is an explicit
+acknowledgement and the report records incomplete evidence.
 
 ### Health
 
@@ -73,11 +77,12 @@ git-slop health --format github --max-annotations 10
 Formats:
 
 - `markdown`: the repository-health dashboard used by `health.md`
+- `text`: the concise interactive terminal view
 - `github`: bounded GitHub workflow-command annotations
 - `json`: an automation payload containing the additive health section
 
 The default report is `.slop/latest/report.json`, the default format is
-`markdown`, and the default annotation cap is 10. Every format writes to
+`text`, and the default annotation cap is 10. Every format writes to
 standard output. `health` never rewrites `.slop/latest/health.md`; only `find`
 writes the persisted report bundle. GitHub annotations include a specific next
 command such as `git-slop explain --path <path>`.
@@ -138,10 +143,32 @@ warnings or errors. Use `git-slop check` when findings should enforce policy.
 ```bash
 git-slop show README.md
 git-slop show src --format json
+git-slop show src --format yaml
 git-slop show README.md --report path/to/report.json
 ```
 
-The default format is text-compatible YAML; `--format json` emits JSON.
+The default is a compact human view; `--format yaml|json` emits the complete record.
+
+### Configuration, diagnostics, discovery, and retention
+
+```bash
+git-slop config show --effective
+git-slop config validate
+git-slop config diff-defaults
+git-slop config migrate
+git-slop config schema
+git-slop doctor --bundle
+git-slop list findings --profile data_context --top 20
+git-slop list relationships --path src
+git-slop prune --dry-run
+git-slop completions zsh
+git-slop html --output .slop/latest/report.html
+```
+
+Global `--repo <path>` avoids changing directories. Diagnostic bundles exclude
+source, raw tokens, credentials, absolute paths, and author identities.
+The HTML export is self-contained and local-only, with path search, profile and
+severity filters, sortable file metrics, and collapsible relationship evidence.
 
 ### Explain
 
@@ -200,13 +227,15 @@ git-slop check --fail-on-slop-band high
 ```
 
 Threshold overrides are evaluated at or above the selected band. Without
-overrides, the values come from `.slop/config.yaml`.
+overrides, values come from the configuration embedded in the immutable report.
 
 Exit codes:
 
-- `0`: no file met either threshold
-- `1`: one or more files met a threshold
-- `2`: a report, selector, or command input was invalid
+- `0`: command succeeded or no policy threshold was met
+- `1`: one or more policy/regression findings met an explicit gate
+- `2`: usage, selector, configuration, or report input was invalid
+- `3`: Git, filesystem, or repository environment failure
+- `4`: analysis was bounded by an explicit resource limit
 
 Overlay and health evidence do not affect this gate.
 

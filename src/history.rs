@@ -238,6 +238,7 @@ fn load_status_commits(
     repo_root: &Path,
     since: Option<&str>,
     follow_renames: bool,
+    max_commits: u64,
 ) -> Result<Vec<StatusCommit>> {
     let mut args = vec![
         "log".to_string(),
@@ -250,6 +251,7 @@ fn load_status_commits(
         } else {
             "--no-renames".to_string()
         },
+        format!("--max-count={max_commits}"),
     ];
     if let Some(since) = since {
         args.push(format!("--since={since}"));
@@ -261,6 +263,7 @@ fn load_numstat_commits(
     repo_root: &Path,
     since: &str,
     follow_renames: bool,
+    max_commits: u64,
 ) -> Result<Vec<NumstatCommit>> {
     let args = vec![
         "log".to_string(),
@@ -269,6 +272,7 @@ fn load_numstat_commits(
         "-z".to_string(),
         "--format=commit%x00%H%x00%ct%x00%an%x00%ae".to_string(),
         format!("--since={since}"),
+        format!("--max-count={max_commits}"),
         if follow_renames {
             "--find-renames".to_string()
         } else {
@@ -528,6 +532,7 @@ pub fn analyze_history(
         .map(|path| normalized_path(path))
         .collect();
     let follow_renames = pointer_bool(config, "/history/follow_renames", false);
+    let max_commits = pointer_u64(config, "/history/max_commits", 10_000);
     let window_days = pointer_u64(
         config,
         "/history/churn_window_days",
@@ -542,15 +547,15 @@ pub fn analyze_history(
         .context("history window precedes Chrono's supported range")?;
     let since = cutoff.to_rfc3339_opts(SecondsFormat::Secs, true);
 
-    let full_status = load_status_commits(repo_root, None, follow_renames)?;
+    let full_status = load_status_commits(repo_root, None, follow_renames, max_commits)?;
     let first_seen = if follow_renames {
         first_seen_with_lineage(&tracked_paths, &full_status)
     } else {
         first_seen_exact(&tracked_paths, &full_status)
     };
 
-    let window_status = load_status_commits(repo_root, Some(&since), follow_renames)?;
-    let window_numstat = load_numstat_commits(repo_root, &since, follow_renames)?;
+    let window_status = load_status_commits(repo_root, Some(&since), follow_renames, max_commits)?;
+    let window_numstat = load_numstat_commits(repo_root, &since, follow_renames, max_commits)?;
     let status_by_commit: BTreeMap<&str, &StatusCommit> = window_status
         .iter()
         .map(|commit| (commit.commit.as_str(), commit))

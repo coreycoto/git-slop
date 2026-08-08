@@ -14,7 +14,7 @@ on:
       version:
         description: Strict stable version to publish or recover.
         required: true
-        default: "0.9.6"
+        default: "0.10.0"
         type: string
       recovery_revision:
         description: Recovery only - full 40-character source revision embedded in the published crate.
@@ -254,6 +254,12 @@ jobs:
           - os: macos-15
             target: aarch64-apple-darwin
             archive: tar.gz
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+            archive: tar.gz
           - os: windows-2025
             target: x86_64-pc-windows-msvc
             archive: zip
@@ -284,9 +290,22 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Verify and unpack candidate bytes
+        if: matrix.target != 'x86_64-unknown-linux-musl'
         shell: bash
         run: |
           set -euo pipefail
+          crate="candidate/git-slop-${VERSION}.crate"
+          test "$(sha256sum "$crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
+          mkdir candidate-source
+          tar -xzf "$crate" -C candidate-source
+
+      - name: Install musl linker and unpack candidate bytes
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
           crate="candidate/git-slop-${VERSION}.crate"
           test "$(sha256sum "$crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
           mkdir candidate-source
@@ -394,7 +413,7 @@ jobs:
             --manifest candidate-dist/release-manifest.json \
             --formula candidate-dist/git-slop.rb
           (cd candidate-dist && sha256sum git-slop.rb >> SHA256SUMS && LC_ALL=C sort -o SHA256SUMS SHA256SUMS && sha256sum --check SHA256SUMS)
-          test "$(wc -l < candidate-dist/SHA256SUMS | tr -d ' ')" = "7"
+          test "$(wc -l < candidate-dist/SHA256SUMS | tr -d ' ')" = "9"
 
       - name: Upload candidate Formula for Homebrew audit
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -690,6 +709,10 @@ jobs:
             target: aarch64-unknown-linux-gnu
           - os: macos-15
             target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
           - os: windows-2025
             target: x86_64-pc-windows-msvc
           - os: windows-11-arm
@@ -710,6 +733,11 @@ jobs:
         with:
           name: verified-registry-crate
           path: registry
+
+      - name: Install musl linker
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install --yes musl-tools
 
       - name: Set up Rust target
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
@@ -831,7 +859,7 @@ jobs:
           cargo xtask homebrew-formula --manifest dist/release-manifest.json --formula dist/git-slop.rb
           rm dist/crate-source.json
           (cd dist && sha256sum git-slop.rb >> SHA256SUMS && LC_ALL=C sort -o SHA256SUMS SHA256SUMS && sha256sum --check SHA256SUMS)
-          test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" = "7"
+          test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" = "9"
 
       - name: Inspect existing GitHub Release
         id: release
@@ -960,7 +988,7 @@ jobs:
           test "$(jq -r '.[0].id' release-matches.json)" = "$RELEASE_ID"
           jq '.[0]' release-matches.json > release.json
           jq -r '.assets[].name' release.json | LC_ALL=C sort > actual-assets.txt
-          printf '%s\n' SHA256SUMS git-slop.rb "git-slop-${TAG}-aarch64-apple-darwin.tar.gz" "git-slop-${TAG}-aarch64-pc-windows-msvc.zip" "git-slop-${TAG}-aarch64-unknown-linux-gnu.tar.gz" "git-slop-${TAG}-x86_64-pc-windows-msvc.zip" "git-slop-${TAG}-x86_64-unknown-linux-gnu.tar.gz" release-manifest.json | LC_ALL=C sort > expected-assets.txt
+          printf '%s\n' SHA256SUMS git-slop.rb "git-slop-${TAG}-aarch64-apple-darwin.tar.gz" "git-slop-${TAG}-aarch64-pc-windows-msvc.zip" "git-slop-${TAG}-aarch64-unknown-linux-gnu.tar.gz" "git-slop-${TAG}-x86_64-apple-darwin.tar.gz" "git-slop-${TAG}-x86_64-pc-windows-msvc.zip" "git-slop-${TAG}-x86_64-unknown-linux-gnu.tar.gz" "git-slop-${TAG}-x86_64-unknown-linux-musl.tar.gz" release-manifest.json | LC_ALL=C sort > expected-assets.txt
           diff -u expected-assets.txt actual-assets.txt
           while IFS=$'\t' read -r asset_id asset_name; do
             [[ "$asset_id" =~ ^[1-9][0-9]*$ ]]
@@ -1014,7 +1042,7 @@ jobs:
           test "$ACTUAL_CRATE_SHA256" = "$EXPECTED_CRATE_SHA256"
           test "$ACTUAL_MANIFEST_SHA256" = "$expected_manifest_sha256"
           asset_sha256_by_target="$(jq -c 'reduce .artifacts[] as $artifact ({}; .[$artifact.target] = $artifact.sha256)' release-verification/release-manifest.json)"
-          jq -e 'length == 5 and all(.[]; test("^[0-9a-f]{64}$"))' <<< "$asset_sha256_by_target" >/dev/null
+          jq -e 'length == 7 and all(.[]; test("^[0-9a-f]{64}$"))' <<< "$asset_sha256_by_target" >/dev/null
           echo "asset-sha256-by-target=$asset_sha256_by_target" >> "$GITHUB_OUTPUT"
 
   draft-action-smoke:
@@ -1030,6 +1058,10 @@ jobs:
             target: aarch64-unknown-linux-gnu
           - os: macos-15
             target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
           - os: windows-2025
             target: x86_64-pc-windows-msvc
           - os: windows-11-arm
@@ -1068,6 +1100,7 @@ jobs:
         with:
           version: ${{ needs.publish-crate.outputs.version }}
           release-repository: ${{ github.repository }}
+          target: ${{ matrix.target }}
           github-token: ${{ github.token }}
           policy: advisory
           annotations: "false"
@@ -1116,7 +1149,7 @@ jobs:
         run: |
           {
             printf '## Verified Git Slop %s release assets are Marketplace-ready\n\n' "$TAG"
-            printf '%s\n\n' 'The crate, exact source tag, five archives, checksums, release manifest, crates-backed Formula, and immutable tagged composite Action verify on all five supported runner targets.'
+            printf '%s\n\n' 'The crate, exact source tag, seven archives, checksums, release manifest, crates-backed Formula, and immutable tagged composite Action verify on all seven supported runner targets.'
             if test "$RELEASE_STATE" != "published"; then
               printf '%s\n\n' 'The workflow intentionally did **not** publish the GitHub Release.'
               printf '%s\n' 'Open the draft release, select **Publish this Action to the GitHub Marketplace**, choose **Code quality** and **Continuous integration**, and publish with 2FA. This is the only manual approval for the release. The already-dispatched Homebrew receiver will then verify the exact public release before preparing the tap update.'

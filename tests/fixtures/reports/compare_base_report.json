@@ -1,4 +1,7 @@
 {
+  "config": {},
+  "health": {},
+  "overlays": {},
   "action_queue": [
     {
       "path": "src/a.py"

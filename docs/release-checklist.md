@@ -4,7 +4,7 @@ Use this checklist for stable releases of the Rust CLI, crates.io package,
 GitHub Release archives, public GitHub Marketplace Action, Homebrew Formula,
 and external Scoop manifest.
 The canonical release identity is one strict `X.Y.Z` version and one full Git
-commit. The crates.io package, `vX.Y.Z` tag, five native archives, release
+commit. The crates.io package, `vX.Y.Z` tag, seven native archives, release
 manifest, installed binary, Action outputs, and Homebrew Formula must all agree
 on that identity.
 
@@ -142,13 +142,13 @@ Before the branch-restricted publication job begins, the workflow:
 1. revalidates that the dispatch revision is the live `main` revision;
 2. runs the full product, `xtask`, Action, package, and publish dry-run gates;
 3. creates and verifies the exact candidate `.crate` bytes;
-4. builds and smokes all five supported targets from those candidate bytes;
+4. builds and smokes all seven supported targets from those candidate bytes;
 5. checks `git-slop version` and `git-slop build-info --format json`;
 6. dry-runs schema-3 manifest and crates-backed Formula generation; and
 7. audits and styles the generated Formula with native Homebrew on macOS.
 
-The five targets are Linux x86-64, Linux ARM64, macOS Apple Silicon, Windows
-x86-64, and Windows ARM64. macOS Intel is not a release target.
+The seven targets are Linux GNU x86-64, Linux ARM64, static Linux musl x86-64,
+macOS Apple Silicon, macOS Intel, Windows x86-64, and Windows ARM64.
 
 ## Dispatch-Authorized crates.io Publication
 
@@ -232,7 +232,7 @@ The workflow is deliberately restartable without weakening immutable identity:
   release revision must remain an ancestor of current `origin/main`. The
   non-yanked crates.io API checksum, downloaded static `.crate`, embedded Cargo
   VCS revision, and supplied digest must agree. Recovery reacquires the
-  immutable crate instead of repackaging advanced `main`, re-runs all five
+  immutable crate instead of repackaging advanced `main`, re-runs all seven
   target lanes, and enters the same branch-restricted `release` environment
   without a reviewer gate before any missing tag is pushed. The OIDC
   authentication action and Cargo publication step are unreachable in recovery
@@ -241,7 +241,7 @@ The workflow is deliberately restartable without weakening immutable identity:
   the composite Action that Marketplace consumers receive. Draft discovery,
   asset repair, and an initial installer verification may use current trusted
   control tooling, but terminal Marketplace readiness requires the exact
-  historical tag to pass the full five-platform composite-Action smoke. If that
+  historical tag to pass the full seven-platform composite-Action smoke. If that
   tagged Action cannot pass, recovery stops instead of masking it with newer
   control code.
 - A missing tag is created only after the registry package has been reverified.
@@ -262,19 +262,19 @@ The workflow is deliberately restartable without weakening immutable identity:
 
 ## Review The Verified Draft
 
-The workflow builds the five final archives from the downloaded crates.io
+The workflow builds the seven final archives from the downloaded crates.io
 package, verifies their embedded build identity, and creates or refreshes a
 draft GitHub Release. It never publishes the release automatically.
 
-The draft must contain exactly eight assets:
+The draft must contain exactly ten assets:
 
-- five target archives;
-- `SHA256SUMS`, with exactly seven unique entries;
+- seven target archives;
+- `SHA256SUMS`, with exactly nine unique entries;
 - `release-manifest.json`, schema 3; and
 - `git-slop.rb`, whose source URL and SHA-256 point to the static crates.io
   package rather than a GitHub archive or Homebrew bottle.
 
-`SHA256SUMS` covers the five archives, manifest, and Formula. GitHub's release
+`SHA256SUMS` covers the seven archives, manifest, and Formula. GitHub's release
 asset digests, the manifest's target matrix and source provenance, the exact
 tag commit, the crate checksum, and the Action installer must all verify before
 Inspect the draft and workflow summary:
@@ -285,7 +285,7 @@ gh release view v<version> --repo coreycoto/git-slop --json url,tagName,isDraft,
 ```
 
 Do not edit or publish the draft merely because it is visible. Draft creation
-precedes the five-platform Action smoke matrix. Wait until the complete Release
+precedes the seven-platform Action smoke matrix. Wait until the complete Release
 Publish run is green, including the terminal `marketplace-ready` job, before
 using the Marketplace controls. The Homebrew receiver may already be running;
 its bounded public-release wait is expected and cannot bypass this draft gate.
@@ -378,13 +378,13 @@ coreycoto/tap/git-slop`.
 ## Publish And Verify The External Scoop Manifest
 
 Scoop publication follows the stable public GitHub Release. It is not a ninth
-release asset, an eighth checksum entry, an Actions environment approval, or a
+release asset, a tenth checksum entry, an Actions environment approval, or a
 bucket credential shared with the source repository.
 
 The automatic trusted-main Scoop receiver starts only after the read-only
 public-release verifier has bound the exact version, numeric release ID, source
 revision, and release-manifest SHA-256. Trusted bucket `main` independently
-downloads the public release, requires the exact eight assets and seven
+downloads the public release, requires the exact ten assets and nine
 checksum entries, verifies every GitHub asset digest, resolves the tag, and
 rerenders `bucket/git-slop.json`. The manifest must select
 `git-slop-v<version>-x86_64-pc-windows-msvc.zip` for `64bit` and

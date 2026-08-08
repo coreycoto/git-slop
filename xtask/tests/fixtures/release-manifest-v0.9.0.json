@@ -35,6 +35,17 @@
     },
     {
       "arch": "x86_64",
+      "archive": "tar.gz",
+      "name": "git-slop-v0.9.0-x86_64-apple-darwin.tar.gz",
+      "os": "macos",
+      "path": "git-slop-v0.9.0-x86_64-apple-darwin.tar.gz",
+      "sha256": "0ad080f22fe8ed4b7851f16c927220c2ab8f73e997349dd9b3ff25455a963851",
+      "size_bytes": 20,
+      "target": "x86_64-apple-darwin",
+      "url": "https://github.com/coreycoto/git-slop/releases/download/v0.9.0/git-slop-v0.9.0-x86_64-apple-darwin.tar.gz"
+    },
+    {
+      "arch": "x86_64",
       "archive": "zip",
       "name": "git-slop-v0.9.0-x86_64-pc-windows-msvc.zip",
       "os": "windows",
@@ -54,6 +65,17 @@
       "size_bytes": 25,
       "target": "x86_64-unknown-linux-gnu",
       "url": "https://github.com/coreycoto/git-slop/releases/download/v0.9.0/git-slop-v0.9.0-x86_64-unknown-linux-gnu.tar.gz"
+    },
+    {
+      "arch": "x86_64",
+      "archive": "tar.gz",
+      "name": "git-slop-v0.9.0-x86_64-unknown-linux-musl.tar.gz",
+      "os": "linux",
+      "path": "git-slop-v0.9.0-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "45e66ed30407ff38e59c2f40bb7bccf71fd854a42bb0c37ec6b380852d2778cf",
+      "size_bytes": 26,
+      "target": "x86_64-unknown-linux-musl",
+      "url": "https://github.com/coreycoto/git-slop/releases/download/v0.9.0/git-slop-v0.9.0-x86_64-unknown-linux-musl.tar.gz"
     }
   ],
   "checksums": {

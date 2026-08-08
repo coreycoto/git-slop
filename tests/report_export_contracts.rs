@@ -103,8 +103,8 @@ fn compare_json_preserves_status_deltas_and_queue_movement() {
     assert_eq!(payload["summary"]["files"]["changed"], 2);
     assert_eq!(payload["summary"]["files"]["unchanged"], 0);
     assert_eq!(payload["summary"]["folders"]["changed"], 1);
-    assert_eq!(payload["summary"]["worsened_file_count"], 2);
-    assert_eq!(payload["summary"]["improved_file_count"], 2);
+    assert_eq!(payload["summary"]["worsened_file_count"], 1);
+    assert_eq!(payload["summary"]["improved_file_count"], 1);
 
     let a = item_by_path(&payload["file_deltas"], "src/a.py");
     assert_eq!(a["status"], "changed");
@@ -237,7 +237,7 @@ fn compare_reports_missing_invalid_and_incomplete_inputs_as_usage_errors() {
         .expect("run compare with missing report");
     assert_exit_code(&missing_output, 2);
     assert!(
-        String::from_utf8_lossy(&missing_output.stdout)
+        String::from_utf8_lossy(&missing_output.stderr)
             .contains(&format!("Report not found: {}", missing.display()))
     );
 
@@ -249,9 +249,7 @@ fn compare_reports_missing_invalid_and_incomplete_inputs_as_usage_errors() {
         .output()
         .expect("run compare with invalid report");
     assert_exit_code(&invalid_output, 2);
-    assert!(
-        String::from_utf8_lossy(&invalid_output.stdout).contains("base report must use schema 4.")
-    );
+    assert!(String::from_utf8_lossy(&invalid_output.stderr).contains("schema_version must be 4"));
 
     let incomplete_output = command()
         .args(["compare", "--base"])
@@ -273,7 +271,7 @@ fn compare_reports_missing_invalid_and_incomplete_inputs_as_usage_errors() {
         .expect("run compare with zero top");
     assert_exit_code(&bad_top_output, 2);
     assert!(
-        String::from_utf8_lossy(&bad_top_output.stdout)
+        String::from_utf8_lossy(&bad_top_output.stderr)
             .contains("--top must be greater than zero.")
     );
 }
@@ -302,10 +300,10 @@ fn sarif_stdout_preserves_sarif_tool_finding_and_evidence_contracts() {
         driver["informationUri"],
         "https://github.com/coreycoto/git-slop"
     );
-    assert_eq!(driver["rules"].as_array().map(Vec::len), Some(1));
+    assert_eq!(driver["rules"].as_array().map(Vec::len), Some(2));
     let rule = &driver["rules"][0];
-    assert_eq!(rule["id"], "git-slop.hotspot");
-    assert_eq!(rule["name"], "Git Slop hotspot");
+    assert_eq!(rule["id"], "git-slop.context-budget");
+    assert_eq!(rule["name"], "Git Slop context budget");
     assert_eq!(rule["properties"]["precision"], "medium");
     assert!(
         rule["properties"]["tags"]
@@ -323,8 +321,10 @@ fn sarif_stdout_preserves_sarif_tool_finding_and_evidence_contracts() {
     assert_eq!(results.len(), 2);
     for (index, result) in results.iter().enumerate() {
         let expected_path = &report["action_queue"][index]["path"];
-        assert_eq!(result["ruleId"], "git-slop.hotspot");
-        assert_eq!(result["ruleIndex"], 0);
+        assert!(matches!(
+            result["ruleId"].as_str(),
+            Some("git-slop.context-budget" | "git-slop.maintenance-pressure")
+        ));
         assert_eq!(result["level"], "warning");
         assert_eq!(
             result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
@@ -411,7 +411,7 @@ fn sarif_reports_missing_invalid_and_zero_top_inputs_as_usage_errors() {
         .expect("run SARIF with missing report");
     assert_exit_code(&missing_output, 2);
     assert!(
-        String::from_utf8_lossy(&missing_output.stdout)
+        String::from_utf8_lossy(&missing_output.stderr)
             .contains(&format!("Report not found: {}", missing.display()))
     );
 
@@ -421,10 +421,7 @@ fn sarif_reports_missing_invalid_and_zero_top_inputs_as_usage_errors() {
         .output()
         .expect("run SARIF with invalid report");
     assert_exit_code(&invalid_output, 2);
-    assert!(
-        String::from_utf8_lossy(&invalid_output.stdout)
-            .contains("git slop sarif requires report schema 4.")
-    );
+    assert!(String::from_utf8_lossy(&invalid_output.stderr).contains("schema_version must be 4"));
 
     let bad_top_output = command()
         .args(["sarif", "--report"])
@@ -434,7 +431,7 @@ fn sarif_reports_missing_invalid_and_zero_top_inputs_as_usage_errors() {
         .expect("run SARIF with zero top");
     assert_exit_code(&bad_top_output, 2);
     assert!(
-        String::from_utf8_lossy(&bad_top_output.stdout)
+        String::from_utf8_lossy(&bad_top_output.stderr)
             .contains("--top must be greater than zero.")
     );
 }

@@ -73,6 +73,23 @@ jobs:
       - name: Test GitHub Action
         run: node --test action/*.test.mjs
 
+  msrv:
+    name: Minimum supported Rust 1.85
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up minimum supported Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.85.0
+
+      - name: Check public package on MSRV
+        run: cargo check -p git-slop --all-targets --all-features --locked
+
   platform-smoke:
     name: Native smoke (${{ matrix.os }})
     strategy:

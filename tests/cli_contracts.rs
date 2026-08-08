@@ -95,6 +95,59 @@ fn removed_refactor_preview_subcommand_is_rejected_by_clap() {
 }
 
 #[test]
+fn completions_are_generated_from_the_live_command_tree() {
+    for shell in ["bash", "zsh", "fish", "powershell", "nushell"] {
+        cargo_bin_cmd!("git-slop")
+            .current_dir(manifest_dir())
+            .args(["completions", shell])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("git-slop"))
+            .stdout(predicate::str::contains("compare"));
+    }
+}
+
+#[test]
+fn explain_accepts_a_unique_relationship_id_prefix() {
+    let report = fixture("relationship_focused_report.json");
+    cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .args([
+            "explain",
+            "--report",
+            report.to_str().expect("fixture path"),
+            "--relationship",
+            "near_duplicate_neighborhood-35e7",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "near_duplicate_neighborhood-35e7fad1c4e0",
+        ));
+}
+
+#[test]
+fn html_export_is_self_contained_and_searchable() {
+    let temporary = TempDir::new().expect("temporary directory");
+    let output = temporary.path().join("report.html");
+    cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .args(["html", "--report"])
+        .arg(fixture("relationship_focused_report.json"))
+        .arg("--output")
+        .arg(&output)
+        .assert()
+        .success();
+    let html = fs::read_to_string(output).expect("HTML report");
+    assert!(html.contains("type=\"application/json\""));
+    assert!(html.contains("placeholder=\"Search paths\""));
+    assert!(html.contains("near_duplicate_neighborhood"));
+    assert!(!html.contains("https://cdn"));
+}
+
+#[test]
 fn report_consumers_preserve_missing_report_exit_two() {
     let temporary = TempDir::new().expect("temporary directory");
     let missing = temporary.path().join("missing-report.json");
@@ -117,9 +170,10 @@ fn report_consumers_preserve_missing_report_exit_two() {
             .args(&args)
             .assert()
             .code(2)
-            .stdout(predicate::str::contains(format!(
+            .stderr(predicate::str::contains(format!(
                 "Report not found: {missing_display}"
-            )));
+            )))
+            .stderr(predicate::str::contains("git slop find"));
     }
 }
 
@@ -249,7 +303,11 @@ fn init_writes_schema_two_config_ignore_rules_and_state_directories() {
         serde_yaml::from_str(&fs::read_to_string(config_path).expect("read generated config.yaml"))
             .expect("parse generated config.yaml");
     assert_eq!(config["schema_version"], 2);
-    assert!(config["tokenization"].is_object());
+    assert_eq!(
+        config.as_object().expect("config object").len(),
+        1,
+        "init should write the minimal forward-compatible config"
+    );
 
     assert_eq!(
         fs::read_to_string(gitignore_path).expect("read generated .gitignore"),

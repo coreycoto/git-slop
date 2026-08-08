@@ -13,6 +13,13 @@ pub struct RepoMetadata {
     pub head_commit_timestamp: Option<String>,
     pub git_remote_url: Option<String>,
     pub is_shallow: bool,
+    pub detached_head: bool,
+    pub worktree_clean: bool,
+    pub staged_change_count: usize,
+    pub modified_tracked_file_count: usize,
+    pub untracked_file_count: usize,
+    pub worktree_state_digest: String,
+    pub analyzed_content_digest: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -77,11 +84,13 @@ pub struct FileAnalysis {
     pub language: String,
     pub profile: String,
     pub classification: String,
+    pub has_inline_tests: bool,
     pub tokens: usize,
     pub context_band: String,
     pub context_pressure: f64,
     #[serde(skip)]
     pub content_fingerprint: String,
+    #[serde(skip)]
     pub structural_tokens: Vec<String>,
     pub structural_token_count: usize,
     pub top_structural_terms: Vec<String>,
@@ -156,6 +165,7 @@ pub struct Analysis {
     pub commits: Vec<CommitRecord>,
     pub organization: OrganizationAnalysis,
     pub action_queue: Vec<Value>,
+    pub diagnostics: Value,
     pub report: Value,
 }
 

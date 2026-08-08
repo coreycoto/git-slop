@@ -216,6 +216,8 @@ if (process.argv[2] === "version") {
       "x86_64-unknown-linux-gnu": { os: "linux", arch: "x86_64", archive: "tar.gz" },
       "aarch64-unknown-linux-gnu": { os: "linux", arch: "aarch64", archive: "tar.gz" },
       "aarch64-apple-darwin": { os: "macos", arch: "aarch64", archive: "tar.gz" },
+      "x86_64-apple-darwin": { os: "macos", arch: "x86_64", archive: "tar.gz" },
+      "x86_64-unknown-linux-musl": { os: "linux", arch: "x86_64", archive: "tar.gz" },
       "x86_64-pc-windows-msvc": { os: "windows", arch: "x86_64", archive: "zip" },
       "aarch64-pc-windows-msvc": { os: "windows", arch: "aarch64", archive: "zip" },
     };
@@ -773,11 +775,11 @@ try {
 
       refreshMetadata();
       const invalidAssetSets = [
-        ["missing", (assets) => assets.pop(), /exactly eight/u],
+        ["missing", (assets) => assets.pop(), /exactly ten/u],
         [
           "extra",
           (assets) => assets.push({ ...assets[0], name: "unexpected.bin" }),
-          /exactly eight/u,
+          /exactly ten/u,
         ],
         [
           "duplicate",

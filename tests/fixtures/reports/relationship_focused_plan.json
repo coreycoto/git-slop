@@ -12,6 +12,10 @@
   "command": "plan",
   "proposed_slices": [
     {
+      "assumptions": [
+        "The cited detector report is the source of truth for scope and ranking.",
+        "A human reviews the proposed slice before any repository mutation."
+      ],
       "backlog_handoff": {
         "acceptance_criteria": [
           "Review the scoped paths against the cited git-slop evidence.",
@@ -35,10 +39,30 @@
           "maintenance"
         ]
       },
-      "evidence_summary": "Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py.",
+      "boundaries": {
+        "in_scope": [
+          "src/consumer_toolkit/github/current_repo.py",
+          "src/consumer_toolkit/github/shared/current_repo.py"
+        ],
+        "out_of_scope": []
+      },
+      "evidence": {
+        "cluster_ids": [
+          "duplicate_set-ce293b441009"
+        ],
+        "relationship_ids": [
+          "near_duplicate_neighborhood-35e7fad1c4e0"
+        ],
+        "summary": "Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py."
+      },
+      "expected_outcome": "A smaller, reviewable maintenance surface with preserved behavior and refreshed detector evidence.",
       "id": "anchor-relationship-near_duplicate_neighborhood-35e7fad1c4e0",
+      "objective": "Inspect relationship near_duplicate_neighborhood-35e7fad1c4e0",
       "out_of_scope_paths": [],
       "ranking_reason": "Anchor slice always ranks first.",
+      "rationale": "Start with the selected coupled pair before considering any surrounding cluster evidence.",
+      "rerun_command": "git-slop plan --relationship 'near_duplicate_neighborhood-35e7fad1c4e0' --report .slop/latest/report.json",
+      "rollback": "Revert only the explicitly reviewed code changes; report and prompt artifacts are advisory and can be regenerated.",
       "scope_paths": [
         "src/consumer_toolkit/github/current_repo.py",
         "src/consumer_toolkit/github/shared/current_repo.py"
@@ -50,7 +74,11 @@
         "near_duplicate_neighborhood-35e7fad1c4e0"
       ],
       "title": "Inspect relationship near_duplicate_neighborhood-35e7fad1c4e0",
-      "why_this_slice": "Start with the selected coupled pair before considering any surrounding cluster evidence."
+      "verification": [
+        "Run the repository's focused tests for changed paths.",
+        "Rerun git-slop and compare the new report with the cited report.",
+        "Confirm no unrelated finding or public contract regressed."
+      ]
     }
   ],
   "ranking_basis": {

@@ -1,6 +1,6 @@
 ---
 name: install-update
-description: Install, update, and verify the native git-slop CLI through Cargo, Homebrew, or the SHA256SUMS-backed Scoop bucket. Use when a machine needs a usable binary on PATH or an installed binary's version and source revision must be proven; repository configuration and GitHub Action adoption belong to the adopt-repo skill.
+description: Install, update, and verify the native git-slop CLI through Cargo, Homebrew, Scoop, or a checksummed release archive. Use when a machine needs a usable binary on PATH or an installed binary's version and source revision must be proven; repository configuration and GitHub Action adoption belong to the adopt-repo skill.
 ---
 
 # Install Or Update Git Slop
@@ -17,6 +17,8 @@ published and verified:
   formula; a bottle may provide the fast path after it is published.
 - Scoop installation requires the matching public GitHub Release plus the
   external bucket manifest after native Windows x64 and ARM64 qualification.
+- Archive installation requires the exact GitHub Release archive, its entry in
+  `SHA256SUMS`, and the matching `release-manifest.json` target identity.
 
 Do not infer availability from a source tag, documentation, or another
 distribution surface. Verify the exact crates.io version, tap Formula, or Scoop
@@ -45,6 +47,11 @@ manifest before recommending its corresponding install command.
   - `scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket`
   - `scoop install coreycoto/git-slop`
   - `scoop update git-slop`
+- Release archive, when no package manager is available:
+  - download `SHA256SUMS`, `release-manifest.json`, and the exact platform archive
+  - verify the archive SHA-256 against both files
+  - extract Unix archives with `tar --no-same-owner -xzf <archive>`
+  - install `git-slop` and the bundled `man/git-slop.1` into user-owned paths
 
 The public CLI is a native Rust executable. Do not add alternate runtime
 dependencies. Use the separate `adopt-repo` skill when the requested outcome

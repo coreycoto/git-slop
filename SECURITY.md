@@ -56,7 +56,7 @@ never through a potentially ambiguous branch name. Native release archives are
 limited to 128 MiB in both publisher validation and consumer installation.
 
 The stable release workflow starts only through `workflow_dispatch` at exact
-current `main`. All five target builds and distribution metadata pass preflight
+current `main`. All seven target builds and distribution metadata pass preflight
 before the protected `release` environment can expose the one-time crates.io
 bootstrap token. The candidate package, crates.io index checksum, and
 downloaded static `.crate` must have one SHA-256 digest. Automation creates the

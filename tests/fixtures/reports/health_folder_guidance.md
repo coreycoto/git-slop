@@ -1,6 +1,6 @@
 # Repository Health
 
-❌ **Review required** — 0 file(s) and 1 folder(s) exceed configured refactor thresholds.
+❌ **Review required** — 1 file(s) and 2 folder(s) exceed configured refactor thresholds.
 
 - **Generated at:** `2026-08-06T12:00:00Z`
 - **Repo:** `health-folder-guidance`
@@ -20,31 +20,38 @@
 | `compact` | `<= 3,072` tokens | 10 |
 | `healthy` | `3,073-8,000` tokens | 0 |
 | `warning` | `8,001-10,000` tokens | 0 |
-| `refactor_required` | `>10,000` tokens | 0 |
+| `refactor_required` | `>10,000` tokens | 1 |
 
 | Direct-load band | Definition | Folders |
 | --- | --- | ---: |
 | `compact` | direct tokens `<= 500` | 0 |
 | `healthy` | direct tokens `501-2,000` | 0 |
-| `warning` | direct tokens `2,001-4,000` or direct files `>2` | 2 |
-| `refactor_required` | direct tokens `>4,000` or direct files `>4` | 1 |
+| `warning` | direct tokens `2,001-4,000` or direct files `>2` | 1 |
+| `refactor_required` | direct tokens `>4,000` or direct files `>4` | 2 |
 
 #### Token Stats
 
 | Type | p50 | p90 | p95 | p99 | Max | Top 1 share | Top 5 share | Top 10 share |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `files` | 900 | 1,060 | 1,780 | 2,356 | 2,500 | 33.6% | 81.9% | 100.0% |
-| `folders` | 2,500 | 4,100 | 4,300 | 4,460 | 4,500 | 61.6% | 100.0% | 100.0% |
+| `files` | 900 | 2,500 | 51,249.50 | 90,249.10 | 99,999 | 93.1% | 97.9% | 99.9% |
+| `folders` | 4,500 | 81,139.20 | 90,719.10 | 98,383.02 | 100,299 | 93.5% | 100.0% | 100.0% |
 
-## Refactor Recommendations
+## Investigation Candidates
 
-### Policy Failures
+### Context Budget Exceeded
+
+#### File Risks
+
+| Path | Class | Tokens | Context/load band | Maintenance pressure | % of parent |
+| --- | --- | ---: | --- | --- | ---: |
+| `src/files-only/generated.json` | data | 99,999 | `refactor_required` | `critical` · score 99.0 | 99.6% |
 
 #### Folder Risks
 
 | Path | Class | Direct load | Direct-load band and trigger | Maintenance pressure | Highest-ranked descendant | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
-| `src/both` | source | 5 files · 4,500 tokens · 60.4% of parent | `refactor_required` — both: 5 direct files \> 4 warning ceiling; 4,500 direct tokens \> 4,000 warning ceiling | `critical` · score 90.0 | `src/both/0.rs` — maintenance `high` · score 80.0; context/load `compact` · 900 tokens | `git-slop explain --path src/both/` |
+| `src/files-only` | source | 4 files · 100,299 tokens · 93.3% of parent | `refactor_required` — tokens: 100,299 direct tokens \> 4,000 warning ceiling | `high` · score 1,234.5 | `src/files-only/nested/winner.rs` — maintenance `moderate` · score 50.0; context/load `compact` · 150 tokens | `git-slop explain --path src/files-only/` |
+| `src/both` | source | 5 files · 4,500 tokens · 4.2% of parent | `refactor_required` — both: 5 direct files \> 4 warning ceiling; 4,500 direct tokens \> 4,000 warning ceiling | `critical` · score 90.0 | `src/both/0.rs` — maintenance `high` · score 80.0; context/load `compact` · 900 tokens | `git-slop explain --path src/both/` |
 
 
 ### Review Candidates
@@ -53,8 +60,7 @@
 
 | Path | Class | Direct load | Direct-load band and trigger | Maintenance pressure | Highest-ranked descendant | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
-| `src/tokens-only` | source | 1 files · 2,500 tokens · 33.6% of parent | `warning` — tokens: 2,500 direct tokens \> 2,000 healthy ceiling | `moderate` · score 61.2 | `src/tokens-only/a.rs` — maintenance `moderate` · score 60.0; context/load `compact` · 2,500 tokens | `git-slop explain --path src/tokens-only/` |
-| `src/files-only` | source | 3 files · 300 tokens · 4.0% of parent | `warning` — files: 3 direct files \> 2 healthy ceiling | `high` · score 1,234.5 | `src/files-only/nested/winner.rs` — maintenance `moderate` · score 50.0; context/load `compact` · 150 tokens | `git-slop explain --path src/files-only/` |
+| `src/tokens-only` | source | 1 files · 2,500 tokens · 2.3% of parent | `warning` — tokens: 2,500 direct tokens \> 2,000 healthy ceiling | `moderate` · score 61.2 | `src/tokens-only/a.rs` — maintenance `moderate` · score 60.0; context/load `compact` · 2,500 tokens | `git-slop explain --path src/tokens-only/` |
 
 
 ## Actionable Findings

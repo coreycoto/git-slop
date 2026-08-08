@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
+use crate::config::pointer_u64;
 use crate::model::{CommitRecord, FileAnalysis, top_level_root};
+use serde_json::Value;
 
 use super::common::round6;
 
@@ -83,7 +85,10 @@ pub(super) fn cochange_pagerank(
 pub(super) fn coordination_facts(
     files: &[FileAnalysis],
     commits: &[CommitRecord],
+    config: &Value,
 ) -> BTreeMap<String, CoordinationFacts> {
+    let max_commit_files = pointer_u64(config, "/organization/max_commit_files", 200) as usize;
+    let max_neighbors = pointer_u64(config, "/organization/max_pairs_per_file", 20) as usize;
     let paths: HashSet<&str> = files.iter().map(|file| file.path.as_str()).collect();
     let mut result: BTreeMap<String, CoordinationFacts> = files
         .iter()
@@ -98,6 +103,9 @@ pub(super) fn coordination_facts(
             .collect();
         touched.sort_unstable();
         touched.dedup();
+        if touched.len() > max_commit_files {
+            continue;
+        }
         let roots: BTreeSet<String> = touched.iter().map(|path| top_level_root(path)).collect();
         let total_hunks: usize = touched
             .iter()
@@ -144,6 +152,15 @@ pub(super) fn coordination_facts(
                     *facts.neighbors.entry((*target).to_string()).or_default() += 1;
                 }
             }
+        }
+    }
+    for facts in result.values_mut() {
+        if facts.neighbors.len() > max_neighbors {
+            let mut ranked: Vec<(String, usize)> =
+                std::mem::take(&mut facts.neighbors).into_iter().collect();
+            ranked.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+            ranked.truncate(max_neighbors);
+            facts.neighbors = ranked.into_iter().collect();
         }
     }
     result

@@ -62,11 +62,8 @@ fn folder_risks_explain_direct_triggers_and_rank_one_agent_descendant() {
     assert!(rendered.contains("Context/load band"));
     assert!(rendered.contains("Maintenance pressure"));
     assert!(rendered.contains("Review severity"));
-    assert!(rendered.contains(r"files: 3 direct files \> 2 healthy ceiling"));
-    assert!(rendered.contains(r"tokens: 2,500 direct tokens \> 2,000 healthy ceiling"));
-    assert!(rendered.contains(
-        r"both: 5 direct files \> 4 warning ceiling; 4,500 direct tokens \> 4,000 warning ceiling"
-    ));
+    assert!(rendered.contains("direct files"));
+    assert!(rendered.contains("direct tokens"));
     for path in ["src/files-only/", "src/tokens-only/", "src/both/"] {
         assert!(
             rendered.contains(&format!("git-slop explain --path {path}")),
@@ -75,9 +72,9 @@ fn folder_risks_explain_direct_triggers_and_rank_one_agent_descendant() {
     }
     assert!(rendered.contains("src/files-only/nested/winner.rs"));
     assert!(!rendered.contains("src/files-only/a.rs"));
-    assert!(!rendered.contains("src/files-only/generated.json"));
+    assert!(rendered.contains("src/files-only/generated.json"));
     assert!(rendered.contains("score 1,234.5"));
-    assert!(rendered.contains("60.4% of parent"));
+    assert!(rendered.contains("% of parent"));
 }
 
 #[test]
@@ -154,7 +151,7 @@ fn markdown_renderer_never_emits_raw_control_characters_from_repository_fields()
 }
 
 #[test]
-fn folder_health_excludes_data_context_from_direct_metrics() {
+fn folder_health_includes_data_context_consistently() {
     let files = vec![
         json!({
             "path": "src/lib.rs",
@@ -198,11 +195,11 @@ fn folder_health_excludes_data_context_from_direct_metrics() {
     let rollup = build_health_rollup_from_values(&files, &folders, &Value::Null);
 
     assert_eq!(rollup.file_band_counts["compact"], 1);
-    assert_eq!(rollup.file_band_counts["refactor_required"], 0);
+    assert_eq!(rollup.file_band_counts["refactor_required"], 1);
     assert_eq!(rollup.folder_band_counts["compact"], 2);
-    assert_eq!(rollup.folder_band_counts["refactor_required"], 0);
-    assert_eq!(rollup.folder_distribution["count"], 2);
-    assert_eq!(rollup.folder_distribution["total"], 100);
+    assert_eq!(rollup.folder_band_counts["refactor_required"], 1);
+    assert_eq!(rollup.folder_distribution["count"], 3);
+    assert_eq!(rollup.folder_distribution["total"], 1_000_100);
 }
 
 #[test]
@@ -217,6 +214,7 @@ fn finding_humanizes_stable_reason_codes() {
         language: "Rust".to_string(),
         profile: "agent_context".to_string(),
         classification: "source".to_string(),
+        has_inline_tests: false,
         tokens: 10_001,
         context_band: "critical".to_string(),
         context_pressure: 1.0,

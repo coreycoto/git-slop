@@ -78,7 +78,7 @@ const GIT_SLOP_SKILL_CONTRACTS: [SkillContract; 4] = [
     },
     SkillContract {
         skill_name: "install-update",
-        trigger_description: "Install, update, and verify the native git-slop CLI through Cargo, Homebrew, or the SHA256SUMS-backed Scoop bucket. Use when a machine needs a usable binary on PATH or an installed binary's version and source revision must be proven; repository configuration and GitHub Action adoption belong to the adopt-repo skill.",
+        trigger_description: "Install, update, and verify the native git-slop CLI through Cargo, Homebrew, Scoop, or a checksummed release archive. Use when a machine needs a usable binary on PATH or an installed binary's version and source revision must be proven; repository configuration and GitHub Action adoption belong to the adopt-repo skill.",
         display_name: "Install Git Slop",
         short_description: "Install and verify the native Git Slop CLI",
         default_prompt: "Use $git-slop:install-update to install or update the native Git Slop CLI and verify its provenance.",
@@ -455,7 +455,7 @@ fn validate_product_plugin(repo_root: &Path, errors: &mut Vec<String>) {
             ));
         }
         let expected_portable_metadata = json!({
-            "description": "Agent guidance for installing, running, interpreting, automating, and adopting the native git-slop CLI.",
+            "description": "Agent guidance for the deterministic git-slop repository token-defragmenter.",
             "author": {
                 "name": "Corey Coto",
                 "email": "support@coreycoto.com",
@@ -495,8 +495,8 @@ fn validate_product_plugin(repo_root: &Path, errors: &mut Vec<String>) {
         let expected_openai_extension = json!({
             "interface": {
                 "displayName": "Git Slop",
-                "shortDescription": "Run and automate git-slop health reports",
-                "longDescription": "Agent guidance for installing or updating the native git-slop CLI, running deterministic hotspot and repository-health reports, using the advisory GitHub Action, interpreting report artifacts, planning bounded maintenance slices, and adopting git-slop in consumer repositories without mixing product guidance into shared project-management workflows.",
+                "shortDescription": "Defragment repository context deterministically",
+                "longDescription": "Agent guidance for installing or updating the native git-slop repository token-defragmenter, running deterministic context-cost and repository-health reports, ratcheting pull requests against compatible baselines, interpreting evidence, and planning bounded maintenance slices.",
                 "developerName": "Corey Coto",
                 "category": "Developer Tools",
                 "capabilities": ["Interactive", "Read"],
@@ -511,7 +511,7 @@ fn validate_product_plugin(repo_root: &Path, errors: &mut Vec<String>) {
                 "brandColor": GIT_SLOP_BRAND_COLOR,
                 "composerIcon": "./assets/git-slop.svg",
                 "logo": "./assets/git-slop.svg",
-                "screenshots": []
+                "screenshots": ["./assets/repository-health.png"]
             }
         });
         if manifest.pointer("/extensions/com.openai") != Some(&expected_openai_extension) {

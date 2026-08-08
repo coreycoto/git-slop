@@ -114,3 +114,8 @@ prompt packs, SARIF exports, plan JSON, and compare JSON as generated artifacts
 unless a repository intentionally curates them as fixtures outside `.slop/`.
 The GitHub Action uploads only an allowlisted subset, with `health.md` as its
 default artifact.
+The portable Agent Plugin layout can be installed by clients that support
+Agent Plugins or Agent Skills, including Codex, VS Code/Copilot, Cursor, and
+Kiro. Point the client at `plugins/git-slop`, keep `plugin.json` authoritative,
+and follow that client's local plugin installation flow. The
+`.codex-plugin/plugin.json` file is only a metadata compatibility mirror.

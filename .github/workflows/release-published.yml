@@ -46,8 +46,10 @@ jobs:
             "git-slop-${TAG}-aarch64-apple-darwin.tar.gz" \
             "git-slop-${TAG}-aarch64-pc-windows-msvc.zip" \
             "git-slop-${TAG}-aarch64-unknown-linux-gnu.tar.gz" \
+            "git-slop-${TAG}-x86_64-apple-darwin.tar.gz" \
             "git-slop-${TAG}-x86_64-pc-windows-msvc.zip" \
             "git-slop-${TAG}-x86_64-unknown-linux-gnu.tar.gz" \
+            "git-slop-${TAG}-x86_64-unknown-linux-musl.tar.gz" \
             release-manifest.json | LC_ALL=C sort > expected-assets.txt
           diff -u expected-assets.txt actual-assets.txt
           revision="$(gh api "repos/${REPOSITORY}/commits/${TAG}" --jq '.sha')"

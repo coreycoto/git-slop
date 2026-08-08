@@ -1,4 +1,8 @@
 {
+  "config": {},
+  "health": {},
+  "stats": {},
+  "summary": {},
   "action_queue": [],
   "clusters": {
     "analysis_status": "experimental",

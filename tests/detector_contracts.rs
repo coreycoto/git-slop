@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-use git_slop::analyze::run_find_in;
+use git_slop::run_find_in;
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -113,6 +113,12 @@ fn native_detector_emits_duplicate_coupling_clusters_and_refreshes_latest() {
     }
 
     let first = run_find_in(repository.path()).expect("run native detector");
+    assert!(
+        first.report["diagnostics"]["analysis"]["cache_misses"]
+            .as_u64()
+            .unwrap_or_default()
+            > 0
+    );
     let report = &first.report;
     let duplicate = relationship_for_pair(
         report,
@@ -156,10 +162,8 @@ fn native_detector_emits_duplicate_coupling_clusters_and_refreshes_latest() {
 
     let left_file = record_for_path(&report["files"], original_left);
     let right_file = record_for_path(&report["files"], original_right);
-    assert_ne!(
-        left_file["structural_tokens"], right_file["structural_tokens"],
-        "public structural tokens must retain distinct path tokens"
-    );
+    assert!(left_file.get("structural_tokens").is_none());
+    assert!(right_file.get("structural_tokens").is_none());
     assert!(left_file.get("content_fingerprint").is_none());
     assert!(right_file.get("content_fingerprint").is_none());
 
@@ -223,6 +227,13 @@ fn native_detector_emits_duplicate_coupling_clusters_and_refreshes_latest() {
     commit_all(&repository, "rename duplicate and remove obsolete file");
 
     let second = run_find_in(repository.path()).expect("rerun native detector");
+    assert!(
+        second.report["diagnostics"]["analysis"]["cache_hits"]
+            .as_u64()
+            .unwrap_or_default()
+            > 0,
+        "unchanged files should reuse the content-addressed token cache"
+    );
     assert!(record_for_path(&second.report["files"], renamed_left).is_object());
     assert!(
         relationship_for_pair(

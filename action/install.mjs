@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const releaseVersion = (process.env.GIT_SLOP_ACTION_VERSION || "0.9.6").trim();
+const releaseVersion = (process.env.GIT_SLOP_ACTION_VERSION || "0.10.0").trim();
 const releaseRepository = (
   process.env.GIT_SLOP_RELEASE_REPOSITORY || "coreycoto/git-slop"
 ).trim();
@@ -28,8 +28,10 @@ const supportedTargets = {
   "x86_64-unknown-linux-gnu": { os: "linux", arch: "x86_64", archive: "tar.gz" },
   "aarch64-unknown-linux-gnu": { os: "linux", arch: "aarch64", archive: "tar.gz" },
   "aarch64-apple-darwin": { os: "macos", arch: "aarch64", archive: "tar.gz" },
+  "x86_64-apple-darwin": { os: "macos", arch: "x86_64", archive: "tar.gz" },
   "x86_64-pc-windows-msvc": { os: "windows", arch: "x86_64", archive: "zip" },
   "aarch64-pc-windows-msvc": { os: "windows", arch: "aarch64", archive: "zip" },
+  "x86_64-unknown-linux-musl": { os: "linux", arch: "x86_64", archive: "tar.gz" },
 };
 
 function appendFileCommand(target, name, value) {
@@ -55,12 +57,20 @@ function targetTriple() {
     "linux:x64": "x86_64-unknown-linux-gnu",
     "linux:arm64": "aarch64-unknown-linux-gnu",
     "darwin:arm64": "aarch64-apple-darwin",
+    "darwin:x64": "x86_64-apple-darwin",
     "win32:x64": "x86_64-pc-windows-msvc",
     "win32:arm64": "aarch64-pc-windows-msvc",
   };
-  const target = targets[key];
+  const requested = (process.env.GIT_SLOP_TARGET || "").trim();
+  const target = requested || targets[key];
   if (!target) {
     throw new Error(`unsupported runner platform ${key}`);
+  }
+  const metadata = supportedTargets[target];
+  const platform = { linux: "linux", darwin: "macos", win32: "windows" }[process.platform];
+  const arch = { x64: "x86_64", arm64: "aarch64" }[process.arch] || process.arch;
+  if (!metadata || metadata.os !== platform || metadata.arch !== arch) {
+    throw new Error(`target ${target} is incompatible with runner platform ${key}`);
   }
   return target;
 }
@@ -277,7 +287,7 @@ function exactReleaseAssets(release, releaseRepository, tag) {
     "release-manifest.json",
   ]);
   if (!Array.isArray(release.assets) || release.assets.length !== expectedNames.size) {
-    throw new Error(`release ${tag} must contain exactly eight distribution assets`);
+    throw new Error(`release ${tag} must contain exactly ten distribution assets`);
   }
   const downloadBase = releaseDownloadBase(release, releaseRepository, tag);
   const assets = new Map();
@@ -701,8 +711,8 @@ function releaseManifestIdentity(
   ) {
     throw new Error("release-manifest.json has inconsistent crates.io provenance");
   }
-  if (!Array.isArray(manifest.artifacts) || manifest.artifacts.length !== 5) {
-    throw new Error("release-manifest.json must describe exactly five release targets");
+  if (!Array.isArray(manifest.artifacts) || manifest.artifacts.length !== 7) {
+    throw new Error("release-manifest.json must describe exactly seven release targets");
   }
   const targetSet = new Set();
   const nameSet = new Set();

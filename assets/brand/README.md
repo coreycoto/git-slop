@@ -18,10 +18,13 @@ terminal, shield, or center dot.
 | `git-slop-16.png` | Optically checked transparent export at 16 px |
 | `git-slop-24.png` | Optically checked transparent export at 24 px |
 | `git-slop-512.png` | Transparent raster master for surfaces that do not accept SVG |
+| `github-social-preview.png` | Release-ready 1280×640 repository social preview |
 | `../../plugins/git-slop/assets/git-slop.svg` | Exact plugin-package mirror of the canonical SVG |
+| `../../plugins/git-slop/assets/repository-health.png` | Product-authentic plugin marketplace screenshot |
 
 The repository README selects the light or dark asset for the viewer's color
-scheme and keeps the visible `🧑‍💻🤖🫟 Git Slop` title intact.
+scheme and keeps the visible `Git Slop` title intact. GitHub repository
+settings should select the versioned social-preview asset after release review.
 
 GitHub Actions Marketplace does not accept a custom SVG in `action.yml`.
 GitHub's metadata contract permits a supported Feather icon and preset badge

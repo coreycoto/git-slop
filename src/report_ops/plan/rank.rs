@@ -243,6 +243,18 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         .expect("slice object")
         .remove("_selector_class");
     let evidence_summary = plan_evidence_summary(&slice);
+    let title = string(slice.get("title"));
+    let rationale = string(slice.get("why_this_slice"));
+    let scope_paths = string_array(slice.get("scope_paths"));
+    let out_of_scope_paths = string_array(slice.get("out_of_scope_paths"));
+    let relationship_ids = string_array(slice.get("supporting_relationship_ids"));
+    let cluster_ids = string_array(slice.get("supporting_cluster_ids"));
+    let selector_kind = string(value_at(context, &["selector", "kind"]));
+    let selector_value = string(value_at(context, &["selector", "value"]));
+    let rerun_command = format!(
+        "git-slop plan --{selector_kind} '{}' --report .slop/latest/report.json",
+        selector_value.replace('\'', "'\\''")
+    );
     let top_score = string_array(slice.get("scope_paths"))
         .iter()
         .map(|path| record_slop_score(report, path))
@@ -272,14 +284,47 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
             "report_schema_version": report.get("schema_version").cloned().unwrap_or(Value::Null),
         },
     });
-    slice
-        .as_object_mut()
-        .expect("slice object")
-        .insert("evidence_summary".to_string(), json!(evidence_summary));
-    slice
-        .as_object_mut()
-        .expect("slice object")
-        .insert("backlog_handoff".to_string(), backlog);
+    let object = slice.as_object_mut().expect("slice object");
+    object.remove("why_this_slice");
+    object.insert("objective".to_string(), json!(title));
+    object.insert("rationale".to_string(), json!(rationale));
+    object.insert(
+        "evidence".to_string(),
+        json!({
+            "summary": evidence_summary,
+            "relationship_ids": relationship_ids,
+            "cluster_ids": cluster_ids,
+        }),
+    );
+    object.insert(
+        "assumptions".to_string(),
+        json!([
+            "The cited detector report is the source of truth for scope and ranking.",
+            "A human reviews the proposed slice before any repository mutation.",
+        ]),
+    );
+    object.insert(
+        "boundaries".to_string(),
+        json!({"in_scope": scope_paths, "out_of_scope": out_of_scope_paths}),
+    );
+    object.insert(
+        "verification".to_string(),
+        json!([
+            "Run the repository's focused tests for changed paths.",
+            "Rerun git-slop and compare the new report with the cited report.",
+            "Confirm no unrelated finding or public contract regressed.",
+        ]),
+    );
+    object.insert(
+        "expected_outcome".to_string(),
+        json!("A smaller, reviewable maintenance surface with preserved behavior and refreshed detector evidence."),
+    );
+    object.insert("rerun_command".to_string(), json!(rerun_command));
+    object.insert(
+        "rollback".to_string(),
+        json!("Revert only the explicitly reviewed code changes; report and prompt artifacts are advisory and can be regenerated."),
+    );
+    object.insert("backlog_handoff".to_string(), backlog);
     slice
 }
 
@@ -370,16 +415,18 @@ pub fn render_plan_text(payload: &Value) -> String {
                 "   scope: {}",
                 render_limited(&string_array(slice.get("scope_paths")), usize::MAX)
             ),
-            format!("   why: {}", string(slice.get("why_this_slice"))),
+            format!("   objective: {}", string(slice.get("objective"))),
+            format!("   rationale: {}", string(slice.get("rationale"))),
             format!(
-                "   evidence_summary: {}",
-                string(slice.get("evidence_summary"))
+                "   evidence: {}",
+                string(value_at(slice, &["evidence", "summary"]))
             ),
             format!(
-                "   evidence: relationships={}; clusters={}",
-                render_limited(&string_array(slice.get("supporting_relationship_ids")), 3),
-                render_limited(&string_array(slice.get("supporting_cluster_ids")), 2),
+                "   expected_outcome: {}",
+                string(slice.get("expected_outcome"))
             ),
+            format!("   rerun: {}", string(slice.get("rerun_command"))),
+            format!("   rollback: {}", string(slice.get("rollback"))),
             format!(
                 "   backlog: {} priority={} policy=preview_only",
                 string(value_at(
