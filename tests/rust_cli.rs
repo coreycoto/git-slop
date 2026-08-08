@@ -176,8 +176,9 @@ fn health_report() -> Value {
 
 #[test]
 fn version_subcommand_preserves_public_shape() {
+    let outside_repository = TempDir::new().expect("temporary non-repository directory");
     cargo_bin_cmd!("git-slop")
-        .current_dir(manifest_dir())
+        .current_dir(outside_repository.path())
         .arg("version")
         .assert()
         .success()
@@ -186,8 +187,9 @@ fn version_subcommand_preserves_public_shape() {
 
 #[test]
 fn build_info_reports_version_and_source_identity_as_json() {
+    let outside_repository = TempDir::new().expect("temporary non-repository directory");
     let output = cargo_bin_cmd!("git-slop")
-        .current_dir(manifest_dir())
+        .current_dir(outside_repository.path())
         .args(["build-info", "--format", "json"])
         .output()
         .expect("run build-info");

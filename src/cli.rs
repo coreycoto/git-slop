@@ -1272,6 +1272,13 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
     }
 }
 
+fn command_requires_repository(command: &Command) -> bool {
+    !matches!(
+        command,
+        Command::Completions(_) | Command::Version | Command::BuildInfo(_)
+    )
+}
+
 pub fn run() -> i32 {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
@@ -1281,12 +1288,16 @@ pub fn run() -> i32 {
             return code;
         }
     };
-    let repo_root = match git::resolve_repo_root_from(cli.repo.as_deref()) {
-        Ok(root) => root,
-        Err(error) => {
-            eprintln!("{error:#}");
-            return 3;
+    let repo_root = if command_requires_repository(&cli.command) {
+        match git::resolve_repo_root_from(cli.repo.as_deref()) {
+            Ok(root) => root,
+            Err(error) => {
+                eprintln!("{error:#}");
+                return 3;
+            }
         }
+    } else {
+        PathBuf::new()
     };
     match execute(&repo_root, cli.command) {
         Ok(code) => code,

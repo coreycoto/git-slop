@@ -96,9 +96,10 @@ fn removed_refactor_preview_subcommand_is_rejected_by_clap() {
 
 #[test]
 fn completions_are_generated_from_the_live_command_tree() {
+    let outside_repository = TempDir::new().expect("temporary non-repository directory");
     for shell in ["bash", "zsh", "fish", "powershell", "nushell"] {
         cargo_bin_cmd!("git-slop")
-            .current_dir(manifest_dir())
+            .current_dir(outside_repository.path())
             .args(["completions", shell])
             .assert()
             .success()
