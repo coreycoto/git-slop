@@ -46,7 +46,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 sha2 = "0.10"
-tiktoken-rs = "0.12"
+tiktoken-rs = "0.11"
 unicode-normalization = "0.1"
 
 [dev-dependencies]
