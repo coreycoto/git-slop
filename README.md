@@ -6,74 +6,148 @@
   Git Slop
 </h1>
 
-Find the files that cost too much context.
+**A language-agnostic token defragmenter for human-and-agent software
+development.**
 
-Git Slop is a deterministic, local-first detector for AI-era repositories. It
-answers one stable question:
+[![Crates.io](https://img.shields.io/crates/v/git-slop.svg)](https://crates.io/crates/git-slop)
+[![CI](https://github.com/coreycoto/git-slop/actions/workflows/ci.yml/badge.svg)](https://github.com/coreycoto/git-slop/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> Which files cost too much context to load, reason about, and safely change?
+Git Slop is an open-source, local-first Rust tool that finds where token
+distribution and fragmentation make a repository expensive to load, reason
+about, and safely change. It turns tracked files and Git history into
+deterministic health reports and bounded maintenance plans for people and
+coding agents.
 
-It also reports structural and operational evidence such as duplication,
-scatter, weak verification, navigation friction, blast radius, stewardship
-pressure, and semantic drift. Those overlays support review, but they do not
-inflate the stable hotspot score.
+> Models matter. Repository shape is part of the inference bill too.
 
-## Philosophy
+Git Slop does not try to determine whether AI wrote your code. It measures the
+repository that exists.
 
-AI did not invent hard-to-maintain code. It made the cost of loading,
-understanding, and safely changing a repository harder to ignore.
+## Quick Start
 
-Git Slop is not an AI detector, a code-quality grade, or a judgment about who
-wrote the code. It examines the repository that exists and asks how expensive
-it is for a human or agent to work in.
+Install with Homebrew on macOS or Linux:
 
-- Measure maintenance pressure, not authorship.
-- Prefer deterministic evidence over opaque judgments.
-- Keep stable hotspot costs separate from supporting signals.
-- Treat findings as prompts for investigation, not automatic verdicts.
-- Propose bounded next steps; leave refactoring decisions to people.
-- Stay local by default and keep repository data private.
+```bash
+brew install coreycoto/tap/git-slop
+```
 
-The deeper product thesis and non-goals are documented in
-[Vision](docs/vision.md).
+Then run Git Slop inside any Git repository:
+
+```bash
+git slop init
+git slop find
+git slop health
+git slop explain --top 5
+```
+
+`init` creates a repo-owned configuration and ignore rules. `find` performs the
+analysis once; the other commands read the generated report without rescoring
+it. Run from a full-history checkout when age, churn, coupling, and stewardship
+evidence matter.
+
+The health dashboard points to the next useful command. After reviewing a
+finding, ask Git Slop for a bounded maintenance proposal:
+
+```bash
+git slop explain --path src/example.rs
+git slop plan --path src/example.rs
+```
+
+A plan is evidence for human review. It does not edit code, invoke a model, or
+mutate Git or GitHub.
+
+## What Git Slop Makes Visible
+
+Repositories become expensive in more than one way. Git Slop keeps those costs
+separate so maintainers can see why something surfaced.
+
+| Signal | Question it helps answer |
+| --- | --- |
+| Context load | Which files and folders consume too much working context? |
+| Maintenance pressure | Which expensive surfaces are old, volatile, or repeatedly revised? |
+| Fragmentation | Where is one concept duplicated, scattered, or leaking across boundaries? |
+| Coordination | Which paths repeatedly change together or carry a broad blast radius? |
+| Verification | Which hotspots have weak nearby test or test-co-change evidence? |
+| Navigation, stewardship, and drift | Where is knowledge hard to find, ownership concentrated, or terminology diverging? |
+
+The stable hotspot score uses deterministic context, age, and churn evidence.
+Coordination and structural overlays remain separate supporting evidence; they
+cannot silently inflate `slop_score` or change `git slop check`.
+
+A hotspot is not a correctness verdict or an automatic refactor order. It is a
+place where the cost of future work deserves investigation.
+
+## From Evidence to Bounded Work
+
+1. **Measure:** `git slop find` inventories tracked text files and mines local
+   Git history.
+2. **Orient:** `git slop health` summarizes repository shape and recommends
+   deterministic drill-down commands.
+3. **Investigate:** `show` and `explain` connect a hotspot to the evidence that
+   surfaced it.
+4. **Bound:** `plan` proposes small maintenance slices with explicit scope,
+   exclusions, and verification evidence.
+5. **Decide and verify:** a person chooses the work, a human or coding agent
+   implements it, then reruns `find` and uses `check` or `compare` to measure
+   the result.
+
+Git Slop remains observational throughout that loop. The repository owner keeps
+the judgment.
+
+## Report Bundle
+
+Every successful `find` writes the same four-file bundle to `.slop/latest/` and
+a timestamped copy under `.slop/runs/`:
+
+| Artifact | Purpose |
+| --- | --- |
+| `report.json` | Versioned machine contract for automation |
+| `report.yaml` | Equivalent machine data for YAML consumers |
+| `summary.md` | Detailed detector and overlay evidence |
+| `health.md` | Concise repository-health dashboard for people and CI |
+
+Routine generated output stays untracked. Commit `.slop/config.yaml` and
+`.slop/.gitignore` when a repository intentionally adopts Git Slop; see the
+[`.slop` directory policy](docs/slop-directory.md).
 
 ## Install
 
-The examples below pin the 0.9.6 release identity. Use each command only after
-that exact version is published on the requested distribution surface;
-documentation or a source tag is not proof that every surface is available.
-
-See [Installation](docs/install.md) for availability, provenance, upgrades,
-and contributor setup.
-
-### Crates.io
-
-```bash
-cargo install git-slop --version 0.9.6 --locked
-git-slop build-info --format json
-```
+The examples below use Git Slop 0.9.6. See [Installation](docs/install.md) for
+release archives, upgrades, provenance details, and contributor setup.
 
 ### Homebrew (macOS and Linux)
 
 ```bash
-brew tap coreycoto/tap
 brew install coreycoto/tap/git-slop
-git-slop version
-git-slop build-info --format json
+```
+
+### Cargo
+
+```bash
+cargo install git-slop --version 0.9.6 --locked
 ```
 
 ### Scoop (Windows)
 
-
 ```powershell
 scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket
 scoop install coreycoto/git-slop
-git-slop version
-git-slop build-info --format json
-git slop version
 ```
 
+Verify an installed release and its source provenance:
+
+```bash
+git-slop version
+git-slop build-info --format json
+```
+
+The executable is `git-slop`. When it is on `PATH`, Git also accepts
+`git slop`.
+
 ## GitHub Actions
+
+Use a full-history checkout for complete history-derived evidence:
 
 ```yaml
 permissions:
@@ -86,79 +160,66 @@ steps:
   - uses: coreycoto/git-slop@v0.9.6
 ```
 
-The Action is advisory by default. It verifies a prebuilt native binary built
-from the exact crates.io package, writes `health.md` to the job summary, emits
-at most 10 annotations, and uploads only `health.md` for 14 days. It never
-installs through Homebrew. Enforcement, report-sized artifacts, and pull
-request comments are explicit opt-ins. The same Action will be published in
-GitHub Marketplace with the stable release. See [GitHub
-Action](docs/github-action.md).
+The Action is advisory by default. It verifies the native release, writes the
+health dashboard to the job summary, emits at most 10 annotations, and uploads
+only `health.md` for 14 days. Enforcement, larger artifacts, and pull request
+comments are explicit opt-ins. See [GitHub Action](docs/github-action.md).
 
-## Quick Start
+## Command Map
 
-```bash
-git-slop init
-git-slop find
-git-slop show README.md
-git-slop explain --top 5
-git-slop plan --path src
-git-slop health
-git-slop check
-git-slop build-info --format json
-```
+| Command | Purpose |
+| --- | --- |
+| `git slop init` | Create repo-local config, ignore rules, and state directories |
+| `git slop find` | Analyze the repository and write a fresh report bundle |
+| `git slop health` | Render the human or CI health view from an existing report |
+| `git slop show` | Inspect one file or folder record |
+| `git slop explain` | Explain a path, relationship, cluster, or the top findings |
+| `git slop plan` | Propose bounded maintenance slices from reviewed evidence |
+| `git slop check` | Apply the stable detector gate |
+| `git slop compare` | Compare two existing reports without rerunning analysis |
+| `git slop sarif` | Export action-queue findings as SARIF 2.1.0 |
+| `git slop version` | Print the installed version |
+| `git slop build-info` | Print machine-readable package and source provenance |
 
-`find` writes a complete bundle to `.slop/latest/` and a timestamped copy under
-`.slop/runs/`:
+See the [Command Guide](docs/commands.md) for selectors, formats, prompt packs,
+CI thresholds, and examples.
 
-- `report.json`: schema-4 automation contract
-- `report.yaml`: equivalent machine data for YAML consumers
-- `summary.md`: detailed detector and overlay evidence
-- `health.md`: concise repository-health dashboard for humans and CI
+## Working With Coding Agents
 
-## Commands
+Git Slop does not require an LLM. When an agent handoff is useful, `explain`
+and `plan` can write deterministic prompt packs containing bounded evidence and
+explicit scope. The repository also ships a portable [Git Slop Agent
+Plugin](plugins/git-slop/README.md) for installation, reporting, review,
+planning, and adoption workflows.
 
-- `git slop init`: create repo-local Git Slop config
-- `git slop find`: analyze the current repo and write `.slop/latest/`
-- `git slop show`: inspect one file from an existing report
-- `git slop explain`: explain a file, folder, cluster, relationship, or top-N
-- `git slop plan`: propose bounded maintenance slices from existing evidence
-- `git slop check`: run the stable detector gate
-- `git slop compare`: compare two existing schema-4 reports
-- `git slop sarif`: export action-queue findings as SARIF 2.1.0
-- `git slop health`: render Markdown, GitHub annotations, or health JSON
-- `git slop version`: print the installed version
-- `git slop build-info`: print machine-readable package and source provenance
+## Trust Boundaries
 
-The installed executable is `git-slop`. When it is on `PATH`, Git also accepts
-`git slop`.
+The local Git Slop CLI does not:
 
-See [Command Guide](docs/commands.md) for options and examples.
+- send repository data to a hosted service
+- use an LLM to score files or change detector truth
+- claim to detect AI authorship
+- assign an overall code-quality grade
+- treat a finding as proof that code is wrong
+- rewrite source, tests, Git history, or GitHub state
+- make autonomous refactoring decisions
 
-## Boundaries
-
-The local `git-slop` CLI does not:
-
-- rewrite code automatically
-- require hosted APIs
-- send repo data anywhere
-- use an LLM for scoring
-- treat detector findings as correctness proofs
-- fold overlays into `slop_score`
+These constraints are product architecture, not disclaimers. Read the
+[Vision](docs/vision.md) for the deeper thesis and planned policy-guided advice
+layer.
 
 ## Documentation
 
-- [Brand mark](assets/brand/README.md)
+- [Vision](docs/vision.md)
 - [Installation](docs/install.md)
 - [Command Guide](docs/commands.md)
 - [Report and Config Contract](docs/report-contract.md)
-- [.slop Directory Policy](docs/slop-directory.md)
-- [Architecture](docs/architecture.md)
 - [Scoring Model](docs/scoring-model.md)
+- [Architecture](docs/architecture.md)
 - [GitHub Action](docs/github-action.md)
-- [Vision](docs/vision.md)
-- [Release Checklist](docs/release-checklist.md)
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
+- [Brand Mark](assets/brand/README.md)
 
 ## Sponsors
 
@@ -169,6 +230,6 @@ funds releases, documentation, compatibility work, and ongoing maintenance.
 [Become a sponsor](https://github.com/sponsors/coreycoto) or see
 [Sponsors](SPONSORS.md) for current acknowledgments and the recognition policy.
 
------
+---
 
 🧑‍💻🤖🫟
