@@ -487,6 +487,8 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             return;
         };
         for required in [
+            r#"-c user.name="git-slop release validation""#,
+            r#"-c user.email="actions@users.noreply.github.com""#,
             "cargo xtask release-manifest",
             "--crate-source candidate/crate-source.json",
             "cargo xtask homebrew-formula",
@@ -2915,6 +2917,22 @@ mod tests {
                     1,
                 ),
                 "exactly the seven supported targets",
+            ),
+            (
+                valid.replacen(
+                    r#"-c user.name="git-slop release validation""#,
+                    r#"-c user.name="""#,
+                    1,
+                ),
+                "git-slop release validation",
+            ),
+            (
+                valid.replacen(
+                    r#"-c user.email="actions@users.noreply.github.com""#,
+                    r#"-c user.email="""#,
+                    1,
+                ),
+                "actions@users.noreply.github.com",
             ),
             (
                 valid.replacen(
