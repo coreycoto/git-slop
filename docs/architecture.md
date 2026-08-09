@@ -222,7 +222,7 @@ Legacy schema-1 configs are normalized in memory for one compatibility cycle.
 ## State And Caching
 
 `git slop init` creates `.slop/latest/`, `.slop/runs/`, and `.slop/cache/`.
-`find` atomically replaces the latest four-file bundle and writes a timestamped
+`find` atomically replaces the latest compact bundle and writes a timestamped
 copy under `.slop/runs/`.
 
 `.slop/cache/` is reserved for deterministic performance optimizations. Cache
@@ -241,6 +241,13 @@ The CLI exposes:
 - `git slop compare`
 - `git slop sarif`
 - `git slop health`
+- `git slop report`
+- `git slop config`
+- `git slop doctor`
+- `git slop list`
+- `git slop prune`
+- `git slop completions`
+- `git slop html`
 - `git slop version`
 - `git slop build-info`
 

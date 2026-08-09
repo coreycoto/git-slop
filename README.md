@@ -97,13 +97,13 @@ the judgment.
 
 ## Report Bundle
 
-Every successful `find` writes the same four-file bundle to `.slop/latest/` and
-a timestamped copy under `.slop/runs/`:
+Every successful `find` writes a compact three-file bundle to `.slop/latest/`
+and an immutable timestamped copy under `.slop/runs/`:
 
 | Artifact | Purpose |
 | --- | --- |
 | `report.json` | Versioned machine contract for automation |
-| `report.yaml` | Equivalent machine data for YAML consumers |
+| `report.yaml` | Optional compatibility data when `output.yaml: true` |
 | `summary.md` | Detailed detector and overlay evidence |
 | `health.md` | Concise repository-health dashboard for people and CI |
 
@@ -113,7 +113,7 @@ Routine generated output stays untracked. Commit `.slop/config.yaml` and
 
 ## Install
 
-The examples below pin the 0.10.0 release identity. Use each command only after
+The examples below pin the 0.10.1 release identity. Use each command only after
 that exact version is published on the requested distribution surface;
 documentation or a source tag is not proof that every surface is available.
 
@@ -129,7 +129,7 @@ brew install coreycoto/tap/git-slop
 ### Cargo (Crates.io)
 
 ```bash
-cargo install git-slop --version 0.10.0 --locked
+cargo install git-slop --version 0.10.1 --locked
 ```
 
 ### Scoop (Windows)
@@ -161,7 +161,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.10.0
+  - uses: coreycoto/git-slop@v0.10.1
 ```
 
 The Action is advisory by default. It verifies the native release, writes the
@@ -175,6 +175,7 @@ comments are explicit opt-ins. See [GitHub Action](docs/github-action.md).
 | --- | --- |
 | `git slop init` | Create repo-local config, ignore rules, and state directories |
 | `git slop find` | Analyze the repository and write a fresh report bundle |
+| `git slop report` | Validate a report or print the report JSON Schema |
 | `git slop health` | Render the human or CI health view from an existing report |
 | `git slop show` | Inspect one file or folder record |
 | `git slop explain` | Explain a path, relationship, cluster, or the top findings |
@@ -182,6 +183,12 @@ comments are explicit opt-ins. See [GitHub Action](docs/github-action.md).
 | `git slop check` | Apply the stable detector gate |
 | `git slop compare` | Compare two existing reports without rerunning analysis |
 | `git slop sarif` | Export action-queue findings as SARIF 2.1.0 |
+| `git slop config` | Inspect, validate, migrate, or describe configuration |
+| `git slop doctor` | Diagnose repository readiness and resource estimates |
+| `git slop list` | List versioned findings, relationships, clusters, or profiles |
+| `git slop prune` | Preview or remove retained immutable run snapshots |
+| `git slop completions` | Generate completion source from the live command tree |
+| `git slop html` | Write a self-contained local report browser |
 | `git slop version` | Print the installed version |
 | `git slop build-info` | Print machine-readable package and source provenance |
 
@@ -198,7 +205,7 @@ planning, and adoption workflows.
 
 Start with `git slop doctor`; see [Troubleshooting](docs/troubleshooting.md),
 [Configuration Recipes](docs/config-recipes.md), the neutral [Worked
-Example](docs/worked-example.md), and the [0.10.0 upgrade notes](CHANGELOG.md).
+Example](docs/worked-example.md), and the [0.10.1 upgrade notes](CHANGELOG.md).
 
 ## Trust Boundaries
 

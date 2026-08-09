@@ -229,7 +229,13 @@ fn render_evidence_summary(payload: &Value) -> Vec<String> {
 
 fn render_top_explain(payload: &Value) -> String {
     let count = usize_value(value_at(payload, &["target", "count"]));
-    let mut lines = vec![format!("Explain: top {count} hotspots"), String::new()];
+    let requested = usize_value(value_at(payload, &["target", "requested_count"]));
+    let title = if requested > count {
+        format!("Explain: top {count} hotspots (requested {requested})")
+    } else {
+        format!("Explain: top {count} hotspots")
+    };
+    let mut lines = vec![title, String::new()];
     for (index, item) in array_at(payload, &["items"]).iter().enumerate() {
         let target = item.get("target").unwrap_or(&Value::Null);
         lines.push(format!(

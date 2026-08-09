@@ -44,17 +44,17 @@ fn path_cell(report: &Value, path: &str) -> String {
         .unwrap_or_else(|| inline_code(path))
 }
 
-fn truncate_path(path: &str, width: usize) -> String {
-    let character_count = path.chars().count();
-    if character_count <= width {
-        return path.to_string();
-    }
-    let keep = width.saturating_sub(3);
-    let suffix = path
+fn terminal_safe(value: &str) -> String {
+    value
         .chars()
-        .skip(character_count.saturating_sub(keep))
-        .collect::<String>();
-    format!("...{suffix}")
+        .map(|character| {
+            if character.is_control() {
+                '�'
+            } else {
+                character
+            }
+        })
+        .collect()
 }
 
 fn summary_limit(report: &Value) -> usize {
@@ -386,10 +386,10 @@ pub fn render_terminal(report: &Value) -> String {
     let path_width = queue
         .iter()
         .take(limit)
-        .map(|item| string_field(item, "path").len())
+        .map(|item| string_field(item, "path").chars().count())
         .max()
         .unwrap_or(4)
-        .clamp(4, 56);
+        .max(4);
     let mut lines = vec![
         "Repository Health".to_string(),
         format!(
@@ -442,7 +442,7 @@ pub fn render_terminal(report: &Value) -> String {
     ));
     for item in queue.iter().take(limit) {
         let path = string_field(item, "path");
-        let display_path = truncate_path(path, path_width);
+        let display_path = terminal_safe(path);
         lines.push(format!(
             "{:<path_width$}  {:<8}  {:<8}  {:>9.1}  {:>8}  {:>5}  {:>5}  {:>6.3}",
             display_path,
@@ -460,8 +460,4 @@ pub fn render_terminal(report: &Value) -> String {
         "Use `git-slop explain --path <path>` for evidence and `git-slop plan --path <path>` for a bounded maintenance proposal.".to_string(),
     ]);
     format!("{}\n", lines.join("\n"))
-}
-
-pub fn render_terminal_output(report: &Value) -> String {
-    render_terminal(report)
 }

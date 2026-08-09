@@ -553,6 +553,8 @@ pub fn analyze_history(
     } else {
         first_seen_exact(&tracked_paths, &full_status)
     };
+    let full_history_commit_count = full_status.len();
+    drop(full_status);
 
     let window_status = load_status_commits(repo_root, Some(&since), follow_renames, max_commits)?;
     let window_numstat = load_numstat_commits(repo_root, &since, follow_renames, max_commits)?;
@@ -754,7 +756,14 @@ pub fn analyze_history(
         .into_iter()
         .map(|(path, accumulator)| (path, accumulator.metrics))
         .collect();
-    Ok((metrics, commit_records, repo_baselines(&baseline_commits)))
+    let mut baselines = repo_baselines(&baseline_commits);
+    baselines["full_history_commit_count"] = json!(full_history_commit_count);
+    baselines["window_status_commit_count"] = json!(window_status.len());
+    baselines["window_numstat_commit_count"] = json!(commit_records.len());
+    baselines["max_commits"] = json!(max_commits);
+    baselines["history_cap_reached"] = json!(full_history_commit_count as u64 >= max_commits);
+    baselines["follow_renames"] = json!(follow_renames);
+    Ok((metrics, commit_records, baselines))
 }
 
 #[cfg(test)]

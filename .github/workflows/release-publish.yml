@@ -14,7 +14,7 @@ on:
       version:
         description: Strict stable version to publish or recover.
         required: true
-        default: "0.10.0"
+        default: "0.10.1"
         type: string
       recovery_revision:
         description: Recovery only - full 40-character source revision embedded in the published crate.
@@ -319,11 +319,16 @@ jobs:
           package="candidate-source/git-slop-${VERSION}"
           cargo build --manifest-path "$package/Cargo.toml" --release --locked --target "$TARGET"
           root="git-slop-${TAG}-${TARGET}"
-          mkdir -p "stage/$root" smoke candidate-dist
+          mkdir -p "stage/$root/man" smoke candidate-dist
           cp "$CARGO_TARGET_DIR/$TARGET/release/git-slop" "stage/$root/git-slop"
-          cp "$package/LICENSE" "$package/README.md" "$package/man/git-slop.1" "stage/$root/"
+          cp "$package/LICENSE" "$package/README.md" "stage/$root/"
+          cp "$package/man/git-slop.1" "stage/$root/man/git-slop.1"
           chmod +x "stage/$root/git-slop"
-          tar -C stage -czf "candidate-dist/${root}.tar.gz" "$root"
+          if tar --help 2>&1 | grep -q -- '--owner'; then
+            tar --owner=0 --group=0 --numeric-owner -C stage -czf "candidate-dist/${root}.tar.gz" "$root"
+          else
+            tar --uid 0 --gid 0 --uname root --gname root -C stage -czf "candidate-dist/${root}.tar.gz" "$root"
+          fi
           tar -C smoke -xzf "candidate-dist/${root}.tar.gz"
           test "$("smoke/$root/git-slop" version)" = "git-slop $VERSION"
           "smoke/$root/git-slop" build-info --format json > build-info.json
@@ -340,9 +345,10 @@ jobs:
           cargo build --manifest-path "$package\Cargo.toml" --release --locked --target $env:TARGET
           $root = "git-slop-$env:TAG-$env:TARGET"
           $stage = "stage\$root"
-          New-Item -ItemType Directory -Force -Path $stage, "smoke", "candidate-dist" | Out-Null
+          New-Item -ItemType Directory -Force -Path $stage, "$stage\man", "smoke", "candidate-dist" | Out-Null
           Copy-Item "$env:CARGO_TARGET_DIR\$env:TARGET\release\git-slop.exe" "$stage\git-slop.exe"
-          Copy-Item "$package\LICENSE", "$package\README.md", "$package\man\git-slop.1" $stage
+          Copy-Item "$package\LICENSE", "$package\README.md" $stage
+          Copy-Item "$package\man\git-slop.1" "$stage\man\git-slop.1"
           Compress-Archive -Path $stage -DestinationPath "candidate-dist\$root.zip"
           Expand-Archive -Path "candidate-dist\$root.zip" -DestinationPath smoke
           if ((& "smoke\$root\git-slop.exe" version) -ne "git-slop $env:VERSION") { throw "version mismatch" }
@@ -762,11 +768,16 @@ jobs:
           package="registry-source/git-slop-${VERSION}"
           cargo build --manifest-path "$package/Cargo.toml" --release --locked --target "$TARGET"
           root="git-slop-${TAG}-${TARGET}"
-          mkdir -p "stage/$root" smoke dist
+          mkdir -p "stage/$root/man" smoke dist
           cp "$CARGO_TARGET_DIR/$TARGET/release/git-slop" "stage/$root/git-slop"
-          cp "$package/LICENSE" "$package/README.md" "$package/man/git-slop.1" "stage/$root/"
+          cp "$package/LICENSE" "$package/README.md" "stage/$root/"
+          cp "$package/man/git-slop.1" "stage/$root/man/git-slop.1"
           chmod +x "stage/$root/git-slop"
-          tar -C stage -czf "dist/${root}.tar.gz" "$root"
+          if tar --help 2>&1 | grep -q -- '--owner'; then
+            tar --owner=0 --group=0 --numeric-owner -C stage -czf "dist/${root}.tar.gz" "$root"
+          else
+            tar --uid 0 --gid 0 --uname root --gname root -C stage -czf "dist/${root}.tar.gz" "$root"
+          fi
           tar -C smoke -xzf "dist/${root}.tar.gz"
           test "$("smoke/$root/git-slop" version)" = "git-slop $VERSION"
           "smoke/$root/git-slop" build-info --format json > build-info.json
@@ -781,9 +792,10 @@ jobs:
           cargo build --manifest-path "$package\Cargo.toml" --release --locked --target $env:TARGET
           $root = "git-slop-$env:TAG-$env:TARGET"
           $stage = "stage\$root"
-          New-Item -ItemType Directory -Force -Path $stage, "smoke", "dist" | Out-Null
+          New-Item -ItemType Directory -Force -Path $stage, "$stage\man", "smoke", "dist" | Out-Null
           Copy-Item "$env:CARGO_TARGET_DIR\$env:TARGET\release\git-slop.exe" "$stage\git-slop.exe"
-          Copy-Item "$package\LICENSE", "$package\README.md", "$package\man\git-slop.1" $stage
+          Copy-Item "$package\LICENSE", "$package\README.md" $stage
+          Copy-Item "$package\man\git-slop.1" "$stage\man\git-slop.1"
           Compress-Archive -Path $stage -DestinationPath "dist\$root.zip"
           Expand-Archive -Path "dist\$root.zip" -DestinationPath smoke
           if ((& "smoke\$root\git-slop.exe" version) -ne "git-slop $env:VERSION") { throw "version mismatch" }

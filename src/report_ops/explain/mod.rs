@@ -268,17 +268,55 @@ pub fn explain_payload(report: &Value, selector: Option<ExplainSelector>) -> Res
             for item in array_at(report, &["action_queue"]).iter().take(count) {
                 items.push(build_path_explain(report, &string(item.get("path")))?);
             }
+            let returned = items.len();
+            let total = array_at(report, &["action_queue"]).len();
+            let strongest_overlays = items
+                .iter()
+                .flat_map(|item| {
+                    string_array(value_at(item, &["evidence_summary", "strongest_overlays"]))
+                })
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .take(10)
+                .collect::<Vec<_>>();
+            let relationship_ids = items
+                .iter()
+                .flat_map(|item| {
+                    string_array(value_at(
+                        item,
+                        &[
+                            "evidence_summary",
+                            "supporting_evidence",
+                            "relationship_ids",
+                        ],
+                    ))
+                })
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let cluster_ids = items
+                .iter()
+                .flat_map(|item| {
+                    string_array(value_at(
+                        item,
+                        &["evidence_summary", "supporting_evidence", "cluster_ids"],
+                    ))
+                })
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
             Ok(json!({
                 "schema_version": EXPLAIN_SCHEMA_VERSION,
                 "report_schema_version": report_schema(report),
                 "command": "explain",
                 "selector": {"kind": "top", "value": count},
-                "target": {"kind": "top", "count": count},
+                "target": {"kind": "top", "count": returned, "requested_count": count},
                 "items": items,
+                "collection": {"total": total, "returned": returned, "limit": count, "truncated": returned < total},
                 "evidence_summary": {
                     "detector_cost": ["top explanations preserve the current action_queue order"],
-                    "strongest_overlays": [],
-                    "supporting_evidence": {"relationship_ids": [], "cluster_ids": []},
+                    "strongest_overlays": strongest_overlays,
+                    "supporting_evidence": {"relationship_ids": relationship_ids, "cluster_ids": cluster_ids},
                     "interpretation": "Top explanations describe detector ordering; they do not rerank hotspots or prove a refactor is required.",
                 },
                 "boundary_note": EXPLAIN_BOUNDARY_NOTE,

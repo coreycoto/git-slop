@@ -1,6 +1,6 @@
 # Report And Config Contract
 
-`report.json` is Git Slop's versioned machine contract. `report.yaml`,
+`report.json` is Git Slop's versioned machine contract. Optional `report.yaml`,
 `summary.md`, `health.md`, terminal output, SARIF, and GitHub annotations are
 projections of that data.
 
@@ -17,6 +17,7 @@ Canonical top-level fields and sections are:
 - `analyzed_revision_at`
 - `summary`
 - `repo`
+- `scope`
 - `config`
 - `stats`
 - `files`
@@ -25,11 +26,22 @@ Canonical top-level fields and sections are:
 - `costs`
 - `overlays`
 - `health`
+- `collection_metadata`
+- `diagnostics`
 
 `generated_at` records when the detector ran.
 `analyzed_revision_at` records the analyzed HEAD commit timestamp when one is
 available. Repository provenance, including branch, HEAD SHA, remote URL,
 shallow status, and repository root, lives under `repo`.
+
+`scope` records its mode, normalized repo-relative path, selected path count,
+and SHA-256 selected-path digest. Baseline compatibility includes repository,
+analyzer, tokenizer, configuration, history completeness, and scope identity.
+Forced comparisons retain exact base and head mismatch values.
+
+Canonical file records include `content_fingerprint`, preventing history-only
+movement from being mistaken for source changes. Canonical arrays are complete;
+`collection_metadata` records `total`, `returned`, `limit`, and `truncated`.
 
 ### Stable Costs
 
@@ -185,7 +197,7 @@ Each successful `find` writes:
 ```text
 .slop/latest/
   report.json
-  report.yaml
+  report.yaml  # only when output.yaml is true
   summary.md
   health.md
 ```
@@ -194,7 +206,7 @@ The same four files are written to one timestamped directory under
 `.slop/runs/`.
 
 - `report.json` is the canonical automation format.
-- `report.yaml` contains the equivalent schema-4 payload.
+- `report.yaml` contains the equivalent schema-4 payload only when explicitly enabled.
 - `summary.md` preserves the detailed detector and overlay view.
 - `health.md` presents status bands, distributions, review candidates,
   watchlists, actionable findings, and compact rollups for humans and CI.

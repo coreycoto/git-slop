@@ -497,10 +497,6 @@ pub fn build_folder_analyses(files: &[FileAnalysis], config: &Value) -> Vec<Fold
     folders
 }
 
-pub fn aggregate_folders(files: &[FileAnalysis], config: &Value) -> Vec<FolderAnalysis> {
-    build_folder_analyses(files, config)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

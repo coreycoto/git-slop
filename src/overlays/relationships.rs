@@ -51,6 +51,15 @@ pub(super) fn build_relationships(
     let shingle_size = pointer_u64(config, "/organization/shingle_size", 8) as usize;
     let window_step = pointer_u64(config, "/organization/window_step", 32) as usize;
     let candidates = organization_candidates(files, config);
+    let shingle_sets = candidates
+        .iter()
+        .map(|file| {
+            (
+                file.path.as_str(),
+                shingles(&file.structural_tokens, shingle_size, window_step),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
 
     let mut duplicate = Vec::new();
     let mut near_duplicate = Vec::new();
@@ -63,9 +72,9 @@ pub(super) fn build_relationships(
             {
                 continue;
             }
-            let left_shingles = shingles(&left.structural_tokens, shingle_size, window_step);
-            let right_shingles = shingles(&right.structural_tokens, shingle_size, window_step);
-            let similarity = jaccard(&left_shingles, &right_shingles);
+            let left_shingles = &shingle_sets[&left.path.as_str()];
+            let right_shingles = &shingle_sets[&right.path.as_str()];
+            let similarity = jaccard(left_shingles, right_shingles);
             let exact = !left.content_fingerprint.is_empty()
                 && left.content_fingerprint == right.content_fingerprint;
             if !exact && similarity < min_similarity {
@@ -132,9 +141,17 @@ pub(super) fn build_relationships(
                 .get(target)
                 .map(|item| item.commit_count)
                 .unwrap_or(1);
-            let denom = facts.commit_count.min(target_commits).max(1);
-            let coupling = *support as f64 / denom as f64;
-            let lift = 1.0 + coupling * 4.0;
+            let source_commits = facts.commit_count.max(1);
+            let observation_commits = facts.observation_commit_count.max(1);
+            let union = source_commits
+                .saturating_add(target_commits)
+                .saturating_sub(*support)
+                .max(1);
+            let coupling = *support as f64 / union as f64;
+            let source_confidence = *support as f64 / source_commits as f64;
+            let target_confidence = *support as f64 / target_commits.max(1) as f64;
+            let lift = *support as f64 * observation_commits as f64
+                / (source_commits as f64 * target_commits.max(1) as f64);
             if lift < min_lift {
                 continue;
             }
@@ -145,6 +162,12 @@ pub(super) fn build_relationships(
                 "source_path": pair.0,
                 "target_path": pair.1,
                 "support_count": support,
+                "source_commit_count": source_commits,
+                "target_commit_count": target_commits,
+                "observation_commit_count": observation_commits,
+                "source_confidence": round6(source_confidence),
+                "target_confidence": round6(target_confidence),
+                "jaccard": round6(coupling),
                 "lift_score": round6(lift),
                 "evidence_score": round6(coupling),
                 "crosses_top_level_boundary": top_level_root(pair.0) != top_level_root(pair.1)
@@ -229,6 +252,11 @@ pub(super) fn build_relationships(
             "temporal_coupling_edges": temporal,
             "lexical_affinity_edges": lexical,
             "boundary_leakage_edges": []
+            ,"diagnostics": {
+                "bulk_commits_skipped": coordination.values().next().map(|facts| facts.bulk_commits_skipped).unwrap_or_default(),
+                "candidate_file_count": candidates.len(),
+                "candidate_file_limit": pointer_u64(config, "/organization/candidate_file_limit", 500)
+            }
         }),
         all_duplicate,
         relationship_ids,
@@ -370,6 +398,7 @@ mod tests {
             (
                 files[0].path.clone(),
                 CoordinationFacts {
+                    observation_commit_count: 100,
                     commit_count: 10,
                     neighbors: BTreeMap::from([(files[1].path.clone(), 3)]),
                     ..CoordinationFacts::default()
@@ -378,6 +407,7 @@ mod tests {
             (
                 files[1].path.clone(),
                 CoordinationFacts {
+                    observation_commit_count: 100,
                     commit_count: 10,
                     neighbors: BTreeMap::from([(files[0].path.clone(), 3)]),
                     ..CoordinationFacts::default()
@@ -385,7 +415,7 @@ mod tests {
             ),
         ]);
         let base = json!({"organization": {"min_file_tokens": 0, "max_file_tokens": 50000, "candidate_file_limit": 2, "min_similarity": 2.0, "max_pairs_per_file": 20, "min_cochange_support": 3, "min_coupling_lift": 2.0}});
-        let strict = json!({"organization": {"min_file_tokens": 0, "max_file_tokens": 50000, "candidate_file_limit": 2, "min_similarity": 2.0, "max_pairs_per_file": 20, "min_cochange_support": 3, "min_coupling_lift": 3.0}});
+        let strict = json!({"organization": {"min_file_tokens": 0, "max_file_tokens": 50000, "candidate_file_limit": 2, "min_similarity": 2.0, "max_pairs_per_file": 20, "min_cochange_support": 3, "min_coupling_lift": 3.1}});
         assert_eq!(
             build_relationships(&files, &coordination, &base).0["temporal_coupling_edges"]
                 .as_array()
@@ -411,7 +441,7 @@ mod tests {
         assert_ne!(files[0].structural_tokens, files[1].structural_tokens);
 
         let serialized = serde_json::to_value(&files[0]).expect("serialize file analysis");
-        assert!(serialized.get("content_fingerprint").is_none());
+        assert_eq!(serialized["content_fingerprint"], "same-content");
         assert!(serialized.get("structural_tokens").is_none());
 
         let config = json!({

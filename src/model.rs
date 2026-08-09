@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,14 @@ pub struct RepoMetadata {
     pub analyzed_content_digest: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScopeIdentity {
+    pub mode: String,
+    pub path: Option<String>,
+    pub selected_path_count: usize,
+    pub selected_path_digest: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SkippedCounts {
     pub ignored: usize,
@@ -33,7 +41,6 @@ pub struct SkippedCounts {
 #[derive(Debug, Clone)]
 pub struct InventoryFile {
     pub path: String,
-    pub absolute_path: PathBuf,
     pub bytes: usize,
     pub lines: usize,
     pub blank_lines: usize,
@@ -88,7 +95,8 @@ pub struct FileAnalysis {
     pub tokens: usize,
     pub context_band: String,
     pub context_pressure: f64,
-    #[serde(skip)]
+    /// Stable content identity used to distinguish source changes from
+    /// history-only score movement during report comparison.
     pub content_fingerprint: String,
     #[serde(skip)]
     pub structural_tokens: Vec<String>,
@@ -160,19 +168,19 @@ pub struct Analysis {
     pub analyzed_revision_at: Option<String>,
     pub skipped: SkippedCounts,
     pub tracked_file_count: usize,
+    pub scope: ScopeIdentity,
     pub files: Vec<FileAnalysis>,
     pub folders: Vec<FolderAnalysis>,
-    pub commits: Vec<CommitRecord>,
     pub organization: OrganizationAnalysis,
     pub action_queue: Vec<Value>,
     pub diagnostics: Value,
-    pub report: Value,
 }
 
 #[derive(Debug, Clone)]
 pub struct FindResult {
     pub report: Value,
     pub report_json: PathBuf,
+    /// Conventional YAML path. The file exists only when output.yaml is true.
     pub report_yaml: PathBuf,
     pub summary_md: PathBuf,
     pub health_md: PathBuf,
@@ -182,6 +190,7 @@ pub struct FindResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
     pub path: String,
+    pub profile: String,
     pub severity: String,
     pub title: String,
     pub message: String,
@@ -226,12 +235,4 @@ pub fn top_level_root(path: &str) -> String {
         .filter(|part| !part.is_empty())
         .unwrap_or(".")
         .to_string()
-}
-
-pub fn dedupe_ordered(values: impl IntoIterator<Item = String>) -> Vec<String> {
-    let mut seen = BTreeSet::new();
-    values
-        .into_iter()
-        .filter(|value| seen.insert(value.clone()))
-        .collect()
 }

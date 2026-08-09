@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::IsTerminal;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -49,6 +50,8 @@ enum Command {
     Check(CheckArgs),
     /// Compare two existing schema-4 reports without rerunning the detector.
     Compare(CompareArgs),
+    /// Validate or inspect the versioned report contract.
+    Report(ReportArgs),
     /// Export action-queue findings from an existing schema-4 report as SARIF.
     Sarif(SarifArgs),
     /// Render repository health for CI summaries, annotations, or automation.
@@ -79,9 +82,15 @@ struct FindArgs {
     /// Analyze only this repo-relative path while retaining repository-wide Git evidence.
     #[arg(long)]
     scope: Option<String>,
+    /// Permit a scope that selects no tracked paths and emit an empty analysis.
+    #[arg(long)]
+    allow_empty_scope: bool,
     /// Suppress human progress and report-path messages.
-    #[arg(long, visible_alias = "no-progress")]
+    #[arg(long)]
     quiet: bool,
+    /// Suppress phase progress while preserving the final result.
+    #[arg(long)]
+    no_progress: bool,
 }
 
 #[derive(Debug, Args)]
@@ -180,6 +189,9 @@ struct CheckArgs {
     fail_on_slop_band: Option<SlopBand>,
     #[arg(long, value_enum, default_value_t = CheckFormat::Text)]
     format: CheckFormat,
+    /// Include complete finding records in JSON output.
+    #[arg(long)]
+    details: bool,
 }
 
 #[derive(Debug, Args)]
@@ -201,6 +213,23 @@ struct CompareArgs {
     /// Exit 1 when an existing file worsens or a newly added file is a finding.
     #[arg(long)]
     fail_on_regression: bool,
+}
+
+#[derive(Debug, Args)]
+struct ReportArgs {
+    #[command(subcommand)]
+    command: ReportCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum ReportCommand {
+    /// Validate one report against the complete schema-4 contract.
+    Validate {
+        #[arg(value_name = "REPORT_JSON")]
+        path: PathBuf,
+    },
+    /// Print the published JSON Schema for report schema 4.
+    Schema,
 }
 
 #[derive(Debug, Args)]
@@ -257,6 +286,14 @@ struct DoctorArgs {
     /// Write a privacy-safe diagnostic JSON bundle.
     #[arg(long, num_args = 0..=1, default_missing_value = ".slop/diagnostic-bundle.json")]
     bundle: Option<PathBuf>,
+    #[arg(long, value_enum, default_value_t = DoctorFormat::Text)]
+    format: DoctorFormat,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum DoctorFormat {
+    Text,
+    Json,
 }
 
 #[derive(Debug, Args)]
@@ -506,7 +543,7 @@ fn usage_error(error: impl std::fmt::Display) -> Result<i32> {
 
 fn ensure_prompt_pack_target(path: &Path) -> Result<Result<(), i32>> {
     if path.exists() && !path.is_dir() {
-        println!("Prompt pack path is not a directory: {}", path.display());
+        eprintln!("Prompt pack path is not a directory: {}", path.display());
         Ok(Err(2))
     } else {
         Ok(Ok(()))
@@ -530,18 +567,23 @@ fn run_init(repo_root: &Path, args: InitArgs) -> Result<i32> {
 }
 
 fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
-    let result = analyze::run_find_scoped(
+    let result = analyze::run_find_with_options(
         repo_root,
-        args.allow_shallow,
-        args.scope.as_deref(),
-        !args.quiet,
+        &analyze::FindOptions {
+            allow_shallow: args.allow_shallow,
+            scope: args.scope,
+            progress: !args.quiet && !args.no_progress && std::io::stderr().is_terminal(),
+            allow_empty_scope: args.allow_empty_scope,
+        },
     )?;
     if args.quiet {
         return Ok(0);
     }
     print_text(&result.terminal);
     println!("Wrote report to {}.", result.report_json.display());
-    println!("Wrote YAML report to {}.", result.report_yaml.display());
+    if result.report_yaml.exists() {
+        println!("Wrote YAML report to {}.", result.report_yaml.display());
+    }
     println!("Wrote summary to {}.", result.summary_md.display());
     println!(
         "Wrote repository health summary to {}.",
@@ -688,15 +730,21 @@ fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
     let failures = failing_records(&loaded, Some(context_band), Some(slop_band));
     if !matches!(args.format, CheckFormat::Text) {
         match args.format {
-            CheckFormat::Json => print_text(&render_json(&json!({
-                "schema_version": 1,
-                "command": "check",
-                "report": {"schema_version": loaded.get("schema_version"), "analyzer": loaded.get("analyzer"), "repo": loaded.get("repo")},
-                "boundary": {"context_band": context_band, "slop_band": slop_band},
-                "passed": failures.is_empty(),
-                "finding_count": failures.len(),
-                "findings": failures
-            }))?),
+            CheckFormat::Json => {
+                let mut payload = json!({
+                    "schema_version": 1,
+                    "command": "check",
+                    "report": {"schema_version": loaded.get("schema_version"), "analyzer": loaded.get("analyzer"), "repo": loaded.get("repo"), "scope": loaded.get("scope")},
+                    "boundary": {"context_band": context_band, "slop_band": slop_band},
+                    "passed": failures.is_empty(),
+                    "finding_count": failures.len(),
+                    "details_included": args.details,
+                });
+                if args.details {
+                    payload["findings"] = json!(failures);
+                }
+                print_text(&render_json(&payload)?);
+            }
             CheckFormat::Github => {
                 for failure in &failures {
                     let path = safe_terminal(
@@ -800,18 +848,37 @@ fn run_compare(args: CompareArgs) -> Result<i32> {
         DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
     }
     let regressions = payload
-        .pointer("/summary/worsened_file_count")
+        .pointer("/summary/regression_count")
         .and_then(Value::as_u64)
-        .unwrap_or_default()
-        + payload
-            .pointer("/summary/files/added")
-            .and_then(Value::as_u64)
-            .unwrap_or_default();
+        .unwrap_or_default();
     Ok(if args.fail_on_regression && regressions > 0 {
         1
     } else {
         0
     })
+}
+
+fn run_report(args: ReportArgs) -> Result<i32> {
+    match args.command {
+        ReportCommand::Validate { path } => match report::load_report(&path) {
+            Ok(value) => {
+                println!(
+                    "Report is valid: {} (schema {}).",
+                    path.display(),
+                    value["schema_version"]
+                );
+                Ok(0)
+            }
+            Err(error) => {
+                eprintln!("{error:#}");
+                Ok(2)
+            }
+        },
+        ReportCommand::Schema => {
+            print_text(&render_json(&report::schema())?);
+            Ok(0)
+        }
+    }
 }
 
 fn run_sarif(repo_root: &Path, args: SarifArgs) -> Result<i32> {
@@ -933,10 +1000,15 @@ fn run_config(repo_root: &Path, args: ConfigArgs) -> Result<i32> {
         }
         ConfigCommand::Validate => {
             config::load(repo_root)?;
-            println!(
-                "Configuration is valid: {}",
-                config::config_path(repo_root).display()
-            );
+            let path = config::config_path(repo_root);
+            if path.exists() {
+                println!("Configuration is valid: {}", path.display());
+            } else {
+                println!(
+                    "Configuration is valid: built-in defaults ({} is absent).",
+                    path.display()
+                );
+            }
         }
         ConfigCommand::DiffDefaults => {
             let diff = diff_values(&config::load(repo_root)?, &config::default_config());
@@ -958,13 +1030,7 @@ fn run_config(repo_root: &Path, args: ConfigArgs) -> Result<i32> {
                 config::config_path(repo_root).display()
             );
         }
-        ConfigCommand::Schema => print_text(&render_json(&json!({
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "Git Slop configuration schema 2",
-            "type": "object",
-            "additionalProperties": false,
-            "default": config::default_config()
-        }))?),
+        ConfigCommand::Schema => print_text(&render_json(&config::schema())?),
     }
     Ok(0)
 }
@@ -981,48 +1047,87 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     } else {
         "missing"
     };
-    let tracked = git::list_tracked_files(repo_root)?.len();
-    let estimated_mb = tracked.saturating_mul(24).div_ceil(1024).max(1);
-    println!("Git Slop doctor");
-    println!("- git: available");
-    println!("- repository: {}", repo.repo_name);
-    println!(
-        "- branch: {}",
-        repo.branch.as_deref().unwrap_or(if repo.detached_head {
-            "detached HEAD"
-        } else {
-            "unborn"
-        })
-    );
-    println!(
-        "- history: {}",
+    let tracked_paths = git::list_tracked_files(repo_root)?;
+    let tracked = tracked_paths.len();
+    let effective_config = config_result
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|_| config::default_config());
+    let estimate = crate::estimate::build(repo_root, &tracked_paths, &effective_config);
+    let diagnostic = json!({
+        "schema_version": 1,
+        "command": "doctor",
+        "status": if config_result.is_err() || report_status == "invalid" { "error" } else { "ready" },
+        "repository": {"name": repo.repo_name, "branch": repo.branch, "shallow": repo.is_shallow, "detached": repo.detached_head, "clean": repo.worktree_clean},
+        "config": {"status": if config_result.is_ok() { "valid" } else { "invalid" }, "path": config::config_path(repo_root)},
+        "report": {"status": report_status, "path": report_path},
+        "estimate": estimate,
+        "recovery": {
+            "config": "Run git slop config validate, then correct the reported key or run git slop config migrate.",
+            "report": "Run git slop find to replace a missing or incompatible latest report.",
+            "shallow": "Fetch full history or rerun find with --allow-shallow to acknowledge incomplete evidence."
+        }
+    });
+    if matches!(args.format, DoctorFormat::Json) {
+        print_text(&render_json(&diagnostic)?);
+    } else {
+        println!("Git Slop doctor");
+        println!("- git: available");
+        println!("- repository: {}", repo.repo_name);
+        println!(
+            "- branch: {}",
+            repo.branch.as_deref().unwrap_or(if repo.detached_head {
+                "detached HEAD"
+            } else {
+                "unborn"
+            })
+        );
+        println!(
+            "- history: {}",
+            if repo.is_shallow {
+                "shallow (incomplete)"
+            } else {
+                "complete"
+            }
+        );
+        println!(
+            "- worktree: {} (staged={}, modified={}, untracked={})",
+            if repo.worktree_clean {
+                "clean"
+            } else {
+                "dirty"
+            },
+            repo.staged_change_count,
+            repo.modified_tracked_file_count,
+            repo.untracked_file_count
+        );
+        println!(
+            "- config: {}",
+            if config_result.is_ok() {
+                "valid"
+            } else {
+                "invalid"
+            }
+        );
+        println!("- report: {report_status}");
+        println!(
+            "- preflight: {tracked} tracked files; peak memory ~{} MiB; cache ~{} MiB; report ~{} MiB; time ~{}s; inodes ~{}",
+            estimate.estimated_peak_memory_bytes.div_ceil(1024 * 1024),
+            estimate.estimated_cache_bytes.div_ceil(1024 * 1024),
+            estimate.estimated_report_bytes.div_ceil(1024 * 1024),
+            estimate.estimated_seconds,
+            estimate.estimated_inode_count,
+        );
         if repo.is_shallow {
-            "shallow (incomplete)"
-        } else {
-            "complete"
+            println!("- recovery: fetch full history, or explicitly use --allow-shallow");
         }
-    );
-    println!(
-        "- worktree: {} (staged={}, modified={}, untracked={})",
-        if repo.worktree_clean {
-            "clean"
-        } else {
-            "dirty"
-        },
-        repo.staged_change_count,
-        repo.modified_tracked_file_count,
-        repo.untracked_file_count
-    );
-    println!(
-        "- config: {}",
-        if config_result.is_ok() {
-            "valid"
-        } else {
-            "invalid"
+        if config_result.is_err() {
+            println!("- recovery: run `git slop config validate` and correct the reported key");
         }
-    );
-    println!("- report: {report_status}");
-    println!("- preflight: {tracked} tracked files; estimated analysis floor {estimated_mb} MiB");
+        if report_status != "compatible" {
+            println!("- recovery: run `git slop find` to produce a compatible latest report");
+        }
+    }
     if let Some(output) = args.bundle {
         let output = if output.is_absolute() {
             output
@@ -1043,7 +1148,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             "repository": {"name": repo.repo_name, "shallow": repo.is_shallow, "detached": repo.detached_head, "clean": repo.worktree_clean, "staged": repo.staged_change_count, "modified": repo.modified_tracked_file_count, "untracked_count": repo.untracked_file_count},
             "config_digest": config_digest,
             "report_status": report_status,
-            "metrics": {"tracked_file_count": tracked, "estimated_memory_floor_mb": estimated_mb},
+            "estimate": estimate,
             "privacy": {"source_included": false, "raw_tokens_included": false, "absolute_paths_included": false, "author_identities_included": false, "credentials_included": false}
         });
         fs::write(&output, render_json(&payload)?)?;
@@ -1123,14 +1228,67 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
             .unwrap_or_default(),
     };
     values.retain(|item| matches_list_filter(item, filter));
+    let total = values.len();
     values.truncate(filter.top);
+    let returned = values.len();
     match filter.format {
-        DisplayFormat::Json => print_text(&render_json(&Value::Array(values))?),
+        DisplayFormat::Json => print_text(&render_json(&json!({
+            "schema_version": 1,
+            "command": "list",
+            "kind": match &args.command {
+                ListCommand::Findings(_) => "findings",
+                ListCommand::Relationships(_) => "relationships",
+                ListCommand::Clusters(_) => "clusters",
+                ListCommand::Profiles(_) => "profiles",
+            },
+            "items": values,
+            "collection": {"total": total, "returned": returned, "limit": filter.top, "truncated": returned < total}
+        }))?),
         DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&values)?),
         DisplayFormat::Text => {
-            for item in values {
-                println!("{}", serde_json::to_string(&item)?);
+            println!(
+                "{:<48}  {:<24}  {:<10}  {:>8}",
+                "PATH OR NAME", "KIND", "BAND", "SCORE"
+            );
+            println!("{:-<48}  {:-<24}  {:-<10}  {:-<8}", "", "", "", "");
+            for item in &values {
+                let label = item
+                    .get("path")
+                    .or_else(|| item.get("name"))
+                    .or_else(|| item.get("id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("-");
+                let kind = item
+                    .get("kind")
+                    .or_else(|| item.get("profile"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("-");
+                let band = item
+                    .get("severity")
+                    .or_else(|| item.get("slop_band"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("-");
+                let score = item
+                    .get("slop_score")
+                    .or_else(|| item.get("evidence_score"))
+                    .and_then(Value::as_f64)
+                    .map_or_else(|| "-".to_string(), |value| format!("{value:.3}"));
+                println!(
+                    "{:<48}  {:<24}  {:<10}  {:>8}",
+                    safe_terminal(label),
+                    safe_terminal(kind),
+                    safe_terminal(band),
+                    score
+                );
             }
+            println!(
+                "\nReturned {returned} of {total} matching record(s).{}",
+                if returned < total {
+                    " Increase --top to see more."
+                } else {
+                    ""
+                }
+            );
         }
     }
     Ok(0)
@@ -1216,22 +1374,25 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
 :root {{ color-scheme: light dark; font: 15px system-ui,sans-serif }} body {{ margin: 2rem; max-width: 1100px }}
 input,select {{ padding:.55rem; margin:0 .5rem .75rem 0 }} table {{ width:100%; border-collapse:collapse }}
 th,td {{ text-align:left; padding:.5rem; border-bottom:1px solid #8885 }} th {{ cursor:pointer }}
-code {{ overflow-wrap:anywhere }} details {{ margin:1rem 0 }} .muted {{ opacity:.7 }}
+code {{ overflow-wrap:anywhere }} details {{ margin:1rem 0 }} .muted {{ opacity:.7 }} .sr {{ position:absolute;left:-10000px }}
 </style></head><body><h1>Git Slop local report</h1><p id="descriptor" class="muted"></p>
-<input id="query" type="search" placeholder="Search paths"><select id="profile"><option value="">All profiles</option></select>
-<select id="severity"><option value="">All maintenance bands</option><option>critical</option><option>high</option><option>moderate</option><option>low</option></select>
-<p id="count"></p><table><thead><tr><th data-key="path">Path</th><th data-key="profile">Profile</th><th data-key="language">Language</th><th data-key="slop_band">Maintenance</th><th data-key="context_band">Context</th><th data-key="slop_score">Score</th><th data-key="tokens">Tokens</th></tr></thead><tbody id="rows"></tbody></table>
+<label for="query" class="sr">Search paths</label><input id="query" type="search" placeholder="Search paths"><label for="profile" class="sr">Profile</label><select id="profile"><option value="">All profiles</option></select>
+<label for="severity" class="sr">Maintenance band</label><select id="severity"><option value="">All maintenance bands</option><option>critical</option><option>high</option><option>moderate</option><option>low</option></select>
+<p id="count" aria-live="polite"></p><button id="previous" type="button">Previous</button><button id="next" type="button">Next</button><table><caption class="sr">Analyzed files</caption><thead><tr><th scope="col" data-key="path">Path</th><th scope="col" data-key="profile">Profile</th><th scope="col" data-key="language">Language</th><th scope="col" data-key="slop_band">Maintenance</th><th scope="col" data-key="context_band">Context</th><th scope="col" data-key="slop_score">Score</th><th scope="col" data-key="tokens">Tokens</th></tr></thead><tbody id="rows"></tbody></table>
 <details><summary>Relationships</summary><pre id="relationships"></pre></details>
 <script id="report" type="application/json">{payload}</script><script>
-const report=JSON.parse(document.getElementById('report').textContent); let sortKey='slop_score', ascending=false;
+const report=JSON.parse(document.getElementById('report').textContent); let sortKey='slop_score', ascending=false, page=0; const pageSize=100;
 const files=report.files||[]; const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
 document.getElementById('descriptor').textContent=`${{report.repo?.repo_name||'repository'}} · ${{report.generated_at||'unknown time'}} · schema ${{report.schema_version}}`;
 const profile=document.getElementById('profile'); [...new Set(files.map(f=>f.profile).filter(Boolean))].sort().forEach(v=>profile.insertAdjacentHTML('beforeend',`<option>${{esc(v)}}</option>`));
 function render() {{ const q=document.getElementById('query').value.toLowerCase(), p=profile.value, s=document.getElementById('severity').value;
  const selected=files.filter(f=>(!q||String(f.path).toLowerCase().includes(q))&&(!p||f.profile===p)&&(!s||f.slop_band===s)).sort((a,b)=>{{const x=a[sortKey],y=b[sortKey]; return (typeof x==='number'?x-y:String(x??'').localeCompare(String(y??'')))*(ascending?1:-1)}});
- document.getElementById('count').textContent=`${{selected.length}} of ${{files.length}} files`;
- document.getElementById('rows').innerHTML=selected.map(f=>`<tr><td><code>${{esc(f.path)}}</code></td><td>${{esc(f.profile)}}</td><td>${{esc(f.language)}}</td><td>${{esc(f.slop_band)}}</td><td>${{esc(f.context_band)}}</td><td>${{esc(f.slop_score)}}</td><td>${{esc(f.tokens)}}</td></tr>`).join(''); }}
-document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',render)); document.querySelectorAll('th').forEach(el=>el.addEventListener('click',()=>{{ascending=sortKey===el.dataset.key?!ascending:false;sortKey=el.dataset.key;render()}}));
+ const pages=Math.max(1,Math.ceil(selected.length/pageSize)); page=Math.min(page,pages-1); const visible=selected.slice(page*pageSize,(page+1)*pageSize);
+ document.getElementById('count').textContent=`${{selected.length}} of ${{files.length}} files · page ${{page+1}} of ${{pages}}`;
+ document.getElementById('previous').disabled=page===0; document.getElementById('next').disabled=page+1>=pages;
+ document.getElementById('rows').innerHTML=visible.map(f=>`<tr><td><code>${{esc(f.path)}}</code></td><td>${{esc(f.profile)}}</td><td>${{esc(f.language)}}</td><td>${{esc(f.slop_band)}}</td><td>${{esc(f.context_band)}}</td><td>${{esc(f.slop_score)}}</td><td>${{esc(f.tokens)}}</td></tr>`).join(''); }}
+document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>{{page=0;render()}})); document.querySelectorAll('th').forEach(el=>el.addEventListener('click',()=>{{ascending=sortKey===el.dataset.key?!ascending:false;sortKey=el.dataset.key;page=0;render()}}));
+document.getElementById('previous').addEventListener('click',()=>{{page=Math.max(0,page-1);render()}}); document.getElementById('next').addEventListener('click',()=>{{page+=1;render()}});
 const rel=report.relationships||report.overlays?.organization_health?.relationships||{{}}; document.getElementById('relationships').textContent=JSON.stringify(rel,null,2); render();
 </script></body></html>"#
     );
@@ -1249,6 +1410,7 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
         Command::Plan(args) => run_plan(repo_root, args),
         Command::Check(args) => run_check(repo_root, args),
         Command::Compare(args) => run_compare(args),
+        Command::Report(args) => run_report(args),
         Command::Sarif(args) => run_sarif(repo_root, args),
         Command::Health(args) => run_health(repo_root, args),
         Command::Config(args) => run_config(repo_root, args),
@@ -1275,7 +1437,13 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
 fn command_requires_repository(command: &Command) -> bool {
     !matches!(
         command,
-        Command::Completions(_) | Command::Version | Command::BuildInfo(_)
+        Command::Completions(_)
+            | Command::Version
+            | Command::BuildInfo(_)
+            | Command::Report(_)
+            | Command::Config(ConfigArgs {
+                command: ConfigCommand::Schema
+            })
     )
 }
 

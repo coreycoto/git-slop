@@ -8,16 +8,17 @@ Git Slop writes repository-local state under `.slop/`.
   .gitignore
   latest/
     report.json
-    report.yaml
+    report.yaml  # only when output.yaml is true
     summary.md
     health.md
   runs/
     <timestamp>/
       report.json
-      report.yaml
+      report.yaml  # only when output.yaml is true
       summary.md
       health.md
   cache/
+  scan.lock
 ```
 
 ## Commit
@@ -50,7 +51,7 @@ runtime directory:
 
 - default `summary`: `health.md` only
 - opt-in `report`: `health.md` and `report.json`
-- opt-in `full`: the four allowlisted files from `.slop/latest/`
+- opt-in `full`: the three default files plus `report.yaml` when YAML is enabled
 
 The default artifact retention is 14 days. Prefer the default unless a machine
 consumer needs schema-4 JSON or a reviewer explicitly needs the full bundle.
@@ -74,10 +75,11 @@ optimizations. It is safe to delete and must never be required for correctness.
 
 ## Bundle Notes
 
-`find` writes the complete four-file bundle to both destinations. The latest
+`find` writes compact `report.json`, `summary.md`, and `health.md` to both
+destinations. YAML is an explicit compatibility export (`output.yaml: true`). The latest
 bundle is replaced atomically so consumers do not observe a partially updated
 report set. Timestamped run directories are immutable snapshots of individual
-detector runs.
+detector runs. A process-level `scan.lock` prevents concurrent publication.
 
 `health`, `show`, `explain`, `plan`, `check`, and `sarif` read an existing
 report. `compare` reads two. They do not create another detector run; only

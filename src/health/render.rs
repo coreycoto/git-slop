@@ -1,10 +1,10 @@
 use anyhow::Result;
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::model::*;
 use super::rollup::health_rollup_from_report;
-use crate::model::{Analysis, HealthRollup};
+use crate::model::HealthRollup;
 
 const URL_PATH_SEGMENT_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b' ')
@@ -811,27 +811,6 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
         "> Git Slop reports deterministic context and maintenance-pressure evidence. Findings are not correctness proofs or automatic refactor mandates.".to_string(),
     ]);
     format!("{}\n", lines.join("\n"))
-}
-
-pub fn render_health_markdown(analysis: &Analysis, rollup: &HealthRollup) -> String {
-    let report = json!({
-        "schema_version": 4,
-        "generated_at": analysis.generated_at,
-        "analyzed_revision_at": analysis.analyzed_revision_at,
-        "repo": analysis.repo,
-        "config": analysis.config,
-        "stats": {
-            "tracked_file_count": analysis.tracked_file_count,
-            "analyzed_file_count": analysis.files.len(),
-            "skipped_ignored_count": analysis.skipped.ignored,
-            "skipped_missing_count": analysis.skipped.missing,
-            "skipped_binary_count": analysis.skipped.binary,
-            "skipped_undecodable_count": analysis.skipped.undecodable
-        },
-        "files": analysis.files,
-        "folders": analysis.folders
-    });
-    render_health_value(&report, rollup)
 }
 
 pub fn render_health_from_report(report: &Value) -> Result<String> {

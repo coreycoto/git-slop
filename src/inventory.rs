@@ -10,6 +10,53 @@ use crate::model::{InventoryFile, SkippedCounts};
 
 const NULL_BYTE_WINDOW: usize = 4096;
 
+fn decode_text(raw: Vec<u8>) -> Option<String> {
+    if raw.starts_with(&[0xef, 0xbb, 0xbf]) {
+        return String::from_utf8(raw[3..].to_vec()).ok();
+    }
+    if raw.starts_with(&[0xff, 0xfe]) || raw.starts_with(&[0xfe, 0xff]) {
+        let little_endian = raw.starts_with(&[0xff, 0xfe]);
+        let bytes = &raw[2..];
+        if bytes.len() % 2 != 0 {
+            return None;
+        }
+        let units = bytes.chunks_exact(2).map(|pair| {
+            if little_endian {
+                u16::from_le_bytes([pair[0], pair[1]])
+            } else {
+                u16::from_be_bytes([pair[0], pair[1]])
+            }
+        });
+        return char::decode_utf16(units)
+            .collect::<Result<String, _>>()
+            .ok();
+    }
+    String::from_utf8(raw).ok()
+}
+
+fn looks_binary(raw: &[u8]) -> bool {
+    if raw.is_empty() || raw.starts_with(&[0xff, 0xfe]) || raw.starts_with(&[0xfe, 0xff]) {
+        return false;
+    }
+    let window = NULL_BYTE_WINDOW.min(raw.len());
+    let starts = [
+        0,
+        raw.len().saturating_sub(window) / 2,
+        raw.len().saturating_sub(window),
+    ];
+    let mut sampled = 0usize;
+    let mut suspicious = 0usize;
+    for start in starts {
+        for byte in &raw[start..(start + window).min(raw.len())] {
+            sampled += 1;
+            if *byte == 0 || *byte < 0x09 || matches!(*byte, 0x0b | 0x0c | 0x0e..=0x1f) {
+                suspicious += 1;
+            }
+        }
+    }
+    raw.iter().take(window).any(|byte| *byte == 0) || suspicious.saturating_mul(100) > sampled
+}
+
 fn ignore_set(patterns: &[String]) -> Result<GlobSet> {
     let mut builder = GlobSetBuilder::new();
     for pattern in patterns {
@@ -159,6 +206,37 @@ fn profile_for(path: &str, bytes: usize, config: &Value) -> &'static str {
     }
 }
 
+fn path_override(path: &str, config: &Value) -> (Option<String>, Option<String>, Option<String>) {
+    let mut classification = None;
+    let mut profile = None;
+    let mut language = None;
+    for mapping in config
+        .pointer("/inventory/path_overrides")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(pattern) = mapping.get("glob").and_then(Value::as_str) else {
+            continue;
+        };
+        if Glob::new(pattern)
+            .ok()
+            .is_some_and(|glob| glob.compile_matcher().is_match(path))
+        {
+            if let Some(value) = mapping.get("classification").and_then(Value::as_str) {
+                classification = Some(value.to_string());
+            }
+            if let Some(value) = mapping.get("profile").and_then(Value::as_str) {
+                profile = Some(value.to_string());
+            }
+            if let Some(value) = mapping.get("language").and_then(Value::as_str) {
+                language = Some(value.to_string());
+            }
+        }
+    }
+    (classification, profile, language)
+}
+
 pub fn build(
     repo_root: &Path,
     tracked_paths: &[String],
@@ -205,28 +283,31 @@ pub fn build(
             fs::read(&absolute_path)
                 .with_context(|| format!("failed to read {}", absolute_path.display()))?
         };
-        if raw[..raw.len().min(NULL_BYTE_WINDOW)].contains(&0) {
+        if looks_binary(&raw) {
             skipped.binary += 1;
             continue;
         }
         let bytes = raw.len();
-        let Ok(text) = String::from_utf8(raw) else {
+        let Some(text) = decode_text(raw) else {
             skipped.undecodable += 1;
             continue;
         };
-        let language = language_for_path(relative_path).to_string();
+        let (classification_override, profile_override, language_override) =
+            path_override(relative_path, config);
+        let language = language_override.unwrap_or_else(|| language_for_path(relative_path).into());
         let (lines, code_lines, comment_lines, blank_lines) = line_counts(&text, &language);
         records.push(InventoryFile {
             path: relative_path.replace('\\', "/"),
-            absolute_path,
             bytes,
             lines,
             blank_lines,
             code_lines,
             comment_lines,
             language,
-            profile: profile_for(relative_path, bytes, config).to_string(),
-            classification: classification_for_path(relative_path).to_string(),
+            profile: profile_override
+                .unwrap_or_else(|| profile_for(relative_path, bytes, config).to_string()),
+            classification: classification_override
+                .unwrap_or_else(|| classification_for_path(relative_path).to_string()),
             text,
         });
     }
@@ -281,5 +362,31 @@ mod tests {
 
         assert!(files.is_empty());
         assert_eq!(skipped.ignored, 1);
+    }
+
+    #[test]
+    fn utf8_bom_and_utf16_bom_text_are_decoded_instead_of_marked_binary() {
+        let repository = tempdir().expect("repository");
+        fs::write(repository.path().join("utf8.txt"), b"\xef\xbb\xbfhello\n").expect("utf8 bom");
+        fs::write(
+            repository.path().join("utf16.txt"),
+            [0xff, 0xfe, b'h', 0, b'i', 0, b'\n', 0],
+        )
+        .expect("utf16 bom");
+        let (files, skipped) = build(
+            repository.path(),
+            &["utf8.txt".to_string(), "utf16.txt".to_string()],
+            &config::default_config(),
+        )
+        .expect("inventory");
+        assert_eq!(files.len(), 2);
+        let decoded = files
+            .iter()
+            .map(|file| (file.path.as_str(), file.text.as_str()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(decoded["utf8.txt"], "hello\n");
+        assert_eq!(decoded["utf16.txt"], "hi\n");
+        assert_eq!(skipped.binary, 0);
+        assert_eq!(skipped.undecodable, 0);
     }
 }

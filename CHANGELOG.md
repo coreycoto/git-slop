@@ -1,6 +1,27 @@
 # Changelog
 
-## 0.10.0 - Unreleased
+## 0.10.1 - 2026-08-08
+
+This patch release hardens the 0.10 report and automation contracts after a
+full adversarial audit. Highlights include exhaustive canonical validation,
+normalized scope identity, byte-level drift detection, one native regression
+policy shared by the CLI and Action, strict config bounds, compact JSON and
+opt-in YAML, uncapped canonical findings, scan locking, cache retention,
+Unicode/BOM-aware inventory, normalized co-change evidence, and neutral archive
+ownership.
+
+Migration notes:
+
+- `health --format json` now returns a versioned command envelope with the
+  health payload under `health`.
+- `check --format json` is concise by default; pass `--details` for full records.
+- `list --format json` returns a versioned envelope and truncation metadata.
+- `report.yaml` is generated only when `output.yaml: true`; `report.json` is
+  compact unless `output.pretty_json: true`.
+- Schema-2 effective config no longer emits schema-1 aliases.
+- Release archives place the man page at `man/git-slop.1`.
+
+## 0.10.0 - 2026-08-08
 
 This release hardens Git Slop's deterministic evidence and makes established-repository adoption incremental.
 

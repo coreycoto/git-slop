@@ -186,6 +186,7 @@ pub(super) fn finding_for_file(file: &Value, config: &Value) -> Option<Finding> 
     };
     Some(Finding {
         path: path.clone(),
+        profile: file_profile(file).to_string(),
         severity: severity.to_string(),
         title: title.to_string(),
         message: format!(
@@ -339,9 +340,7 @@ pub(super) fn build_health_rollup_from_values(
     }
 
     refactor_candidates.sort_by(candidate_sort);
-    refactor_candidates.truncate(MAX_ROLLUP_CANDIDATES);
     watchlist.sort_by(candidate_sort);
-    watchlist.truncate(MAX_ROLLUP_CANDIDATES);
 
     let profile_rollups = profile_totals
         .iter()
@@ -392,10 +391,7 @@ pub(super) fn build_health_rollup_from_values(
         });
     }
 
-    let mut ranked_files = files
-        .iter()
-        .filter(|file| file_profile(file) == "agent_context")
-        .collect::<Vec<_>>();
+    let mut ranked_files = files.iter().collect::<Vec<_>>();
     ranked_files.sort_by(|left, right| {
         float_field(right, "slop_score")
             .partial_cmp(&float_field(left, "slop_score"))
@@ -406,7 +402,6 @@ pub(super) fn build_health_rollup_from_values(
     let findings = ranked_files
         .into_iter()
         .filter_map(|file| finding_for_file(file, config))
-        .take(MAX_FINDINGS)
         .collect();
 
     HealthRollup {

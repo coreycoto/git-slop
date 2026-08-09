@@ -1,12 +1,14 @@
-.TH GIT-SLOP 1 "2026-08-08" "git-slop 0.10.0" "General Commands Manual"
+.TH GIT-SLOP 1 "2026-08-08" "git-slop 0.10.1" "General Commands Manual"
 .SH NAME
 git-slop \- deterministic repository token-defragmenter
 .SH SYNOPSIS
 .B git-slop
+.RI [ --repo " path" ]
 .I command
 .RI [ options ]
 .br
 .B git slop
+.RI [ --repo " path" ]
 .I command
 .RI [ options ]
 .SH DESCRIPTION
@@ -31,9 +33,8 @@ and generated-state directories. Use
 to overwrite generated config files.
 .TP
 .B find
-Analyze tracked files and local Git history. Write
+Analyze tracked files and local Git history. Write compact
 .BR report.json ,
-.BR report.yaml ,
 .BR summary.md ,
 and
 .B health.md
@@ -41,6 +42,17 @@ to
 .B .slop/latest/
 and a timestamped directory under
 .BR .slop/runs/ .
+Enable compatibility YAML with
+.BR output.yaml: true .
+Scoped scans reject absolute paths, parent traversal, missing paths, and empty
+tracked selections unless
+.B --allow-empty-scope
+is explicit.
+Use
+.B --no-progress
+to preserve the final result without phase updates, or
+.B --quiet
+to suppress both.
 .TP
 .B show
 Show one file or folder from an existing report.
@@ -87,6 +99,9 @@ Options are
 .BI --fail-on-context-band " compact|healthy|warning|critical" ,
 and
 .BI --fail-on-slop-band " low|moderate|high|critical" .
+JSON is concise by default; add
+.B --details
+for complete finding records.
 Overlays and health rollups do not affect this gate.
 .TP
 .B compare
@@ -97,8 +112,16 @@ and
 are required.
 Optional arguments are
 .BI --top " count"
+.BI --format " text|json" ,
+.BR --force ,
 and
-.BI --format " text|json" .
+.BR --fail-on-regression .
+.TP
+.B report
+Validate one canonical report with
+.BI "report validate" " path"
+or print report schema 4 with
+.BR "report schema" .
 .TP
 .B sarif
 Export action-queue findings from an existing schema-4 report as SARIF 2.1.0.
@@ -115,11 +138,11 @@ the document is written to standard output.
 Render additive repository-health evidence from an existing schema-4 report.
 Options are
 .BI --report " path" ,
-.BI --format " markdown|github|json" ,
+.BI --format " text|markdown|github|json" ,
 and
 .BI --max-annotations " count" .
 The default format is
-.B markdown
+.B text
 and the default annotation cap is 10.
 All formats write to standard output and do not rewrite
 .BR .slop/latest/health.md .
@@ -128,6 +151,46 @@ Findings are advisory: successful rendering returns 0 even when findings are
 present. Use
 .B check
 to enforce stable detector thresholds.
+.TP
+.B config
+Show effective or local configuration, validate it, migrate legacy overrides,
+or print the complete config schema. Subcommands are
+.BR show ,
+.BR validate ,
+.BR migrate ,
+and
+.BR schema .
+.TP
+.B doctor
+Diagnose Git history, config, latest-report, and resource readiness. Use
+.BI --format " text|json"
+or
+.BI --bundle " directory" .
+.TP
+.B list
+List findings, relationships, clusters, or profiles from an existing report.
+Use
+.BI --kind " kind" ,
+.BI --top " count" ,
+and
+.BI --format " text|json" .
+.TP
+.B prune
+Remove old immutable run snapshots according to configured retention. Use
+.B --dry-run
+to preview and
+.BI --keep " count"
+to override the configured count.
+.TP
+.B completions
+Generate completion source from the live command tree for Bash, Zsh, Fish,
+PowerShell, or Nushell.
+.TP
+.B html
+Write a self-contained local report browser. Options are
+.BI --report " path"
+and
+.BI --output " path" .
 .TP
 .B version
 Print
@@ -203,7 +266,7 @@ Repository-owned config schema 2.
 Ignore rules for routine generated state.
 .TP
 .B .slop/latest/
-Latest four-file report bundle.
+Latest compact report bundle, plus optional compatibility YAML.
 .TP
 .B .slop/runs/
 Timestamped report bundles.

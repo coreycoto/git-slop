@@ -62,6 +62,27 @@ fn language_common_term(term: &str) -> bool {
     )
 }
 
+fn verification_override<'a>(path: &str, config: &'a Value) -> Option<&'a str> {
+    config
+        .pointer("/inventory/path_overrides")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|mapping| {
+            mapping
+                .get("glob")
+                .and_then(Value::as_str)
+                .and_then(|pattern| Glob::new(pattern).ok())
+                .is_some_and(|glob| glob.compile_matcher().is_match(path))
+        })
+        .filter_map(|mapping| {
+            mapping
+                .get("verification_applicability")
+                .and_then(Value::as_str)
+        })
+        .next_back()
+}
+
 pub fn analyze(
     files: &mut [FileAnalysis],
     commits: &[CommitRecord],
@@ -268,17 +289,33 @@ pub fn analyze(
             && !file.has_inline_tests
             && file.slop_score >= 50.0
             && nearby_tests.is_empty();
-        let verification_gap = if configured_test_path(&file.path) || file.has_inline_tests {
-            0.0
+        let verification_applicability =
+            if verification_override(&file.path, config) == Some("not_applicable") {
+                "not_applicable_override"
+            } else if verification_override(&file.path, config) == Some("applicable") {
+                "applicable"
+            } else if configured_test_path(&file.path) {
+                "not_applicable_test"
+            } else if matches!(file.classification.as_str(), "source" | "tool") {
+                "applicable"
+            } else {
+                "not_applicable_non_source"
+            };
+        let verification_gap = if verification_applicability != "applicable" {
+            None
+        } else if file.has_inline_tests {
+            Some(0.0)
         } else {
-            ((1.0 - test_adjacency) * 0.6
-                + (1.0 - test_cochange_ratio.min(1.0)) * 0.2
-                + if hotspot_without_nearby_tests {
-                    0.2
-                } else {
-                    0.0
-                })
-            .min(1.0)
+            Some(
+                ((1.0 - test_adjacency) * 0.6
+                    + (1.0 - test_cochange_ratio.min(1.0)) * 0.2
+                    + if hotspot_without_nearby_tests {
+                        0.2
+                    } else {
+                        0.0
+                    })
+                .min(1.0),
+            )
         };
 
         let path_depth = file.path.matches('/').count() + 1;
@@ -347,16 +384,23 @@ pub fn analyze(
         let semantic_term_limit =
             pointer_u64(config, "/semantic_drift/top_term_limit", 25) as usize;
         drift_terms.truncate(semantic_term_limit);
-        let semantic_drift_pressure = if file.top_structural_terms.is_empty() {
+        let idf = |term: &str| {
+            let documents = term_documents.get(term).copied().unwrap_or_default() as f64;
+            ((file_count as f64 + 1.0) / (documents + 1.0)).ln() + 1.0
+        };
+        let total_term_weight = file
+            .top_structural_terms
+            .iter()
+            .filter(|term| !language_common_term(term))
+            .map(|term| idf(term))
+            .sum::<f64>();
+        let drift_term_weight = drift_terms.iter().map(|term| idf(term)).sum::<f64>();
+        let semantic_drift_pressure = if total_term_weight == 0.0 {
             0.0
         } else {
-            drift_terms.len() as f64
-                / file
-                    .top_structural_terms
-                    .len()
-                    .min(semantic_term_limit)
-                    .max(1) as f64
+            (drift_term_weight / total_term_weight).min(1.0)
         };
+        let drift_term_count = drift_terms.len();
 
         let related_relationship_ids = relationship_ids
             .get(&file.path)
@@ -432,13 +476,15 @@ pub fn analyze(
             "organization_health": organization_overlay,
             "verification": {
                 "path": file.path,
+                "applicability": verification_applicability,
+                "evidence_status": if verification_applicability == "applicable" { "measured" } else { "not_applicable" },
                 "test_adjacency_score": round6(test_adjacency),
                 "inline_tests_detected": file.has_inline_tests,
                 "nearby_test_paths": nearby_tests,
                 "test_cochange_ratio": round6(test_cochange_ratio),
                 "hotspot_without_nearby_tests": hotspot_without_nearby_tests,
                 "churn_without_test_churn": file.churn_pressure >= 0.6 && test_cochange_ratio == 0.0,
-                "verification_gap": round6(verification_gap)
+                "verification_gap": verification_gap.map(round6)
             },
             "navigation": {
                 "path": file.path,
@@ -475,7 +521,10 @@ pub fn analyze(
             "semantic_drift": {
                 "path": file.path,
                 "drift_terms": drift_terms,
-                "semantic_drift_pressure": round6(semantic_drift_pressure)
+                "semantic_drift_pressure": round6(semantic_drift_pressure),
+                "supporting_term_count": drift_term_count,
+                "confidence": if drift_term_count >= 3 { "supported" } else { "low_support" },
+                "method": "cross-root-idf-v2"
             }
         });
         let mut structural = file

@@ -12,9 +12,11 @@
   "command": "plan",
   "proposed_slices": [
     {
+      "abandonment_condition": "Stop and abandon or re-scope this slice if preserving behavior requires an out-of-scope change, verification cannot be identified, or the native comparison reports a regression.",
       "assumptions": [
         "The cited detector report is the source of truth for scope and ranking.",
-        "A human reviews the proposed slice before any repository mutation."
+        "A human reviews the proposed slice before any repository mutation.",
+        "No repository-native verification command was discoverable from tracked manifest paths."
       ],
       "backlog_handoff": {
         "acceptance_criteria": [
@@ -53,15 +55,33 @@
         "relationship_ids": [
           "near_duplicate_neighborhood-35e7fad1c4e0"
         ],
+        "relationships": [
+          {
+            "id": "near_duplicate_neighborhood-35e7fad1c4e0",
+            "kind": "near_duplicate_neighborhood",
+            "paths": [
+              "src/consumer_toolkit/github/current_repo.py",
+              "src/consumer_toolkit/github/shared/current_repo.py"
+            ]
+          }
+        ],
         "summary": "Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py."
       },
-      "expected_outcome": "A smaller, reviewable maintenance surface with preserved behavior and refreshed detector evidence.",
+      "expected_outcome": {
+        "baseline_top_slop_score": 12.6,
+        "maximum_scope_paths": 2,
+        "required": [
+          "No new native compare regression.",
+          "No increase in the highest scoped slop score.",
+          "All reviewed verification commands pass."
+        ]
+      },
       "id": "anchor-relationship-near_duplicate_neighborhood-35e7fad1c4e0",
-      "objective": "Inspect relationship near_duplicate_neighborhood-35e7fad1c4e0",
+      "objective": "Reduce the bounded maintenance pressure across src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py without expanding the reviewed scope.",
       "out_of_scope_paths": [],
       "ranking_reason": "Anchor slice always ranks first.",
       "rationale": "Start with the selected coupled pair before considering any surrounding cluster evidence.",
-      "rerun_command": "git-slop plan --relationship 'near_duplicate_neighborhood-35e7fad1c4e0' --report .slop/latest/report.json",
+      "rerun_command": "git-slop find && git-slop compare --base <baseline-report.json> --head .slop/latest/report.json --fail-on-regression",
       "rollback": "Revert only the explicitly reviewed code changes; report and prompt artifacts are advisory and can be regenerated.",
       "scope_paths": [
         "src/consumer_toolkit/github/current_repo.py",
@@ -74,11 +94,14 @@
         "near_duplicate_neighborhood-35e7fad1c4e0"
       ],
       "title": "Inspect relationship near_duplicate_neighborhood-35e7fad1c4e0",
-      "verification": [
-        "Run the repository's focused tests for changed paths.",
-        "Rerun git-slop and compare the new report with the cited report.",
-        "Confirm no unrelated finding or public contract regressed."
-      ]
+      "verification": {
+        "discovered_commands": [],
+        "required_checks": [
+          "Run focused tests for every changed path.",
+          "Rerun git-slop and compare the new report with the saved baseline.",
+          "Confirm no unrelated finding or public contract regressed."
+        ]
+      }
     }
   ],
   "ranking_basis": {

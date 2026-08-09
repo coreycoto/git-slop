@@ -51,12 +51,20 @@ pub fn list_tracked_files(repo_root: &Path) -> Result<Vec<String>> {
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    let mut paths: Vec<String> = output
+    let mut paths = Vec::new();
+    for raw in output
         .stdout
         .split(|byte| *byte == 0)
         .filter(|raw| !raw.is_empty())
-        .map(|raw| String::from_utf8_lossy(raw).replace('\\', "/"))
-        .collect();
+    {
+        let path = std::str::from_utf8(raw).with_context(|| {
+            format!(
+                "tracked path is not valid UTF-8 (hex {}); report JSON cannot represent it losslessly",
+                hex::encode(raw)
+            )
+        })?;
+        paths.push(path.replace('\\', "/"));
+    }
     paths.sort();
     Ok(paths)
 }
@@ -68,15 +76,30 @@ fn optional_git_output(repo_root: &Path, args: &[&str]) -> Option<String> {
 }
 
 fn sanitize_remote_url(remote: String) -> String {
-    if let Some(scheme) = remote.find("://") {
+    let remote = remote
+        .trim()
+        .chars()
+        .filter(|character| !character.is_control())
+        .collect::<String>();
+    let mut sanitized = remote
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    if let Some(scheme) = sanitized.find("://") {
         let authority = scheme + 3;
-        if let Some(at) = remote[authority..].find('@') {
-            let mut sanitized = remote.clone();
+        if let Some(at) = sanitized[authority..].find('@') {
             sanitized.replace_range(authority..authority + at + 1, "");
-            return sanitized;
+        }
+        return sanitized;
+    }
+    // SCP-like remotes commonly include a user name before the host.
+    if let (Some(at), Some(colon)) = (sanitized.find('@'), sanitized.find(':')) {
+        if at < colon {
+            sanitized.replace_range(..=at, "");
         }
     }
-    remote
+    sanitized
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +109,35 @@ pub struct WorktreeState {
     pub modified_tracked_file_count: usize,
     pub untracked_file_count: usize,
     pub digest: String,
+}
+
+fn porcelain_counts(raw: &[u8]) -> (usize, usize, usize) {
+    let mut staged = 0;
+    let mut modified = 0;
+    let mut untracked = 0;
+    let entries = raw.split(|byte| *byte == 0).collect::<Vec<_>>();
+    let mut index = 0;
+    while index < entries.len() {
+        let entry = entries[index];
+        index += 1;
+        if entry.len() < 3 {
+            continue;
+        }
+        if entry.starts_with(b"?? ") {
+            untracked += 1;
+            continue;
+        }
+        if entry[0] != b' ' && entry[0] != b'?' {
+            staged += 1;
+        }
+        if entry[1] != b' ' && entry[1] != b'?' {
+            modified += 1;
+        }
+        if matches!(entry[0], b'R' | b'C') || matches!(entry[1], b'R' | b'C') {
+            index = index.saturating_add(1);
+        }
+    }
+    (staged, modified, untracked)
 }
 
 pub fn worktree_state(repo_root: &Path) -> Result<WorktreeState> {
@@ -100,25 +152,7 @@ pub fn worktree_state(repo_root: &Path) -> Result<WorktreeState> {
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    let mut staged = 0;
-    let mut modified = 0;
-    let mut untracked = 0;
-    for entry in output
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter(|entry| entry.len() >= 3)
-    {
-        if entry.starts_with(b"?? ") {
-            untracked += 1;
-            continue;
-        }
-        if entry[0] != b' ' && entry[0] != b'?' {
-            staged += 1;
-        }
-        if entry[1] != b' ' && entry[1] != b'?' {
-            modified += 1;
-        }
-    }
+    let (staged, modified, untracked) = porcelain_counts(&output.stdout);
     Ok(WorktreeState {
         clean: output.stdout.is_empty(),
         staged_change_count: staged,
@@ -166,18 +200,27 @@ pub fn repo_metadata(repo_root: &Path) -> Result<RepoMetadata> {
     })
 }
 
-pub fn changed_files(repo_root: &Path, base: &str, head: &str) -> Result<Vec<String>> {
-    let output = git_output(
-        Some(repo_root),
-        &["diff", "--name-only", "--diff-filter=ACMR", base, head],
-    )?;
-    let mut paths: Vec<String> = output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(ToOwned::to_owned)
-        .collect();
-    paths.sort();
-    paths.dedup();
-    Ok(paths)
+#[cfg(test)]
+mod tests {
+    use super::{porcelain_counts, sanitize_remote_url};
+
+    #[test]
+    fn porcelain_rename_second_paths_are_not_counted_as_changes() {
+        assert_eq!(
+            porcelain_counts(b"R  new name.rs\0old name.rs\0 M tracked.rs\0?? new.rs\0"),
+            (1, 1, 1)
+        );
+    }
+
+    #[test]
+    fn provenance_remote_sanitization_removes_secrets_and_fragments() {
+        assert_eq!(
+            sanitize_remote_url("https://user:token@example.com/repo.git?secret=yes#x".to_string()),
+            "https://example.com/repo.git"
+        );
+        assert_eq!(
+            sanitize_remote_url("token@example.com:owner/repo.git".to_string()),
+            "example.com:owner/repo.git"
+        );
+    }
 }

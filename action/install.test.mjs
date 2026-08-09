@@ -140,7 +140,8 @@ if (process.argv[2] === "version") {
     chmodSync(binary, 0o755);
     writeFileSync(join(stage, "LICENSE"), "MIT fixture\n", "utf8");
     writeFileSync(join(stage, "README.md"), "# Git Slop fixture\n", "utf8");
-    writeFileSync(join(stage, "git-slop.1"), ".TH GIT-SLOP 1\n", "utf8");
+    mkdirSync(join(stage, "man"), { recursive: true });
+    writeFileSync(join(stage, "man", "git-slop.1"), ".TH GIT-SLOP 1\n", "utf8");
     createArchive(archive, ["-c", "-z"], ["-C", join(root, "stage"), stageName]);
     const archiveBytes = readFileSync(archive);
     const digest = createHash("sha256").update(archiveBytes).digest("hex");
@@ -964,9 +965,10 @@ test("Windows ZIP archives use the exact safe layout when the host tar supports 
     "git-slop.exe": "fixture executable\n",
     LICENSE: "MIT fixture\n",
     "README.md": "# Git Slop fixture\n",
-    "git-slop.1": ".TH GIT-SLOP 1\n",
+    "man/git-slop.1": ".TH GIT-SLOP 1\n",
   };
   for (const [name, contents] of Object.entries(payloads)) {
+    mkdirSync(dirname(join(stage, name)), { recursive: true });
     writeFileSync(join(stage, name), contents, "utf8");
   }
   const archive = join(root, `${rootName}.zip`);
