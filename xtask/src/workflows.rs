@@ -654,6 +654,7 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
         }
         validate_trusted_publishing(text, payload, publish_crate, errors);
         validate_release_homebrew_token_scope(payload, publish_crate, errors);
+        validate_release_tag_secret_scope(payload, publish_crate, errors);
         validate_publish_order_and_registry(publish_crate, errors);
         let Some(revalidate) = step_run(
             publish_crate,
@@ -1602,6 +1603,42 @@ fn validate_release_homebrew_token_scope(
         "--field manifest_sha256=",
     ] {
         forbid(run, forbidden, name, errors);
+    }
+}
+
+fn validate_release_tag_secret_scope(
+    payload: &YamlValue,
+    publish_crate: &YamlValue,
+    errors: &mut Vec<String>,
+) {
+    let name = "release-publish.yml";
+    let secret = "${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}";
+    if workflow_or_job_env_contains_value(payload, secret) {
+        errors.push(format!(
+            "{name} must not expose RELEASE_SIGNING_PRIVATE_KEY at workflow or job scope."
+        ));
+    }
+    if yaml_string_occurrences(payload, secret) != 1 {
+        errors.push(format!(
+            "{name} must reference the release signing secret exactly once."
+        ));
+    }
+    let secret_steps = steps(publish_crate)
+        .into_iter()
+        .filter(|step| step_env(step, "RELEASE_SIGNING_PRIVATE_KEY") == Some(secret))
+        .collect::<Vec<_>>();
+    if secret_steps.len() != 1 {
+        errors.push(format!(
+            "{name} must bind the release signing secret to exactly one step."
+        ));
+        return;
+    }
+    if secret_steps[0].get("name").and_then(YamlValue::as_str)
+        != Some("Create missing exact release tag")
+    {
+        errors.push(format!(
+            "{name} must expose the release signing secret only to the exact tag-creation step."
+        ));
     }
 }
 
@@ -3441,6 +3478,22 @@ mod tests {
                     1,
                 ),
                 "must not include git tag -f",
+            ),
+            (
+                valid.replacen(
+                    "RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}",
+                    "RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.OTHER_SIGNING_KEY }}",
+                    1,
+                ),
+                "must reference the release signing secret exactly once",
+            ),
+            (
+                valid.replacen(
+                    "- name: Create missing exact release tag",
+                    "- name: Create unsigned exact release tag",
+                    1,
+                ),
+                "must expose the release signing secret only to the exact tag-creation step",
             ),
         ];
         for (drifted, expected) in cases {
