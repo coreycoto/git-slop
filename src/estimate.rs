@@ -40,7 +40,7 @@ pub fn current_rss_bytes() -> Option<u64> {
             .next()?
             .parse::<u64>()
             .ok()?;
-        return kib.checked_mul(1024);
+        kib.checked_mul(1024)
     }
     #[cfg(target_os = "macos")]
     {
