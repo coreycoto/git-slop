@@ -559,7 +559,6 @@ jobs:
           VERSION: ${{ needs.candidate.outputs.version }}
           TAG: ${{ needs.candidate.outputs.tag }}
           REVISION: ${{ needs.candidate.outputs.revision }}
-          RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           status="$(curl --user-agent "git-slop-release-workflow/1 (https://github.com/coreycoto/git-slop)" -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
@@ -645,6 +644,7 @@ jobs:
           CONTROL_REVISION: ${{ needs.candidate.outputs.control-revision }}
           TAG: ${{ needs.candidate.outputs.tag }}
           REVISION: ${{ needs.candidate.outputs.revision }}
+          RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
