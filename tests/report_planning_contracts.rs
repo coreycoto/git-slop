@@ -54,13 +54,29 @@ fn assert_fixture_unchanged(path: &Path, original: &[u8]) {
     );
 }
 
+fn assert_text_golden(path: &Path, actual: &str) {
+    if std::env::var_os("UPDATE_GIT_SLOP_GOLDENS").is_some() {
+        fs::write(path, actual).expect("update text golden");
+    }
+    let expected = fs::read_to_string(path)
+        .expect("read text golden")
+        .replace("\r\n", "\n");
+    assert_eq!(actual, expected);
+}
+
+fn assert_json_golden(path: &Path, actual: &Value) {
+    if std::env::var_os("UPDATE_GIT_SLOP_GOLDENS").is_some() {
+        fs::write(path, serde_json::to_string_pretty(actual).unwrap() + "\n")
+            .expect("update JSON golden");
+    }
+    assert_eq!(actual, &read_json(path));
+}
+
 #[test]
 fn local_folder_explain_matches_the_native_text_golden() {
     let report = fixture("local_repo_folder_report.json");
     let original_report = fs::read(&report).expect("read report fixture");
-    let expected = fs::read_to_string(fixture("local_repo_folder_explain.txt"))
-        .expect("read folder explain golden")
-        .replace("\r\n", "\n");
+    let golden = fixture("local_repo_folder_explain.txt");
     let report_path = report.to_str().expect("report fixture path");
 
     let actual = stdout(run_cli(&[
@@ -71,7 +87,7 @@ fn local_folder_explain_matches_the_native_text_golden() {
         HISTORICAL_FOLDER_PATH,
     ]));
 
-    assert_eq!(actual, expected);
+    assert_text_golden(&golden, &actual);
     assert_fixture_unchanged(&report, &original_report);
 }
 
@@ -103,7 +119,7 @@ fn explain_path_selector_distinguishes_historical_file_and_folder_records() {
     ]));
 
     assert_eq!(file_payload["schema_version"], 2);
-    assert_eq!(file_payload["report_schema_version"], 4);
+    assert_eq!(file_payload["report_schema_version"], 5);
     assert_eq!(
         file_payload["selector"],
         json!({"kind": "path", "value": HISTORICAL_FILE_PATH})
@@ -112,7 +128,7 @@ fn explain_path_selector_distinguishes_historical_file_and_folder_records() {
     assert_eq!(file_payload["target"]["record_type"], "file");
 
     assert_eq!(folder_payload["schema_version"], 2);
-    assert_eq!(folder_payload["report_schema_version"], 4);
+    assert_eq!(folder_payload["report_schema_version"], 5);
     assert_eq!(
         folder_payload["selector"],
         json!({"kind": "path", "value": HISTORICAL_FOLDER_PATH})
@@ -154,13 +170,11 @@ fn explain_path_selector_distinguishes_historical_file_and_folder_records() {
 fn large_repo_top_explain_matches_the_text_golden_and_defaults_to_five() {
     let report = fixture("large_repo_top_report.json");
     let original_report = fs::read(&report).expect("read report fixture");
-    let expected = fs::read_to_string(fixture("large_repo_top_explain.txt"))
-        .expect("read top explain golden")
-        .replace("\r\n", "\n");
+    let golden = fixture("large_repo_top_explain.txt");
     let report_path = report.to_str().expect("report fixture path");
 
     let actual = stdout(run_cli(&["explain", "--report", report_path, "--top", "5"]));
-    assert_eq!(actual, expected);
+    assert_text_golden(&golden, &actual);
     assert_eq!(actual.matches("Interpretation boundary").count(), 1);
 
     let report_payload = read_json(&report);
@@ -183,7 +197,7 @@ fn large_repo_top_explain_matches_the_text_golden_and_defaults_to_five() {
         "json",
     ]));
     assert_eq!(default_payload["schema_version"], 2);
-    assert_eq!(default_payload["report_schema_version"], 4);
+    assert_eq!(default_payload["report_schema_version"], 5);
     assert_eq!(
         default_payload["selector"],
         json!({"kind": "top", "value": 5})
@@ -217,7 +231,7 @@ fn folder_plan_json_is_deterministic_bounded_and_preview_only() {
 
     let payload: Value = serde_json::from_str(&first).expect("plan JSON");
     assert_eq!(payload["schema_version"], 2);
-    assert_eq!(payload["report_schema_version"], 4);
+    assert_eq!(payload["report_schema_version"], 5);
     assert_eq!(payload["command"], "plan");
     assert_eq!(
         payload["selector"],
@@ -249,8 +263,8 @@ fn folder_plan_json_is_deterministic_bounded_and_preview_only() {
         "preview_only"
     );
     assert_eq!(
-        payload["backlog_handoff"]["target_plugin_skill"],
-        "$project-management-workflows:plan-to-backlog-preview"
+        payload["backlog_handoff"]["canonical_format"],
+        "provider_neutral_maintenance_plan"
     );
     assert!(
         slices
@@ -267,9 +281,7 @@ fn relationship_plan_matches_the_existing_text_and_json_goldens() {
     let original_report = fs::read(&report).expect("read report fixture");
     let report_path = report.to_str().expect("report fixture path");
 
-    let expected_text = fs::read_to_string(fixture("relationship_focused_plan.txt"))
-        .expect("read relationship plan text golden")
-        .replace("\r\n", "\n");
+    let text_golden = fixture("relationship_focused_plan.txt");
     let actual_text = stdout(run_cli(&[
         "plan",
         "--report",
@@ -277,9 +289,9 @@ fn relationship_plan_matches_the_existing_text_and_json_goldens() {
         "--relationship",
         RELATIONSHIP_ID,
     ]));
-    assert_eq!(actual_text, expected_text);
+    assert_text_golden(&text_golden, &actual_text);
 
-    let expected_json = read_json(&fixture("relationship_focused_plan.json"));
+    let json_golden = fixture("relationship_focused_plan.json");
     let actual_json = json_stdout(run_cli(&[
         "plan",
         "--report",
@@ -289,7 +301,7 @@ fn relationship_plan_matches_the_existing_text_and_json_goldens() {
         "--format",
         "json",
     ]));
-    assert_eq!(actual_json, expected_json);
+    assert_json_golden(&json_golden, &actual_json);
     assert_eq!(
         actual_json["proposed_slices"].as_array().map(Vec::len),
         Some(1)

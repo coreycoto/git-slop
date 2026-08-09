@@ -23,13 +23,13 @@ Git worktree
   -> stable hotspot scoring
   -> additive overlay analyzers
   -> repository-health rollups
-  -> schema-4 report assembly
+  -> normalized schema-5 report assembly
   -> atomic latest and timestamped bundles
   -> terminal / Markdown / JSON / YAML / SARIF / GitHub annotations
 ```
 
 `find` owns the pipeline. All other analysis commands consume an existing
-schema-4 report and do not rerun or rescore the detector.
+schema-5 report and do not rerun or rescore the detector.
 
 ## Rust Module Layout
 
@@ -159,7 +159,7 @@ Always-on overlay families are:
 - navigation
 - blast radius
 - stewardship
-- semantic drift
+- concept dispersion
 
 Overlays explain adjacent risk and maintenance pressure. They do not inflate
 `slop_score`, alter `slop_band`, or silently change `git slop check`.
@@ -172,7 +172,7 @@ humans and CI.
 
 The current machine report uses:
 
-- `schema_version: 4`
+- `schema_version: 5`
 
 Canonical top-level sections are:
 
@@ -182,16 +182,18 @@ Canonical top-level sections are:
 - `stats`
 - `files`
 - `folders`
+- `ranked_files`
 - `action_queue`
 - `costs`
 - `overlays`
 - `health`
 
-For one compatibility cycle, reports also emit top-level
-`organization_metrics`, `relationships`, and `clusters` mirrors. Consumers
-should use canonical sections for new integrations.
+Relationship and cluster records are stored once in the canonical organization
+overlay and referenced by stable IDs. `ranked_files` is exhaustive;
+`action_queue` contains only records that require attention.
 
-`find` writes the same report as JSON and YAML, plus two Markdown projections:
+`find` always writes JSON and writes YAML only when `output.yaml: true`, plus
+two Markdown projections:
 
 - `summary.md` for detailed detector and overlay evidence
 - `health.md` for a concise repository-health dashboard

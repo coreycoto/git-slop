@@ -195,9 +195,9 @@ fn folder_health_includes_data_context_consistently() {
     let rollup = build_health_rollup_from_values(&files, &folders, &Value::Null);
 
     assert_eq!(rollup.file_band_counts["compact"], 1);
-    assert_eq!(rollup.file_band_counts["refactor_required"], 1);
+    assert_eq!(rollup.file_band_counts["budget_exceeded"], 1);
     assert_eq!(rollup.folder_band_counts["compact"], 2);
-    assert_eq!(rollup.folder_band_counts["refactor_required"], 1);
+    assert_eq!(rollup.folder_band_counts["budget_exceeded"], 1);
     assert_eq!(rollup.folder_distribution["count"], 3);
     assert_eq!(rollup.folder_distribution["total"], 1_000_100);
 }
@@ -214,6 +214,9 @@ fn finding_humanizes_stable_reason_codes() {
         language: "Rust".to_string(),
         profile: "agent_context".to_string(),
         classification: "source".to_string(),
+        analysis_status: "analyzed".to_string(),
+        skipped_reason: None,
+        symlink_metadata: None,
         has_inline_tests: false,
         tokens: 10_001,
         context_band: "critical".to_string(),
@@ -222,6 +225,7 @@ fn finding_humanizes_stable_reason_codes() {
         structural_tokens: vec![],
         structural_token_count: 0,
         top_structural_terms: vec![],
+        structural_categories: json!({"mode": "code"}),
         age_days: 1,
         revisions_window: 20,
         recency_weighted_commits: 1.0,

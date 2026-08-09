@@ -1,6 +1,6 @@
 [package]
 name = "git-slop"
-version = "0.10.1"
+version = "0.11.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A deterministic repository token-defragmenter for humans and AI agents."
@@ -40,18 +40,24 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 clap = { version = "4.5", features = ["derive"] }
 clap_complete = "4.5"
 clap_complete_nushell = "4.5"
+clap_mangen = "0.2"
 globset = "0.4"
 fs2 = "0.4"
+flate2 = "1.1"
 hex = "0.4"
+libc = "0.2"
 percent-encoding = "2.3"
 regex = "1.12"
+rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 sha2 = "0.10"
 tiktoken-rs = "0.11"
+thiserror = "2.0"
 unicode-normalization = "0.1"
 unicode-segmentation = "1.12"
+zstd = "0.13"
 
 [dev-dependencies]
 assert_cmd = "2.1"

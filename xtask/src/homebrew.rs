@@ -24,6 +24,7 @@ pub fn render_formula(identity: &ReleaseIdentity) -> Result<String> {
          \x20 def install\n\
          \x20   system \"cargo\", \"install\", *std_cargo_args\n\
          \x20   man1.install \"man/git-slop.1\"\n\
+         \x20   generate_completions_from_executable(bin/\"git-slop\", \"completions\", shells: [:bash, :zsh, :fish])\n\
          \x20 end\n\
          \n\
          \x20 test do\n\
@@ -146,6 +147,7 @@ mod tests {
              \x20 def install\n\
              \x20   system \"cargo\", \"install\", *std_cargo_args\n\
              \x20   man1.install \"man/git-slop.1\"\n\
+             \x20   generate_completions_from_executable(bin/\"git-slop\", \"completions\", shells: [:bash, :zsh, :fish])\n\
              \x20 end\n\
              \n\
              \x20 test do\n\

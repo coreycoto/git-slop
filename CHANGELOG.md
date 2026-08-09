@@ -1,14 +1,89 @@
 # Changelog
 
+## 0.11.0 - 2026-08-09
+
+This release completes the post-0.10 adversarial audit across detector trust,
+comparison semantics, schema contracts, scale, human/agent UX, and release
+provenance.
+
+### Correctness and trust
+
+- `find` is read-only with respect to adoption files; scan locking moved under
+  `.git/git-slop/`, and ephemeral `--state-dir`, `--output-dir`, and
+  `--no-cache` scans are first-class.
+- Comparisons use stable repository and normalized scope-selector identity,
+  allow ordinary file additions/removals, separate content, metric, and
+  evidence status, and distinguish source regressions from evidence-only drift.
+- Reports publish analysis-contract and split configuration digests. Local
+  remotes are irreversibly redacted and no-remote repositories use root-commit
+  identity.
+- Strict schema 5 replaces implicit legacy acceptance. Validation reports all
+  violations with stable codes and JSON pointers; schema 4 requires
+  `--allow-legacy` or explicit migration.
+- Typed error classes, JSON errors, explicit-report operation outside a Git
+  checkout, corrected history caps, unborn/empty evidence states, and safe
+  broken-symlink handling close the remaining edge contracts.
+- The Action preserves successful head artifacts on comparison errors, splits
+  health/policy/regression/annotation counts, reports a five-state baseline
+  status, uses report generation time for freshness, supports safe revision
+  ancestry operators, and records ancestry, divergence, and copied-config
+  baseline materialization.
+
+### Report, detector, and scale
+
+- Normalized schema 5 stores relationship evidence once, separates exhaustive
+  `ranked_files` from actionable `action_queue`, offers compact/standard/full
+  evidence profiles, and supports gzip/zstd report artifacts.
+- Compare supports bounded detail, pagination, and NDJSON. `git slop schema`
+  publishes every machine contract, and `compare --base-ref` reproduces the
+  isolated Action baseline workflow locally.
+- Co-change evidence now downweights broad changes, treats merge/import/release
+  commits explicitly, uses uncertainty-aware confidence, caps final incident
+  relationships, reranks retained IDs, and reports suppression diagnostics.
+- Verification classification, concept-dispersion naming/extraction,
+  low-variance saturation, stewardship support, measured churn, language-aware
+  structural extraction, and streamed history improve evidence fidelity.
+- Preflight estimates now model history breadth and symlinks; runtime RSS
+  checkpoints enforce real budgets. Large files are bounded early, token data
+  uses an incrementally limited SQLite LRU, and run/cache retention supports
+  byte limits plus machine-readable status and dry-run pruning.
+
+### Experience and distribution
+
+- Explain and plan render relationship endpoints, provenance, evidence state,
+  and executable provider-neutral verification. Prompt packs carry complete
+  digests/times/truncation provenance and optional bounded context.
+- Terminal tables have truthful headers and predictable width controls. The
+  HTML explorer uses a compact payload, lazy evidence views, detail panels,
+  deep-linked filters, keyboard-sortable tables, and action/health views.
+- Generated schemas, man/reference output, completions, signed annotated tags,
+  SBOMs, and provenance-rich native archives strengthen distribution. Homebrew
+  installs shell completions from the live command tree; archives include Bash,
+  Zsh, Fish, PowerShell, and Nushell sources.
+
+Migration notes:
+
+- Migrate stored schema-4 baselines with `git slop report migrate`, or use
+  `--allow-legacy` only for a deliberate compatibility read.
+- Use `ranked_files` for exhaustive ranking and `action_queue` for attention
+  records. The report term is `concept_dispersion`; the compatibility config
+  namespace remains `semantic_drift`.
+- Health output uses `budget_exceeded` instead of the former
+  `refactor_required`/`critical` context aliases. The legacy config key remains
+  accepted during this config-schema cycle.
+
 ## 0.10.1 - 2026-08-08
 
 This patch release hardens the 0.10 report and automation contracts after a
-full adversarial audit. Highlights include exhaustive canonical validation,
+the audit available at publication time. Highlights include broad canonical validation,
 normalized scope identity, byte-level drift detection, one native regression
 policy shared by the CLI and Action, strict config bounds, compact JSON and
 opt-in YAML, uncapped canonical findings, scan locking, cache retention,
 Unicode/BOM-aware inventory, normalized co-change evidence, and neutral archive
 ownership.
+
+Schema-4 validation in this release was not exhaustive; schema 5 in 0.11.0
+supersedes that contract with strict runtime and published-schema validation.
 
 Migration notes:
 

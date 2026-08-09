@@ -4,7 +4,10 @@ mod support;
 mod write;
 
 pub use render::render_terminal;
-pub use write::{load_report, schema, write_report_bundle};
+pub use write::{
+    load_report, load_report_with_legacy, migrate_legacy_report, schema, write_json_atomically,
+    write_report_bundle,
+};
 
 #[cfg(test)]
 mod tests {
@@ -22,10 +25,14 @@ mod tests {
 
     fn analysis(root: &Path) -> Analysis {
         Analysis {
-            repo_root: root.to_path_buf(),
+            output_root: root.join(".slop"),
+            report_profile: "standard".to_string(),
+            compression: "none".to_string(),
             repo: RepoMetadata {
                 repo_name: "fixture".to_string(),
                 repo_root: root.display().to_string(),
+                repository_id: Some("remote:github.com/example/fixture".to_string()),
+                repository_identity_source: Some("normalized_remote".to_string()),
                 branch: Some("main".to_string()),
                 head_commit: Some("abc123".to_string()),
                 head_commit_timestamp: Some("2026-07-29T08:00:00Z".to_string()),
@@ -65,7 +72,7 @@ mod tests {
         let report = assembly::assemble_report(&analysis, &HealthRollup::default());
         assert_eq!(report["generated_at"], "2026-07-30T10:11:12Z");
         assert_eq!(report["analyzed_revision_at"], "2026-07-29T08:00:00Z");
-        assert_eq!(report["repo"]["head_commit"], "abc123");
+        assert!(report["repo"].get("head_commit").is_none());
         assert_eq!(report["repo"]["head_sha"], "abc123");
         assert_eq!(
             report["repo"]["remote_url"],
@@ -135,7 +142,7 @@ mod tests {
     #[test]
     fn published_report_schema_matches_the_runtime_contract() {
         let published: serde_json::Value =
-            serde_json::from_str(include_str!("../schemas/report-4.json"))
+            serde_json::from_str(include_str!("../schemas/report-5.json"))
                 .expect("published report schema");
         assert_eq!(published, super::write::schema());
     }

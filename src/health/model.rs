@@ -84,6 +84,13 @@ pub(super) fn classification_for_path(path: &str) -> &'static str {
         || path.contains("__tests__")
     {
         "test"
+    } else if path.starts_with(".github/workflows/") {
+        "workflow"
+    } else if path.starts_with(".github/ISSUE_TEMPLATE/")
+        || path == ".github/FUNDING.yml"
+        || path.starts_with("schemas/")
+    {
+        "config"
     } else if path.starts_with("docs/") || path.ends_with(".md") || path.ends_with(".mdx") {
         "docs"
     } else if path.starts_with("scripts/")
@@ -113,7 +120,7 @@ pub(super) fn classification(value: &Value) -> String {
 
 pub(super) fn health_file_band(file: &Value) -> String {
     match string_field(file, "context_band") {
-        "critical" | "refactor_required" => "refactor_required".to_string(),
+        "critical" | "refactor_required" | "budget_exceeded" => "budget_exceeded".to_string(),
         "warning" => "warning".to_string(),
         "healthy" => "healthy".to_string(),
         _ => "compact".to_string(),
@@ -151,7 +158,7 @@ pub(super) fn folder_health_band_for(
         DEFAULT_FOLDER_REFACTOR_FILES,
     );
     if direct_tokens > warning_max || direct_files > refactor_files {
-        "refactor_required".to_string()
+        "budget_exceeded".to_string()
     } else if direct_tokens > healthy_max || direct_files > warning_files {
         "warning".to_string()
     } else if direct_tokens > compact_max {
@@ -170,7 +177,7 @@ pub(super) fn direct_parent(path: &str) -> String {
 
 pub(super) fn band_rank(band: &str) -> usize {
     match band {
-        "refactor_required" | "critical" => 3,
+        "budget_exceeded" | "refactor_required" | "critical" => 3,
         "warning" | "high" => 2,
         "healthy" | "moderate" => 1,
         _ => 0,

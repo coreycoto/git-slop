@@ -249,7 +249,8 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     let out_of_scope_paths = string_array(slice.get("out_of_scope_paths"));
     let relationship_ids = string_array(slice.get("supporting_relationship_ids"));
     let cluster_ids = string_array(slice.get("supporting_cluster_ids"));
-    let rerun_command = "git-slop find && git-slop compare --base <baseline-report.json> --head .slop/latest/report.json --fail-on-regression";
+    let baseline_command = "cp .slop/latest/report.json .slop/plan-baseline.json";
+    let rerun_command = "git-slop find && git-slop compare --base .slop/plan-baseline.json --head .slop/latest/report.json --detail summary --fail-on-regression";
     let top_score = string_array(slice.get("scope_paths"))
         .iter()
         .map(|path| record_slop_score(report, path))
@@ -280,7 +281,11 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         .filter_map(|record| record.get("path").and_then(Value::as_str))
         .collect::<BTreeSet<_>>();
     let verification_commands = if repository_paths.contains("Cargo.toml") {
-        vec!["cargo test --all-targets"]
+        vec![
+            "cargo fmt --all -- --check",
+            "cargo clippy --all-targets --all-features -- -D warnings",
+            "cargo test --all-targets",
+        ]
     } else if repository_paths.contains("go.mod") {
         vec!["go test ./..."]
     } else if repository_paths.contains("pyproject.toml") {
@@ -290,6 +295,23 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     } else {
         Vec::new()
     };
+    let verification_classes = scope_paths
+        .iter()
+        .filter_map(|path| {
+            array_at(report, &["files"])
+                .iter()
+                .find(|record| record.get("path").and_then(Value::as_str) == Some(path))
+        })
+        .filter_map(|record| record.get("classification").and_then(Value::as_str))
+        .map(|classification| match classification {
+            "docs" => "documentation",
+            "config" => "configuration",
+            "workflow" => "workflow",
+            "tool" => "workflow_or_tooling",
+            "test" => "test",
+            _ => "source",
+        })
+        .collect::<BTreeSet<_>>();
     let backlog = json!({
         "mutation_policy": "preview_only",
         "proposed_issue_title": format!("Maintenance: {}", string(slice.get("title"))),
@@ -298,9 +320,9 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         "priority_hint": priority,
         "evidence_summary": evidence_summary,
         "acceptance_criteria": [
-            "Review the scoped paths against the cited git-slop evidence.",
-            "Keep changes bounded to the proposed scope unless new evidence is documented.",
-            "Preserve detector score, check, and overlay semantics.",
+            format!("Change no more than {scope_path_count} scoped paths unless the plan is regenerated."),
+            format!("Keep the highest scoped slop score at or below {top_score:.6}."),
+            "Produce zero native compare regressions and pass every discovered verification command.",
         ],
         "source": {
             "command": "git slop plan",
@@ -313,8 +335,8 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     object.insert(
         "objective".to_string(),
         json!(format!(
-            "Reduce the bounded maintenance pressure across {} without expanding the reviewed scope.",
-            render_limited(&scope_paths, 3)
+            "Keep the highest scoped slop score at or below {top_score:.6} across {}, introduce zero native compare regressions, and pass every discovered verification command without expanding the reviewed scope.",
+            render_limited(&scope_paths, 5)
         )),
     );
     object.insert("rationale".to_string(), json!(rationale));
@@ -342,6 +364,7 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     object.insert(
         "verification".to_string(),
         json!({
+            "classes": verification_classes,
             "discovered_commands": verification_commands,
             "required_checks": [
                 "Run focused tests for every changed path.",
@@ -362,6 +385,7 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
             ]
         }),
     );
+    object.insert("baseline_command".to_string(), json!(baseline_command));
     object.insert("rerun_command".to_string(), json!(rerun_command));
     object.insert(
         "abandonment_condition".to_string(),
@@ -414,8 +438,9 @@ pub fn plan_payload(report: &Value, selector: PlanSelector, max_slices: usize) -
         "backlog_handoff": {
             "mutation_policy": "preview_only",
             "candidate_count": slices.len(),
-            "target_plugin_skill": "$project-management-workflows:plan-to-backlog-preview",
             "source_selector": context.get("selector").cloned().unwrap_or(Value::Null),
+            "canonical_format": "provider_neutral_maintenance_plan",
+            "optional_adapters": ["github_issues", "linear", "project_management_plugin"],
         },
         "boundary_note": PLAN_BOUNDARY_NOTE,
     }))

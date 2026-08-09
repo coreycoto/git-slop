@@ -18,7 +18,6 @@ Git Slop writes repository-local state under `.slop/`.
       summary.md
       health.md
   cache/
-  scan.lock
 ```
 
 ## Commit
@@ -54,7 +53,7 @@ runtime directory:
 - opt-in `full`: the three default files plus `report.yaml` when YAML is enabled
 
 The default artifact retention is 14 days. Prefer the default unless a machine
-consumer needs schema-4 JSON or a reviewer explicitly needs the full bundle.
+consumer needs schema-5 JSON or a reviewer explicitly needs the full bundle.
 
 ## Exceptions
 
@@ -79,7 +78,8 @@ optimizations. It is safe to delete and must never be required for correctness.
 destinations. YAML is an explicit compatibility export (`output.yaml: true`). The latest
 bundle is replaced atomically so consumers do not observe a partially updated
 report set. Timestamped run directories are immutable snapshots of individual
-detector runs. A process-level `scan.lock` prevents concurrent publication.
+detector runs. A process-level lock under `.git/git-slop/` prevents concurrent
+publication without modifying the worktree.
 
 `health`, `show`, `explain`, `plan`, `check`, and `sarif` read an existing
 report. `compare` reads two. They do not create another detector run; only

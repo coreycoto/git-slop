@@ -53,7 +53,7 @@ fn relationship_for_pair<'a>(
     left: &str,
     right: &str,
 ) -> Option<&'a Value> {
-    report["relationships"][kind]
+    report["overlays"]["organization_health"]["relationships"][kind]
         .as_array()?
         .iter()
         .find(|relationship| {
@@ -151,7 +151,7 @@ fn native_detector_emits_duplicate_coupling_clusters_and_refreshes_latest() {
 
     for cluster_kind in ["duplicate_sets", "consolidation_candidates"] {
         assert!(
-            report["clusters"][cluster_kind]
+            report["overlays"]["organization_health"]["clusters"][cluster_kind]
                 .as_array()
                 .expect("cluster array")
                 .iter()
@@ -167,7 +167,10 @@ fn native_detector_emits_duplicate_coupling_clusters_and_refreshes_latest() {
     assert!(left_file["content_fingerprint"].as_str().is_some());
     assert!(right_file["content_fingerprint"].as_str().is_some());
 
-    let organization = record_for_path(&report["organization_metrics"]["files"], original_left);
+    let organization = record_for_path(
+        &report["overlays"]["organization_health"]["files"],
+        original_left,
+    );
     assert!(
         organization["duplication_pressure"]
             .as_f64()

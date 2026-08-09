@@ -330,10 +330,12 @@ pub fn analyze(
             .min(1.0);
         let blast_radius_pressure =
             (centrality * 0.45 + cross_ratio * 0.35 + change_diffusion * 0.20).min(1.0);
+        let history_support = file.revisions_window as f64 / (file.revisions_window as f64 + 5.0);
+        let age_support = (file.age_days as f64 / 90.0).min(1.0);
         let ownership_concentration_pressure = if file.author_count_window == 0 {
             0.0
         } else {
-            file.top_author_share
+            file.top_author_share * history_support * age_support
         };
         let coordination_authorship_pressure = if file.author_count_window == 0 {
             0.0
@@ -344,8 +346,8 @@ pub fn analyze(
         };
         let stale_ownership_pressure = file
             .days_since_non_bot_edit
-            .map(|days| (days as f64 / 365.0).min(1.0))
-            .unwrap_or(1.0);
+            .map(|days| (days as f64 / 365.0).min(1.0) * history_support)
+            .unwrap_or(0.0);
         let stewardship_pressure = if file.author_count_window == 0 {
             0.0
         } else {
@@ -457,6 +459,7 @@ pub fn analyze(
                 "line_churn_window": file.churn_lines_window,
                 "token_churn_window": file.token_churn_window,
                 "relative_token_churn": round6(file.token_churn_window as f64 / file.tokens.max(1) as f64),
+                "churn_measurement": "measured_numstat",
                 "late_churn_spike": round6(file.late_churn_spike),
                 "volatility_pressure": round6(file.churn_pressure)
             },
@@ -517,14 +520,18 @@ pub fn analyze(
                 "many_author_coordination_pressure": round6(coordination_authorship_pressure),
                 "stale_ownership_pressure": round6(stale_ownership_pressure),
                 "stewardship_pressure": round6(stewardship_pressure)
+                ,"history_support": round6(history_support)
+                ,"age_support": round6(age_support)
+                ,"confidence": if file.revisions_window >= 5 && file.age_days >= 90 { "supported" } else { "low_support" }
             },
-            "semantic_drift": {
+            "concept_dispersion": {
                 "path": file.path,
-                "drift_terms": drift_terms,
-                "semantic_drift_pressure": round6(semantic_drift_pressure),
+                "dispersed_terms": drift_terms,
+                "concept_dispersion_pressure": round6(semantic_drift_pressure),
                 "supporting_term_count": drift_term_count,
                 "confidence": if drift_term_count >= 3 { "supported" } else { "low_support" },
-                "method": "cross-root-idf-v2"
+                "method": "cross-root-idf-v3",
+                "interpretation": "Cross-root concept dispersion; this does not measure temporal semantic drift."
             }
         });
         let mut structural = file

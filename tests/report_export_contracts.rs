@@ -93,7 +93,7 @@ fn compare_json_preserves_status_deltas_and_queue_movement() {
     let payload = stdout_json(&output);
 
     assert_eq!(payload["schema_version"], 1);
-    assert_eq!(payload["report_schema_version"], 4);
+    assert_eq!(payload["report_schema_version"], 5);
     assert_eq!(payload["command"], "compare");
     assert_eq!(payload["base_report"]["repo_name"], "compare-fixture");
     assert_eq!(payload["base_report"]["head_sha"], "base-sha");
@@ -107,7 +107,7 @@ fn compare_json_preserves_status_deltas_and_queue_movement() {
     assert_eq!(payload["summary"]["improved_file_count"], 1);
 
     let a = item_by_path(&payload["file_deltas"], "src/a.py");
-    assert_eq!(a["status"], "changed");
+    assert_eq!(a["status"], "source_changed");
     assert_eq!(a["slop_score_delta"], 50.0);
     assert_eq!(a["token_delta"], 60);
     assert_eq!(a["load_pressure_delta"], 0.5);
@@ -117,7 +117,7 @@ fn compare_json_preserves_status_deltas_and_queue_movement() {
     assert_eq!(a["overlay_deltas"][0]["delta"], 0.6);
 
     let b = item_by_path(&payload["file_deltas"], "src/b.py");
-    assert_eq!(b["status"], "changed");
+    assert_eq!(b["status"], "source_changed");
     assert_eq!(b["slop_score_delta"], -20.0);
     assert_eq!(b["token_delta"], -50);
     assert_eq!(b["context_band_delta"], -1);
@@ -167,11 +167,8 @@ fn compare_handles_sparse_and_null_overlay_evidence_without_inventing_deltas() {
         "verification": null,
         "navigation": {"navigation_pressure": 0.0}
     });
-    files[1]["overlays"] = Value::Null;
-    files[2]
-        .as_object_mut()
-        .expect("file record")
-        .remove("overlays");
+    files[1]["overlays"] = json!({});
+    files[2]["overlays"] = json!({});
     let base = write_report(&directory, "sparse-base.json", &report);
     let head = write_report(&directory, "sparse-head.json", &report);
 
@@ -249,17 +246,18 @@ fn compare_reports_missing_invalid_and_incomplete_inputs_as_usage_errors() {
         .output()
         .expect("run compare with invalid report");
     assert_exit_code(&invalid_output, 2);
-    assert!(String::from_utf8_lossy(&invalid_output.stderr).contains("schema_version must be 4"));
+    assert!(String::from_utf8_lossy(&invalid_output.stderr).contains("schema_version must be 5"));
 
-    let incomplete_output = command()
+    let mut default_head_command = command();
+    default_head_command.current_dir(directory.path());
+    let incomplete_output = default_head_command
         .args(["compare", "--base"])
         .arg(&valid_base)
         .output()
-        .expect("run incomplete compare command");
+        .expect("run compare with missing default head");
     assert_exit_code(&incomplete_output, 2);
     let incomplete_stderr = String::from_utf8_lossy(&incomplete_output.stderr);
-    assert!(incomplete_stderr.contains("--head <HEAD>"));
-    assert!(incomplete_stderr.contains("Usage:"));
+    assert!(incomplete_stderr.contains("Report not found: .slop/latest/report.json"));
 
     let bad_top_output = command()
         .args(["compare", "--base"])
@@ -327,7 +325,7 @@ fn regression_gate_ignores_a_new_healthy_file_and_records_forced_scope_mismatche
     assert!(
         payload["compatibility_mismatches"]
             .as_array()
-            .is_some_and(|items| items.len() >= 2)
+            .is_some_and(|items| items.len() == 1 && items[0]["pointer"] == "/scope/path")
     );
 }
 
@@ -391,7 +389,10 @@ fn sarif_stdout_preserves_sarif_tool_finding_and_evidence_contracts() {
     }
     let first_evidence = &results[0]["properties"]["git_slop"];
     assert_eq!(first_evidence["costs"], report["files"][0]["costs"]);
-    assert_eq!(first_evidence["strongest_overlays"]["semantic_drift"], 1.0);
+    assert_eq!(
+        first_evidence["strongest_overlays"]["concept_dispersion"],
+        1.0
+    );
     assert_eq!(
         first_evidence["strongest_overlays"]["blast_radius"],
         0.651036
@@ -408,7 +409,7 @@ fn sarif_stdout_preserves_sarif_tool_finding_and_evidence_contracts() {
     );
     assert_eq!(
         run["invocations"][0]["properties"]["git_slop"]["report_schema_version"],
-        4
+        5
     );
     assert_eq!(
         run["invocations"][0]["properties"]["git_slop"]["boundary_note"],
@@ -476,7 +477,7 @@ fn sarif_reports_missing_invalid_and_zero_top_inputs_as_usage_errors() {
         .output()
         .expect("run SARIF with invalid report");
     assert_exit_code(&invalid_output, 2);
-    assert!(String::from_utf8_lossy(&invalid_output.stderr).contains("schema_version must be 4"));
+    assert!(String::from_utf8_lossy(&invalid_output.stderr).contains("schema_version must be 5"));
 
     let bad_top_output = command()
         .args(["sarif", "--report"])

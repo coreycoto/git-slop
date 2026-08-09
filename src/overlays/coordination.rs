@@ -13,12 +13,20 @@ const PAGERANK_DAMPING: f64 = 0.85;
 pub(super) struct CoordinationFacts {
     pub(super) observation_commit_count: usize,
     pub(super) bulk_commits_skipped: usize,
+    pub(super) merge_commits_skipped: usize,
+    pub(super) import_commits_skipped: usize,
+    pub(super) release_commits_downweighted: usize,
     pub(super) commit_count: usize,
+    pub(super) creation_commit_count: usize,
+    pub(super) maintenance_commit_count: usize,
     pub(super) touched_file_total: usize,
     pub(super) touched_folder_total: usize,
     pub(super) line_hunks_total: usize,
     pub(super) diffusion_total: f64,
     pub(super) neighbors: BTreeMap<String, usize>,
+    pub(super) weighted_neighbors: BTreeMap<String, f64>,
+    pub(super) creation_neighbors: BTreeMap<String, usize>,
+    pub(super) maintenance_neighbors: BTreeMap<String, usize>,
 }
 
 fn estimated_hunks(line_delta: usize) -> usize {
@@ -97,6 +105,9 @@ pub(super) fn coordination_facts(
         .map(|file| (file.path.clone(), CoordinationFacts::default()))
         .collect();
     let mut bulk_commits_skipped = 0usize;
+    let mut merge_commits_skipped = 0usize;
+    let mut import_commits_skipped = 0usize;
+    let mut release_commits_downweighted = 0usize;
     for commit in commits {
         let mut touched: Vec<&str> = commit
             .paths
@@ -106,6 +117,17 @@ pub(super) fn coordination_facts(
             .collect();
         touched.sort_unstable();
         touched.dedup();
+        if commit.change_kind == "merge" {
+            merge_commits_skipped += 1;
+            continue;
+        }
+        if commit.change_kind == "import" {
+            import_commits_skipped += 1;
+            continue;
+        }
+        if commit.change_kind == "release" {
+            release_commits_downweighted += 1;
+        }
         if touched.len() > max_commit_files {
             bulk_commits_skipped += 1;
             continue;
@@ -141,6 +163,11 @@ pub(super) fn coordination_facts(
                 continue;
             };
             facts.commit_count += 1;
+            if commit.change_kind == "creation" {
+                facts.creation_commit_count += 1;
+            } else if commit.change_kind == "maintenance" || commit.change_kind == "release" {
+                facts.maintenance_commit_count += 1;
+            }
             facts.touched_file_total += file_count;
             facts.touched_folder_total += root_count;
             facts.line_hunks_total += estimated_hunks(
@@ -154,6 +181,16 @@ pub(super) fn coordination_facts(
             for target in &touched {
                 if source != target {
                     *facts.neighbors.entry((*target).to_string()).or_default() += 1;
+                    *facts
+                        .weighted_neighbors
+                        .entry((*target).to_string())
+                        .or_default() += commit.calibration_weight;
+                    let by_kind = if commit.change_kind == "creation" {
+                        &mut facts.creation_neighbors
+                    } else {
+                        &mut facts.maintenance_neighbors
+                    };
+                    *by_kind.entry((*target).to_string()).or_default() += 1;
                 }
             }
         }
@@ -161,11 +198,27 @@ pub(super) fn coordination_facts(
     for facts in result.values_mut() {
         facts.observation_commit_count = commits.len();
         facts.bulk_commits_skipped = bulk_commits_skipped;
+        facts.merge_commits_skipped = merge_commits_skipped;
+        facts.import_commits_skipped = import_commits_skipped;
+        facts.release_commits_downweighted = release_commits_downweighted;
         if facts.neighbors.len() > max_neighbors {
             let mut ranked: Vec<(String, usize)> =
                 std::mem::take(&mut facts.neighbors).into_iter().collect();
             ranked.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
             ranked.truncate(max_neighbors);
+            let retained = ranked
+                .iter()
+                .map(|(path, _)| path.clone())
+                .collect::<HashSet<_>>();
+            facts
+                .weighted_neighbors
+                .retain(|path, _| retained.contains(path));
+            facts
+                .creation_neighbors
+                .retain(|path, _| retained.contains(path));
+            facts
+                .maintenance_neighbors
+                .retain(|path, _| retained.contains(path));
             facts.neighbors = ranked.into_iter().collect();
         }
     }

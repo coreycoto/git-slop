@@ -19,7 +19,7 @@ pub use github::{health_json_payload, render_github_annotations, write_prompt_pa
 pub use plan::{plan_payload, render_plan_text};
 pub use sarif::{render_json, sarif_payload};
 
-const REPORT_SCHEMA_VERSION: i64 = 4;
+const REPORT_SCHEMA_VERSION: i64 = 5;
 const EXPLAIN_SCHEMA_VERSION: i64 = 2;
 const PLAN_SCHEMA_VERSION: i64 = 2;
 const COMPARE_SCHEMA_VERSION: i64 = 1;
@@ -385,7 +385,7 @@ pub fn failing_records(
             "compact" => 0,
             "healthy" => 1,
             "warning" => 2,
-            "critical" | "refactor_required" => 3,
+            "critical" | "refactor_required" | "budget_exceeded" => 3,
             _ => -1,
         }
     }
@@ -525,7 +525,7 @@ fn descendant_overlay_maxima(records: &[Value]) -> Value {
         "navigation": {"navigation_pressure": maximum("navigation", "navigation_pressure")},
         "blast_radius": {"blast_radius_pressure": maximum("blast_radius", "blast_radius_pressure")},
         "stewardship": {"stewardship_pressure": maximum("stewardship", "stewardship_pressure")},
-        "semantic_drift": {"semantic_drift_pressure": maximum("semantic_drift", "semantic_drift_pressure")},
+        "concept_dispersion": {"concept_dispersion_pressure": maximum("concept_dispersion", "concept_dispersion_pressure")},
     })
 }
 
@@ -669,9 +669,9 @@ fn strongest_pressures(overlays: Option<&Value>, limit: usize) -> Vec<(String, f
         ("blast_radius", "blast_radius", "blast_radius_pressure"),
         ("stewardship", "stewardship", "stewardship_pressure"),
         (
-            "semantic_drift",
-            "semantic_drift",
-            "semantic_drift_pressure",
+            "concept_dispersion",
+            "concept_dispersion",
+            "concept_dispersion_pressure",
         ),
     ];
     let mut values: Vec<(String, f64)> = specs
@@ -750,7 +750,48 @@ fn base_explain_payload(report: &Value, selector: Value, target: Value) -> Value
         "command": "explain",
         "selector": selector,
         "target": target,
+        "report_context": explain_report_context(report),
         "boundary_note": EXPLAIN_BOUNDARY_NOTE,
+    })
+}
+
+fn explain_report_context(report: &Value) -> Value {
+    let report_digest = serde_json::to_vec(report)
+        .map(|bytes| hex::encode(Sha256::digest(bytes)))
+        .unwrap_or_default();
+    let completeness = report
+        .get("evidence_completeness")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let incomplete = completeness.as_object().is_some_and(|values| {
+        values.values().any(|value| {
+            value.as_str().is_some_and(|status| {
+                status.contains("incomplete") || matches!(status, "bounded" | "low_support")
+            })
+        })
+    });
+    json!({
+        "report_digest": report_digest,
+        "content_digest": report.pointer("/repo/analyzed_content_digest").cloned().unwrap_or(Value::Null),
+        "head_sha": report.pointer("/repo/head_sha").cloned().unwrap_or(Value::Null),
+        "generated_at": report.get("generated_at").cloned().unwrap_or(Value::Null),
+        "analyzed_revision_at": report.get("analyzed_revision_at").cloned().unwrap_or(Value::Null),
+        "analyzer": report.get("analyzer").cloned().unwrap_or(Value::Null),
+        "config_digests": {
+            "analysis": report.pointer("/analyzer/analysis_config_digest").cloned().unwrap_or(Value::Null),
+            "evidence": report.pointer("/analyzer/evidence_config_digest").cloned().unwrap_or(Value::Null),
+            "policy": report.pointer("/analyzer/policy_config_digest").cloned().unwrap_or(Value::Null),
+            "presentation": report.pointer("/analyzer/presentation_config_digest").cloned().unwrap_or(Value::Null)
+        },
+        "evidence_completeness": completeness,
+        "evidence_characteristics": {
+            "stable_cost_models": ["load", "volatility", "coordination"],
+            "experimental_overlays": ["organization_health", "verification", "navigation", "blast_radius", "stewardship", "concept_dispersion"],
+            "incomplete": incomplete,
+            "repository_relative": true,
+            "saturation_suppressed": report.pointer("/diagnostics/suppressed_saturated_overlays").cloned().unwrap_or_else(|| json!([]))
+        },
+        "collection_metadata": report.get("collection_metadata").cloned().unwrap_or_else(|| json!({}))
     })
 }
 

@@ -10,7 +10,7 @@ inputs:
   version:
     description: Git Slop release version to install, with or without a leading v.
     required: false
-    default: "0.10.1"
+    default: "0.11.0"
   release-repository:
     description: GitHub repository that owns the versioned release assets.
     required: false
@@ -128,8 +128,14 @@ outputs:
     description: Exit code from git-slop check, or zero in advisory mode.
     value: ${{ steps.finalize.outputs.policy-exit-code }}
   finding-count:
-    description: Number of actionable findings in the generated health report.
+    description: Deprecated alias for policy-finding-count.
     value: ${{ steps.analyze.outputs.finding-count }}
+  health-finding-count:
+    description: Uncapped actionable health findings in the head report.
+    value: ${{ steps.analyze.outputs.health-finding-count }}
+  policy-finding-count:
+    description: Findings relevant to the selected absolute or regression policy.
+    value: ${{ steps.analyze.outputs.policy-finding-count }}
   absolute-finding-count:
     description: Uncapped actionable finding count in the head report.
     value: ${{ steps.analyze.outputs.absolute-finding-count }}
@@ -137,11 +143,17 @@ outputs:
     description: Native comparator regression count when baseline-report is supplied.
     value: ${{ steps.analyze.outputs.regression-count }}
   baseline-compatible:
-    description: Whether the base and head report identities were compatible without force.
+    description: Deprecated boolean compatibility alias; prefer baseline-status.
     value: ${{ steps.analyze.outputs.baseline-compatible }}
+  baseline-status:
+    description: Baseline state (not_evaluated, compatible, forced, incompatible, or error).
+    value: ${{ steps.analyze.outputs.baseline-status }}
   comparison-path:
     description: Versioned native comparison JSON path when baseline-report is supplied.
     value: ${{ steps.analyze.outputs.comparison-path }}
+  comparison-error-path:
+    description: Diagnostic path when head analysis succeeds but baseline comparison fails.
+    value: ${{ steps.analyze.outputs.comparison-error-path }}
   annotation-count:
     description: Number of requested GitHub annotations, bounded by max-annotations.
     value: ${{ steps.annotate.outputs.annotation-count || '0' }}
@@ -221,6 +233,7 @@ runs:
         GIT_SLOP_MAX_ANNOTATIONS: ${{ steps.analyze.outputs.max-annotations }}
         GIT_SLOP_WORKING_DIRECTORY_RESOLVED: ${{ steps.analyze.outputs.working-directory }}
         GIT_SLOP_COMPARISON_PATH: ${{ steps.analyze.outputs.comparison-path }}
+        GIT_SLOP_COMPARISON_ERROR_PATH: ${{ steps.analyze.outputs.comparison-error-path }}
       run: node "${{ github.action_path }}/action/runner.mjs" annotate
 
     - name: Select bounded artifact files
@@ -301,6 +314,7 @@ runs:
         GIT_SLOP_POLICY: ${{ steps.analyze.outputs.policy }}
         GIT_SLOP_ENFORCEMENT: ${{ steps.analyze.outputs.enforcement }}
         GIT_SLOP_REGRESSION_COUNT: ${{ steps.analyze.outputs.regression-count }}
+        GIT_SLOP_BASELINE_STATUS: ${{ steps.analyze.outputs.baseline-status }}
         GIT_SLOP_FAIL_ON_CONTEXT_BAND: ${{ steps.analyze.outputs.fail-on-context-band }}
         GIT_SLOP_FAIL_ON_SLOP_BAND: ${{ steps.analyze.outputs.fail-on-slop-band }}
         GIT_SLOP_REPORT_PATH: ${{ steps.analyze.outputs.report-path }}

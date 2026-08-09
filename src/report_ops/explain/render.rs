@@ -11,13 +11,58 @@ fn format_reasons(value: Option<&Value>) -> String {
 
 fn render_relationship_brief(value: &Value) -> String {
     format!(
-        "- {} [{}] {} -> {} (score={:.3})",
-        string(value.get("id")),
-        string(value.get("kind")),
+        "- {} ↔ {} [{}; id={}; score={:.3}]",
         string(value.get("source_path")),
         string(value.get("target_path")),
+        string(value.get("kind")),
+        string(value.get("id")),
         number(value.get("evidence_score"))
     )
+}
+
+fn render_report_context(payload: &Value) -> Vec<String> {
+    let context = payload.get("report_context").unwrap_or(&Value::Null);
+    let analyzer = context.get("analyzer").unwrap_or(&Value::Null);
+    let characteristics = context
+        .get("evidence_characteristics")
+        .unwrap_or(&Value::Null);
+    vec![
+        "Report and Evidence Provenance".to_string(),
+        format!(
+            "- analyzer: git-slop {} (analysis contract {})",
+            string(analyzer.get("version")),
+            json_scalar_text(analyzer.get("analysis_contract_version"))
+        ),
+        format!(
+            "- report_digest={} content_digest={} target_content_fingerprint={}",
+            string(context.get("report_digest")),
+            string(context.get("content_digest")),
+            string(value_at(payload, &["target", "content_fingerprint"]))
+        ),
+        format!(
+            "- generated_at={} analyzed_revision_at={} head_sha={}",
+            string(context.get("generated_at")),
+            string(context.get("analyzed_revision_at")),
+            string(context.get("head_sha"))
+        ),
+        format!(
+            "- evidence: incomplete={} repository_relative={} experimental_overlays={} saturation_suppressed={}",
+            characteristics
+                .get("incomplete")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            characteristics
+                .get("repository_relative")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            string_array(characteristics.get("experimental_overlays")).len(),
+            characteristics
+                .get("saturation_suppressed")
+                .and_then(Value::as_array)
+                .map(Vec::len)
+                .unwrap_or_default()
+        ),
+    ]
 }
 
 fn render_cluster_brief(value: &Value) -> String {
@@ -130,7 +175,7 @@ fn render_overlay_lines(overlays: Option<&Value>) -> Vec<String> {
     let navigation = overlays.get("navigation");
     let blast = overlays.get("blast_radius");
     let stewardship = overlays.get("stewardship");
-    let drift = overlays.get("semantic_drift");
+    let drift = overlays.get("concept_dispersion");
     vec![
         format!(
             "- organization_health: duplication={:.3}, diffusion={:.3}, coupling={:.3}, boundary={:.3}, clusters={}",
@@ -171,8 +216,8 @@ fn render_overlay_lines(overlays: Option<&Value>) -> Vec<String> {
             number(stewardship.and_then(|value| value.get("top_author_share"))),
         ),
         format!(
-            "- semantic_drift: pressure={:.3}, terms={}",
-            number(drift.and_then(|value| value.get("semantic_drift_pressure"))),
+            "- concept_dispersion: pressure={:.3}, terms={}",
+            number(drift.and_then(|value| value.get("concept_dispersion_pressure"))),
             {
                 let terms = string_array(drift.and_then(|value| value.get("drift_terms")));
                 if terms.is_empty() {
@@ -274,7 +319,14 @@ fn render_top_explain(payload: &Value) -> String {
         let relationships: Vec<String> = array_at(item, &["supporting_relationships"])
             .iter()
             .take(2)
-            .map(|value| string(value.get("id")))
+            .map(|value| {
+                format!(
+                    "{} ↔ {} [{}]",
+                    string(value.get("source_path")),
+                    string(value.get("target_path")),
+                    string(value.get("kind"))
+                )
+            })
             .collect();
         let clusters: Vec<String> = array_at(item, &["supporting_clusters"])
             .iter()
@@ -300,6 +352,8 @@ fn render_top_explain(payload: &Value) -> String {
         lines.push(String::new());
     }
     lines.extend(render_evidence_summary(payload));
+    lines.push(String::new());
+    lines.extend(render_report_context(payload));
     lines.push(String::new());
     lines.push(string(payload.get("boundary_note")));
     format!("{}\n", lines.join("\n"))
@@ -398,12 +452,12 @@ pub fn render_explain_text(payload: &Value) -> String {
         let maxima = value_at(payload, &["overlay_summary", "member_overlay_maxima"]);
         if maxima.is_some() {
             lines.push(format!(
-                "- member overlay maxima: organization.diffusion={:.3}, verification={:.3}, navigation={:.3}, blast_radius={:.3}, semantic_drift={:.3}",
+                "- member overlay maxima: organization.diffusion={:.3}, verification={:.3}, navigation={:.3}, blast_radius={:.3}, concept_dispersion={:.3}",
                 number(value_at(maxima.unwrap_or(&Value::Null), &["organization_health", "diffusion_pressure"])),
                 number(value_at(maxima.unwrap_or(&Value::Null), &["verification", "verification_gap"])),
                 number(value_at(maxima.unwrap_or(&Value::Null), &["navigation", "navigation_pressure"])),
                 number(value_at(maxima.unwrap_or(&Value::Null), &["blast_radius", "blast_radius_pressure"])),
-                number(value_at(maxima.unwrap_or(&Value::Null), &["semantic_drift", "semantic_drift_pressure"])),
+                number(value_at(maxima.unwrap_or(&Value::Null), &["concept_dispersion", "concept_dispersion_pressure"])),
             ));
         }
     } else {
@@ -494,12 +548,12 @@ pub fn render_explain_text(payload: &Value) -> String {
                 .is_some()
         {
             lines.push(format!(
-                "- descendant overlay maxima: organization.diffusion={:.3}, verification={:.3}, navigation={:.3}, blast_radius={:.3}, semantic_drift={:.3}",
+                "- descendant overlay maxima: organization.diffusion={:.3}, verification={:.3}, navigation={:.3}, blast_radius={:.3}, concept_dispersion={:.3}",
                 number(value_at(payload, &["overlay_summary", "descendant_overlay_maxima", "organization_health", "diffusion_pressure"])),
                 number(value_at(payload, &["overlay_summary", "descendant_overlay_maxima", "verification", "verification_gap"])),
                 number(value_at(payload, &["overlay_summary", "descendant_overlay_maxima", "navigation", "navigation_pressure"])),
                 number(value_at(payload, &["overlay_summary", "descendant_overlay_maxima", "blast_radius", "blast_radius_pressure"])),
-                number(value_at(payload, &["overlay_summary", "descendant_overlay_maxima", "semantic_drift", "semantic_drift_pressure"])),
+                number(value_at(payload, &["overlay_summary", "descendant_overlay_maxima", "concept_dispersion", "concept_dispersion_pressure"])),
             ));
         }
     }
@@ -538,6 +592,8 @@ pub fn render_explain_text(payload: &Value) -> String {
     }
     lines.push(String::new());
     lines.extend(render_evidence_summary(payload));
+    lines.push(String::new());
+    lines.extend(render_report_context(payload));
     if target_kind == "relationship" {
         lines.push(String::new());
         lines.push("Next Commands".to_string());

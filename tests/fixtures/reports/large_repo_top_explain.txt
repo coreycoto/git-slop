@@ -2,39 +2,45 @@ Explain: top 5 hotspots
 
 1. tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py [moderate] slop_score=54.2 context=healthy
    cost: load=0.789 volatility=0.241 coordination=0.710
-   overlays: semantic_drift=1.000, blast_radius=0.651, navigation=0.601
-   relationships: boundary_leakage_edge-4b9731494fde, temporal_coupling_edge-4f9b24ae42af
+   overlays: concept_dispersion=1.000, blast_radius=0.651, navigation=0.601
+   relationships: src/consumer_maintainers/github/governance/apply_backlog_mutations.py ↔ tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py [boundary_leakage_edge], src/consumer_maintainers/github/governance/apply_backlog_mutations.py ↔ tests/unit/consumer_maintainers/github/governance/test_backlog_mutations.py [temporal_coupling_edge]
    clusters: none
 
 2. tests/unit/consumer_maintainers/github/reviews/test_apply_review_backlog_delta.py [moderate] slop_score=50.9 context=healthy
    cost: load=0.638 volatility=0.501 coordination=0.700
-   overlays: semantic_drift=1.000, organization.diffusion=0.778, blast_radius=0.658
+   overlays: concept_dispersion=1.000, organization.diffusion=0.778, blast_radius=0.658
    relationships: none
    clusters: none
 
 3. schemas/shared.schema.json [moderate] slop_score=50.8 context=healthy
    cost: load=0.546 volatility=0.737 coordination=0.672
-   overlays: organization.boundary=1.000, semantic_drift=0.993, blast_radius=0.628
+   overlays: organization.boundary=1.000, concept_dispersion=0.993, blast_radius=0.628
    relationships: none
    clusters: none
 
 4. tests/unit/consumer_maintainers/testing/test_slow_test_audit_validation.py [moderate] slop_score=50.7 context=healthy
    cost: load=0.462 volatility=1.000 coordination=0.677
-   overlays: organization.diffusion=1.000, semantic_drift=1.000, blast_radius=0.723
+   overlays: concept_dispersion=1.000, organization.diffusion=1.000, blast_radius=0.723
    relationships: none
    clusters: none
 
 5. tests/unit/consumer_app/cli/test_doctor.py [moderate] slop_score=50.1 context=healthy
    cost: load=0.458 volatility=0.961 coordination=0.671
-   overlays: organization.diffusion=1.000, semantic_drift=1.000, organization.boundary=0.971
+   overlays: concept_dispersion=1.000, organization.diffusion=1.000, organization.boundary=0.971
    relationships: none
    clusters: none
 
 Evidence Summary
 - strongest detector costs: top explanations preserve the current action_queue order
-- strongest overlays: blast_radius pressure 0.628; blast_radius pressure 0.651; blast_radius pressure 0.658; blast_radius pressure 0.723; navigation pressure 0.601; organization.boundary pressure 0.971; organization.boundary pressure 1.000; organization.diffusion pressure 0.778; organization.diffusion pressure 1.000; semantic_drift pressure 0.993
+- strongest overlays: blast_radius pressure 0.628; blast_radius pressure 0.651; blast_radius pressure 0.658; blast_radius pressure 0.723; concept_dispersion pressure 0.993; concept_dispersion pressure 1.000; navigation pressure 0.601; organization.boundary pressure 0.971; organization.boundary pressure 1.000; organization.diffusion pressure 0.778
 - supporting relationships: boundary_leakage_edge-4b9731494fde, lexical_affinity_edge-4843bcaf58e4, temporal_coupling_edge-4f9b24ae42af
 - supporting clusters: none
 - interpretation: Top explanations describe detector ordering; they do not rerank hotspots or prove a refactor is required.
+
+Report and Evidence Provenance
+- analyzer: git-slop legacy-schema-4 (analysis contract 1)
+- report_digest=4fbd1150356c54f00a1b3ddd5b6a8f1f55987b01f46547a042fd1d6109dc269d content_digest=0000000000000000000000000000000000000000000000000000000000000000 target_content_fingerprint=
+- generated_at=1970-01-01T00:00:00Z analyzed_revision_at= head_sha=
+- evidence: incomplete=false repository_relative=true experimental_overlays=6 saturation_suppressed=0
 
 Interpretation boundary: this is structural evidence, not proof that an abstraction, boundary, or refactor is correct.

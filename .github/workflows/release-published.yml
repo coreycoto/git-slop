@@ -43,6 +43,8 @@ jobs:
           printf '%s\n' \
             SHA256SUMS \
             git-slop.rb \
+            git-slop.cdx.json \
+            git-slop.spdx.json \
             "git-slop-${TAG}-aarch64-apple-darwin.tar.gz" \
             "git-slop-${TAG}-aarch64-pc-windows-msvc.zip" \
             "git-slop-${TAG}-aarch64-unknown-linux-gnu.tar.gz" \

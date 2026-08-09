@@ -330,7 +330,11 @@ fn anchor_plan_slice(report: &Value, context: &Value) -> Value {
             "Start with the selected cluster members before splitting work into narrower relationship-driven slices.",
         ),
         _ => (
-            format!("Inspect relationship {}", string(target.get("id"))),
+            format!(
+                "Inspect {} ↔ {}",
+                string(target.get("source_path")),
+                string(target.get("target_path"))
+            ),
             "Start with the selected coupled pair before considering any surrounding cluster evidence.",
         ),
     };
@@ -400,7 +404,11 @@ fn relationship_plan_slice(report: &Value, context: &Value, relationship: &Value
         .collect();
     Some(plan_slice(
         format!("relationship-{id}"),
-        format!("Inspect relationship {id}"),
+        format!(
+            "Inspect {} ↔ {}",
+            string(relationship.get("source_path")),
+            string(relationship.get("target_path"))
+        ),
         scope,
         out_of_scope,
         vec![id],

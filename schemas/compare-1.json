@@ -3,7 +3,7 @@
   "$id": "https://github.com/coreycoto/git-slop/blob/main/schemas/compare-1.json",
   "title": "Git Slop comparison schema 1",
   "type": "object",
-  "required": ["schema_version", "command", "base_report", "head_report", "summary", "regressions", "baseline_compatible", "compatibility_mismatches"],
+  "required": ["schema_version", "command", "base_report", "head_report", "summary", "regressions", "baseline_status", "compatibility_mismatches"],
   "properties": {
     "schema_version": {"const": 1},
     "command": {"const": "compare"},
@@ -11,6 +11,7 @@
     "head_report": {"type": "object"},
     "summary": {"type": "object", "required": ["regression_count"]},
     "regressions": {"type": "array"},
+    "baseline_status": {"enum": ["compatible", "forced_incompatible", "incompatible"]},
     "baseline_compatible": {"type": "boolean"},
     "compatibility_mismatches": {"type": "array"}
   }

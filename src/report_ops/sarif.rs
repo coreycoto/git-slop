@@ -4,7 +4,11 @@ use sha2::{Digest, Sha256};
 fn sarif_level(record: &Value) -> &'static str {
     let slop_band = string(record.get("slop_band"));
     let context_band = string(record.get("context_band"));
-    if slop_band == "critical" || context_band == "critical" || context_band == "refactor_required"
+    if slop_band == "critical"
+        || matches!(
+            context_band.as_str(),
+            "critical" | "refactor_required" | "budget_exceeded"
+        )
     {
         "error"
     } else if matches!(slop_band.as_str(), "high" | "moderate") || context_band == "warning" {
@@ -51,7 +55,7 @@ fn sarif_result(record: &Value, rank: usize) -> Value {
         .collect();
     let context_finding = matches!(
         string(record.get("context_band")).as_str(),
-        "warning" | "critical" | "refactor_required"
+        "warning" | "critical" | "refactor_required" | "budget_exceeded"
     );
     let rule_id = if context_finding {
         "git-slop.context-budget"
@@ -115,17 +119,22 @@ pub fn sarif_payload(
         })
         .collect();
     let repo = report.get("repo").unwrap_or(&Value::Null);
-    let repository_uri = repo
-        .get("remote_url")
-        .or_else(|| repo.get("git_remote_url"))
-        .or_else(|| repo.get("repo_name"))
-        .cloned()
-        .unwrap_or(Value::Null);
-    let revision_id = repo
-        .get("head_sha")
-        .or_else(|| repo.get("head_commit"))
-        .cloned()
-        .unwrap_or(Value::Null);
+    let repository_uri = ["remote_url", "git_remote_url", "repo_name"]
+        .into_iter()
+        .find_map(|key| {
+            repo.get(key)
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+        })
+        .map_or(Value::Null, |value| json!(value));
+    let revision_id = ["head_sha", "head_commit"]
+        .into_iter()
+        .find_map(|key| {
+            repo.get(key)
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+        })
+        .map_or(Value::Null, |value| json!(value));
     Ok(json!({
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",

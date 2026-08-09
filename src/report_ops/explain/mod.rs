@@ -16,6 +16,8 @@ fn build_path_explain(report: &Value, target_path: &str) -> Result<Value> {
         "slop_score": record.get("slop_score").cloned().unwrap_or(Value::Null),
         "slop_band": record.get("slop_band").cloned().unwrap_or(Value::Null),
         "context_band": record.get("context_band").cloned().unwrap_or(Value::Null),
+        "content_fingerprint": record.get("content_fingerprint").cloned().unwrap_or(Value::Null),
+        "analysis_status": record.get("analysis_status").cloned().unwrap_or(Value::Null),
         "reason_codes": record.get("reason_codes").cloned().unwrap_or_else(|| json!([])),
     });
     let mut payload = base_explain_payload(
@@ -311,6 +313,7 @@ pub fn explain_payload(report: &Value, selector: Option<ExplainSelector>) -> Res
                 "command": "explain",
                 "selector": {"kind": "top", "value": count},
                 "target": {"kind": "top", "count": returned, "requested_count": count},
+                "report_context": explain_report_context(report),
                 "items": items,
                 "collection": {"total": total, "returned": returned, "limit": count, "truncated": returned < total},
                 "evidence_summary": {

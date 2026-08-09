@@ -20,8 +20,9 @@ Use `review-results` to interpret findings or plan bounded maintenance.
 - Export SARIF locally: `git-slop sarif --report <report.json> --output <path.sarif>`
 - Run the gate surface: `git-slop check`
 
-One successful `find` writes `report.json`, `report.yaml`, `summary.md`, and
-`health.md` to both `.slop/latest/` and a timestamped `.slop/runs/` directory.
+One successful `find` writes `report.json`, `summary.md`, and `health.md` to
+both `.slop/latest/` and a timestamped `.slop/runs/` directory. It also writes
+`report.yaml` when `output.yaml: true`.
 `health` and the other downstream commands consume those reports. `health`
 writes its selected rendering to stdout; it does not rewrite `health.md` or
 rerun `find`. Health findings are advisory and a successful rendering exits
@@ -34,7 +35,7 @@ Generated `.slop/latest/`, `.slop/runs/`, `.slop/cache/`, prompt packs, SARIF
 exports, plan JSON, and compare JSON should stay untracked unless a repository
 intentionally curates examples or fixtures outside the runtime `.slop/` tree.
 Upload a bounded generated artifact when review needs a durable copy. Prefer
-`health.md` alone; add `report.json` only when automation needs schema-4 data.
+`health.md` alone; add `report.json` only when automation needs schema-5 data.
 
 Consumer repos may provide a wrapper such as `./scripts/git_slop.sh`; prefer it
 when present because it may enforce the repo's pinned install contract.

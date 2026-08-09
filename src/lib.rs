@@ -1,7 +1,12 @@
+#![recursion_limit = "512"]
+
 mod analyze;
+pub(crate) mod baseline;
 pub(crate) mod build_info;
+pub(crate) mod cache;
 pub mod cli;
 pub(crate) mod config;
+pub(crate) mod error;
 pub(crate) mod estimate;
 pub(crate) mod git;
 pub(crate) mod health;

@@ -50,12 +50,12 @@ Use this skill when a repository should start consuming `git-slop`.
   optionally update one pull request comment; then run `check` only when
   `policy: enforce`. Advisory findings do not fail, but setup, analysis,
   rendering, or publication failures do.
-- Opt into `artifact-contents: report` only for schema-4 automation. Do not
+- Opt into `artifact-contents: report` only for schema-5 automation. Do not
   upload `.slop/latest/` or `.slop/runs/` as broad directories.
 - Keep `git-slop` observational until the repository explicitly promotes checks
   into required gates with `policy: enforce`.
 
-Minimal CI adoption after `0.10.1` and its matching release assets are published:
+Minimal CI adoption after `0.11.0` and its matching release assets are published:
 
 ```yaml
 permissions:
@@ -65,5 +65,5 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.10.1
+  - uses: coreycoto/git-slop@v0.11.0
 ```

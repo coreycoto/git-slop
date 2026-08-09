@@ -95,8 +95,9 @@ It intentionally does not own generic backlog, release, project, or governance
 workflows. When a reviewed `git-slop plan` should become backlog work, use the
 separate `project-management-workflows` plugin from `coreycoto/agent-plugins`.
 
-The public `git-slop` runtime is a native executable. `find` writes schema-4
-JSON/YAML plus detailed `summary.md` and CI-oriented `health.md`. Stable costs
+The public `git-slop` runtime is a native executable. `find` always writes
+schema-5 JSON plus detailed `summary.md` and CI-oriented `health.md`; YAML is
+written only when `output.yaml: true`. Stable costs
 drive the existing `check` gate; overlays and health rollups remain additive
 evidence.
 

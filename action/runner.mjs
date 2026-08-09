@@ -1,7 +1,12 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import {
+  baselineReportFromRef as materializeBaselineReport,
+  baselineRevisionStatus,
+  regressionComparison as compareBaselineReports,
+} from "./baseline.mjs";
 
 function appendFileCommand(target, name, value) {
   if (!target) {
@@ -111,6 +116,21 @@ function reportFindingCount(reportPath) {
   return 0;
 }
 
+function reportPolicyFindingCount(binary, cwd, reportPath, inputs) {
+  const args = ["check", "--report", reportPath, "--format", "json"];
+  if (inputs.failOnContextBand) args.push("--fail-on-context-band", inputs.failOnContextBand);
+  if (inputs.failOnSlopBand) args.push("--fail-on-slop-band", inputs.failOnSlopBand);
+  const result = run(binary, args, cwd, "pipe");
+  if (result.status !== 0 && result.status !== 1) {
+    throw new Error(`git-slop check exited with status ${result.status}: ${result.stderr.trim()}`);
+  }
+  const payload = JSON.parse(result.stdout);
+  if (!Number.isSafeInteger(payload.finding_count)) {
+    throw new Error("git-slop check returned an incompatible policy payload");
+  }
+  return payload.finding_count;
+}
+
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
@@ -160,7 +180,7 @@ function appendComparisonSummary(comparisonPath) {
     "## Baseline comparison",
     "",
     `- Regressions: **${comparison.summary?.regression_count ?? 0}**`,
-    `- Baseline compatible: **${comparison.baseline_compatible === true ? "yes" : "no"}**`,
+    `- Baseline status: **${comparison.baseline_status || (comparison.baseline_compatible === true ? "compatible" : "incompatible")}**`,
   ];
   if (mismatches.length > 0) {
     const inline = (value) => String(value).replace(/[\r\n\x00-\x1f\x7f]/gu, " ").replaceAll("`", "\\`");
@@ -222,72 +242,6 @@ function validateInputs() {
   };
 }
 
-function regressionComparison(binary, cwd, basePath, headPath, outputPath, force) {
-  const args = [
-    "compare",
-    "--base",
-    basePath,
-    "--head",
-    headPath,
-    "--format",
-    "json",
-  ];
-  if (force) args.push("--force");
-  const result = run(binary, args, cwd, "pipe");
-  if (result.status !== 0) {
-    throw new Error(
-      `git-slop compare exited with status ${result.status}: ${result.stderr.trim() || "no diagnostic"}`,
-    );
-  }
-  const payload = JSON.parse(result.stdout);
-  if (!Array.isArray(payload.regressions) || !Number.isSafeInteger(payload.summary?.regression_count)) {
-    throw new Error("git-slop compare returned an incompatible comparison payload");
-  }
-  writeFileSync(outputPath, `${JSON.stringify(payload)}\n`, "utf8");
-  return payload;
-}
-
-function baselineReportFromRef(binary, cwd, reference, inputs) {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/u.test(reference) || reference.includes("..")) {
-    throw new Error(`baseline-ref is not a safe Git revision: ${JSON.stringify(reference)}`);
-  }
-  const resolved = run("git", ["rev-parse", "--verify", "--end-of-options", `${reference}^{commit}`], cwd, "pipe");
-  if (resolved.status !== 0 || !/^[a-f0-9]{40}$/u.test(resolved.stdout.trim())) {
-    throw new Error(`baseline-ref does not resolve to a commit: ${reference}`);
-  }
-  const temporaryRoot = mkdtempSync(join(process.env.RUNNER_TEMP || dirname(cwd), "git-slop-baseline-"));
-  const temporary = join(temporaryRoot, "worktree");
-  const added = run("git", ["worktree", "add", "--detach", temporary, resolved.stdout.trim()], cwd, "pipe");
-  if (added.status !== 0) {
-    rmSync(temporaryRoot, { recursive: true, force: true });
-    throw new Error(`could not create baseline worktree: ${added.stderr.trim()}`);
-  }
-  const cleanup = () => {
-    run("git", ["worktree", "remove", "--force", temporary], cwd, "pipe");
-    rmSync(temporaryRoot, { recursive: true, force: true });
-  };
-  const args = ["find", "--quiet"];
-  if (inputs.allowShallow) args.push("--allow-shallow");
-  const scope = (process.env.GIT_SLOP_SCOPE || "").trim();
-  if (scope) args.push("--scope", scope);
-  // Compare revisions under one effective policy. Repository-local .slop state
-  // is not part of the Git worktree, so carry the head configuration into the
-  // isolated baseline instead of silently falling back to different defaults.
-  const headConfig = join(cwd, ".slop", "config.yaml");
-  if (existsSync(headConfig)) {
-    const baselineConfig = join(temporary, ".slop", "config.yaml");
-    mkdirSync(dirname(baselineConfig), { recursive: true });
-    copyFileSync(headConfig, baselineConfig);
-  }
-  const result = run(binary, args, temporary, "pipe");
-  const path = reportPaths(temporary).reportPath;
-  if (result.status !== 0 || !existsSync(path)) {
-    cleanup();
-    throw new Error(`baseline scan at ${reference} failed with status ${result.status}`);
-  }
-  return { path, cleanup };
-}
-
 function analyze() {
   let cwd;
   let inputs;
@@ -302,6 +256,7 @@ function analyze() {
       : resolve(process.env.RUNNER_TEMP || workspace, "git-slop-action-fallback");
   let { healthPath, reportPath, reportYamlPath, summaryPath } = reportPaths(fallbackRoot);
   let comparisonPath = "";
+  let comparisonErrorPath = "";
 
   try {
     inputs = validateInputs();
@@ -374,10 +329,16 @@ function analyze() {
     failOnContextBand: "",
     failOnSlopBand: "",
   };
-  const absoluteFindingCount = analysisExitCode === 0 ? reportFindingCount(reportPath) : 0;
-  let findingCount = absoluteFindingCount;
+  const healthFindingCount = analysisExitCode === 0 ? reportFindingCount(reportPath) : 0;
+  let policyFindingCount = healthFindingCount;
+  if (analysisExitCode === 0) {
+    policyFindingCount = reportPolicyFindingCount(
+      (process.env.GIT_SLOP_BINARY || "").trim(), cwd, reportPath, safeInputs,
+    );
+  }
+  let findingCount = policyFindingCount;
   let regressionCount = 0;
-  let baselineCompatible = true;
+  let baselineStatus = "not_evaluated";
   const baselineInput = (process.env.GIT_SLOP_BASELINE_REPORT || "").trim();
   const baselineRef = (process.env.GIT_SLOP_BASELINE_REF || "").trim();
   try {
@@ -389,8 +350,11 @@ function analyze() {
         ? (isAbsolute(baselineInput) ? baselineInput : resolve(cwd, baselineInput))
         : "";
       let cleanupBaseline = () => {};
+      let materialization = null;
       if (baselineRef) {
-        const materialized = baselineReportFromRef(
+        const materialized = materializeBaselineReport(
+          run,
+          reportPaths,
           (process.env.GIT_SLOP_BINARY || "").trim(),
           cwd,
           baselineRef,
@@ -398,21 +362,26 @@ function analyze() {
         );
         baselinePath = materialized.path;
         cleanupBaseline = materialized.cleanup;
+        materialization = {
+          reference: baselineRef,
+          resolved_revision: materialized.resolvedRevision,
+          isolated_worktree: true,
+          copied_head_config: materialized.copiedHeadConfig,
+        };
       }
       if (!existsSync(baselinePath)) throw new Error(`baseline report does not exist: ${baselinePath}`);
       comparisonPath = join(dirname(reportPath), "comparison.json");
       let comparison;
       try {
-        comparison = regressionComparison(
+        comparison = compareBaselineReports(
+          run,
           (process.env.GIT_SLOP_BINARY || "").trim(), cwd, baselinePath, reportPath,
           comparisonPath, safeInputs.baselineForce,
         );
       } finally {
         cleanupBaseline();
       }
-      const generatedAt = Date.parse(
-        comparison.base_report?.analyzed_revision_at || comparison.base_report?.generated_at || "",
-      );
+      const generatedAt = Date.parse(comparison.base_report?.generated_at || "");
       if (!Number.isFinite(generatedAt)) {
         throw new Error("baseline report is missing a valid generated_at timestamp");
       }
@@ -422,8 +391,11 @@ function analyze() {
           `baseline report is ${Math.floor(ageDays)} days old; maximum is ${safeInputs.maxBaselineAgeDays}`,
         );
       }
+      comparison.baseline_revision = baselineRevisionStatus(run, cwd, comparison);
+      comparison.baseline_materialization = materialization;
+      writeFileSync(comparisonPath, `${JSON.stringify(comparison)}\n`, "utf8");
       regressionCount = comparison.summary.regression_count;
-      baselineCompatible = comparison.baseline_compatible;
+      baselineStatus = comparison.baseline_status || (comparison.baseline_compatible ? "compatible" : "forced");
       findingCount = regressionCount;
     }
     if (analysisExitCode === 0 && safeInputs.enforcement === "regression" && !baselineInput && !baselineRef) {
@@ -431,22 +403,31 @@ function analyze() {
     }
   } catch (error) {
     failureMessage = error instanceof Error ? error.message : String(error);
-    analysisExitCode = 2;
-    findingCount = 0;
+    baselineStatus = "error";
+    findingCount = policyFindingCount;
     regressionCount = 0;
     comparisonPath = "";
+    comparisonErrorPath = join(dirname(reportPath), "comparison-error.md");
+    writeFileSync(
+      comparisonErrorPath,
+      `# Baseline comparison error\n\nThe head analysis completed and its artifacts were preserved.\n\n${String(failureMessage).replace(/\r?\n/gu, " ")}\n`,
+      "utf8",
+    );
     console.error(`git-slop Action baseline analysis failed: ${failureMessage}`);
-    writeFallbackHealth(healthPath, failureMessage);
   }
   appendHealthSummary(healthPath, safeInputs);
   appendComparisonSummary(comparisonPath);
   const artifactContents = analysisExitCode === 0 ? safeInputs.artifactContents : "summary";
   setOutput("analysis-exit-code", analysisExitCode);
   setOutput("finding-count", findingCount);
-  setOutput("absolute-finding-count", absoluteFindingCount);
+  setOutput("health-finding-count", healthFindingCount);
+  setOutput("policy-finding-count", policyFindingCount);
+  setOutput("absolute-finding-count", healthFindingCount);
   setOutput("regression-count", regressionCount);
-  setOutput("baseline-compatible", baselineCompatible);
+  setOutput("baseline-status", baselineStatus);
+  setOutput("baseline-compatible", baselineStatus === "compatible");
   setOutput("comparison-path", comparisonPath);
+  setOutput("comparison-error-path", comparisonErrorPath);
   setOutput("health-path", healthPath);
   setOutput("report-path", analysisExitCode === 0 ? reportPath : "");
   setOutput("report-yaml-path", analysisExitCode === 0 && existsSync(reportYamlPath) ? reportYamlPath : "");
@@ -477,6 +458,7 @@ function annotate() {
     return;
   }
   const comparisonPath = (process.env.GIT_SLOP_COMPARISON_PATH || "").trim();
+  const comparisonErrorPath = (process.env.GIT_SLOP_COMPARISON_ERROR_PATH || "").trim();
   if (comparisonPath && existsSync(comparisonPath)) {
     const comparison = JSON.parse(readFileSync(comparisonPath, "utf8"));
     for (const finding of comparison.regressions.slice(0, maximum)) {
@@ -507,10 +489,11 @@ function artifacts() {
   const reportYamlPath = (process.env.GIT_SLOP_REPORT_YAML_PATH || "").trim();
   const summaryPath = (process.env.GIT_SLOP_SUMMARY_PATH || "").trim();
   const comparisonPath = (process.env.GIT_SLOP_COMPARISON_PATH || "").trim();
+  const comparisonErrorPath = (process.env.GIT_SLOP_COMPARISON_ERROR_PATH || "").trim();
   const allowed = {
-    summary: [healthPath],
-    report: [healthPath, reportPath, comparisonPath],
-    full: [healthPath, summaryPath, reportPath, reportYamlPath, comparisonPath],
+    summary: [healthPath, comparisonErrorPath],
+    report: [healthPath, reportPath, comparisonPath, comparisonErrorPath],
+    full: [healthPath, summaryPath, reportPath, reportYamlPath, comparisonPath, comparisonErrorPath],
   };
   const paths = allowed[mode].filter((candidate) => candidate && existsSync(candidate));
   if (!paths.includes(healthPath)) {
@@ -526,6 +509,12 @@ function finalize() {
     setOutput("status", "error");
     setOutput("policy-exit-code", 2);
     throw new Error(`git-slop analysis failed with status ${analysisExitCode}`);
+  }
+  const baselineStatus = (process.env.GIT_SLOP_BASELINE_STATUS || "not_evaluated").trim();
+  if (baselineStatus === "error") {
+    setOutput("status", "error");
+    setOutput("policy-exit-code", 2);
+    throw new Error("Git Slop head analysis succeeded, but baseline comparison failed; head artifacts were preserved.");
   }
 
   const publicationOutcomes = {

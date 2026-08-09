@@ -21,7 +21,10 @@ explicitly with `output.yaml: true` and prefer JSON for automation.
 
 ## Missing or invalid reports
 
-Run `git slop find`. Report consumers validate the complete schema-4 shape and return an invalid-report exit instead of silently substituting zeros.
+Run `git slop find`. Report consumers exhaustively validate the schema-5 shape
+and return all detected violations with stable codes and JSON pointers instead
+of silently substituting zeros. Schema-4 input requires explicit
+`--allow-legacy` acceptance or `git slop report migrate`.
 
 ## Configuration failures
 

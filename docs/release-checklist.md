@@ -316,9 +316,9 @@ version, revision, canonical crate URL, and crate SHA-256, then waits for the
 exact stable GitHub Release to become public. Once the Marketplace publication
 step makes that release public, the receiver downloads and verifies all release
 assets, exact tag revision, schema-3 manifest, GitHub asset digests, static
-crates.io package, Formula, and seven-line checksum inventory. It derives the
-Formula and manifest URLs/digests from those verified public assets before
-creating the tap PR.
+crates.io package, Formula, CycloneDX and SPDX SBOMs, and eleven-line checksum
+inventory. It derives the Formula and manifest URLs/digests from those verified
+public assets before creating the tap PR.
 
 The `release.published` event runs
 `.github/workflows/release-published.yml`. Its first job remains read-only and
