@@ -44,7 +44,14 @@ fn assert_prompt_pack_safety(pack: &Path) -> Value {
 
     let context = read_json(&pack.join("context.json"));
     assert_eq!(context["prompt_pack_version"], 1);
-    assert_eq!(context["report_excerpt"]["schema_version"], 4);
+    assert_eq!(context["report_excerpt"]["schema_version"], 5);
+    assert_eq!(
+        context["provenance"]["report_sha256"]
+            .as_str()
+            .map(str::len),
+        Some(64)
+    );
+    assert_eq!(context["repository_context"]["included"], false);
 
     let boundary = context["boundary"].as_str().expect("prompt-pack boundary");
     assert!(boundary.contains("advisory only"));
@@ -111,6 +118,39 @@ fn completions_are_generated_from_the_live_command_tree() {
             .stdout(predicate::str::contains("git-slop"))
             .stdout(predicate::str::contains("compare"));
     }
+}
+
+#[test]
+fn generated_manual_has_no_trailing_whitespace() {
+    let outside_repository = TempDir::new().expect("temporary non-repository directory");
+    let output = cargo_bin_cmd!("git-slop")
+        .current_dir(outside_repository.path())
+        .arg("man")
+        .output()
+        .expect("generate manual");
+    assert!(
+        output.status.success(),
+        "manual generation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let manual = String::from_utf8(output.stdout).expect("manual is UTF-8");
+    assert!(manual.ends_with('\n'));
+    assert!(
+        manual.lines().all(|line| line.trim_end() == line),
+        "generated manual contains trailing whitespace"
+    );
+}
+
+#[test]
+fn generated_reference_has_one_final_newline() {
+    let output = cargo_bin_cmd!("git-slop")
+        .arg("reference")
+        .output()
+        .expect("generate reference");
+    assert!(output.status.success());
+    let reference = String::from_utf8(output.stdout).expect("reference is UTF-8");
+    assert!(reference.ends_with('\n'));
+    assert!(!reference.ends_with("\n\n"));
 }
 
 #[test]
@@ -278,6 +318,80 @@ fn prompt_pack_rejects_an_existing_file_target() {
             "Prompt pack path is not a directory: {}",
             pack.display()
         )));
+}
+
+#[test]
+fn prompt_pack_repository_context_is_explicit_bounded_and_repo_relative() {
+    let repository = TempDir::new().expect("temporary repository");
+    git(repository.path(), &["init", "-b", "main"]);
+    let first = repository
+        .path()
+        .join("src/consumer_toolkit/github/current_repo.py");
+    let second = repository
+        .path()
+        .join("src/consumer_toolkit/github/shared/current_repo.py");
+    fs::create_dir_all(first.parent().expect("first parent")).expect("create first parent");
+    fs::create_dir_all(second.parent().expect("second parent")).expect("create second parent");
+    fs::write(&first, "def current_repo():\n    return 'current'\n").expect("write first source");
+    fs::write(&second, "def current_repo():\n    return 'shared'\n").expect("write second source");
+    fs::write(
+        repository.path().join("AGENTS.md"),
+        "# Repository guidance\n",
+    )
+    .expect("write guidance");
+    fs::write(
+        repository.path().join("Cargo.toml"),
+        "[package]\nname='fixture'\nversion='0.1.0'\n",
+    )
+    .expect("write manifest");
+    let pack = repository.path().join("prompt-pack");
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args([
+            "explain",
+            "--report",
+            fixture("relationship_focused_report.json")
+                .to_str()
+                .expect("fixture path"),
+            "--relationship",
+            "duplicate_neighborhood-b534129a62cb",
+            "--prompt-pack",
+            pack.to_str().expect("prompt pack path"),
+            "--include-repository-context",
+            "--excerpt-bytes",
+            "256",
+        ])
+        .assert()
+        .success();
+
+    let context = read_json(&pack.join("context.json"));
+    let repository_context = &context["repository_context"];
+    assert_eq!(repository_context["included"], true);
+    assert_eq!(repository_context["reason"], "explicit_opt_in");
+    assert_eq!(
+        repository_context["source_excerpts"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        repository_context["guidance"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(repository_context["truncation"]["per_file_byte_limit"], 256);
+    assert_eq!(
+        repository_context["verification_commands"][0],
+        "cargo fmt --all -- --check"
+    );
+    for excerpt in repository_context["source_excerpts"]
+        .as_array()
+        .expect("source excerpts")
+    {
+        let path = excerpt["path"].as_str().expect("relative path");
+        assert!(!Path::new(path).is_absolute());
+        assert!(excerpt["bytes_returned"].as_u64().unwrap_or_default() <= 256);
+    }
 }
 
 #[test]

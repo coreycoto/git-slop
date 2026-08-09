@@ -146,20 +146,25 @@ pub(super) fn finding_for_file(file: &Value, config: &Value) -> Option<Finding> 
         DEFAULT_HEALTHY_MAX,
     ) as usize;
     let is_watchlist = context_band == "healthy" && tokens >= healthy_max.saturating_mul(3) / 4;
-    if !matches!(context_band, "warning" | "critical" | "refactor_required")
-        && !matches!(slop_band, "high" | "critical")
+    if !matches!(
+        context_band,
+        "warning" | "critical" | "refactor_required" | "budget_exceeded"
+    ) && !matches!(slop_band, "high" | "critical")
         && !is_watchlist
     {
         return None;
     }
-    let severity =
-        if matches!(context_band, "critical" | "refactor_required") || slop_band == "critical" {
-            "error"
-        } else if context_band == "warning" || slop_band == "high" {
-            "warning"
-        } else {
-            "notice"
-        };
+    let severity = if matches!(
+        context_band,
+        "critical" | "refactor_required" | "budget_exceeded"
+    ) || slop_band == "critical"
+    {
+        "error"
+    } else if context_band == "warning" || slop_band == "high" {
+        "warning"
+    } else {
+        "notice"
+    };
     let raw_reasons = string_array(file.get("reason_codes"));
     let mut reasons: Vec<String> = raw_reasons
         .iter()
@@ -167,7 +172,7 @@ pub(super) fn finding_for_file(file: &Value, config: &Value) -> Option<Finding> 
         .collect();
     if reasons.is_empty() {
         reasons.push(match context_band {
-            "critical" | "refactor_required" => {
+            "critical" | "refactor_required" | "budget_exceeded" => {
                 format!("{tokens} tokens exceed the configured fail threshold")
             }
             "warning" => format!("{tokens} tokens are in the configured warning band"),
@@ -175,7 +180,10 @@ pub(super) fn finding_for_file(file: &Value, config: &Value) -> Option<Finding> 
         });
     }
     let path = string_field(file, "path").to_string();
-    let title = if matches!(context_band, "critical" | "refactor_required") {
+    let title = if matches!(
+        context_band,
+        "critical" | "refactor_required" | "budget_exceeded"
+    ) {
         "Context budget exceeded"
     } else if context_band == "warning" {
         "Context budget warning"
@@ -214,7 +222,7 @@ pub(super) fn build_health_rollup_from_values(
         ("compact".to_string(), 0),
         ("healthy".to_string(), 0),
         ("warning".to_string(), 0),
-        ("refactor_required".to_string(), 0),
+        ("budget_exceeded".to_string(), 0),
     ]);
     let mut folder_band_counts = file_band_counts.clone();
     let mut profile_totals: BTreeMap<String, Totals> = BTreeMap::new();
@@ -281,7 +289,7 @@ pub(super) fn build_health_rollup_from_values(
             .get(&direct_parent(string_field(file, "path")))
             .map(|totals| totals.1)
             .unwrap_or_default();
-        if matches!(band.as_str(), "warning" | "refactor_required") {
+        if matches!(band.as_str(), "warning" | "budget_exceeded") {
             refactor_candidates.push(file_candidate(file, &band, parent_tokens));
         } else if band == "healthy" && tokens >= healthy_max.saturating_mul(3) / 4 {
             watchlist.push(file_candidate(file, &band, parent_tokens));
@@ -313,7 +321,7 @@ pub(super) fn build_health_rollup_from_values(
                 .map(|totals| totals.1)
                 .unwrap_or_default()
         };
-        if matches!(band.as_str(), "warning" | "refactor_required") {
+        if matches!(band.as_str(), "warning" | "budget_exceeded") {
             refactor_candidates.push(folder_candidate(
                 folder,
                 &band,
@@ -432,8 +440,11 @@ pub fn build_health_rollup(analysis: &Analysis) -> HealthRollup {
 }
 
 pub fn health_rollup_from_report(report: &Value) -> Result<HealthRollup> {
-    if report.get("schema_version").and_then(Value::as_u64) != Some(4) {
-        bail!("repository-health rendering requires report schema 4.");
+    if !matches!(
+        report.get("schema_version").and_then(Value::as_u64),
+        Some(4 | 5)
+    ) {
+        bail!("repository-health rendering requires report schema 4 or 5.");
     }
     Ok(report
         .get("health")

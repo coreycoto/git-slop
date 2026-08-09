@@ -2,9 +2,28 @@
 set -euo pipefail
 
 changed=()
+base_ref="${VERIFY_CHANGED_BASE:-}"
+if [[ -z "$base_ref" ]]; then
+  base_ref="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+fi
+if [[ -z "$base_ref" ]] && git rev-parse --verify --quiet origin/main >/dev/null; then
+  base_ref="origin/main"
+fi
+if [[ -n "$base_ref" ]] && merge_base="$(git merge-base HEAD "$base_ref" 2>/dev/null)"; then
+  changed_source=(git diff --name-only "$merge_base")
+elif git rev-parse --verify --quiet HEAD^ >/dev/null; then
+  changed_source=(git diff --name-only HEAD^)
+else
+  changed_source=(git diff --name-only HEAD)
+fi
 while IFS= read -r file; do
   changed+=("$file")
-done < <(git diff --name-only --merge-base HEAD origin/main 2>/dev/null || git diff --name-only HEAD)
+done < <(
+  {
+    "${changed_source[@]}"
+    git ls-files --others --exclude-standard
+  } | LC_ALL=C sort -u
+)
 if ((${#changed[@]} == 0)); then
   echo "No changed files detected."
   exit 0

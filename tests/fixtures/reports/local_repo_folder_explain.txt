@@ -18,13 +18,13 @@ Overlay Evidence
 - navigation: pressure=0.441, ambiguity=0.339, path_depth=2.0
 - blast_radius: pressure=0.911, degree=92.428571, cross_folder=0.852
 - stewardship: pressure=0.000, authors=1.0, top_author_share=1.000
-- semantic_drift: pressure=0.996, terms=for, from, git, if, import
-- descendant overlay maxima: organization.diffusion=1.000, verification=0.000, navigation=0.461, blast_radius=0.953, semantic_drift=1.000
+- concept_dispersion: pressure=0.996, terms=for, from, git, if, import
+- descendant overlay maxima: organization.diffusion=1.000, verification=0.000, navigation=0.461, blast_radius=0.953, concept_dispersion=1.000
 
 Supporting Relationships
-- lexical_affinity_edge-af9a9f48473c [lexical_affinity_edge] src/git_slop/git.py -> src/git_slop/inventory.py (score=4.339)
-- boundary_leakage_edge-b87172edccae [boundary_leakage_edge] docs/architecture.md -> src/git_slop/history.py (score=7.500)
-- temporal_coupling_edge-65471a7a1195 [temporal_coupling_edge] docs/architecture.md -> src/git_slop/history.py (score=7.500)
+- src/git_slop/git.py ↔ src/git_slop/inventory.py [lexical_affinity_edge; id=lexical_affinity_edge-af9a9f48473c; score=4.339]
+- docs/architecture.md ↔ src/git_slop/history.py [boundary_leakage_edge; id=boundary_leakage_edge-b87172edccae; score=7.500]
+- docs/architecture.md ↔ src/git_slop/history.py [temporal_coupling_edge; id=temporal_coupling_edge-65471a7a1195; score=7.500]
 
 Supporting Clusters
 - boundary_leakage_cluster-cedd37539fe8 [boundary_leakage_cluster] members=3 roots=src, tests candidate_type=extract_boundary
@@ -33,9 +33,15 @@ Supporting Clusters
 
 Evidence Summary
 - strongest detector costs: load pressure 1.000 from 10549 file tokens; coordination pressure 0.900 from degree 92; volatility pressure 0.562 from 28 commits
-- strongest overlays: semantic_drift pressure 0.996; blast_radius pressure 0.911; organization.diffusion pressure 0.800
+- strongest overlays: concept_dispersion pressure 0.996; blast_radius pressure 0.911; organization.diffusion pressure 0.800
 - supporting relationships: lexical_affinity_edge-af9a9f48473c, boundary_leakage_edge-b87172edccae, temporal_coupling_edge-65471a7a1195, boundary_leakage_edge-2c0ef3c299d7, lexical_affinity_edge-1a326dc121b3
 - supporting clusters: boundary_leakage_cluster-cedd37539fe8, scattered_concept-64dcda20d417, boundary_leakage_cluster-e509eb2f17d5, scattered_concept-c1c73fb5da90
 - interpretation: Folder explanation is based on detector report evidence only; it does not prove correctness or require a refactor.
+
+Report and Evidence Provenance
+- analyzer: git-slop legacy-schema-4 (analysis contract 1)
+- report_digest=c7840c3889e4d899f1b5b57f3123376dac75740610979e30461ee9ba455ef836 content_digest=0000000000000000000000000000000000000000000000000000000000000000 target_content_fingerprint=
+- generated_at=1970-01-01T00:00:00Z analyzed_revision_at= head_sha=
+- evidence: incomplete=false repository_relative=true experimental_overlays=6 saturation_suppressed=0
 
 Interpretation boundary: this is structural evidence, not proof that an abstraction, boundary, or refactor is correct.

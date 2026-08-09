@@ -2,7 +2,7 @@
 
 ## Command Contract
 
-`health` projects repository-health evidence from an existing schema-4 report.
+`health` projects repository-health evidence from an existing schema-5 report.
 It does not run the detector, rescore findings, or modify report artifacts. The
 default input is `.slop/latest/report.json`; use `--report` to select another
 report.
@@ -76,5 +76,5 @@ checkout-depth, detector, renderer, or publication failures still do.
   navigation, blast-radius, stewardship, and semantic-drift overlays.
 - Follow a finding's deterministic `next_command`, usually a targeted
   `git-slop explain`, before proposing maintenance.
-- Treat `refactor_required` as a review threshold, not proof that a refactor is
+- Treat `budget_exceeded` as a review threshold, not proof that a refactor is
   correct or mandatory.

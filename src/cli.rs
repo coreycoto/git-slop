@@ -10,6 +10,7 @@ use sha2::Digest;
 
 use crate::build_info;
 use crate::config;
+use crate::error::{ClassifiedError, ErrorKind};
 use crate::health;
 use crate::report;
 use crate::report_ops::{
@@ -30,6 +31,9 @@ struct Cli {
     /// Repository or path inside a repository to analyze.
     #[arg(long, global = true, value_name = "PATH")]
     repo: Option<PathBuf>,
+    /// Render runtime errors as human text or stable JSON.
+    #[arg(long, global = true, value_enum, default_value_t = ErrorFormat::Human)]
+    error_format: ErrorFormat,
     #[command(subcommand)]
     command: Command,
 }
@@ -48,11 +52,11 @@ enum Command {
     Plan(PlanArgs),
     /// Evaluate an existing report against CI thresholds.
     Check(CheckArgs),
-    /// Compare two existing schema-4 reports without rerunning the detector.
+    /// Compare two existing schema-5 reports without rerunning the detector.
     Compare(CompareArgs),
     /// Validate or inspect the versioned report contract.
     Report(ReportArgs),
-    /// Export action-queue findings from an existing schema-4 report as SARIF.
+    /// Export action-queue findings from an existing schema-5 report as SARIF.
     Sarif(SarifArgs),
     /// Render repository health for CI summaries, annotations, or automation.
     Health(HealthArgs),
@@ -64,14 +68,45 @@ enum Command {
     List(ListArgs),
     /// Remove old immutable run snapshots according to retention policy.
     Prune(PruneArgs),
+    /// Inspect or prune the packed token cache.
+    Cache(CacheArgs),
     /// Generate shell completion source.
     Completions(CompletionsArgs),
+    /// Generate the roff manual from the live Clap command tree.
+    Man(ManArgs),
+    /// Generate Markdown command reference from the live Clap command tree.
+    Reference(ReferenceArgs),
     /// Write a self-contained, local, searchable HTML report.
     Html(HtmlArgs),
     /// Print version information.
     Version,
     /// Print package and source-build provenance.
     BuildInfo(BuildInfoArgs),
+    /// Print a published JSON Schema for a machine contract.
+    Schema(SchemaArgs),
+}
+
+#[derive(Debug, Args)]
+struct SchemaArgs {
+    #[arg(value_enum)]
+    contract: SchemaContract,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum SchemaContract {
+    Report,
+    Config,
+    Compare,
+    Explain,
+    Plan,
+    Sarif,
+    Health,
+    Check,
+    Doctor,
+    BuildInfo,
+    List,
+    Show,
+    PromptManifest,
 }
 
 #[derive(Debug, Args)]
@@ -91,6 +126,61 @@ struct FindArgs {
     /// Suppress phase progress while preserving the final result.
     #[arg(long)]
     no_progress: bool,
+    /// Mutable cache/state directory. Relative paths resolve from the repository root.
+    #[arg(long, value_name = "PATH")]
+    state_dir: Option<PathBuf>,
+    /// Report output directory. Relative paths resolve from the repository root.
+    #[arg(long, value_name = "PATH")]
+    output_dir: Option<PathBuf>,
+    /// Disable token-cache reads and writes for an ephemeral scan.
+    #[arg(long)]
+    no_cache: bool,
+    /// Deterministically analyze the largest path prefix that fits the memory budget.
+    #[arg(long)]
+    allow_degraded: bool,
+    /// Report evidence profile.
+    #[arg(long, value_enum, default_value_t = ReportProfile::Standard)]
+    report_profile: ReportProfile,
+    /// Also write a compressed report beside report.json.
+    #[arg(long, value_enum, default_value_t = ReportCompression::None)]
+    compression: ReportCompression,
+    /// Estimate scope, memory, cache, report size, time, and inodes without scanning.
+    #[arg(long)]
+    estimate_only: bool,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ReportProfile {
+    Compact,
+    Standard,
+    FullEvidence,
+}
+
+impl ReportProfile {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Compact => "compact",
+            Self::Standard => "standard",
+            Self::FullEvidence => "full_evidence",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ReportCompression {
+    None,
+    Gzip,
+    Zstd,
+}
+
+impl ReportCompression {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Gzip => "gzip",
+            Self::Zstd => "zstd",
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -144,6 +234,12 @@ struct ExplainArgs {
     /// Write a deterministic local-model prompt pack to this directory.
     #[arg(long)]
     prompt_pack: Option<PathBuf>,
+    /// Include bounded local source/test excerpts, guidance, and verification hints.
+    #[arg(long, requires = "prompt_pack")]
+    include_repository_context: bool,
+    /// Maximum bytes read from each included repository file.
+    #[arg(long, default_value_t = 2048, requires = "include_repository_context")]
+    excerpt_bytes: usize,
 }
 
 #[derive(Debug, Args)]
@@ -174,6 +270,12 @@ struct PlanArgs {
     /// Write a deterministic local-model prompt pack to this directory.
     #[arg(long)]
     prompt_pack: Option<PathBuf>,
+    /// Include bounded local source/test excerpts, guidance, and verification hints.
+    #[arg(long, requires = "prompt_pack")]
+    include_repository_context: bool,
+    /// Maximum bytes read from each included repository file.
+    #[arg(long, default_value_t = 2048, requires = "include_repository_context")]
+    excerpt_bytes: usize,
 }
 
 #[derive(Debug, Args)]
@@ -197,16 +299,38 @@ struct CheckArgs {
 #[derive(Debug, Args)]
 struct CompareArgs {
     /// Base report.json path.
-    #[arg(long)]
-    base: PathBuf,
+    #[arg(
+        long,
+        required_unless_present = "base_ref",
+        conflicts_with = "base_ref"
+    )]
+    base: Option<PathBuf>,
+    /// Safely resolve and scan this Git revision in an isolated worktree.
+    #[arg(long, conflicts_with = "base")]
+    base_ref: Option<String>,
     /// Head report.json path.
-    #[arg(long)]
+    #[arg(long, default_value = ".slop/latest/report.json")]
     head: PathBuf,
+    /// Apply the head repository's scope to an isolated --base-ref scan.
+    #[arg(long)]
+    scope: Option<String>,
+    /// Permit incomplete history in an isolated --base-ref scan.
+    #[arg(long)]
+    allow_shallow: bool,
     /// Maximum number of changed files and queue movements to show.
     #[arg(long, default_value_t = 10)]
     top: i64,
-    #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
-    format: DisplayFormat,
+    #[arg(long, value_enum, default_value_t = CompareFormat::Text)]
+    format: CompareFormat,
+    /// Detail level for machine output.
+    #[arg(long, value_enum, default_value_t = CompareDetail::Top)]
+    detail: CompareDetail,
+    /// Zero-based record offset for --detail full.
+    #[arg(long, default_value_t = 0)]
+    offset: usize,
+    /// Maximum records per collection for --detail full.
+    #[arg(long, default_value_t = 1000)]
+    limit: usize,
     /// Compare reports with incompatible identity or analyzer metadata.
     #[arg(long)]
     force: bool,
@@ -223,12 +347,22 @@ struct ReportArgs {
 
 #[derive(Debug, Subcommand)]
 enum ReportCommand {
-    /// Validate one report against the complete schema-4 contract.
+    /// Validate one report against the complete schema-5 contract.
     Validate {
         #[arg(value_name = "REPORT_JSON")]
         path: PathBuf,
+        /// Accept schema 4 as migration input and validate its normalized schema-5 form.
+        #[arg(long)]
+        allow_legacy: bool,
     },
-    /// Print the published JSON Schema for report schema 4.
+    /// Migrate a schema-4 report to normalized schema 5.
+    Migrate {
+        #[arg(value_name = "REPORT_JSON")]
+        path: PathBuf,
+        #[arg(long, value_name = "PATH")]
+        output: PathBuf,
+    },
+    /// Print the published JSON Schema for report schema 5.
     Schema,
 }
 
@@ -288,6 +422,9 @@ struct DoctorArgs {
     bundle: Option<PathBuf>,
     #[arg(long, value_enum, default_value_t = DoctorFormat::Text)]
     format: DoctorFormat,
+    /// Estimate only this repo-relative scope.
+    #[arg(long)]
+    scope: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -328,6 +465,12 @@ struct ListFilterArgs {
     top: usize,
     #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
     format: DisplayFormat,
+    /// Use a wider terminal layout before truncating fields.
+    #[arg(long)]
+    wide: bool,
+    /// Never truncate terminal fields.
+    #[arg(long)]
+    no_truncate: bool,
 }
 
 #[derive(Debug, Args)]
@@ -335,14 +478,58 @@ struct PruneArgs {
     /// Number of newest run snapshots to retain; defaults to output.retention_runs.
     #[arg(long)]
     keep: Option<usize>,
+    /// Maximum total bytes retained; defaults to output.retention_bytes.
+    #[arg(long)]
+    max_bytes: Option<u64>,
     /// Print removals without changing files.
     #[arg(long)]
     dry_run: bool,
+    /// Select text, JSON, or YAML output.
+    #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
+    format: DisplayFormat,
+}
+
+#[derive(Debug, Args)]
+struct CacheArgs {
+    #[arg(long, value_name = "PATH")]
+    state_dir: Option<PathBuf>,
+    #[command(subcommand)]
+    command: CacheCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum CacheCommand {
+    Status {
+        #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
+        format: DisplayFormat,
+    },
+    Prune {
+        #[arg(long, default_value_t = 10_000)]
+        max_entries: usize,
+        #[arg(long, default_value_t = 536_870_912)]
+        max_bytes: u64,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
+        format: DisplayFormat,
+    },
 }
 
 #[derive(Debug, Args)]
 struct CompletionsArgs {
     shell: CompletionShell,
+}
+
+#[derive(Debug, Args)]
+struct ManArgs {
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct ReferenceArgs {
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -364,11 +551,26 @@ enum CompletionShell {
     Nushell,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum DisplayFormat {
     Text,
     Json,
     Yaml,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CompareFormat {
+    Text,
+    Json,
+    Yaml,
+    Ndjson,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CompareDetail {
+    Summary,
+    Top,
+    Full,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -389,6 +591,12 @@ enum CheckFormat {
     Text,
     Json,
     Github,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ErrorFormat {
+    Human,
+    Json,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -567,6 +775,28 @@ fn run_init(repo_root: &Path, args: InitArgs) -> Result<i32> {
 }
 
 fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
+    if args.estimate_only {
+        let config = config::load(repo_root)?;
+        let scope = args
+            .scope
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != ".");
+        let paths = git::list_tracked_files(repo_root)?
+            .into_iter()
+            .filter(|path| {
+                scope.is_none_or(|scope| path == scope || path.starts_with(&format!("{scope}/")))
+            })
+            .collect::<Vec<_>>();
+        let payload = json!({
+            "schema_version": 1,
+            "command": "find estimate",
+            "scope": scope,
+            "estimate": crate::estimate::build(repo_root, &paths, &config)
+        });
+        print_text(&render_json(&payload)?);
+        return Ok(0);
+    }
     let result = analyze::run_find_with_options(
         repo_root,
         &analyze::FindOptions {
@@ -574,6 +804,12 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
             scope: args.scope,
             progress: !args.quiet && !args.no_progress && std::io::stderr().is_terminal(),
             allow_empty_scope: args.allow_empty_scope,
+            state_dir: args.state_dir,
+            output_dir: args.output_dir,
+            no_cache: args.no_cache,
+            allow_degraded: args.allow_degraded,
+            report_profile: args.report_profile.as_str().to_string(),
+            compression: args.compression.as_str().to_string(),
         },
     )?;
     if args.quiet {
@@ -589,6 +825,9 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
         "Wrote repository health summary to {}.",
         result.health_md.display()
     );
+    if let Some(path) = result.compressed_report {
+        println!("Wrote compressed report to {}.", path.display());
+    }
     Ok(0)
 }
 
@@ -631,6 +870,10 @@ fn explain_selector(args: &ExplainArgs, repo_root: &Path) -> Result<ExplainSelec
 }
 
 fn run_explain(repo_root: &Path, args: ExplainArgs) -> Result<i32> {
+    if args.include_repository_context && !(256..=4096).contains(&args.excerpt_bytes) {
+        eprintln!("--excerpt-bytes must be between 256 and 4096.");
+        return Ok(2);
+    }
     let (loaded, _) = match report_or_missing(repo_root, args.report.as_deref())? {
         Ok(value) => value,
         Err(code) => return Ok(code),
@@ -650,7 +893,14 @@ fn run_explain(repo_root: &Path, args: ExplainArgs) -> Result<i32> {
         if let Err(code) = ensure_prompt_pack_target(output_dir)? {
             return Ok(code);
         }
-        write_prompt_pack("explain", &payload, &loaded, output_dir)?;
+        write_prompt_pack(
+            "explain",
+            &payload,
+            &loaded,
+            output_dir,
+            args.include_repository_context.then_some(repo_root),
+            args.excerpt_bytes,
+        )?;
     }
     match args.format {
         DisplayFormat::Json => print_text(&render_json(&payload)?),
@@ -671,6 +921,10 @@ fn plan_selector(args: &PlanArgs, repo_root: &Path) -> PlanSelector {
 }
 
 fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
+    if args.include_repository_context && !(256..=4096).contains(&args.excerpt_bytes) {
+        eprintln!("--excerpt-bytes must be between 256 and 4096.");
+        return Ok(2);
+    }
     let (loaded, _) = match report_or_missing(repo_root, args.report.as_deref())? {
         Ok(value) => value,
         Err(code) => return Ok(code),
@@ -690,7 +944,14 @@ fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
         if let Err(code) = ensure_prompt_pack_target(output_dir)? {
             return Ok(code);
         }
-        write_prompt_pack("plan", &payload, &loaded, output_dir)?;
+        write_prompt_pack(
+            "plan",
+            &payload,
+            &loaded,
+            output_dir,
+            args.include_repository_context.then_some(repo_root),
+            args.excerpt_bytes,
+        )?;
     }
     match args.format {
         DisplayFormat::Json => print_text(&render_json(&payload)?),
@@ -806,15 +1067,122 @@ fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
     Ok(1)
 }
 
-fn run_compare(args: CompareArgs) -> Result<i32> {
-    let Some(base_report) = (match load_report_at(&args.base) {
+fn bounded_compare_output(
+    payload: &Value,
+    detail: CompareDetail,
+    top: usize,
+    offset: usize,
+    limit: usize,
+) -> Result<Value> {
+    if limit == 0 {
+        anyhow::bail!("--limit must be greater than zero");
+    }
+    let mut bounded = payload.clone();
+    let cap = match detail {
+        CompareDetail::Summary => 0,
+        CompareDetail::Top => top,
+        CompareDetail::Full => limit,
+    };
+    let start = if matches!(detail, CompareDetail::Full) {
+        offset
+    } else {
+        0
+    };
+    let mut pagination = serde_json::Map::new();
+    for key in [
+        "file_deltas",
+        "folder_deltas",
+        "queue_movement",
+        "overlay_deltas",
+        "regressions",
+    ] {
+        let values = payload
+            .get(key)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let returned = values
+            .iter()
+            .skip(start)
+            .take(cap)
+            .cloned()
+            .collect::<Vec<_>>();
+        pagination.insert(
+            key.to_string(),
+            json!({
+                "total": values.len(),
+                "offset": start,
+                "limit": cap,
+                "returned": returned.len(),
+                "has_more": start.saturating_add(returned.len()) < values.len()
+            }),
+        );
+        bounded[key] = json!(returned);
+    }
+    bounded["detail"] = json!(match detail {
+        CompareDetail::Summary => "summary",
+        CompareDetail::Top => "top",
+        CompareDetail::Full => "full",
+    });
+    bounded["pagination"] = Value::Object(pagination);
+    Ok(bounded)
+}
+
+fn render_compare_ndjson(payload: &Value) -> Result<String> {
+    let mut lines = vec![render_json(&json!({
+        "record_type": "summary",
+        "schema_version": payload.get("schema_version"),
+        "summary": payload.get("summary"),
+        "pagination": payload.get("pagination"),
+        "baseline_status": payload.get("baseline_status")
+    }))?];
+    for (key, record_type) in [
+        ("file_deltas", "file_delta"),
+        ("folder_deltas", "folder_delta"),
+        ("regressions", "regression"),
+    ] {
+        for record in payload
+            .get(key)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            lines.push(render_json(
+                &json!({"record_type": record_type, "record": record}),
+            )?);
+        }
+    }
+    Ok(lines.join("\n"))
+}
+
+fn run_compare(repo_root: &Path, args: CompareArgs) -> Result<i32> {
+    let materialized = if let Some(reference) = args.base_ref.as_deref() {
+        Some(crate::baseline::MaterializedBaseline::create(
+            repo_root,
+            reference,
+            args.scope.clone(),
+            args.allow_shallow,
+        )?)
+    } else {
+        None
+    };
+    let base_path = args
+        .base
+        .as_deref()
+        .or_else(|| {
+            materialized
+                .as_ref()
+                .map(|value| value.report_path.as_path())
+        })
+        .expect("Clap requires --base or --base-ref");
+    let Some(base_report) = (match load_report_at(base_path) {
         Ok(report) => report,
         Err(error) => {
             eprintln!("{error:#}");
             return Ok(2);
         }
     }) else {
-        eprintln!("Report not found: {}", args.base.display());
+        eprintln!("Report not found: {}", base_path.display());
         return Ok(2);
     };
     let Some(head_report) = (match load_report_at(&args.head) {
@@ -834,7 +1202,7 @@ fn run_compare(args: CompareArgs) -> Result<i32> {
     let payload = match compare_payload_with_force(
         &base_report,
         &head_report,
-        Some(&args.base.to_string_lossy()),
+        Some(&base_path.to_string_lossy()),
         Some(&args.head.to_string_lossy()),
         top,
         args.force,
@@ -842,10 +1210,25 @@ fn run_compare(args: CompareArgs) -> Result<i32> {
         Ok(payload) => payload,
         Err(error) => return usage_error(error),
     };
+    let output = match bounded_compare_output(&payload, args.detail, top, args.offset, args.limit) {
+        Ok(output) => output,
+        Err(error) => return usage_error(error),
+    };
+    let mut output = output;
+    if let Some(materialized) = materialized.as_ref() {
+        output["baseline_materialization"] = json!({
+            "reference": args.base_ref,
+            "resolved_revision": materialized.revision,
+            "isolated_worktree": true,
+            "copied_head_config": materialized.copied_head_config,
+            "cache_disabled": true
+        });
+    }
     match args.format {
-        DisplayFormat::Json => print_text(&render_json(&payload)?),
-        DisplayFormat::Text => print_text(&render_compare_text(&payload, top)),
-        DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
+        CompareFormat::Json => print_text(&render_json(&output)?),
+        CompareFormat::Text => print_text(&render_compare_text(&output, top)),
+        CompareFormat::Yaml => print_text(&serde_yaml::to_string(&output)?),
+        CompareFormat::Ndjson => print_text(&render_compare_ndjson(&output)?),
     }
     let regressions = payload
         .pointer("/summary/regression_count")
@@ -860,20 +1243,36 @@ fn run_compare(args: CompareArgs) -> Result<i32> {
 
 fn run_report(args: ReportArgs) -> Result<i32> {
     match args.command {
-        ReportCommand::Validate { path } => match report::load_report(&path) {
-            Ok(value) => {
-                println!(
-                    "Report is valid: {} (schema {}).",
-                    path.display(),
-                    value["schema_version"]
-                );
-                Ok(0)
+        ReportCommand::Validate { path, allow_legacy } => {
+            match report::load_report_with_legacy(&path, allow_legacy) {
+                Ok(value) => {
+                    println!(
+                        "Report is valid: {} (schema {}).",
+                        path.display(),
+                        value["schema_version"]
+                    );
+                    Ok(0)
+                }
+                Err(error) => {
+                    eprintln!("{error:#}");
+                    Ok(2)
+                }
             }
-            Err(error) => {
-                eprintln!("{error:#}");
-                Ok(2)
-            }
-        },
+        }
+        ReportCommand::Migrate { path, output } => {
+            let source = fs::read_to_string(&path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            let value: Value = serde_json::from_str(&source)
+                .with_context(|| format!("invalid git-slop report JSON: {}", path.display()))?;
+            let migrated = report::migrate_legacy_report(value)?;
+            report::write_json_atomically(&output, &migrated)?;
+            println!(
+                "Migrated {} to schema 5 at {}.",
+                path.display(),
+                output.display()
+            );
+            Ok(0)
+        }
         ReportCommand::Schema => {
             print_text(&render_json(&report::schema())?);
             Ok(0)
@@ -1038,6 +1437,7 @@ fn run_config(repo_root: &Path, args: ConfigArgs) -> Result<i32> {
 fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     let repo = git::repo_metadata(repo_root)?;
     let config_result = config::load(repo_root);
+    let config_exists = config::config_path(repo_root).is_file();
     let report_path = default_report_path(repo_root);
     let report_status = if report_path.exists() {
         match report::load_report(&report_path) {
@@ -1047,21 +1447,42 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     } else {
         "missing"
     };
-    let tracked_paths = git::list_tracked_files(repo_root)?;
+    let tracked_paths = git::list_tracked_files(repo_root)?
+        .into_iter()
+        .filter(|path| {
+            args.scope
+                .as_deref()
+                .is_none_or(|scope| path == scope || path.starts_with(&format!("{scope}/")))
+        })
+        .collect::<Vec<_>>();
     let tracked = tracked_paths.len();
     let effective_config = config_result
         .as_ref()
         .cloned()
         .unwrap_or_else(|_| config::default_config());
     let estimate = crate::estimate::build(repo_root, &tracked_paths, &effective_config);
+    let resource_status = if estimate.estimated_peak_memory_bytes > estimate.memory_budget_bytes {
+        "over_memory_budget"
+    } else {
+        "within_budget"
+    };
+    let bundle_path = args.bundle.as_ref().map(|output| {
+        if output.is_absolute() {
+            output.clone()
+        } else {
+            repo_root.join(output)
+        }
+    });
     let diagnostic = json!({
         "schema_version": 1,
         "command": "doctor",
-        "status": if config_result.is_err() || report_status == "invalid" { "error" } else { "ready" },
+        "status": if config_result.is_err() || report_status == "invalid" || resource_status == "over_memory_budget" { "error" } else { "ready" },
         "repository": {"name": repo.repo_name, "branch": repo.branch, "shallow": repo.is_shallow, "detached": repo.detached_head, "clean": repo.worktree_clean},
-        "config": {"status": if config_result.is_ok() { "valid" } else { "invalid" }, "path": config::config_path(repo_root)},
+        "config": {"status": if config_result.is_err() { "invalid" } else if config_exists { "valid" } else { "using_defaults" }, "path": config::config_path(repo_root)},
         "report": {"status": report_status, "path": report_path},
         "estimate": estimate,
+        "resource_status": resource_status,
+        "bundle_path": bundle_path,
         "recovery": {
             "config": "Run git slop config validate, then correct the reported key or run git slop config migrate.",
             "report": "Run git slop find to replace a missing or incompatible latest report.",
@@ -1104,7 +1525,11 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
         println!(
             "- config: {}",
             if config_result.is_ok() {
-                "valid"
+                if config_exists {
+                    "valid"
+                } else {
+                    "using built-in defaults"
+                }
             } else {
                 "invalid"
             }
@@ -1128,12 +1553,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             println!("- recovery: run `git slop find` to produce a compatible latest report");
         }
     }
-    if let Some(output) = args.bundle {
-        let output = if output.is_absolute() {
-            output
-        } else {
-            repo_root.join(output)
-        };
+    if let Some(output) = bundle_path {
         if let Some(parent) = output.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -1152,13 +1572,22 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             "privacy": {"source_included": false, "raw_tokens_included": false, "absolute_paths_included": false, "author_identities_included": false, "credentials_included": false}
         });
         fs::write(&output, render_json(&payload)?)?;
-        println!("Wrote redacted diagnostic bundle to {}.", output.display());
+        if matches!(args.format, DoctorFormat::Json) {
+            eprintln!("Wrote redacted diagnostic bundle to {}.", output.display());
+        } else {
+            println!("Wrote redacted diagnostic bundle to {}.", output.display());
+        }
     }
-    Ok(if config_result.is_err() || report_status == "invalid" {
-        2
-    } else {
-        0
-    })
+    Ok(
+        if config_result.is_err()
+            || report_status == "invalid"
+            || resource_status == "over_memory_budget"
+        {
+            2
+        } else {
+            0
+        },
+    )
 }
 
 fn matches_list_filter(item: &Value, args: &ListFilterArgs) -> bool {
@@ -1186,6 +1615,17 @@ fn matches_list_filter(item: &Value, args: &ListFilterArgs) -> bool {
             .is_none_or(|value| item.get("severity").and_then(Value::as_str) == Some(value))
 }
 
+fn terminal_field(value: &str, width: usize, no_truncate: bool) -> String {
+    let value = safe_terminal(value).replace(['\n', '\t'], " ");
+    if no_truncate || value.chars().count() <= width {
+        return value;
+    }
+    if width <= 1 {
+        return "…".to_string();
+    }
+    value.chars().take(width - 1).collect::<String>() + "…"
+}
+
 fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
     let filter = match &args.command {
         ListCommand::Findings(v)
@@ -1204,7 +1644,7 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
             .cloned()
             .unwrap_or_default(),
         ListCommand::Relationships(_) => loaded
-            .get("relationships")
+            .pointer("/overlays/organization_health/relationships")
             .and_then(Value::as_object)
             .into_iter()
             .flat_map(|map| map.values())
@@ -1213,7 +1653,7 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
             .cloned()
             .collect(),
         ListCommand::Clusters(_) => loaded
-            .get("clusters")
+            .pointer("/overlays/organization_health/clusters")
             .and_then(Value::as_object)
             .into_iter()
             .flat_map(|map| map.values())
@@ -1246,11 +1686,36 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
         }))?),
         DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&values)?),
         DisplayFormat::Text => {
+            let terminal_width = std::env::var("COLUMNS")
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(100);
+            let path_width = if filter.no_truncate {
+                values
+                    .iter()
+                    .filter_map(|item| {
+                        item.get("path")
+                            .or_else(|| item.get("name"))
+                            .or_else(|| item.get("id"))
+                            .and_then(Value::as_str)
+                    })
+                    .map(str::len)
+                    .max()
+                    .unwrap_or(24)
+                    .max(24)
+            } else if filter.wide {
+                80
+            } else {
+                terminal_width.saturating_sub(59).clamp(24, 48)
+            };
             println!(
-                "{:<48}  {:<24}  {:<10}  {:>8}",
-                "PATH OR NAME", "KIND", "BAND", "SCORE"
+                "{:<path_width$}  {:<16}  {:<10}  {:<10}  {:<10}  {:>7}",
+                "PATH OR NAME", "PROFILE", "SEVERITY", "CONTEXT", "SLOP", "SCORE"
             );
-            println!("{:-<48}  {:-<24}  {:-<10}  {:-<8}", "", "", "", "");
+            println!(
+                "{:-<path_width$}  {:-<16}  {:-<10}  {:-<10}  {:-<10}  {:-<7}",
+                "", "", "", "", "", ""
+            );
             for item in &values {
                 let label = item
                     .get("path")
@@ -1258,26 +1723,29 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
                     .or_else(|| item.get("id"))
                     .and_then(Value::as_str)
                     .unwrap_or("-");
-                let kind = item
-                    .get("kind")
-                    .or_else(|| item.get("profile"))
+                let profile = item
+                    .get("profile")
+                    .or_else(|| item.get("kind"))
                     .and_then(Value::as_str)
                     .unwrap_or("-");
-                let band = item
-                    .get("severity")
-                    .or_else(|| item.get("slop_band"))
+                let severity = item.get("severity").and_then(Value::as_str).unwrap_or("-");
+                let context = item
+                    .get("context_band")
                     .and_then(Value::as_str)
                     .unwrap_or("-");
+                let slop = item.get("slop_band").and_then(Value::as_str).unwrap_or("-");
                 let score = item
                     .get("slop_score")
                     .or_else(|| item.get("evidence_score"))
                     .and_then(Value::as_f64)
                     .map_or_else(|| "-".to_string(), |value| format!("{value:.3}"));
                 println!(
-                    "{:<48}  {:<24}  {:<10}  {:>8}",
-                    safe_terminal(label),
-                    safe_terminal(kind),
-                    safe_terminal(band),
+                    "{:<path_width$}  {:<16}  {:<10}  {:<10}  {:<10}  {:>7}",
+                    terminal_field(label, path_width, filter.no_truncate),
+                    terminal_field(profile, 16, filter.no_truncate),
+                    terminal_field(severity, 10, filter.no_truncate),
+                    terminal_field(context, 10, filter.no_truncate),
+                    terminal_field(slop, 10, filter.no_truncate),
                     score
                 );
             }
@@ -1295,43 +1763,169 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
 }
 
 fn run_prune(repo_root: &Path, args: PruneArgs) -> Result<i32> {
-    let keep = args.keep.unwrap_or_else(|| {
-        config::pointer_u64(
-            &config::load(repo_root).unwrap_or_else(|_| config::default_config()),
-            "/output/retention_runs",
-            20,
-        ) as usize
-    });
+    let loaded = config::load(repo_root).unwrap_or_else(|_| config::default_config());
+    let keep = args
+        .keep
+        .unwrap_or_else(|| config::pointer_u64(&loaded, "/output/retention_runs", 20) as usize);
+    let max_bytes = args
+        .max_bytes
+        .unwrap_or_else(|| config::pointer_u64(&loaded, "/output/retention_bytes", 2_147_483_648));
     let root = config::runs_dir(repo_root);
     if !root.exists() {
-        println!("No run snapshots to prune.");
+        let payload = json!({
+            "schema_version": 1,
+            "command": "prune",
+            "dry_run": args.dry_run,
+            "limits": {"max_runs": keep, "max_bytes": max_bytes},
+            "before": {"runs": 0, "bytes": 0},
+            "selected": [],
+            "after": {"runs": 0, "bytes": 0}
+        });
+        match args.format {
+            DisplayFormat::Text => println!("No run snapshots to prune."),
+            DisplayFormat::Json => print_text(&render_json(&payload)?),
+            DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
+        }
         return Ok(0);
     }
     let mut runs = fs::read_dir(&root)?
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| {
+            let bytes = directory_size(&entry.path())?;
+            Ok((entry, bytes))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    runs.sort_by_key(|(entry, _)| std::cmp::Reverse(entry.file_name()));
+    let before_bytes = runs.iter().map(|(_, bytes)| *bytes).sum::<u64>();
+    let before_runs = runs.len();
+    let mut retained_bytes = 0u64;
+    let mut retained_runs = 0usize;
+    let mut remove = Vec::new();
+    let mut retention_prefix_exhausted = false;
+    for (entry, bytes) in runs {
+        if !retention_prefix_exhausted
+            && retained_runs < keep
+            && retained_bytes.saturating_add(bytes) <= max_bytes
+        {
+            retained_runs += 1;
+            retained_bytes = retained_bytes.saturating_add(bytes);
+        } else {
+            retention_prefix_exhausted = true;
+            remove.push((entry, bytes));
+        }
+    }
+    let selected = remove
+        .iter()
+        .map(|(entry, bytes)| json!({"path": entry.path(), "bytes": bytes}))
         .collect::<Vec<_>>();
-    runs.sort_by_key(|entry| std::cmp::Reverse(entry.file_name()));
-    let remove = runs.into_iter().skip(keep).collect::<Vec<_>>();
-    for entry in &remove {
-        println!(
-            "{} {}",
-            if args.dry_run {
-                "Would remove"
-            } else {
-                "Removing"
-            },
-            entry.path().display()
-        );
+    if args.format == DisplayFormat::Text {
+        for (entry, _) in &remove {
+            println!(
+                "{} {}",
+                if args.dry_run {
+                    "Would remove"
+                } else {
+                    "Removing"
+                },
+                entry.path().display()
+            );
+        }
+    }
+    for (entry, _) in &remove {
         if !args.dry_run {
             fs::remove_dir_all(entry.path())?;
         }
     }
-    println!(
-        "{} {} old run snapshot(s); kept {keep}.",
-        if args.dry_run { "Selected" } else { "Pruned" },
-        remove.len()
+    let removed_bytes = remove.iter().map(|(_, bytes)| *bytes).sum::<u64>();
+    let payload = json!({
+        "schema_version": 1,
+        "command": "prune",
+        "dry_run": args.dry_run,
+        "limits": {"max_runs": keep, "max_bytes": max_bytes},
+        "before": {"runs": before_runs, "bytes": before_bytes},
+        "selected": selected,
+        "removed": {"runs": remove.len(), "bytes": removed_bytes},
+        "after": {"runs": retained_runs, "bytes": retained_bytes, "projected": args.dry_run}
+    });
+    match args.format {
+        DisplayFormat::Text => println!(
+            "{} {} old run snapshot(s) ({} bytes); retained {} run(s) ({} bytes).",
+            if args.dry_run { "Selected" } else { "Pruned" },
+            remove.len(),
+            removed_bytes,
+            retained_runs,
+            retained_bytes
+        ),
+        DisplayFormat::Json => print_text(&render_json(&payload)?),
+        DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
+    }
+    Ok(0)
+}
+
+fn directory_size(path: &Path) -> Result<u64> {
+    let mut total = 0u64;
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        if metadata.is_dir() {
+            total = total.saturating_add(directory_size(&entry.path())?);
+        } else {
+            total = total.saturating_add(metadata.len());
+        }
+    }
+    Ok(total)
+}
+
+fn run_cache(repo_root: &Path, args: CacheArgs) -> Result<i32> {
+    let state_root = args.state_dir.map_or_else(
+        || config::slop_dir(repo_root),
+        |path| {
+            if path.is_absolute() {
+                path
+            } else {
+                repo_root.join(path)
+            }
+        },
     );
+    let (payload, format) = match args.command {
+        CacheCommand::Status { format } => (crate::cache::status(&state_root)?, format),
+        CacheCommand::Prune {
+            max_entries,
+            max_bytes,
+            dry_run,
+            format,
+        } => (
+            crate::cache::prune(&state_root, max_entries, max_bytes, dry_run)?,
+            format,
+        ),
+    };
+    match format {
+        DisplayFormat::Json => print_text(&render_json(&payload)?),
+        DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
+        DisplayFormat::Text => {
+            if payload["command"] == "cache status" {
+                println!(
+                    "Cache {}: {} entries, {} payload bytes, {} database bytes.",
+                    payload["status"].as_str().unwrap_or("unknown"),
+                    payload["entries"],
+                    payload["payload_bytes"],
+                    payload["database_bytes"]
+                );
+            } else {
+                println!(
+                    "{} {} cache entries ({} payload bytes).",
+                    if payload["dry_run"].as_bool().unwrap_or(false) {
+                        "Would prune"
+                    } else {
+                        "Pruned"
+                    },
+                    payload["removed_entries"],
+                    payload["removed_payload_bytes"]
+                );
+            }
+        }
+    }
     Ok(0)
 }
 
@@ -1355,45 +1949,149 @@ fn run_completions(args: CompletionsArgs) -> Result<i32> {
     Ok(0)
 }
 
+fn write_generated_output(output: Option<&Path>, bytes: &[u8]) -> Result<()> {
+    if let Some(path) = output {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, bytes)?;
+    } else {
+        use std::io::Write;
+        std::io::stdout().lock().write_all(bytes)?;
+    }
+    Ok(())
+}
+
+fn run_man(args: ManArgs) -> Result<i32> {
+    let mut bytes = Vec::new();
+    clap_mangen::Man::new(Cli::command()).render(&mut bytes)?;
+    let rendered = String::from_utf8(bytes).context("generated manual was not UTF-8")?;
+    let normalized = format!(
+        "{}\n",
+        rendered
+            .lines()
+            .map(str::trim_end)
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    write_generated_output(args.output.as_deref(), normalized.as_bytes())?;
+    Ok(0)
+}
+
+fn markdown_command(command: &clap::Command, path: &str, output: &mut String) {
+    output.push_str(&format!("## `{path}`\n\n"));
+    if let Some(about) = command.get_about() {
+        output.push_str(&format!("{about}\n\n"));
+    }
+    let arguments = command.get_arguments().collect::<Vec<_>>();
+    if !arguments.is_empty() {
+        output.push_str("| Argument | Description |\n| --- | --- |\n");
+        for argument in arguments {
+            let name = argument
+                .get_long()
+                .map(|value| format!("--{value}"))
+                .unwrap_or_else(|| argument.get_id().to_string());
+            let help = argument
+                .get_help()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            output.push_str(&format!("| `{name}` | {} |\n", help.replace('|', "\\|")));
+        }
+        output.push('\n');
+    }
+    for subcommand in command.get_subcommands() {
+        markdown_command(
+            subcommand,
+            &format!("{path} {}", subcommand.get_name()),
+            output,
+        );
+    }
+}
+
+fn run_reference(args: ReferenceArgs) -> Result<i32> {
+    let command = Cli::command();
+    let mut markdown =
+        "# Git Slop CLI Reference\n\nGenerated from the live Clap command tree.\n\n".to_string();
+    markdown_command(&command, "git-slop", &mut markdown);
+    let normalized = format!("{}\n", markdown.trim_end());
+    write_generated_output(args.output.as_deref(), normalized.as_bytes())?;
+    Ok(0)
+}
+
 fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
-    let (loaded, _) = match report_or_missing(repo_root, args.report.as_deref())? {
+    let explicit_report = args.report.clone();
+    let (loaded, report_path) = match report_or_missing(repo_root, args.report.as_deref())? {
         Ok(value) => value,
         Err(code) => return Ok(code),
     };
-    let output = args
-        .output
-        .unwrap_or_else(|| config::latest_dir(repo_root).join("report.html"));
+    let output = args.output.unwrap_or_else(|| {
+        explicit_report
+            .as_ref()
+            .and_then(|path| path.parent())
+            .map_or_else(|| config::latest_dir(repo_root), Path::to_path_buf)
+            .join("report.html")
+    });
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
-    let payload = serde_json::to_string(&loaded)?.replace("</", "<\\/");
+    let payload = serde_json::to_string(&json!({
+        "schema_version": loaded.get("schema_version"),
+        "generated_at": loaded.get("generated_at"),
+        "analyzed_revision_at": loaded.get("analyzed_revision_at"),
+        "analyzer": loaded.get("analyzer"),
+        "repo": loaded.get("repo"),
+        "scope": loaded.get("scope"),
+        "config_digests": loaded.pointer("/analyzer/config_digests"),
+        "collection_metadata": loaded.get("collection_metadata"),
+        "evidence_completeness": loaded.get("evidence_completeness"),
+        "files": loaded.get("files"),
+        "action_queue": loaded.get("action_queue"),
+        "health": {
+            "summary": loaded.pointer("/health/summary"),
+            "findings": loaded.pointer("/health/findings")
+        },
+        "organization": {
+            "relationships": loaded.pointer("/overlays/organization_health/relationships"),
+            "clusters": loaded.pointer("/overlays/organization_health/clusters")
+        },
+        "source_report": report_path
+    }))?
+    .replace("</", "<\\/");
     let html = format!(
         r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Git Slop local report</title><style>
 :root {{ color-scheme: light dark; font: 15px system-ui,sans-serif }} body {{ margin: 2rem; max-width: 1100px }}
 input,select {{ padding:.55rem; margin:0 .5rem .75rem 0 }} table {{ width:100%; border-collapse:collapse }}
-th,td {{ text-align:left; padding:.5rem; border-bottom:1px solid #8885 }} th {{ cursor:pointer }}
+th,td {{ text-align:left; padding:.5rem; border-bottom:1px solid #8885 }} th button {{ all:unset;cursor:pointer;font-weight:700 }}
 code {{ overflow-wrap:anywhere }} details {{ margin:1rem 0 }} .muted {{ opacity:.7 }} .sr {{ position:absolute;left:-10000px }}
+.views button[aria-pressed="true"] {{ font-weight:700;text-decoration:underline }} tr:target {{ outline:2px solid currentColor }}
 </style></head><body><h1>Git Slop local report</h1><p id="descriptor" class="muted"></p>
+<nav class="views" aria-label="Report view"><button data-view="files" aria-pressed="true">Files</button> <button data-view="queue" aria-pressed="false">Action queue</button> <button data-view="health" aria-pressed="false">Health findings</button></nav>
 <label for="query" class="sr">Search paths</label><input id="query" type="search" placeholder="Search paths"><label for="profile" class="sr">Profile</label><select id="profile"><option value="">All profiles</option></select>
 <label for="severity" class="sr">Maintenance band</label><select id="severity"><option value="">All maintenance bands</option><option>critical</option><option>high</option><option>moderate</option><option>low</option></select>
-<p id="count" aria-live="polite"></p><button id="previous" type="button">Previous</button><button id="next" type="button">Next</button><table><caption class="sr">Analyzed files</caption><thead><tr><th scope="col" data-key="path">Path</th><th scope="col" data-key="profile">Profile</th><th scope="col" data-key="language">Language</th><th scope="col" data-key="slop_band">Maintenance</th><th scope="col" data-key="context_band">Context</th><th scope="col" data-key="slop_score">Score</th><th scope="col" data-key="tokens">Tokens</th></tr></thead><tbody id="rows"></tbody></table>
+<p id="count" aria-live="polite"></p><button id="previous" type="button">Previous</button><button id="next" type="button">Next</button><table><caption class="sr">Git Slop records</caption><thead><tr><th scope="col"><button data-key="path">Path</button></th><th scope="col"><button data-key="profile">Profile</button></th><th scope="col"><button data-key="language">Language</button></th><th scope="col"><button data-key="slop_band">Maintenance</button></th><th scope="col"><button data-key="context_band">Context</button></th><th scope="col"><button data-key="slop_score">Score</button></th><th scope="col"><button data-key="tokens">Tokens</button></th></tr></thead><tbody id="rows"></tbody></table>
+<details id="file-detail"><summary>Selected record details</summary><pre id="detail"></pre></details>
 <details><summary>Relationships</summary><pre id="relationships"></pre></details>
 <script id="report" type="application/json">{payload}</script><script>
-const report=JSON.parse(document.getElementById('report').textContent); let sortKey='slop_score', ascending=false, page=0; const pageSize=100;
-const files=report.files||[]; const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
+const report=JSON.parse(document.getElementById('report').textContent), params=new URLSearchParams(location.search); let view=params.get('view')||'files', sortKey=params.get('sort')||'slop_score', ascending=params.get('dir')==='asc', page=Number(params.get('page')||0); const pageSize=100;
+const files=report.files||[], queue=report.action_queue||[], findings=report.health?.findings||[]; const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
 document.getElementById('descriptor').textContent=`${{report.repo?.repo_name||'repository'}} · ${{report.generated_at||'unknown time'}} · schema ${{report.schema_version}}`;
 const profile=document.getElementById('profile'); [...new Set(files.map(f=>f.profile).filter(Boolean))].sort().forEach(v=>profile.insertAdjacentHTML('beforeend',`<option>${{esc(v)}}</option>`));
-function render() {{ const q=document.getElementById('query').value.toLowerCase(), p=profile.value, s=document.getElementById('severity').value;
- const selected=files.filter(f=>(!q||String(f.path).toLowerCase().includes(q))&&(!p||f.profile===p)&&(!s||f.slop_band===s)).sort((a,b)=>{{const x=a[sortKey],y=b[sortKey]; return (typeof x==='number'?x-y:String(x??'').localeCompare(String(y??'')))*(ascending?1:-1)}});
+document.getElementById('query').value=params.get('q')||''; profile.value=params.get('profile')||''; document.getElementById('severity').value=params.get('band')||'';
+function records() {{ return view==='queue'?queue:view==='health'?findings:files }}
+function syncUrl() {{ const p=new URLSearchParams(); for (const [k,v] of Object.entries({{view,q:document.getElementById('query').value,profile:profile.value,band:document.getElementById('severity').value,sort:sortKey,dir:ascending?'asc':'desc',page}})) if(v!==''&&v!==0)p.set(k,v); history.replaceState(null,'',`${{location.pathname}}?${{p}}${{location.hash}}`) }}
+function render() {{ const q=document.getElementById('query').value.toLowerCase(), p=profile.value, s=document.getElementById('severity').value, source=records();
+ document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===view)));
+ const selected=source.filter(f=>(!q||String(f.path||f.id).toLowerCase().includes(q))&&(!p||f.profile===p)&&(!s||(f.slop_band||f.severity)===s)).sort((a,b)=>{{const x=a[sortKey],y=b[sortKey]; return (typeof x==='number'?x-y:String(x??'').localeCompare(String(y??'')))*(ascending?1:-1)}});
  const pages=Math.max(1,Math.ceil(selected.length/pageSize)); page=Math.min(page,pages-1); const visible=selected.slice(page*pageSize,(page+1)*pageSize);
- document.getElementById('count').textContent=`${{selected.length}} of ${{files.length}} files · page ${{page+1}} of ${{pages}}`;
+ document.getElementById('count').textContent=`${{selected.length}} of ${{source.length}} ${{view.replace('_',' ')}} records · page ${{page+1}} of ${{pages}}`;
  document.getElementById('previous').disabled=page===0; document.getElementById('next').disabled=page+1>=pages;
- document.getElementById('rows').innerHTML=visible.map(f=>`<tr><td><code>${{esc(f.path)}}</code></td><td>${{esc(f.profile)}}</td><td>${{esc(f.language)}}</td><td>${{esc(f.slop_band)}}</td><td>${{esc(f.context_band)}}</td><td>${{esc(f.slop_score)}}</td><td>${{esc(f.tokens)}}</td></tr>`).join(''); }}
-document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>{{page=0;render()}})); document.querySelectorAll('th').forEach(el=>el.addEventListener('click',()=>{{ascending=sortKey===el.dataset.key?!ascending:false;sortKey=el.dataset.key;page=0;render()}}));
-document.getElementById('previous').addEventListener('click',()=>{{page=Math.max(0,page-1);render()}}); document.getElementById('next').addEventListener('click',()=>{{page+=1;render()}});
-const rel=report.relationships||report.overlays?.organization_health?.relationships||{{}}; document.getElementById('relationships').textContent=JSON.stringify(rel,null,2); render();
+ document.getElementById('rows').innerHTML=visible.map((f,i)=>`<tr id="record-${{page*pageSize+i}}" data-index="${{page*pageSize+i}}"><td><button class="record"><code>${{esc(f.path||f.id)}}</code></button></td><td>${{esc(f.profile||f.kind)}}</td><td>${{esc(f.language)}}</td><td>${{esc(f.slop_band||f.severity)}}</td><td>${{esc(f.context_band)}}</td><td>${{esc(f.slop_score||f.evidence_score)}}</td><td>${{esc(f.tokens)}}</td></tr>`).join('');
+ document.querySelectorAll('.record').forEach((button,i)=>button.addEventListener('click',()=>{{document.getElementById('detail').textContent=JSON.stringify(visible[i],null,2);document.getElementById('file-detail').open=true;location.hash=`record-${{page*pageSize+i}}`}})); syncUrl(); }}
+document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>{{page=0;render()}})); document.querySelectorAll('th button').forEach(el=>el.addEventListener('click',()=>{{ascending=sortKey===el.dataset.key?!ascending:true;sortKey=el.dataset.key;page=0;render()}}));
+document.querySelectorAll('[data-view]').forEach(el=>el.addEventListener('click',()=>{{view=el.dataset.view;page=0;render()}})); document.getElementById('previous').addEventListener('click',()=>{{page=Math.max(0,page-1);render()}}); document.getElementById('next').addEventListener('click',()=>{{page+=1;render()}});
+document.getElementById('relationships').parentElement.addEventListener('toggle',e=>{{if(e.target.open&&!e.target.dataset.loaded){{e.target.dataset.loaded='true';document.getElementById('relationships').textContent=JSON.stringify(report.organization?.relationships||{{}},null,2)}}}}); render();
 </script></body></html>"#
     );
     fs::write(&output, html)?;
@@ -1409,7 +2107,7 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
         Command::Explain(args) => run_explain(repo_root, args),
         Command::Plan(args) => run_plan(repo_root, args),
         Command::Check(args) => run_check(repo_root, args),
-        Command::Compare(args) => run_compare(args),
+        Command::Compare(args) => run_compare(repo_root, args),
         Command::Report(args) => run_report(args),
         Command::Sarif(args) => run_sarif(repo_root, args),
         Command::Health(args) => run_health(repo_root, args),
@@ -1417,7 +2115,10 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
         Command::Doctor(args) => run_doctor(repo_root, args),
         Command::List(args) => run_list(repo_root, args),
         Command::Prune(args) => run_prune(repo_root, args),
+        Command::Cache(args) => run_cache(repo_root, args),
         Command::Completions(args) => run_completions(args),
+        Command::Man(args) => run_man(args),
+        Command::Reference(args) => run_reference(args),
         Command::Html(args) => run_html(repo_root, args),
         Command::Version => {
             println!("{PROJECT_NAME} {VERSION}");
@@ -1431,20 +2132,70 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
             }
             Ok(0)
         }
+        Command::Schema(args) => {
+            let source = match args.contract {
+                SchemaContract::Report => {
+                    return {
+                        print_text(&render_json(&report::schema())?);
+                        Ok(0)
+                    };
+                }
+                SchemaContract::Config => {
+                    return {
+                        print_text(&render_json(&config::schema())?);
+                        Ok(0)
+                    };
+                }
+                SchemaContract::Compare => include_str!("../schemas/compare-1.json"),
+                SchemaContract::Explain => include_str!("../schemas/explain-2.json"),
+                SchemaContract::Plan => include_str!("../schemas/plan-2.json"),
+                SchemaContract::Sarif => include_str!("../schemas/sarif-1.json"),
+                SchemaContract::Health => include_str!("../schemas/health-1.json"),
+                SchemaContract::Check => include_str!("../schemas/check-1.json"),
+                SchemaContract::Doctor => include_str!("../schemas/doctor-1.json"),
+                SchemaContract::BuildInfo => include_str!("../schemas/build-info-1.json"),
+                SchemaContract::List => include_str!("../schemas/list-1.json"),
+                SchemaContract::Show => include_str!("../schemas/show-1.json"),
+                SchemaContract::PromptManifest => {
+                    include_str!("../schemas/prompt-manifest-1.json")
+                }
+            };
+            let value: Value = serde_json::from_str(source)?;
+            print_text(&render_json(&value)?);
+            Ok(0)
+        }
     }
 }
 
 fn command_requires_repository(command: &Command) -> bool {
-    !matches!(
-        command,
+    match command {
         Command::Completions(_)
-            | Command::Version
-            | Command::BuildInfo(_)
-            | Command::Report(_)
-            | Command::Config(ConfigArgs {
-                command: ConfigCommand::Schema
-            })
-    )
+        | Command::Man(_)
+        | Command::Reference(_)
+        | Command::Version
+        | Command::BuildInfo(_)
+        | Command::Schema(_)
+        | Command::Report(_)
+        | Command::Config(ConfigArgs {
+            command: ConfigCommand::Schema,
+        }) => false,
+        Command::Show(args) => args.report.is_none(),
+        Command::Compare(args) => args.base_ref.is_some(),
+        Command::Explain(args) => args.report.is_none() || args.include_repository_context,
+        Command::Plan(args) => args.report.is_none() || args.include_repository_context,
+        Command::Check(args) => args.report.is_none(),
+        Command::Sarif(args) => args.report.is_none(),
+        Command::Health(args) => args.report.is_none(),
+        Command::Html(args) => args.report.is_none(),
+        Command::List(ListArgs {
+            command:
+                ListCommand::Findings(args)
+                | ListCommand::Relationships(args)
+                | ListCommand::Clusters(args)
+                | ListCommand::Profiles(args),
+        }) => args.report.is_none(),
+        _ => true,
+    }
 }
 
 pub fn run() -> i32 {
@@ -1456,11 +2207,19 @@ pub fn run() -> i32 {
             return code;
         }
     };
+    let error_format = cli.error_format;
     let repo_root = if command_requires_repository(&cli.command) {
         match git::resolve_repo_root_from(cli.repo.as_deref()) {
             Ok(root) => root,
             Err(error) => {
-                eprintln!("{error:#}");
+                render_runtime_error(
+                    error_format,
+                    &ClassifiedError::new(
+                        ErrorKind::Repository,
+                        "repository_not_found",
+                        format!("{error:#}"),
+                    ),
+                );
                 return 3;
             }
         }
@@ -1470,18 +2229,45 @@ pub fn run() -> i32 {
     match execute(&repo_root, cli.command) {
         Ok(code) => code,
         Err(error) => {
-            let rendered = format!("{error:#}");
-            eprintln!("{rendered}");
-            if rendered.contains("memory_budget_mb") || rendered.contains("analysis bounded") {
-                4
-            } else if rendered.contains("config")
-                || rendered.contains("schema")
-                || rendered.contains("unsupported tokenization")
-            {
-                2
+            let classified = error.downcast_ref::<ClassifiedError>();
+            let fallback;
+            let classified = if let Some(classified) = classified {
+                classified
             } else {
-                3
-            }
+                fallback = if error.downcast_ref::<std::io::Error>().is_some() {
+                    ClassifiedError::new(ErrorKind::Io, "io_failure", format!("{error:#}"))
+                } else {
+                    ClassifiedError::new(
+                        ErrorKind::Repository,
+                        "operation_failed",
+                        format!("{error:#}"),
+                    )
+                };
+                &fallback
+            };
+            render_runtime_error(error_format, classified);
+            classified.kind.exit_code()
         }
+    }
+}
+
+fn render_runtime_error(format: ErrorFormat, error: &ClassifiedError) {
+    match format {
+        ErrorFormat::Human => eprintln!("{}", error.message),
+        ErrorFormat::Json => eprintln!(
+            "{}",
+            serde_json::to_string(&json!({
+                "schema_version": 1,
+                "error": {
+                    "kind": error.kind,
+                    "code": error.code,
+                    "pointer": error.pointer,
+                    "message": error.message
+                }
+            }))
+            .unwrap_or_else(|_| {
+                "{\"schema_version\":1,\"error\":{\"code\":\"serialization_failed\"}}".to_string()
+            })
+        ),
     }
 }

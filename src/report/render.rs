@@ -397,14 +397,14 @@ pub fn render_terminal(report: &Value) -> String {
             usize_field(file_counts, "compact"),
             usize_field(file_counts, "healthy"),
             usize_field(file_counts, "warning"),
-            usize_field(file_counts, "refactor_required"),
+            usize_field(file_counts, "budget_exceeded"),
         ),
         format!(
             "  folders: compact={} healthy={} warning={} budget_exceeded={}",
             usize_field(folder_counts, "compact"),
             usize_field(folder_counts, "healthy"),
             usize_field(folder_counts, "warning"),
-            usize_field(folder_counts, "refactor_required"),
+            usize_field(folder_counts, "budget_exceeded"),
         ),
         format!(
             "  git: branch={} detached={} shallow={} clean={} staged={} modified={} untracked={}",

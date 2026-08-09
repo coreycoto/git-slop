@@ -240,7 +240,7 @@ fn folder_trigger(candidate: &Value, boundaries: FolderBoundaries) -> String {
     let files = usize_field(candidate, "files");
     let tokens = usize_field(candidate, "tokens");
     let (token_ceiling, file_ceiling, boundary_label) = match band {
-        "refactor_required" => (
+        "budget_exceeded" | "refactor_required" => (
             boundaries.warning_tokens,
             boundaries.refactor_files,
             "warning",
@@ -493,13 +493,10 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
         .and_then(Value::as_str)
         .or_else(|| repo.get("head_sha").and_then(Value::as_str))
         .unwrap_or("none");
-    let file_failures = *rollup
-        .file_band_counts
-        .get("refactor_required")
-        .unwrap_or(&0);
+    let file_failures = *rollup.file_band_counts.get("budget_exceeded").unwrap_or(&0);
     let folder_failures = *rollup
         .folder_band_counts
-        .get("refactor_required")
+        .get("budget_exceeded")
         .unwrap_or(&0);
     let file_warnings = *rollup.file_band_counts.get("warning").unwrap_or(&0);
     let folder_warnings = *rollup.folder_band_counts.get("warning").unwrap_or(&0);
@@ -575,12 +572,12 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
             format_int(*rollup.file_band_counts.get("warning").unwrap_or(&0))
         ),
         format!(
-            "| `refactor_required` | `>{}` tokens | {} |",
+            "| `budget_exceeded` | `>{}` tokens | {} |",
             format_int(warning_max as usize),
             format_int(
                 *rollup
                     .file_band_counts
-                    .get("refactor_required")
+                    .get("budget_exceeded")
                     .unwrap_or(&0)
             )
         ),
@@ -606,13 +603,13 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
             format_int(*rollup.folder_band_counts.get("warning").unwrap_or(&0))
         ),
         format!(
-            "| `refactor_required` | direct tokens `>{}` or direct files `>{}` | {} |",
+            "| `budget_exceeded` | direct tokens `>{}` or direct files `>{}` | {} |",
             format_int(folder_warning_max as usize),
             format_int(folder_refactor_files as usize),
             format_int(
                 *rollup
                     .folder_band_counts
-                    .get("refactor_required")
+                    .get("budget_exceeded")
                     .unwrap_or(&0)
             )
         ),
@@ -643,7 +640,7 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
     let must_refactor = rollup
         .refactor_candidates
         .iter()
-        .filter(|candidate| string_field(candidate, "band") == "refactor_required")
+        .filter(|candidate| string_field(candidate, "band") == "budget_exceeded")
         .cloned()
         .collect::<Vec<_>>();
     let should_refactor = rollup

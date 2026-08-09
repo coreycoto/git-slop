@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::BufRead;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
@@ -26,6 +27,8 @@ struct StatusCommit {
     commit: String,
     timestamp: i64,
     author: String,
+    parents: Vec<String>,
+    subject: String,
     changes: Vec<StatusChange>,
 }
 
@@ -41,6 +44,8 @@ struct NumstatCommit {
     commit: String,
     timestamp: i64,
     author: String,
+    parents: Vec<String>,
+    subject: String,
     entries: Vec<NumstatEntry>,
 }
 
@@ -91,7 +96,29 @@ fn parse_status_log(raw: &str) -> Vec<StatusCommit> {
         let commit = tokens[index + 1].trim().to_string();
         let timestamp = tokens[index + 2].trim().parse::<i64>().unwrap_or(0);
         let author = author_key(tokens[index + 3], tokens[index + 4]);
-        index += 5;
+        let extended = tokens.get(index + 5).is_some_and(|value| {
+            value.is_empty()
+                || value.split_whitespace().all(|parent| {
+                    parent.len() == 40
+                        && parent
+                            .chars()
+                            .all(|character| character.is_ascii_hexdigit())
+                })
+        });
+        let parents = if extended {
+            tokens[index + 5]
+                .split_whitespace()
+                .map(str::to_string)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let subject = if extended {
+            tokens.get(index + 6).unwrap_or(&"").to_string()
+        } else {
+            String::new()
+        };
+        index += if extended { 7 } else { 5 };
         let mut changes = Vec::new();
         while index < tokens.len() && tokens[index] != "commit" {
             let status = tokens[index].trim_start_matches('\n');
@@ -135,6 +162,8 @@ fn parse_status_log(raw: &str) -> Vec<StatusCommit> {
             commit,
             timestamp,
             author,
+            parents,
+            subject,
             changes,
         });
     }
@@ -153,7 +182,29 @@ fn parse_numstat_log(raw: &str) -> Vec<NumstatCommit> {
         let commit = tokens[index + 1].trim().to_string();
         let timestamp = tokens[index + 2].trim().parse::<i64>().unwrap_or(0);
         let author = author_key(tokens[index + 3], tokens[index + 4]);
-        index += 5;
+        let extended = tokens.get(index + 5).is_some_and(|value| {
+            value.is_empty()
+                || value.split_whitespace().all(|parent| {
+                    parent.len() == 40
+                        && parent
+                            .chars()
+                            .all(|character| character.is_ascii_hexdigit())
+                })
+        });
+        let parents = if extended {
+            tokens[index + 5]
+                .split_whitespace()
+                .map(str::to_string)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let subject = if extended {
+            tokens.get(index + 6).unwrap_or(&"").to_string()
+        } else {
+            String::new()
+        };
+        index += if extended { 7 } else { 5 };
         let mut entries = Vec::new();
         while index < tokens.len() && tokens[index] != "commit" {
             let stat_line = tokens[index].trim_start_matches('\n');
@@ -198,6 +249,8 @@ fn parse_numstat_log(raw: &str) -> Vec<NumstatCommit> {
             commit,
             timestamp,
             author,
+            parents,
+            subject,
             entries,
         });
     }
@@ -213,12 +266,47 @@ fn git_has_head(repo_root: &Path) -> Result<bool> {
     Ok(output.status.success())
 }
 
-fn run_git_log(repo_root: &Path, args: &[String]) -> Result<String> {
-    let output = Command::new("git")
+fn stream_git_log<T>(
+    repo_root: &Path,
+    args: &[String],
+    parse: fn(&str) -> Vec<T>,
+) -> Result<Vec<T>> {
+    let mut child = Command::new("git")
         .current_dir(repo_root)
         .args(args)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .context("failed to execute git")?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("git log stdout was unavailable")?;
+    let mut reader = std::io::BufReader::new(stdout);
+    let mut token = Vec::new();
+    let mut commit = String::new();
+    let mut records = Vec::new();
+    loop {
+        token.clear();
+        let bytes = reader.read_until(0, &mut token)?;
+        if bytes == 0 {
+            break;
+        }
+        if token.last() == Some(&0) {
+            token.pop();
+        }
+        let value = String::from_utf8_lossy(&token);
+        if value.trim_start_matches('\n') == "commit" && !commit.is_empty() {
+            records.extend(parse(&commit));
+            commit.clear();
+        }
+        commit.push_str(&value);
+        commit.push('\0');
+    }
+    if !commit.is_empty() {
+        records.extend(parse(&commit));
+    }
+    let output = child.wait_with_output()?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         bail!(
@@ -231,7 +319,7 @@ fn run_git_log(repo_root: &Path, args: &[String]) -> Result<String> {
             }
         );
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(records)
 }
 
 fn load_status_commits(
@@ -245,7 +333,7 @@ fn load_status_commits(
         "--no-show-signature".to_string(),
         "--name-status".to_string(),
         "-z".to_string(),
-        "--format=commit%x00%H%x00%ct%x00%an%x00%ae".to_string(),
+        "--format=commit%x00%H%x00%ct%x00%an%x00%ae%x00%P%x00%s".to_string(),
         if follow_renames {
             "--find-renames".to_string()
         } else {
@@ -256,7 +344,7 @@ fn load_status_commits(
     if let Some(since) = since {
         args.push(format!("--since={since}"));
     }
-    run_git_log(repo_root, &args).map(|raw| parse_status_log(&raw))
+    stream_git_log(repo_root, &args, parse_status_log)
 }
 
 fn load_numstat_commits(
@@ -270,7 +358,7 @@ fn load_numstat_commits(
         "--no-show-signature".to_string(),
         "--numstat".to_string(),
         "-z".to_string(),
-        "--format=commit%x00%H%x00%ct%x00%an%x00%ae".to_string(),
+        "--format=commit%x00%H%x00%ct%x00%an%x00%ae%x00%P%x00%s".to_string(),
         format!("--since={since}"),
         format!("--max-count={max_commits}"),
         if follow_renames {
@@ -281,8 +369,7 @@ fn load_numstat_commits(
     ];
     // Preserve the established ordering contract: commits are emitted newest
     // first and rename aliases are expanded while walking back.
-    let raw = run_git_log(repo_root, &args)?;
-    Ok(parse_numstat_log(&raw))
+    stream_git_log(repo_root, &args, parse_numstat_log)
 }
 
 fn apply_rename_aliases(aliases: &mut BTreeMap<String, String>, commit: Option<&StatusCommit>) {
@@ -501,12 +588,16 @@ fn is_bot(author: &str, markers: &[String]) -> bool {
 
 fn empty_result(
     analyzed_paths: &[String],
+    status: &str,
 ) -> (BTreeMap<String, HistoryMetrics>, Vec<CommitRecord>, Value) {
     let metrics = analyzed_paths
         .iter()
         .map(|path| (normalized_path(path), HistoryMetrics::default()))
         .collect();
-    (metrics, Vec::new(), repo_baselines(&[]))
+    let mut diagnostics = repo_baselines(&[]);
+    diagnostics["history_status"] = json!(status);
+    diagnostics["history_cap_reached"] = json!(false);
+    (metrics, Vec::new(), diagnostics)
 }
 
 /// Analyze rolling Git history for the current inventory.
@@ -523,8 +614,14 @@ pub fn analyze_history(
     config: &Value,
     now: DateTime<Utc>,
 ) -> Result<(BTreeMap<String, HistoryMetrics>, Vec<CommitRecord>, Value)> {
-    if analyzed_paths.is_empty() || !git_has_head(repo_root)? {
-        return Ok(empty_result(analyzed_paths));
+    if !git_has_head(repo_root)? {
+        return Ok(empty_result(
+            analyzed_paths,
+            "not_applicable_unborn_repository",
+        ));
+    }
+    if analyzed_paths.is_empty() {
+        return Ok(empty_result(analyzed_paths, "not_applicable_empty_scope"));
     }
 
     let tracked_paths: BTreeSet<String> = analyzed_paths
@@ -547,7 +644,10 @@ pub fn analyze_history(
         .context("history window precedes Chrono's supported range")?;
     let since = cutoff.to_rfc3339_opts(SecondsFormat::Secs, true);
 
-    let full_status = load_status_commits(repo_root, None, follow_renames, max_commits)?;
+    let fetch_limit = max_commits.saturating_add(1);
+    let mut full_status = load_status_commits(repo_root, None, follow_renames, fetch_limit)?;
+    let full_history_cap_reached = full_status.len() as u64 > max_commits;
+    full_status.truncate(max_commits as usize);
     let first_seen = if follow_renames {
         first_seen_with_lineage(&tracked_paths, &full_status)
     } else {
@@ -556,8 +656,13 @@ pub fn analyze_history(
     let full_history_commit_count = full_status.len();
     drop(full_status);
 
-    let window_status = load_status_commits(repo_root, Some(&since), follow_renames, max_commits)?;
-    let window_numstat = load_numstat_commits(repo_root, &since, follow_renames, max_commits)?;
+    let mut window_status =
+        load_status_commits(repo_root, Some(&since), follow_renames, fetch_limit)?;
+    let window_status_cap_reached = window_status.len() as u64 > max_commits;
+    window_status.truncate(max_commits as usize);
+    let mut window_numstat = load_numstat_commits(repo_root, &since, follow_renames, fetch_limit)?;
+    let window_numstat_cap_reached = window_numstat.len() as u64 > max_commits;
+    window_numstat.truncate(max_commits as usize);
     let status_by_commit: BTreeMap<&str, &StatusCommit> = window_status
         .iter()
         .map(|commit| (commit.commit.as_str(), commit))
@@ -667,6 +772,40 @@ pub fn analyze_history(
                 .map(|(path, change)| (path.clone(), change.line_churn))
                 .collect();
             let paths: Vec<String> = line_churn_by_path.keys().cloned().collect();
+            let status_commit = status_by_commit.get(commit.commit.as_str()).copied();
+            let creation_changes = status_commit
+                .map(|status| {
+                    status
+                        .changes
+                        .iter()
+                        .filter(|change| matches!(change, StatusChange::Path { status, .. } if status.starts_with('A')))
+                        .count()
+                })
+                .unwrap_or_default();
+            let subject = commit.subject.to_ascii_lowercase();
+            let change_kind = if commit.parents.len() > 1 {
+                "merge"
+            } else if subject.contains("release")
+                || subject.starts_with("bump version")
+                || subject.starts_with("chore: version")
+            {
+                "release"
+            } else if subject.contains("import")
+                || subject.contains("vendor")
+                || subject.contains("generated snapshot")
+            {
+                "import"
+            } else if !paths.is_empty() && creation_changes >= paths.len() {
+                "creation"
+            } else {
+                "maintenance"
+            };
+            let change_set_calibration = 1.0 / (paths.len().saturating_sub(1).max(1) as f64).sqrt();
+            let calibration_weight = match change_kind {
+                "merge" | "import" => 0.0,
+                "release" => change_set_calibration * 0.1,
+                _ => change_set_calibration,
+            };
             let roots: BTreeSet<String> = paths.iter().map(|path| top_level_root(path)).collect();
             let line_weights: Vec<usize> =
                 changes.values().map(|change| change.line_churn).collect();
@@ -685,6 +824,9 @@ pub fn analyze_history(
                 author,
                 paths,
                 line_churn_by_path,
+                change_set_size: changes.len(),
+                change_kind: change_kind.to_string(),
+                calibration_weight: round_to(calibration_weight, 6),
             });
         }
 
@@ -761,7 +903,22 @@ pub fn analyze_history(
     baselines["window_status_commit_count"] = json!(window_status.len());
     baselines["window_numstat_commit_count"] = json!(commit_records.len());
     baselines["max_commits"] = json!(max_commits);
-    baselines["history_cap_reached"] = json!(full_history_commit_count as u64 >= max_commits);
+    baselines["history_cap_reached"] = json!(full_history_cap_reached);
+    baselines["full_history_cap_status"] = json!(if full_history_cap_reached {
+        "truncated"
+    } else {
+        "complete"
+    });
+    baselines["window_status_cap_status"] = json!(if window_status_cap_reached {
+        "truncated"
+    } else {
+        "complete"
+    });
+    baselines["window_numstat_cap_status"] = json!(if window_numstat_cap_reached {
+        "truncated"
+    } else {
+        "complete"
+    });
     baselines["follow_renames"] = json!(follow_renames);
     Ok((metrics, commit_records, baselines))
 }
@@ -790,6 +947,8 @@ mod tests {
                 commit: "abc123".to_string(),
                 timestamp: 10_000_000,
                 author: "Example Dev <dev@example.com>".to_string(),
+                parents: Vec::new(),
+                subject: String::new(),
                 changes: vec![StatusChange::Rename {
                     old_path: "src/old.py".to_string(),
                     new_path: "src/new.py".to_string(),
@@ -811,6 +970,8 @@ mod tests {
                 commit: "def456".to_string(),
                 timestamp: 10_000_010,
                 author: "Example Dev <dev@example.com>".to_string(),
+                parents: Vec::new(),
+                subject: String::new(),
                 entries: vec![NumstatEntry {
                     added: 5,
                     deleted: 3,
@@ -836,6 +997,8 @@ mod tests {
                 commit: "new-edit".to_string(),
                 timestamp: 300,
                 author: "Dev <dev@example.com>".to_string(),
+                parents: Vec::new(),
+                subject: String::new(),
                 changes: vec![StatusChange::Path {
                     status: "M".to_string(),
                     path: "src/current.rs".to_string(),
@@ -845,6 +1008,8 @@ mod tests {
                 commit: "rename".to_string(),
                 timestamp: 200,
                 author: "Dev <dev@example.com>".to_string(),
+                parents: Vec::new(),
+                subject: String::new(),
                 changes: vec![StatusChange::Rename {
                     old_path: "src/legacy.rs".to_string(),
                     new_path: "src/current.rs".to_string(),
@@ -854,6 +1019,8 @@ mod tests {
                 commit: "initial".to_string(),
                 timestamp: 100,
                 author: "Dev <dev@example.com>".to_string(),
+                parents: Vec::new(),
+                subject: String::new(),
                 changes: vec![StatusChange::Path {
                     status: "A".to_string(),
                     path: "src/legacy.rs".to_string(),

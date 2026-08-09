@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use git_slop_xtask::{
     codex, crates_io, distribution, finish_validation, homebrew, issue_forms, manifest, release,
-    repository, workflows,
+    repository, sbom, workflows,
 };
 
 #[derive(Debug, Parser)]
@@ -100,6 +100,12 @@ enum Command {
 
         #[arg(long, default_value = "../homebrew-tap/Formula/git-slop.rb")]
         formula: PathBuf,
+    },
+
+    /// Generate deterministic CycloneDX 1.5 and SPDX 2.3 SBOM documents.
+    Sbom {
+        #[arg(long, default_value = "dist")]
+        output_dir: PathBuf,
     },
 }
 
@@ -206,6 +212,12 @@ fn run(cli: Cli) -> Result<()> {
             let identity = homebrew::load_manifest(&repo_root, &manifest)?;
             let path = homebrew::write_formula(&repo_root, &formula, &identity)?;
             println!("Wrote Homebrew formula: {}", path.display());
+            Ok(())
+        }
+        Command::Sbom { output_dir } => {
+            for path in sbom::generate(&repo_root, &output_dir)? {
+                println!("Wrote SBOM: {}", path.display());
+            }
             Ok(())
         }
     }

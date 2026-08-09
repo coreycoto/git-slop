@@ -7,6 +7,7 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use chrono::{SecondsFormat, Utc};
 use regex::Regex;
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -17,6 +18,7 @@ use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::config;
+use crate::error::{ClassifiedError, ErrorKind};
 use crate::estimate;
 use crate::git;
 use crate::health;
@@ -52,45 +54,115 @@ fn token_cache_key(text: &str, tokenizer: &str, large_file_bytes: usize, mode: &
     hex::encode(digest.finalize())
 }
 
-fn load_cached_tokens(path: &Path) -> Option<CachedTokenData> {
-    serde_json::from_slice(&fs::read(path).ok()?).ok()
+struct TokenCache {
+    connection: Connection,
 }
 
-fn write_cached_tokens(path: &Path, cached: &CachedTokenData) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+#[derive(Default)]
+struct CacheStats {
+    entries: usize,
+    bytes: u64,
+    failed_evictions: usize,
+}
+
+impl TokenCache {
+    fn open(path: &Path) -> Result<Self> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let connection = Connection::open(path)
+            .with_context(|| format!("failed to open packed cache {}", path.display()))?;
+        connection.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
+             CREATE TABLE IF NOT EXISTS token_cache (
+               cache_key TEXT PRIMARY KEY,
+               payload BLOB NOT NULL,
+               payload_bytes INTEGER NOT NULL,
+               accessed_at INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS token_cache_accessed ON token_cache(accessed_at, cache_key);",
+        )?;
+        Ok(Self { connection })
     }
-    let temporary = path.with_extension(format!("json.tmp-{}", std::process::id()));
-    fs::write(&temporary, serde_json::to_vec(cached)?)?;
-    fs::rename(&temporary, path)?;
-    Ok(())
-}
 
-fn enforce_cache_limits(root: &Path, max_entries: usize, max_bytes: u64) -> Result<(usize, u64)> {
-    let mut entries = fs::read_dir(root)
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let metadata = entry.metadata().ok()?;
-            metadata
-                .is_file()
-                .then_some((entry.path(), metadata.modified().ok(), metadata.len()))
+    fn get(&self, key: &str) -> Result<Option<CachedTokenData>> {
+        let payload: Option<Vec<u8>> = self
+            .connection
+            .query_row(
+                "SELECT payload FROM token_cache WHERE cache_key = ?1",
+                [key],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(payload) = payload else {
+            return Ok(None);
+        };
+        self.connection.execute(
+            "UPDATE token_cache SET accessed_at = unixepoch() WHERE cache_key = ?1",
+            [key],
+        )?;
+        Ok(serde_json::from_slice(&payload).ok())
+    }
+
+    fn put(&self, key: &str, value: &CachedTokenData) -> Result<()> {
+        let payload = serde_json::to_vec(value)?;
+        let payload_bytes = payload.len() as u64;
+        self.connection.execute(
+            "INSERT INTO token_cache(cache_key, payload, payload_bytes, accessed_at)
+             VALUES(?1, ?2, ?3, unixepoch())
+             ON CONFLICT(cache_key) DO UPDATE SET
+               payload = excluded.payload,
+               payload_bytes = excluded.payload_bytes,
+               accessed_at = excluded.accessed_at",
+            params![key, payload, payload_bytes],
+        )?;
+        Ok(())
+    }
+
+    fn enforce_limits(&self, max_entries: usize, max_bytes: u64) -> Result<CacheStats> {
+        let mut stats = self.stats()?;
+        while stats.entries > max_entries || stats.bytes > max_bytes {
+            let candidate: Option<(String, u64)> = self
+                .connection
+                .query_row(
+                    "SELECT cache_key, payload_bytes FROM token_cache ORDER BY accessed_at, cache_key LIMIT 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            let Some((key, bytes)) = candidate else {
+                break;
+            };
+            match self
+                .connection
+                .execute("DELETE FROM token_cache WHERE cache_key = ?1", [&key])
+            {
+                Ok(1) => {
+                    stats.entries = stats.entries.saturating_sub(1);
+                    stats.bytes = stats.bytes.saturating_sub(bytes);
+                }
+                _ => {
+                    stats.failed_evictions += 1;
+                    break;
+                }
+            }
+        }
+        Ok(stats)
+    }
+
+    fn stats(&self) -> Result<CacheStats> {
+        let (entries, bytes): (u64, u64) = self.connection.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(payload_bytes), 0) FROM token_cache",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        Ok(CacheStats {
+            entries: entries as usize,
+            bytes,
+            failed_evictions: 0,
         })
-        .collect::<Vec<_>>();
-    entries.sort_by_key(|(path, modified, _)| (*modified, path.clone()));
-    let mut total_bytes = entries.iter().map(|entry| entry.2).sum::<u64>();
-    let mut total_entries = entries.len();
-    for (path, _, bytes) in entries {
-        if total_entries <= max_entries && total_bytes <= max_bytes {
-            break;
-        }
-        if fs::remove_file(&path).is_ok() {
-            total_entries = total_entries.saturating_sub(1);
-            total_bytes = total_bytes.saturating_sub(bytes);
-        }
     }
-    Ok((total_entries, total_bytes))
 }
 
 fn replace_quoted_strings(text: &str) -> String {
@@ -131,13 +203,42 @@ fn replace_quoted_strings(text: &str) -> String {
 }
 
 fn structural_mode(path: &str) -> &'static str {
-    if matches!(
-        Path::new(path).extension().and_then(|value| value.to_str()),
-        Some("md" | "mdx" | "txt")
-    ) {
-        "prose"
-    } else {
-        "code"
+    match Path::new(path).extension().and_then(|value| value.to_str()) {
+        Some("md" | "mdx") => "markdown",
+        Some("txt") => "prose",
+        Some("sql") => "sql",
+        Some("html" | "htm" | "xml" | "svg") => "markup",
+        _ => "code",
+    }
+}
+
+fn structural_categories(mode: &str, text: &str) -> Value {
+    match mode {
+        "markdown" => {
+            let mut fenced = false;
+            let mut prose_lines = 0usize;
+            let mut fenced_code_lines = 0usize;
+            for line in text.lines() {
+                if line.trim_start().starts_with("```") {
+                    fenced = !fenced;
+                } else if fenced {
+                    fenced_code_lines += 1;
+                } else {
+                    prose_lines += 1;
+                }
+            }
+            json!({"mode": mode, "prose_lines": prose_lines, "fenced_code_lines": fenced_code_lines})
+        }
+        "sql" => {
+            json!({"mode": mode, "query_lines": text.lines().count(), "string_literals_normalized": true})
+        }
+        "markup" => {
+            json!({"mode": mode, "markup_lines": text.lines().count(), "tag_and_text_categories": true})
+        }
+        "prose" => json!({"mode": mode, "prose_lines": text.lines().count()}),
+        _ => {
+            json!({"mode": "code", "code_lines": text.lines().count(), "string_literals_normalized": true})
+        }
     }
 }
 
@@ -147,7 +248,7 @@ fn structural_content_tokens(mode: &str, text: &str) -> Vec<String> {
     let normalized = ACRONYM_BOUNDARY_RE.replace_all(&normalized, "$1 $2");
     let normalized = CAMEL_CASE_RE.replace_all(&normalized, "$1 $2");
     let normalized = normalized.replace(['-', '/'], " ");
-    let normalized = if mode == "prose" {
+    let normalized = if matches!(mode, "prose" | "markdown") {
         normalized
     } else {
         replace_quoted_strings(&normalized)
@@ -252,6 +353,11 @@ fn action_queue(files: &[FileAnalysis]) -> Vec<Value> {
     });
     files
         .into_iter()
+        .filter(|file| {
+            !file.reason_codes.is_empty()
+                || matches!(file.context_band.as_str(), "warning" | "critical")
+                || matches!(file.slop_band.as_str(), "high" | "critical")
+        })
         .map(|file| {
             let non_context_reasons = file.reason_codes.iter().any(|reason| {
                 !matches!(reason.as_str(), "critical_token_cost" | "high_token_cost")
@@ -291,6 +397,12 @@ pub struct FindOptions {
     pub scope: Option<String>,
     pub progress: bool,
     pub allow_empty_scope: bool,
+    pub state_dir: Option<PathBuf>,
+    pub output_dir: Option<PathBuf>,
+    pub no_cache: bool,
+    pub allow_degraded: bool,
+    pub report_profile: String,
+    pub compression: String,
 }
 
 fn normalize_scope(value: Option<&str>) -> Result<Option<String>> {
@@ -328,6 +440,37 @@ fn selected_path_digest(paths: &[String]) -> String {
         digest.update([0]);
     }
     hex::encode(digest.finalize())
+}
+
+fn measure_rss_checkpoint(
+    checkpoint: &'static str,
+    memory_budget_bytes: u128,
+    allow_degraded: bool,
+    peak_rss_bytes: &mut Option<u64>,
+    exceeded_checkpoints: &mut Vec<&'static str>,
+) -> Result<()> {
+    let Some(rss_bytes) = estimate::current_rss_bytes() else {
+        return Ok(());
+    };
+    *peak_rss_bytes = Some(peak_rss_bytes.unwrap_or_default().max(rss_bytes));
+    if u128::from(rss_bytes) <= memory_budget_bytes {
+        return Ok(());
+    }
+    exceeded_checkpoints.push(checkpoint);
+    if allow_degraded {
+        return Ok(());
+    }
+    Err(ClassifiedError::new(
+        ErrorKind::ResourceLimit,
+        "measured_memory_budget_exceeded",
+        format!(
+            "analysis stopped at {checkpoint}: measured RSS {} MiB exceeds resources.memory_budget_mb={}; narrow --scope, use --allow-degraded, or raise the explicit budget",
+            rss_bytes.div_ceil(1024 * 1024),
+            memory_budget_bytes / 1024 / 1024
+        ),
+    )
+    .at("/resources/memory_budget_mb")
+    .into())
 }
 
 fn selected_content_digest(repo_root: &Path, paths: &[String]) -> Result<String> {
@@ -369,6 +512,7 @@ pub fn run_find_scoped(
             scope: scope.map(ToOwned::to_owned),
             progress,
             allow_empty_scope: false,
+            ..FindOptions::default()
         },
     )
 }
@@ -378,6 +522,17 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
     let scope = options.scope.as_deref();
     let progress = options.progress;
     let allow_empty_scope = options.allow_empty_scope;
+    let resolve_root = |value: Option<&Path>, fallback: PathBuf| {
+        value.map_or(fallback, |path| {
+            if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                repo_root.join(path)
+            }
+        })
+    };
+    let state_root = resolve_root(options.state_dir.as_deref(), config::slop_dir(repo_root));
+    let output_root = resolve_root(options.output_dir.as_deref(), config::slop_dir(repo_root));
     let started = Instant::now();
     let phase = |name: &str| {
         if progress {
@@ -385,10 +540,34 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         }
     };
     phase("preflight");
-    config::ensure_runtime_gitignore(repo_root)?;
     let _scan_lock = config::acquire_scan_lock(repo_root)?;
-    let loaded_config = config::load(repo_root)?;
+    let loaded_config = config::load(repo_root).map_err(|error| {
+        ClassifiedError::new(
+            ErrorKind::Contract,
+            "invalid_configuration",
+            format!("{error:#}"),
+        )
+        .at("/.slop/config.yaml")
+    })?;
     let mut repo = git::repo_metadata(repo_root)?;
+    let runtime_exclusions = [
+        state_root.join("cache"),
+        output_root.join("latest"),
+        output_root.join("runs"),
+    ]
+    .into_iter()
+    .filter_map(|path| {
+        path.strip_prefix(repo_root)
+            .ok()
+            .map(|value| value.to_string_lossy().replace('\\', "/"))
+    })
+    .collect::<Vec<_>>();
+    let starting_worktree = git::worktree_state_excluding(repo_root, &runtime_exclusions)?;
+    repo.worktree_clean = starting_worktree.clean;
+    repo.staged_change_count = starting_worktree.staged_change_count;
+    repo.modified_tracked_file_count = starting_worktree.modified_tracked_file_count;
+    repo.untracked_file_count = starting_worktree.untracked_file_count;
+    repo.worktree_state_digest = starting_worktree.digest;
     if repo.is_shallow && !allow_shallow {
         bail!(
             "repository history is shallow; rerun with git slop find --allow-shallow to acknowledge incomplete history"
@@ -397,11 +576,11 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
     let all_tracked_paths = git::list_tracked_files(repo_root)?;
     let scope = normalize_scope(scope)?;
     if let Some(scope) = scope.as_deref() {
-        if !repo_root.join(scope).exists() {
+        if fs::symlink_metadata(repo_root.join(scope)).is_err() {
             bail!("--scope does not exist in the repository: {scope}");
         }
     }
-    let tracked_paths = all_tracked_paths
+    let mut tracked_paths = all_tracked_paths
         .iter()
         .filter(|path| {
             scope
@@ -419,6 +598,24 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             )
         );
     }
+    let original_selected_path_count = tracked_paths.len();
+    let initial_estimate = estimate::build(repo_root, &tracked_paths, &loaded_config);
+    if initial_estimate.estimated_peak_memory_bytes > initial_estimate.memory_budget_bytes
+        && options.allow_degraded
+    {
+        let mut low = 0usize;
+        let mut high = tracked_paths.len();
+        while low < high {
+            let middle = (low + high).div_ceil(2);
+            let candidate = estimate::build(repo_root, &tracked_paths[..middle], &loaded_config);
+            if candidate.estimated_peak_memory_bytes <= candidate.memory_budget_bytes {
+                low = middle;
+            } else {
+                high = middle.saturating_sub(1);
+            }
+        }
+        tracked_paths.truncate(low);
+    }
     let scope_identity = ScopeIdentity {
         mode: if scope.is_some() {
             "scoped"
@@ -433,15 +630,44 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
     let starting_content_digest = selected_content_digest(repo_root, &tracked_paths)?;
     let estimate = estimate::build(repo_root, &tracked_paths, &loaded_config);
     if estimate.estimated_peak_memory_bytes > estimate.memory_budget_bytes {
-        bail!(
-            "analysis bounded before inventory: estimated {} MiB exceeds resources.memory_budget_mb={}; narrow --scope or raise the explicit budget",
-            estimate.estimated_peak_memory_bytes.div_ceil(1024 * 1024),
-            estimate.memory_budget_bytes / 1024 / 1024
-        );
+        return Err(ClassifiedError::new(
+            ErrorKind::ResourceLimit,
+            "estimated_memory_budget_exceeded",
+            format!(
+                "analysis bounded before inventory: estimated {} MiB exceeds resources.memory_budget_mb={}; narrow --scope, use --allow-degraded, or raise the explicit budget",
+                estimate.estimated_peak_memory_bytes.div_ceil(1024 * 1024),
+                estimate.memory_budget_bytes / 1024 / 1024
+            ),
+        )
+        .at("/resources/memory_budget_mb")
+        .into());
     }
+    let mut measured_peak_rss_bytes = None;
+    let mut memory_budget_exceeded_checkpoints = Vec::new();
+    measure_rss_checkpoint(
+        "pre_inventory",
+        estimate.memory_budget_bytes,
+        options.allow_degraded,
+        &mut measured_peak_rss_bytes,
+        &mut memory_budget_exceeded_checkpoints,
+    )?;
     let (inventory_files, skipped) = inventory::build(repo_root, &tracked_paths, &loaded_config)?;
     phase("inventory");
-    let encoder = configured_context_encoder(&loaded_config)?;
+    measure_rss_checkpoint(
+        "post_inventory",
+        estimate.memory_budget_bytes,
+        options.allow_degraded,
+        &mut measured_peak_rss_bytes,
+        &mut memory_budget_exceeded_checkpoints,
+    )?;
+    let encoder = configured_context_encoder(&loaded_config).map_err(|error| {
+        ClassifiedError::new(
+            ErrorKind::Contract,
+            "unsupported_tokenizer",
+            format!("{error:#}"),
+        )
+        .at("/tokenization/context_tokenizer_name")
+    })?;
     let mut token_counts = BTreeMap::new();
     let mut line_counts = BTreeMap::new();
     let mut token_data = HashMap::new();
@@ -450,42 +676,50 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         .to_string();
     let large_file_bytes =
         config::pointer_u64(&loaded_config, "/resources/large_file_bytes", 2_097_152) as usize;
-    let cache_root = config::cache_dir(repo_root).join("token-v3");
+    let cache_path = state_root.join("cache").join("token-v4.sqlite3");
     let mut cache_cleanup_warnings = Vec::new();
-    for version in ["token-v1", "token-v2"] {
-        let legacy_cache = config::cache_dir(repo_root).join(version);
-        if legacy_cache.exists() {
-            if let Err(error) = fs::remove_dir_all(&legacy_cache) {
-                cache_cleanup_warnings.push(format!(
-                    "failed to remove legacy cache {}: {error}",
-                    legacy_cache.display()
-                ));
-            }
-        }
-    }
-    if let Ok(entries) = fs::read_dir(&cache_root) {
-        for entry in entries.filter_map(Result::ok) {
-            if entry.file_name().to_string_lossy().contains(".tmp-") {
-                if let Err(error) = fs::remove_file(entry.path()) {
+    if !options.no_cache {
+        for version in ["token-v1", "token-v2", "token-v3"] {
+            let legacy_cache = state_root.join("cache").join(version);
+            if legacy_cache.exists() {
+                if let Err(error) = fs::remove_dir_all(&legacy_cache) {
                     cache_cleanup_warnings.push(format!(
-                        "failed to remove abandoned cache temporary {}: {error}",
-                        entry.path().display()
+                        "failed to remove legacy cache {}: {error}",
+                        legacy_cache.display()
                     ));
                 }
             }
         }
     }
+    let cache = if options.no_cache {
+        None
+    } else {
+        Some(TokenCache::open(&cache_path)?)
+    };
     let mut cache_hits = 0usize;
     let mut cache_misses = 0usize;
     let mut structurally_skipped_large_files = 0usize;
     for file in &inventory_files {
-        if file.bytes > large_file_bytes {
+        if file.analysis_status != "analyzed" || file.bytes > large_file_bytes {
             structurally_skipped_large_files += 1;
+        }
+        if file.analysis_status != "analyzed" {
+            token_counts.insert(file.path.clone(), 0);
+            line_counts.insert(file.path.clone(), 0);
+            token_data.insert(
+                file.path.clone(),
+                (0, Vec::new(), Vec::new(), String::new()),
+            );
+            continue;
         }
         let mode = structural_mode(&file.path);
         let cache_key = token_cache_key(&file.text, &tokenizer, large_file_bytes, mode);
-        let cache_path = cache_root.join(format!("{cache_key}.json"));
-        let cached = if let Some(cached) = load_cached_tokens(&cache_path) {
+        let cached_value = cache
+            .as_ref()
+            .map(|cache| cache.get(&cache_key))
+            .transpose()?
+            .flatten();
+        let cached = if let Some(cached) = cached_value {
             cache_hits += 1;
             cached
         } else {
@@ -499,7 +733,9 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
                 },
                 content_fingerprint: content_fingerprint(&file.text),
             };
-            write_cached_tokens(&cache_path, &cached)?;
+            if let Some(cache) = &cache {
+                cache.put(&cache_key, &cached)?;
+            }
             cached
         };
         let count = cached.token_count;
@@ -522,12 +758,22 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             ),
         );
     }
-    let (cache_entries, cache_bytes) = enforce_cache_limits(
-        &cache_root,
-        config::pointer_u64(&loaded_config, "/resources/cache_max_entries", 10_000) as usize,
-        config::pointer_u64(&loaded_config, "/resources/cache_max_bytes", 536_870_912),
-    )?;
+    let cache_stats = if let Some(cache) = &cache {
+        cache.enforce_limits(
+            config::pointer_u64(&loaded_config, "/resources/cache_max_entries", 10_000) as usize,
+            config::pointer_u64(&loaded_config, "/resources/cache_max_bytes", 536_870_912),
+        )?
+    } else {
+        CacheStats::default()
+    };
     phase("tokenization");
+    measure_rss_checkpoint(
+        "post_tokenization",
+        estimate.memory_budget_bytes,
+        options.allow_degraded,
+        &mut measured_peak_rss_bytes,
+        &mut memory_budget_exceeded_checkpoints,
+    )?;
     repo.analyzed_content_digest = Some(starting_content_digest.clone());
     let analyzed_paths: Vec<String> = inventory_files
         .iter()
@@ -543,6 +789,13 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         now,
     )?;
     phase("history");
+    measure_rss_checkpoint(
+        "post_history",
+        estimate.memory_budget_bytes,
+        options.allow_degraded,
+        &mut measured_peak_rss_bytes,
+        &mut memory_budget_exceeded_checkpoints,
+    )?;
     let mut files = Vec::with_capacity(inventory_files.len());
     for file in inventory_files {
         let tokens = token_counts.get(&file.path).copied().unwrap_or_default();
@@ -552,6 +805,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
                 .remove(&file.path)
                 .unwrap_or_else(|| (0, Vec::new(), Vec::new(), String::new()));
         let history = history_by_path.get(&file.path).cloned().unwrap_or_default();
+        let categories = structural_categories(structural_mode(&file.path), &file.text);
         files.push(FileAnalysis {
             path: file.path,
             bytes: file.bytes,
@@ -562,6 +816,9 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             language: file.language,
             profile: file.profile,
             classification: file.classification,
+            analysis_status: file.analysis_status,
+            skipped_reason: file.skipped_reason,
+            symlink_metadata: file.symlink_metadata,
             has_inline_tests: inline_tests,
             tokens,
             context_band: scoring::context_band_for_tokens(tokens, &loaded_config),
@@ -570,6 +827,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             structural_tokens,
             structural_token_count,
             top_structural_terms,
+            structural_categories: categories,
             age_days: history.age_days,
             revisions_window: history.revisions_window,
             recency_weighted_commits: history.recency_weighted_commits,
@@ -599,11 +857,18 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
     scoring::apply_scoring(&mut files, &loaded_config);
     let organization = overlays::analyze(&mut files, &commits, &loaded_config)?;
     phase("relationships");
+    measure_rss_checkpoint(
+        "post_relationships",
+        estimate.memory_budget_bytes,
+        options.allow_degraded,
+        &mut measured_peak_rss_bytes,
+        &mut memory_budget_exceeded_checkpoints,
+    )?;
     let folders = scoring::build_folder_analyses(&files, &loaded_config);
     let queue = action_queue(&files);
     let generated_at = now.to_rfc3339_opts(SecondsFormat::Secs, true);
     let analyzed_revision_at = repo.head_commit_timestamp.clone();
-    let ending_worktree = git::worktree_state(repo_root)?;
+    let ending_worktree = git::worktree_state_excluding(repo_root, &runtime_exclusions)?;
     if ending_worktree.digest != repo.worktree_state_digest {
         bail!("repository changed during analysis; no mixed-snapshot report was published");
     }
@@ -613,7 +878,17 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         );
     }
     let analysis = Analysis {
-        repo_root: PathBuf::from(repo_root),
+        output_root,
+        report_profile: if options.report_profile.is_empty() {
+            "standard".to_string()
+        } else {
+            options.report_profile.clone()
+        },
+        compression: if options.compression.is_empty() {
+            "none".to_string()
+        } else {
+            options.compression.clone()
+        },
         repo,
         config: loaded_config,
         generated_at,
@@ -628,13 +903,21 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         diagnostics: json!({
             "analysis_elapsed_ms_before_report": started.elapsed().as_millis(),
             "estimate": estimate,
+            "measured_peak_rss_bytes": measured_peak_rss_bytes,
+            "memory_budget_exceeded_checkpoints": memory_budget_exceeded_checkpoints,
+            "memory_measurement_status": if measured_peak_rss_bytes.is_some() { "measured" } else { "unsupported" },
             "cache_hits": cache_hits,
             "cache_misses": cache_misses,
-            "cache_entries": cache_entries,
-            "cache_bytes": cache_bytes,
+            "cache_entries": cache_stats.entries,
+            "cache_bytes": cache_stats.bytes,
+            "cache_failed_evictions": cache_stats.failed_evictions,
             "cache_cleanup_warnings": cache_cleanup_warnings,
+            "cache_status": if options.no_cache { "disabled" } else { "enabled" },
             "structurally_skipped_large_files": structurally_skipped_large_files,
-            "analysis_status": if structurally_skipped_large_files > 0 { "degraded_large_files" } else { "complete" },
+            "analysis_status": if tracked_paths.len() < original_selected_path_count || !memory_budget_exceeded_checkpoints.is_empty() { "degraded_resource_budget" } else if structurally_skipped_large_files > 0 { "degraded_large_files" } else { "complete" },
+            "resource_mode": if tracked_paths.len() < original_selected_path_count { "degraded_path_prefix" } else if !memory_budget_exceeded_checkpoints.is_empty() { "degraded_measured_rss" } else { "complete" },
+            "original_selected_path_count": original_selected_path_count,
+            "degraded_omitted_path_count": original_selected_path_count.saturating_sub(tracked_paths.len()),
             "history": history_diagnostics,
             "scope": scope
         }),
@@ -642,8 +925,8 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
     let rollup = health::build_health_rollup(&analysis);
     let result = report::write_report_bundle(&analysis, &rollup)?;
     phase("report writing");
-    if result.report.get("schema_version").and_then(Value::as_u64) != Some(4) {
-        bail!("internal error: report writer did not produce schema 4");
+    if result.report.get("schema_version").and_then(Value::as_u64) != Some(5) {
+        bail!("internal error: report writer did not produce schema 5");
     }
     Ok(result)
 }
@@ -670,6 +953,9 @@ mod tests {
             language: "Rust".to_string(),
             profile: "agent_context".to_string(),
             classification: "source".to_string(),
+            analysis_status: "analyzed".to_string(),
+            skipped_reason: None,
+            symlink_metadata: None,
             has_inline_tests: false,
             tokens: 100,
             context_band: "compact".to_string(),
@@ -678,6 +964,7 @@ mod tests {
             structural_tokens: Vec::new(),
             structural_token_count: 0,
             top_structural_terms: Vec::new(),
+            structural_categories: json!({"mode": "code"}),
             age_days: 0,
             revisions_window: 1,
             recency_weighted_commits: 0.0,

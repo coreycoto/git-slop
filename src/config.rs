@@ -2,6 +2,7 @@ use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 use fs2::FileExt;
@@ -37,8 +38,14 @@ impl Drop for ScanLock {
 }
 
 pub fn acquire_scan_lock(repo_root: &Path) -> Result<ScanLock> {
-    ensure_state_dirs(repo_root)?;
-    let path = slop_dir(repo_root).join("scan.lock");
+    let runtime_root = git_runtime_dir(repo_root)?;
+    fs::create_dir_all(&runtime_root).with_context(|| {
+        format!(
+            "failed to create Git-private runtime directory {}",
+            runtime_root.display()
+        )
+    })?;
+    let path = runtime_root.join("scan.lock");
     let mut file = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -57,6 +64,32 @@ pub fn acquire_scan_lock(repo_root: &Path) -> Result<ScanLock> {
     writeln!(file, "pid={}", std::process::id())?;
     file.sync_data()?;
     Ok(ScanLock { file })
+}
+
+/// Resolve mutable coordination state inside Git's private directory so a
+/// detector run never needs to create or repair tracked adoption files.
+pub fn git_runtime_dir(repo_root: &Path) -> Result<PathBuf> {
+    let output = Command::new("git")
+        .current_dir(repo_root)
+        .args([
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "git-slop",
+        ])
+        .output()
+        .context("failed to resolve Git-private runtime directory")?;
+    if !output.status.success() {
+        bail!(
+            "git rev-parse --git-path git-slop failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() {
+        bail!("Git returned an empty private runtime directory");
+    }
+    Ok(PathBuf::from(path))
 }
 
 pub fn slop_dir(repo_root: &Path) -> PathBuf {
@@ -140,6 +173,7 @@ pub fn default_config() -> Value {
         },
         "output": {
             "retention_runs": 20,
+            "retention_bytes": 2_147_483_648_u64,
             "pretty_json": false,
             "yaml": false
         },
@@ -159,7 +193,8 @@ pub fn default_config() -> Value {
         "check": {
             "fail_on_context_band": "critical",
             "fail_on_slop_band": "critical",
-            "regression_score_delta": 5.0
+            "regression_score_delta": 5.0,
+            "fail_on_evidence_drift": false
         }
     })
 }
@@ -329,6 +364,7 @@ pub fn validate(config: &Value) -> Result<()> {
         "/resources/cache_max_bytes",
         "/resources/cache_max_entries",
         "/output/retention_runs",
+        "/output/retention_bytes",
         "/health/data_context_min_bytes",
         "/health/folder_bands/compact_max_direct_tokens",
         "/health/folder_bands/healthy_max_direct_tokens",
@@ -501,6 +537,15 @@ pub fn load(repo_root: &Path) -> Result<Value> {
     Ok(merged)
 }
 
+pub(crate) fn effective_from_override(override_value: Value) -> Result<Value> {
+    let override_value = normalize_legacy(override_value)?;
+    validate_override_shape(&override_value, &default_config(), "")?;
+    let mut merged = default_config();
+    deep_merge(&mut merged, override_value);
+    validate(&merged)?;
+    Ok(merged)
+}
+
 fn schema_for_value(value: &Value, path: &str) -> Value {
     match value {
         Value::Object(values) => {
@@ -614,7 +659,7 @@ pub fn schema() -> Value {
     let defaults = default_config();
     let mut schema = schema_for_value(&defaults, "");
     schema["$schema"] = json!("https://json-schema.org/draft/2020-12/schema");
-    schema["$id"] = json!("https://github.com/coreycoto/git-slop/blob/main/config/schema-2.json");
+    schema["$id"] = json!("https://github.com/coreycoto/git-slop/blob/main/schemas/config-2.json");
     schema["title"] = json!("Git Slop configuration schema 2");
     schema["required"] = json!(["schema_version"]);
     schema["properties"]["schema_version"] = json!({
@@ -642,36 +687,6 @@ pub fn ensure_state_dirs(repo_root: &Path) -> Result<()> {
             .with_context(|| format!("failed to create {}", path.display()))?;
     }
     Ok(())
-}
-
-pub fn ensure_runtime_gitignore(repo_root: &Path) -> Result<bool> {
-    ensure_state_dirs(repo_root)?;
-    let target = slop_dir(repo_root).join(".gitignore");
-    if target.exists() {
-        let current = fs::read_to_string(&target)
-            .with_context(|| format!("failed to read {}", target.display()))?;
-        let mut missing = DEFAULT_SLOP_GITIGNORE
-            .lines()
-            .filter(|line| !current.lines().any(|existing| existing == *line))
-            .collect::<Vec<_>>();
-        if missing.is_empty() {
-            return Ok(false);
-        }
-        let mut updated = current;
-        if !updated.ends_with('\n') {
-            updated.push('\n');
-        }
-        for line in missing.drain(..) {
-            updated.push_str(line);
-            updated.push('\n');
-        }
-        fs::write(&target, updated)
-            .with_context(|| format!("failed to update {}", target.display()))?;
-        return Ok(true);
-    }
-    fs::write(&target, DEFAULT_SLOP_GITIGNORE)
-        .with_context(|| format!("failed to write {}", target.display()))?;
-    Ok(true)
 }
 
 pub fn initialize(repo_root: &Path, force: bool) -> Result<InitResult> {
@@ -737,6 +752,7 @@ pub fn pointer_strings(value: &Value, pointer: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::process::Command;
 
     use serde_json::{Value, json};
     use tempfile::tempdir;
@@ -890,6 +906,14 @@ mod tests {
     #[test]
     fn scan_lock_is_process_exclusive_and_reusable() {
         let repository = tempdir().expect("temporary repository");
+        assert!(
+            Command::new("git")
+                .args(["init", "--quiet"])
+                .current_dir(repository.path())
+                .status()
+                .expect("git init")
+                .success()
+        );
         let first = super::acquire_scan_lock(repository.path()).expect("first lock");
         assert!(super::acquire_scan_lock(repository.path()).is_err());
         drop(first);

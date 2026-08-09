@@ -14,7 +14,7 @@ on:
       version:
         description: Strict stable version to publish or recover.
         required: true
-        default: "0.10.1"
+        default: "0.11.0"
         type: string
       recovery_revision:
         description: Recovery only - full 40-character source revision embedded in the published crate.
@@ -319,10 +319,14 @@ jobs:
           package="candidate-source/git-slop-${VERSION}"
           cargo build --manifest-path "$package/Cargo.toml" --release --locked --target "$TARGET"
           root="git-slop-${TAG}-${TARGET}"
-          mkdir -p "stage/$root/man" smoke candidate-dist
+          mkdir -p "stage/$root/man" "stage/$root/completions" "stage/$root/schemas" smoke candidate-dist
           cp "$CARGO_TARGET_DIR/$TARGET/release/git-slop" "stage/$root/git-slop"
           cp "$package/LICENSE" "$package/README.md" "stage/$root/"
-          cp "$package/man/git-slop.1" "stage/$root/man/git-slop.1"
+          cargo run --quiet --manifest-path "$package/Cargo.toml" --locked -- man --output "stage/$root/man/git-slop.1"
+          cp "$package"/schemas/*.json "stage/$root/schemas/"
+          for shell in bash zsh fish powershell nushell; do
+            cargo run --quiet --manifest-path "$package/Cargo.toml" --locked -- completions "$shell" > "stage/$root/completions/git-slop.$shell"
+          done
           chmod +x "stage/$root/git-slop"
           if tar --help 2>&1 | grep -q -- '--owner'; then
             tar --owner=0 --group=0 --numeric-owner -C stage -czf "candidate-dist/${root}.tar.gz" "$root"
@@ -345,10 +349,14 @@ jobs:
           cargo build --manifest-path "$package\Cargo.toml" --release --locked --target $env:TARGET
           $root = "git-slop-$env:TAG-$env:TARGET"
           $stage = "stage\$root"
-          New-Item -ItemType Directory -Force -Path $stage, "$stage\man", "smoke", "candidate-dist" | Out-Null
+          New-Item -ItemType Directory -Force -Path $stage, "$stage\man", "$stage\completions", "$stage\schemas", "smoke", "candidate-dist" | Out-Null
           Copy-Item "$env:CARGO_TARGET_DIR\$env:TARGET\release\git-slop.exe" "$stage\git-slop.exe"
           Copy-Item "$package\LICENSE", "$package\README.md" $stage
-          Copy-Item "$package\man\git-slop.1" "$stage\man\git-slop.1"
+          cargo run --quiet --manifest-path "$package\Cargo.toml" --locked -- man --output "$stage\man\git-slop.1"
+          Copy-Item "$package\schemas\*.json" "$stage\schemas"
+          foreach ($shell in @("bash", "zsh", "fish", "powershell", "nushell")) {
+            cargo run --quiet --manifest-path "$package\Cargo.toml" --locked -- completions $shell | Out-File -Encoding utf8NoBOM "$stage\completions\git-slop.$shell"
+          }
           Compress-Archive -Path $stage -DestinationPath "candidate-dist\$root.zip"
           Expand-Archive -Path "candidate-dist\$root.zip" -DestinationPath smoke
           if ((& "smoke\$root\git-slop.exe" version) -ne "git-slop $env:VERSION") { throw "version mismatch" }
@@ -406,7 +414,7 @@ jobs:
           set -euo pipefail
           test "$(sha256sum "candidate/git-slop-${VERSION}.crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
           if ! git rev-parse --verify "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
-            git tag "$TAG" "$REVISION"
+            git tag -a -m "Git Slop ${TAG}" "$TAG" "$REVISION"
           fi
           test "$(git rev-parse "refs/tags/${TAG}^{commit}")" = "$REVISION"
           cargo xtask release-manifest \
@@ -548,6 +556,7 @@ jobs:
           VERSION: ${{ needs.candidate.outputs.version }}
           TAG: ${{ needs.candidate.outputs.tag }}
           REVISION: ${{ needs.candidate.outputs.revision }}
+          RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           status="$(curl --user-agent "git-slop-release-workflow/1 (https://github.com/coreycoto/git-slop)" -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
@@ -644,16 +653,28 @@ jobs:
             test "$REVISION" = "$CONTROL_REVISION"
           fi
           test -z "$(git ls-remote --refs origin "refs/tags/${TAG}")"
+          test -n "$RELEASE_SIGNING_PRIVATE_KEY"
+          GNUPGHOME="$(mktemp -d)"
+          export GNUPGHOME
+          trap 'rm -rf "$GNUPGHOME"' EXIT
+          printf '%s' "$RELEASE_SIGNING_PRIVATE_KEY" | gpg --batch --import
+          signing_key="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == \"fpr\" {print $10; exit}')"
+          test -n "$signing_key"
+          git config user.signingkey "$signing_key"
+          git config user.name "git-slop release automation"
+          git config user.email "actions@users.noreply.github.com"
           if git rev-parse --verify "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
             test "$(git rev-parse "refs/tags/${TAG}^{commit}")" = "$REVISION"
+            git verify-tag "$TAG"
           else
-            git tag "$TAG" "$REVISION"
+            git tag -s -m "Git Slop ${TAG}" "$TAG" "$REVISION"
+            git verify-tag "$TAG"
           fi
           authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${authorization}" \
             push origin "refs/tags/${TAG}"
           unset authorization
-          test "$(git ls-remote --refs origin "refs/tags/${TAG}" | awk '{print $1}')" = "$REVISION"
+          test "$(git ls-remote origin "refs/tags/${TAG}^{}" | awk '{print $1}')" = "$REVISION"
 
       - name: Dispatch immutable release identity to Homebrew tap
         shell: bash
@@ -768,10 +789,14 @@ jobs:
           package="registry-source/git-slop-${VERSION}"
           cargo build --manifest-path "$package/Cargo.toml" --release --locked --target "$TARGET"
           root="git-slop-${TAG}-${TARGET}"
-          mkdir -p "stage/$root/man" smoke dist
+          mkdir -p "stage/$root/man" "stage/$root/completions" "stage/$root/schemas" smoke dist
           cp "$CARGO_TARGET_DIR/$TARGET/release/git-slop" "stage/$root/git-slop"
           cp "$package/LICENSE" "$package/README.md" "stage/$root/"
-          cp "$package/man/git-slop.1" "stage/$root/man/git-slop.1"
+          cargo run --quiet --manifest-path "$package/Cargo.toml" --locked -- man --output "stage/$root/man/git-slop.1"
+          cp "$package"/schemas/*.json "stage/$root/schemas/"
+          for shell in bash zsh fish powershell nushell; do
+            cargo run --quiet --manifest-path "$package/Cargo.toml" --locked -- completions "$shell" > "stage/$root/completions/git-slop.$shell"
+          done
           chmod +x "stage/$root/git-slop"
           if tar --help 2>&1 | grep -q -- '--owner'; then
             tar --owner=0 --group=0 --numeric-owner -C stage -czf "dist/${root}.tar.gz" "$root"
@@ -792,10 +817,14 @@ jobs:
           cargo build --manifest-path "$package\Cargo.toml" --release --locked --target $env:TARGET
           $root = "git-slop-$env:TAG-$env:TARGET"
           $stage = "stage\$root"
-          New-Item -ItemType Directory -Force -Path $stage, "$stage\man", "smoke", "dist" | Out-Null
+          New-Item -ItemType Directory -Force -Path $stage, "$stage\man", "$stage\completions", "$stage\schemas", "smoke", "dist" | Out-Null
           Copy-Item "$env:CARGO_TARGET_DIR\$env:TARGET\release\git-slop.exe" "$stage\git-slop.exe"
           Copy-Item "$package\LICENSE", "$package\README.md" $stage
-          Copy-Item "$package\man\git-slop.1" "$stage\man\git-slop.1"
+          cargo run --quiet --manifest-path "$package\Cargo.toml" --locked -- man --output "$stage\man\git-slop.1"
+          Copy-Item "$package\schemas\*.json" "$stage\schemas"
+          foreach ($shell in @("bash", "zsh", "fish", "powershell", "nushell")) {
+            cargo run --quiet --manifest-path "$package\Cargo.toml" --locked -- completions $shell | Out-File -Encoding utf8NoBOM "$stage\completions\git-slop.$shell"
+          }
           Compress-Archive -Path $stage -DestinationPath "dist\$root.zip"
           Expand-Archive -Path "dist\$root.zip" -DestinationPath smoke
           if ((& "smoke\$root\git-slop.exe" version) -ne "git-slop $env:VERSION") { throw "version mismatch" }
@@ -866,12 +895,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cargo xtask sbom --output-dir dist
           cp registry/crate-source.json dist/crate-source.json
           cargo xtask release-manifest --dist-dir dist --crate-source dist/crate-source.json --output dist/release-manifest.json --checksum-output dist/SHA256SUMS --tag "$TAG"
           cargo xtask homebrew-formula --manifest dist/release-manifest.json --formula dist/git-slop.rb
           rm dist/crate-source.json
-          (cd dist && sha256sum git-slop.rb >> SHA256SUMS && LC_ALL=C sort -o SHA256SUMS SHA256SUMS && sha256sum --check SHA256SUMS)
-          test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" = "9"
+          (cd dist && sha256sum git-slop.rb git-slop.cdx.json git-slop.spdx.json >> SHA256SUMS && LC_ALL=C sort -o SHA256SUMS SHA256SUMS && sha256sum --check SHA256SUMS)
+          test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" = "11"
 
       - name: Inspect existing GitHub Release
         id: release
@@ -916,6 +946,8 @@ jobs:
             dist/SHA256SUMS
             dist/release-manifest.json
             dist/git-slop.rb
+            dist/git-slop.cdx.json
+            dist/git-slop.spdx.json
 
       - name: Create or refresh verified draft release
         id: draft
@@ -956,7 +988,7 @@ jobs:
             [[ "$asset_id" =~ ^[1-9][0-9]*$ ]]
             gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
           done < <(jq -r '.assets[].id' <<< "$release_json")
-          for asset in dist/*.tar.gz dist/*.zip dist/SHA256SUMS dist/release-manifest.json dist/git-slop.rb; do
+          for asset in dist/*.tar.gz dist/*.zip dist/SHA256SUMS dist/release-manifest.json dist/git-slop.rb dist/git-slop.cdx.json dist/git-slop.spdx.json; do
             asset_name="$(basename "$asset")"
             curl --fail-with-body --silent --show-error --connect-timeout 15 --max-time 300 \
               --request POST \
@@ -1000,7 +1032,7 @@ jobs:
           test "$(jq -r '.[0].id' release-matches.json)" = "$RELEASE_ID"
           jq '.[0]' release-matches.json > release.json
           jq -r '.assets[].name' release.json | LC_ALL=C sort > actual-assets.txt
-          printf '%s\n' SHA256SUMS git-slop.rb "git-slop-${TAG}-aarch64-apple-darwin.tar.gz" "git-slop-${TAG}-aarch64-pc-windows-msvc.zip" "git-slop-${TAG}-aarch64-unknown-linux-gnu.tar.gz" "git-slop-${TAG}-x86_64-apple-darwin.tar.gz" "git-slop-${TAG}-x86_64-pc-windows-msvc.zip" "git-slop-${TAG}-x86_64-unknown-linux-gnu.tar.gz" "git-slop-${TAG}-x86_64-unknown-linux-musl.tar.gz" release-manifest.json | LC_ALL=C sort > expected-assets.txt
+          printf '%s\n' SHA256SUMS git-slop.rb git-slop.cdx.json git-slop.spdx.json "git-slop-${TAG}-aarch64-apple-darwin.tar.gz" "git-slop-${TAG}-aarch64-pc-windows-msvc.zip" "git-slop-${TAG}-aarch64-unknown-linux-gnu.tar.gz" "git-slop-${TAG}-x86_64-apple-darwin.tar.gz" "git-slop-${TAG}-x86_64-pc-windows-msvc.zip" "git-slop-${TAG}-x86_64-unknown-linux-gnu.tar.gz" "git-slop-${TAG}-x86_64-unknown-linux-musl.tar.gz" release-manifest.json | LC_ALL=C sort > expected-assets.txt
           diff -u expected-assets.txt actual-assets.txt
           while IFS=$'\t' read -r asset_id asset_name; do
             [[ "$asset_id" =~ ^[1-9][0-9]*$ ]]

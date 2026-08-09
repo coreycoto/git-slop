@@ -60,14 +60,19 @@ if (args[0] === "health") {
   process.exit(0);
 }
 if (args[0] === "check") {
+  process.stdout.write(JSON.stringify({ schema_version: 1, command: "check", finding_count: 2, passed: false }));
   process.exit(1);
 }
 if (args[0] === "compare") {
+  if (process.env.FAKE_COMPARE_FAIL === "true") {
+    process.stderr.write("incompatible baseline\\n");
+    process.exit(2);
+  }
   process.stdout.write(JSON.stringify({
     schema_version: 1,
     command: "compare",
-    base_report: { generated_at: new Date().toISOString() },
-    head_report: { generated_at: new Date().toISOString() },
+    base_report: { generated_at: new Date().toISOString(), analyzed_revision_at: process.env.FAKE_ANALYZED_REVISION_AT || new Date().toISOString() },
+    head_report: { generated_at: new Date().toISOString(), analyzed_revision_at: new Date().toISOString() },
     summary: { regression_count: 1 },
     regressions: [{ path: "src/new.rs", status: "new", severity: "error", base_slop_score: null, head_slop_score: 90 }],
     baseline_compatible: true,
@@ -126,11 +131,13 @@ test("safe defaults analyze once and select only health.md", () => {
   assert.doesNotMatch(analysis.stdout, /::error/u);
   assert.equal(readFileSync(join(state.repository, ".find-count"), "utf8"), "1");
   assert.match(readFileSync(state.summary, "utf8"), /# Repository Health/u);
-  const outputs = readFileSync(state.output, "utf8");
-  assert.match(outputs, /policy<<[\s\S]*\nadvisory\n/u);
-  assert.match(outputs, /artifact-contents<<[\s\S]*\nsummary\n/u);
-  assert.match(outputs, /retention-days<<[\s\S]*\n14\n/u);
-  assert.match(outputs, /finding-count<<[\s\S]*\n4\n/u);
+  const actual = outputs(state.output);
+  assert.equal(actual.policy, "advisory");
+  assert.equal(actual["artifact-contents"], "summary");
+  assert.equal(actual["retention-days"], "14");
+  assert.equal(actual["health-finding-count"], "4");
+  assert.equal(actual["policy-finding-count"], "2");
+  assert.equal(actual["finding-count"], "2");
 
   writeFileSync(state.output, "");
   const artifacts = run("artifacts", {
@@ -183,7 +190,7 @@ test("bounded annotations preserve notice, warning, and error without rerunning 
 test("baseline enforcement uses the native comparator and fails only on regressions", () => {
   const state = fixture();
   const baseline = join(state.repository, "baseline.json");
-  writeFileSync(baseline, JSON.stringify({ schema_version: 4 }), "utf8");
+  writeFileSync(baseline, JSON.stringify({ schema_version: 5 }), "utf8");
   const analysis = run("analyze", {
     GITHUB_OUTPUT: state.output,
     GITHUB_STEP_SUMMARY: state.summary,
@@ -197,6 +204,7 @@ test("baseline enforcement uses the native comparator and fails only on regressi
   const values = outputs(state.output);
   assert.equal(values["regression-count"], "1");
   assert.equal(values["baseline-compatible"], "true");
+  assert.equal(values["baseline-status"], "compatible");
   assert.equal(values["finding-count"], "1");
 
   writeFileSync(state.output, "");
@@ -209,6 +217,52 @@ test("baseline enforcement uses the native comparator and fails only on regressi
   });
   assert.equal(finalized.status, 1);
   assert.match(finalized.stderr, /1 repository-health regression/u);
+});
+
+test("freshly generated baseline over an old revision is fresh and reports revision age separately", () => {
+  const state = fixture();
+  const baseline = join(state.repository, "baseline.json");
+  writeFileSync(baseline, JSON.stringify({ schema_version: 5 }), "utf8");
+  const analysis = run("analyze", {
+    GITHUB_OUTPUT: state.output,
+    GITHUB_STEP_SUMMARY: state.summary,
+    GITHUB_WORKSPACE: state.repository,
+    GIT_SLOP_BINARY: state.fakeBinary,
+    GIT_SLOP_WORKING_DIRECTORY: ".",
+    GIT_SLOP_BASELINE_REPORT: baseline,
+    GIT_SLOP_MAX_BASELINE_AGE_DAYS: "1",
+    FAKE_ANALYZED_REVISION_AT: "2000-01-01T00:00:00Z",
+  });
+  assert.equal(analysis.status, 0, analysis.stderr);
+  const actual = outputs(state.output);
+  assert.equal(actual["baseline-status"], "compatible");
+  const comparison = JSON.parse(readFileSync(actual["comparison-path"], "utf8"));
+  assert.ok(comparison.baseline_revision.revision_age_days > 9000);
+});
+
+test("baseline comparison errors preserve successful head artifacts", () => {
+  const state = fixture();
+  const baseline = join(state.repository, "baseline.json");
+  writeFileSync(baseline, JSON.stringify({ schema_version: 5 }), "utf8");
+  const analysis = run("analyze", {
+    GITHUB_OUTPUT: state.output,
+    GITHUB_STEP_SUMMARY: state.summary,
+    GITHUB_WORKSPACE: state.repository,
+    GIT_SLOP_BINARY: state.fakeBinary,
+    GIT_SLOP_WORKING_DIRECTORY: ".",
+    GIT_SLOP_BASELINE_REPORT: baseline,
+    FAKE_COMPARE_FAIL: "true",
+  });
+  assert.equal(analysis.status, 0, analysis.stderr);
+  const actual = outputs(state.output);
+  assert.equal(actual["analysis-exit-code"], "0");
+  assert.equal(actual["baseline-status"], "error");
+  assert.equal(actual["comparison-path"], "");
+  assert.ok(actual["report-path"].endsWith("report.json"));
+  assert.ok(actual["health-path"].endsWith("health.md"));
+  assert.ok(actual["comparison-error-path"].endsWith("comparison-error.md"));
+  assert.match(readFileSync(actual["health-path"], "utf8"), /Healthy fixture/u);
+  assert.match(readFileSync(actual["comparison-error-path"], "utf8"), /head analysis completed/u);
 });
 
 test("nested working-directory resolves outputs at the Git worktree root", () => {

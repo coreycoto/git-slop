@@ -41,8 +41,8 @@ Existing generated config files are kept unless `--force` is supplied.
 
 ### Find
 
-`find` analyzes tracked files in the current Git worktree. It creates the
-non-destructive `.slop/.gitignore` when needed:
+`find` analyzes tracked files without editing adoption files in the current Git
+worktree. Only `init` creates `.slop/config.yaml` and `.slop/.gitignore`:
 
 ```bash
 git-slop find
@@ -51,6 +51,8 @@ git-slop find --scope intentionally-empty --allow-empty-scope
 git-slop find --no-progress
 git-slop find --quiet
 git-slop find --allow-shallow
+git-slop find --state-dir /tmp/git-slop-state --output-dir /tmp/git-slop-output --no-cache
+git-slop find --estimate-only
 ```
 
 It writes the same compact bundle to `.slop/latest/` and to one timestamped
@@ -68,7 +70,7 @@ acknowledgement and the report records incomplete evidence.
 
 ### Health
 
-`health` projects repository-health evidence from an existing schema-4 report.
+`health` projects repository-health evidence from an existing schema-5 report.
 It does not rerun the detector:
 
 ```bash
@@ -94,7 +96,7 @@ command such as `git-slop explain --path <path>`.
 The dashboard keeps three related concepts separate:
 
 - **Context/load bands** (`compact`, `healthy`, `warning`, and
-  `refactor_required`) describe how much `agent_context` content must be loaded.
+  `budget_exceeded`) describe how much `agent_context` content must be loaded.
   File bands use file tokens; folder bands use direct child-file counts and
   direct tokens.
 - **Maintenance-pressure evidence** is the stable `slop_score` and `slop_band`
@@ -105,7 +107,7 @@ The dashboard keeps three related concepts separate:
   priority. It stays the same in Markdown and GitHub annotations; policy mode
   does not promote or demote it.
 
-Every surfaced warning or refactor-required folder states the exact boundary
+Every surfaced warning or budget-exceeded folder states the exact boundary
 that produced its displayed band. For example, `19 direct files > 17 healthy
 ceiling` identifies both the observed value and configured boundary. When
 direct files and direct tokens both cross the relevant ceiling, both clauses
@@ -162,9 +164,12 @@ git-slop config diff-defaults
 git-slop config migrate
 git-slop config schema
 git-slop doctor --bundle
+git-slop doctor --scope packages/example --format json
 git-slop list findings --profile data_context --top 20
 git-slop list relationships --path src
-git-slop prune --dry-run
+git-slop prune --dry-run --format json
+git-slop cache status --format json
+git-slop cache prune --dry-run --format json
 git-slop completions zsh
 git-slop html --output .slop/latest/report.html
 ```
@@ -274,13 +279,24 @@ model summarization:
 git-slop explain --top 5 --prompt-pack .slop/prompt-packs/top
 git-slop plan --path src --format json \
   --prompt-pack .slop/prompt-packs/src-plan
+
+# Explicitly add bounded local repository context (256-4096 bytes per file).
+git-slop explain --top 5 --prompt-pack .slop/prompt-packs/contextual \
+  --include-repository-context --excerpt-bytes 2048
 ```
 
 A prompt pack contains:
 
-- `context.json`: selected payload plus minimal report excerpts
+- `context.json`: selected payload, explicit report provenance and truncation,
+  plus minimal report excerpts
 - `prompt.md`: local-model instructions
 - `README.md`: boundary rules
+- `manifest.json`: SHA-256 bindings and source-report provenance
+
+Repository content is excluded by default. `--include-repository-context`
+opts into at most ten selected source/test excerpts, root guidance files, and
+inferred verification commands. Every read is repo-relative, rejects symlinks
+and traversal, and applies the configured per-file byte limit.
 
 Prompt packs do not add a model dependency, call a provider, rescore detector
 truth, mutate code, or mutate GitHub.
@@ -291,7 +307,7 @@ These commands are read-only projections of existing reports.
 
 ### Compare
 
-`compare` consumes two schema-4 reports:
+`compare` consumes two schema-5 reports (or explicitly migrated legacy input):
 
 ```bash
 git-slop compare \

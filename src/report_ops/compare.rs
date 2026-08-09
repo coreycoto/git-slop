@@ -44,7 +44,7 @@ fn band_rank(value: &str) -> i64 {
         "compact" | "low" => 0,
         "healthy" | "moderate" => 1,
         "warning" | "high" => 2,
-        "critical" | "refactor_required" => 3,
+        "critical" | "refactor_required" | "budget_exceeded" => 3,
         _ => 0,
     }
 }
@@ -95,23 +95,42 @@ fn record_overlay_delta(base: Option<&Value>, head: Option<&Value>) -> Vec<Value
     changes
 }
 
+fn metric_changed(base: &Value, head: &Value) -> bool {
+    record_score(Some(base)) != record_score(Some(head))
+        || record_tokens(Some(base)) != record_tokens(Some(head))
+        || record_load_pressure(Some(base)) != record_load_pressure(Some(head))
+        || record_band(Some(base), "context_band") != record_band(Some(head), "context_band")
+        || record_band(Some(base), "slop_band") != record_band(Some(head), "slop_band")
+        || !record_overlay_delta(Some(base), Some(head)).is_empty()
+}
+
 fn record_delta_status(base: Option<&Value>, head: Option<&Value>) -> &'static str {
     match (base, head) {
         (None, Some(_)) => "added",
         (Some(_), None) => "removed",
         (None, None) => "unchanged",
         (Some(base), Some(head))
-            if record_score(Some(base)) == record_score(Some(head))
-                && record_tokens(Some(base)) == record_tokens(Some(head))
-                && record_load_pressure(Some(base)) == record_load_pressure(Some(head))
-                && record_band(Some(base), "context_band")
-                    == record_band(Some(head), "context_band")
-                && record_band(Some(base), "slop_band") == record_band(Some(head), "slop_band")
-                && record_overlay_delta(Some(base), Some(head)).is_empty() =>
+            if optional_string(base.get("content_fingerprint"))
+                .is_some_and(|value| !value.is_empty())
+                && optional_string(head.get("content_fingerprint"))
+                    .is_some_and(|value| !value.is_empty())
+                && optional_string(base.get("content_fingerprint"))
+                    != optional_string(head.get("content_fingerprint")) =>
         {
-            "unchanged"
+            "source_changed"
         }
-        _ => "changed",
+        (Some(base), Some(head)) if !metric_changed(base, head) => "unchanged",
+        (Some(base), Some(head))
+            if optional_string(base.get("content_fingerprint"))
+                .is_some_and(|value| !value.is_empty())
+                && optional_string(head.get("content_fingerprint"))
+                    .is_some_and(|value| !value.is_empty())
+                && optional_string(base.get("content_fingerprint"))
+                    == optional_string(head.get("content_fingerprint")) =>
+        {
+            "evidence_drift"
+        }
+        _ => "source_changed",
     }
 }
 
@@ -127,21 +146,48 @@ fn compatibility_value<'a>(report: &'a Value, pointer: &str) -> Option<&'a Value
     report.pointer(pointer)
 }
 
+fn repository_identity(report: &Value) -> Option<&Value> {
+    report
+        .pointer("/repo/repository_id")
+        .or_else(|| report.pointer("/repo/remote_url"))
+}
+
 fn compatibility_mismatches(base: &Value, head: &Value) -> Vec<Value> {
     let mut mismatches = Vec::new();
-    for (label, pointer) in [
-        ("repository identity", "/repo/remote_url"),
-        ("tokenizer", "/analyzer/context_tokenizer"),
-        ("configuration digest", "/analyzer/config_digest"),
-        ("analyzer version", "/analyzer/version"),
-        ("history completeness", "/stats/history_complete"),
-        ("analysis scope mode", "/scope/mode"),
-        ("analysis scope path", "/scope/path"),
-        ("selected path count", "/scope/selected_path_count"),
-        ("selected path digest", "/scope/selected_path_digest"),
+    let base_identity = repository_identity(base);
+    let head_identity = repository_identity(head);
+    if base_identity.is_none() || head_identity.is_none() || base_identity != head_identity {
+        mismatches.push(json!({
+            "field": "repository identity",
+            "pointer": "/repo/repository_id",
+            "base": base_identity.cloned().unwrap_or(Value::Null),
+            "head": head_identity.cloned().unwrap_or(Value::Null),
+            "code": if base_identity.is_none() || head_identity.is_none() { "repository_identity_unavailable" } else { "repository_identity_mismatch" }
+        }));
+    }
+    for (label, pointer, fallback) in [
+        (
+            "tokenizer",
+            "/analyzer/context_tokenizer",
+            "/analyzer/context_tokenizer",
+        ),
+        (
+            "analysis configuration digest",
+            "/analyzer/analysis_config_digest",
+            "/analyzer/config_digest",
+        ),
+        (
+            "analysis contract",
+            "/analyzer/analysis_contract_version",
+            "/analyzer/version",
+        ),
+        ("analysis scope mode", "/scope/mode", "/scope/mode"),
+        ("analysis scope path", "/scope/path", "/scope/path"),
     ] {
-        let left = compatibility_value(base, pointer);
-        let right = compatibility_value(head, pointer);
+        let left =
+            compatibility_value(base, pointer).or_else(|| compatibility_value(base, fallback));
+        let right =
+            compatibility_value(head, pointer).or_else(|| compatibility_value(head, fallback));
         if left != right {
             mismatches.push(json!({
                 "field": label,
@@ -178,18 +224,44 @@ fn build_record_delta(path: &str, base: Option<&Value>, head: Option<&Value>) ->
     let base_slop = record_band(base, "slop_band");
     let head_slop = record_band(head, "slop_band");
     let base_fingerprint =
-        optional_string(base.and_then(|record| record.get("content_fingerprint")));
+        optional_string(base.and_then(|record| record.get("content_fingerprint")))
+            .filter(|value| !value.is_empty());
     let head_fingerprint =
-        optional_string(head.and_then(|record| record.get("content_fingerprint")));
+        optional_string(head.and_then(|record| record.get("content_fingerprint")))
+            .filter(|value| !value.is_empty());
     let content_changed = match (&base_fingerprint, &head_fingerprint) {
         (Some(base), Some(head)) => Some(base != head),
         _ => None,
+    };
+    let metrics_changed = match (base, head) {
+        (Some(base), Some(head)) => Some(metric_changed(base, head)),
+        _ => None,
+    };
+    let content_status = match (base, head, content_changed) {
+        (None, Some(_), _) => "added",
+        (Some(_), None, _) => "removed",
+        (Some(_), Some(_), Some(true)) => "changed",
+        (Some(_), Some(_), Some(false)) => "unchanged",
+        _ => "unknown",
+    };
+    let metric_status = match metrics_changed {
+        Some(true) => "changed",
+        Some(false) => "unchanged",
+        None => "not_comparable",
+    };
+    let evidence_status = match (content_changed, metrics_changed) {
+        (Some(false), Some(true)) => "drifted",
+        (Some(_), Some(_)) => "stable",
+        _ => "not_comparable",
     };
     let context_delta = band_delta(base_context.as_deref(), head_context.as_deref());
     let slop_delta = band_delta(base_slop.as_deref(), head_slop.as_deref());
     json!({
         "path": path,
         "status": record_delta_status(base, head),
+        "content_status": content_status,
+        "metric_status": metric_status,
+        "evidence_status": evidence_status,
         "base_slop_score": base_score,
         "head_slop_score": head_score,
         "slop_score_delta": option_f64_delta(base_score, head_score),
@@ -217,8 +289,10 @@ fn regression_for_delta(delta: &Value, base: &Value) -> Option<Value> {
     let status = string(delta.get("status"));
     let head_context_band = string(delta.get("head_context_band"));
     let head_slop_band = string(delta.get("head_slop_band"));
-    let severity = if matches!(head_context_band.as_str(), "critical" | "refactor_required")
-        || head_slop_band == "critical"
+    let severity = if matches!(
+        head_context_band.as_str(),
+        "critical" | "refactor_required" | "budget_exceeded"
+    ) || head_slop_band == "critical"
     {
         "error"
     } else if head_context_band == "warning" || head_slop_band == "high" {
@@ -229,13 +303,13 @@ fn regression_for_delta(delta: &Value, base: &Value) -> Option<Value> {
     let reason = if status == "added" {
         if !matches!(
             head_context_band.as_str(),
-            "warning" | "critical" | "refactor_required"
+            "warning" | "critical" | "refactor_required" | "budget_exceeded"
         ) && !matches!(head_slop_band.as_str(), "high" | "critical")
         {
             return None;
         }
         "new_finding"
-    } else if status == "changed" {
+    } else if matches!(status.as_str(), "source_changed" | "evidence_drift") {
         let context_delta = delta
             .get("context_band_delta")
             .and_then(Value::as_i64)
@@ -253,7 +327,14 @@ fn regression_for_delta(delta: &Value, base: &Value) -> Option<Value> {
             .get("content_changed")
             .and_then(Value::as_bool)
             .unwrap_or(true);
-        if context_delta > 0 || slop_delta > 0 {
+        let fail_on_evidence_drift = base
+            .pointer("/config/check/fail_on_evidence_drift")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if status == "evidence_drift" && !fail_on_evidence_drift {
+            return None;
+        }
+        if (context_delta > 0 || slop_delta > 0) && (content_changed || fail_on_evidence_drift) {
             "worse_band"
         } else if score_delta >= threshold && content_changed {
             "material_score_increase"
@@ -374,7 +455,9 @@ fn delta_counts(items: &[Value]) -> Value {
     json!({
         "added": count("added"),
         "removed": count("removed"),
-        "changed": count("changed"),
+        "changed": count("source_changed") + count("evidence_drift"),
+        "source_changed": count("source_changed"),
+        "evidence_drift": count("evidence_drift"),
         "unchanged": count("unchanged"),
     })
 }
@@ -425,7 +508,9 @@ fn report_descriptor(report: &Value, path: Option<&str>) -> Value {
         "content_digest": repo.get("analyzed_content_digest").cloned().unwrap_or(Value::Null),
         "scope": report.get("scope").cloned().unwrap_or(Value::Null),
         "analyzer_version": report.pointer("/analyzer/version").cloned().unwrap_or(Value::Null),
+        "analysis_contract_version": report.pointer("/analyzer/analysis_contract_version").cloned().unwrap_or(Value::Null),
         "config_digest": report.pointer("/analyzer/config_digest").cloned().unwrap_or(Value::Null),
+        "analysis_config_digest": report.pointer("/analyzer/analysis_config_digest").cloned().unwrap_or(Value::Null),
         "context_tokenizer": report.pointer("/analyzer/context_tokenizer").cloned().unwrap_or(Value::Null),
         "history_complete": report.pointer("/stats/history_complete").cloned().unwrap_or(Value::Null),
     })
@@ -457,13 +542,19 @@ pub fn compare_payload_with_force(
     let worsened = file_deltas
         .iter()
         .filter(|item| {
-            string(item.get("status")) == "changed" && number(item.get("slop_score_delta")) > 0.0
+            matches!(
+                string(item.get("status")).as_str(),
+                "source_changed" | "evidence_drift"
+            ) && number(item.get("slop_score_delta")) > 0.0
         })
         .count();
     let improved = file_deltas
         .iter()
         .filter(|item| {
-            string(item.get("status")) == "changed" && number(item.get("slop_score_delta")) < 0.0
+            matches!(
+                string(item.get("status")).as_str(),
+                "source_changed" | "evidence_drift"
+            ) && number(item.get("slop_score_delta")) < 0.0
         })
         .count();
     let mut queue_movement = build_queue_movement(base_report, head_report);
@@ -493,6 +584,7 @@ pub fn compare_payload_with_force(
         "regressions": regressions,
         "boundary_note": COMPARE_BOUNDARY_NOTE,
         "compatibility_forced": force,
+        "baseline_status": if compatibility_mismatches.is_empty() { "compatible" } else if force { "forced" } else { "incompatible" },
         "baseline_compatible": compatibility_mismatches.is_empty(),
         "compatibility_mismatches": compatibility_mismatches,
     }))

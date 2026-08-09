@@ -75,7 +75,7 @@ fn optional_git_output(repo_root: &Path, args: &[&str]) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn sanitize_remote_url(remote: String) -> String {
+fn sanitize_remote_url(remote: String) -> Option<String> {
     let remote = remote
         .trim()
         .chars()
@@ -86,12 +86,22 @@ fn sanitize_remote_url(remote: String) -> String {
         .next()
         .unwrap_or_default()
         .to_string();
+    let local_path = sanitized.starts_with("file://")
+        || Path::new(&sanitized).is_absolute()
+        || sanitized.starts_with("./")
+        || sanitized.starts_with("../");
+    if local_path {
+        return Some(format!(
+            "local:sha256:{}",
+            hex::encode(Sha256::digest(sanitized.as_bytes()))
+        ));
+    }
     if let Some(scheme) = sanitized.find("://") {
         let authority = scheme + 3;
         if let Some(at) = sanitized[authority..].find('@') {
             sanitized.replace_range(authority..authority + at + 1, "");
         }
-        return sanitized;
+        return (!sanitized.is_empty()).then_some(sanitized);
     }
     // SCP-like remotes commonly include a user name before the host.
     if let (Some(at), Some(colon)) = (sanitized.find('@'), sanitized.find(':')) {
@@ -99,7 +109,33 @@ fn sanitize_remote_url(remote: String) -> String {
             sanitized.replace_range(..=at, "");
         }
     }
-    sanitized
+    (!sanitized.is_empty()).then_some(sanitized)
+}
+
+fn normalized_remote_identity(remote: &str) -> Option<String> {
+    if remote.starts_with("local:sha256:") {
+        return None;
+    }
+    let without_scheme = remote
+        .split_once("://")
+        .map_or(remote, |(_, remainder)| remainder);
+    let normalized = if !remote.contains("://") {
+        if let Some((host, path)) = without_scheme.split_once(':') {
+            format!("{host}/{path}")
+        } else {
+            without_scheme.to_string()
+        }
+    } else {
+        without_scheme.to_string()
+    };
+    let mut parts = normalized.trim_matches('/').split('/');
+    let host = parts.next()?.to_ascii_lowercase();
+    let owner = parts.next()?.to_ascii_lowercase();
+    let name = parts.next()?.trim_end_matches(".git").to_ascii_lowercase();
+    if host.is_empty() || owner.is_empty() || name.is_empty() {
+        return None;
+    }
+    Some(format!("remote:{host}/{owner}/{name}"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,9 +177,30 @@ fn porcelain_counts(raw: &[u8]) -> (usize, usize, usize) {
 }
 
 pub fn worktree_state(repo_root: &Path) -> Result<WorktreeState> {
+    worktree_state_excluding(repo_root, &[])
+}
+
+pub fn worktree_state_excluding(
+    repo_root: &Path,
+    excluded_roots: &[String],
+) -> Result<WorktreeState> {
+    let mut arguments = vec![
+        "status".to_string(),
+        "--porcelain=v1".to_string(),
+        "-z".to_string(),
+        "--untracked-files=all".to_string(),
+    ];
+    if !excluded_roots.is_empty() {
+        arguments.extend(["--".to_string(), ".".to_string()]);
+        arguments.extend(
+            excluded_roots
+                .iter()
+                .map(|path| format!(":(exclude,top){}/**", path.trim_matches('/'))),
+        );
+    }
     let output = Command::new("git")
         .current_dir(repo_root)
-        .args(["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+        .args(&arguments)
         .output()
         .context("failed to inspect Git worktree state")?;
     if !output.status.success() {
@@ -177,7 +234,22 @@ pub fn repo_metadata(repo_root: &Path) -> Result<RepoMetadata> {
         .as_ref()
         .and_then(|_| optional_git_output(repo_root, &["show", "-s", "--format=%cI", "HEAD"]));
     let git_remote_url = optional_git_output(repo_root, &["config", "--get", "remote.origin.url"])
-        .map(sanitize_remote_url);
+        .and_then(sanitize_remote_url);
+    let remote_identity = git_remote_url
+        .as_deref()
+        .and_then(normalized_remote_identity);
+    let root_commit = optional_git_output(repo_root, &["rev-list", "--max-parents=0", "HEAD"])
+        .and_then(|roots| roots.lines().min().map(ToOwned::to_owned));
+    let (repository_id, repository_identity_source) = if let Some(identity) = remote_identity {
+        (Some(identity), Some("normalized_remote".to_string()))
+    } else if let Some(root) = root_commit {
+        (
+            Some(format!("root:{root}")),
+            Some("root_commit".to_string()),
+        )
+    } else {
+        (None, None)
+    };
     let is_shallow = optional_git_output(repo_root, &["rev-parse", "--is-shallow-repository"])
         .is_some_and(|value| value == "true");
     let worktree = worktree_state(repo_root)?;
@@ -185,6 +257,8 @@ pub fn repo_metadata(repo_root: &Path) -> Result<RepoMetadata> {
     Ok(RepoMetadata {
         repo_name,
         repo_root: canonical.to_string_lossy().into_owned(),
+        repository_id,
+        repository_identity_source,
         branch,
         head_commit,
         head_commit_timestamp,
@@ -202,7 +276,7 @@ pub fn repo_metadata(repo_root: &Path) -> Result<RepoMetadata> {
 
 #[cfg(test)]
 mod tests {
-    use super::{porcelain_counts, sanitize_remote_url};
+    use super::{normalized_remote_identity, porcelain_counts, sanitize_remote_url};
 
     #[test]
     fn porcelain_rename_second_paths_are_not_counted_as_changes() {
@@ -215,12 +289,31 @@ mod tests {
     #[test]
     fn provenance_remote_sanitization_removes_secrets_and_fragments() {
         assert_eq!(
-            sanitize_remote_url("https://user:token@example.com/repo.git?secret=yes#x".to_string()),
-            "https://example.com/repo.git"
+            sanitize_remote_url(
+                "https://user:token@example.com/owner/repo.git?secret=yes#x".to_string()
+            ),
+            Some("https://example.com/owner/repo.git".to_string())
         );
         assert_eq!(
             sanitize_remote_url("token@example.com:owner/repo.git".to_string()),
-            "example.com:owner/repo.git"
+            Some("example.com:owner/repo.git".to_string())
         );
+        assert!(
+            sanitize_remote_url("file:///Users/person/private/repo".to_string())
+                .is_some_and(|value| value.starts_with("local:sha256:"))
+        );
+    }
+
+    #[test]
+    fn repository_identity_normalizes_transport_and_case() {
+        assert_eq!(
+            normalized_remote_identity("https://GitHub.com/CoreyCoto/git-slop.git"),
+            Some("remote:github.com/coreycoto/git-slop".to_string())
+        );
+        assert_eq!(
+            normalized_remote_identity("github.com:CoreyCoto/git-slop.git"),
+            Some("remote:github.com/coreycoto/git-slop".to_string())
+        );
+        assert_eq!(normalized_remote_identity("local:sha256:abc"), None);
     }
 }

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::config::{pointer_strings, pointer_u64};
 use crate::model::{InventoryFile, SkippedCounts};
@@ -122,11 +122,18 @@ fn classification_for_path(path: &str) -> &'static str {
         || lower.contains("__tests__")
     {
         "test"
+    } else if lower.starts_with(".github/workflows/") {
+        "workflow"
+    } else if lower.starts_with(".github/issue_template/")
+        || lower == ".github/funding.yml"
+        || lower.starts_with("schemas/")
+    {
+        "config"
     } else if lower.starts_with("docs/") || lower.ends_with(".md") || lower.ends_with(".mdx") {
         "docs"
     } else if lower.starts_with("scripts/")
         || lower.starts_with("tools/")
-        || lower.starts_with(".github/")
+        || lower.starts_with(".github/actions/")
     {
         "tool"
     } else if lower.starts_with("config/")
@@ -246,6 +253,7 @@ pub fn build(
     let ignored = ignore_set(&patterns)?;
     let mut skipped = SkippedCounts::default();
     let mut records = Vec::new();
+    let large_file_bytes = pointer_u64(config, "/resources/large_file_bytes", 2_097_152) as usize;
     for relative_path in tracked_paths {
         if ignored.is_match(relative_path) {
             skipped.ignored += 1;
@@ -268,6 +276,30 @@ pub fn build(
         // this analyzer.
         if metadata.is_dir() {
             skipped.ignored += 1;
+            continue;
+        }
+        if !metadata.file_type().is_symlink() && metadata.len() > large_file_bytes as u64 {
+            let (classification_override, profile_override, language_override) =
+                path_override(relative_path, config);
+            let bytes = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+            records.push(InventoryFile {
+                path: relative_path.replace('\\', "/"),
+                bytes,
+                lines: 0,
+                blank_lines: 0,
+                code_lines: 0,
+                comment_lines: 0,
+                language: language_override
+                    .unwrap_or_else(|| language_for_path(relative_path).into()),
+                profile: profile_override
+                    .unwrap_or_else(|| profile_for(relative_path, bytes, config).to_string()),
+                classification: classification_override
+                    .unwrap_or_else(|| classification_for_path(relative_path).to_string()),
+                text: String::new(),
+                analysis_status: "skipped".to_string(),
+                skipped_reason: Some("large_file_limit".to_string()),
+                symlink_metadata: None,
+            });
             continue;
         }
         // Analyze the link stored by Git, never the target it happens to resolve to
@@ -309,6 +341,15 @@ pub fn build(
             classification: classification_override
                 .unwrap_or_else(|| classification_for_path(relative_path).to_string()),
             text,
+            analysis_status: "analyzed".to_string(),
+            skipped_reason: None,
+            symlink_metadata: metadata.file_type().is_symlink().then(|| {
+                json!({
+                    "kind": "symbolic_link",
+                    "target_status": if absolute_path.exists() { "resolves" } else { "broken" },
+                    "target_content_read": false
+                })
+            }),
         });
     }
     records.sort_by(|left, right| left.path.cmp(&right.path));

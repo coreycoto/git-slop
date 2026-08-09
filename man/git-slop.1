@@ -1,281 +1,104 @@
-.TH GIT-SLOP 1 "2026-08-08" "git-slop 0.10.1" "General Commands Manual"
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH git-slop 1  "git-slop 0.11.0"
 .SH NAME
-git-slop \- deterministic repository token-defragmenter
+git\-slop \- Find the files that cost too much context.
 .SH SYNOPSIS
-.B git-slop
-.RI [ --repo " path" ]
-.I command
-.RI [ options ]
-.br
-.B git slop
-.RI [ --repo " path" ]
-.I command
-.RI [ options ]
+\fBgit\-slop\fR [\fB\-\-repo\fR] [\fB\-\-error\-format\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
 .SH DESCRIPTION
-.B git-slop
-is a native, local-first analyzer for tracked files in a Git repository.
-It measures context cost and maintenance pressure, adds structural and
-operational evidence, and writes machine-readable and human-readable reports.
-Scoring does not require a hosted API or model provider.
-.PP
-When the executable is on
-.BR PATH ,
-Git can run it as
-.BR "git slop" .
-.SH COMMANDS
+Find the files that cost too much context.
+.SH OPTIONS
 .TP
-.B init
-Scaffold
-.BR .slop/config.yaml ,
-.BR .slop/.gitignore ,
-and generated-state directories. Use
-.B --force
-to overwrite generated config files.
+\fB\-\-repo\fR \fI<PATH>\fR
+Repository or path inside a repository to analyze
 .TP
-.B find
-Analyze tracked files and local Git history. Write compact
-.BR report.json ,
-.BR summary.md ,
-and
-.B health.md
-to
-.B .slop/latest/
-and a timestamped directory under
-.BR .slop/runs/ .
-Enable compatibility YAML with
-.BR output.yaml: true .
-Scoped scans reject absolute paths, parent traversal, missing paths, and empty
-tracked selections unless
-.B --allow-empty-scope
-is explicit.
-Use
-.B --no-progress
-to preserve the final result without phase updates, or
-.B --quiet
-to suppress both.
+\fB\-\-error\-format\fR \fI<ERROR_FORMAT>\fR [default: human]
+Render runtime errors as human text or stable JSON
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+human
+.IP \(bu 2
+json
+.RE
 .TP
-.B show
-Show one file or folder from an existing report.
-The positional argument is a repository-relative path.
-Options are
-.BI --report " path"
-and
-.BI --format " text|json" .
+\fB\-h\fR, \fB\-\-help\fR
+Print help
 .TP
-.B explain
-Explain a selected file, folder, relationship, cluster, or top-N action-queue
-entries. Select with
-.BI --path " path" ,
-.BI --relationship " id" ,
-.BI --cluster " id" ,
-or
-.BI --top " count" .
-With no selector, the top five entries are used.
-Additional options are
-.BI --report " path" ,
-.BI --format " text|json" ,
-and
-.BI --prompt-pack " directory" .
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH SUBCOMMANDS
 .TP
-.B plan
-Propose bounded maintenance slices from existing evidence.
-Exactly one of
-.BI --path " path" ,
-.BI --relationship " id" ,
-or
-.BI --cluster " id"
-is required.
-Additional options are
-.BI --report " path" ,
-.BI --max-slices " count" ,
-.BI --format " text|json" ,
-and
-.BI --prompt-pack " directory" .
+git\-slop\-init(1)
+Scaffold .slop/ config, ignore rules, and state directories
 .TP
-.B check
-Evaluate existing file records against stable detector thresholds.
-Options are
-.BI --report " path" ,
-.BI --fail-on-context-band " compact|healthy|warning|critical" ,
-and
-.BI --fail-on-slop-band " low|moderate|high|critical" .
-JSON is concise by default; add
-.B --details
-for complete finding records.
-Overlays and health rollups do not affect this gate.
+git\-slop\-find(1)
+Scan the repository and generate hotspot reports
 .TP
-.B compare
-Compare two existing schema-4 reports without rerunning the detector.
-.BI --base " path"
-and
-.BI --head " path"
-are required.
-Optional arguments are
-.BI --top " count"
-.BI --format " text|json" ,
-.BR --force ,
-and
-.BR --fail-on-regression .
+git\-slop\-show(1)
+Show metrics and reasons for one file or folder
 .TP
-.B report
-Validate one canonical report with
-.BI "report validate" " path"
-or print report schema 4 with
-.BR "report schema" .
+git\-slop\-explain(1)
+Explain why selected hotspots or structural findings are expensive
 .TP
-.B sarif
-Export action-queue findings from an existing schema-4 report as SARIF 2.1.0.
-Options are
-.BI --report " path" ,
-.BI --top " count" ,
-and
-.BI --output " path" .
-Without
-.B --output
-the document is written to standard output.
+git\-slop\-plan(1)
+Propose bounded maintenance slices from the current detector report
 .TP
-.B health
-Render additive repository-health evidence from an existing schema-4 report.
-Options are
-.BI --report " path" ,
-.BI --format " text|markdown|github|json" ,
-and
-.BI --max-annotations " count" .
-The default format is
-.B text
-and the default annotation cap is 10.
-All formats write to standard output and do not rewrite
-.BR .slop/latest/health.md .
-The GitHub format emits bounded workflow-command annotations.
-Findings are advisory: successful rendering returns 0 even when findings are
-present. Use
-.B check
-to enforce stable detector thresholds.
+git\-slop\-check(1)
+Evaluate an existing report against CI thresholds
 .TP
-.B config
-Show effective or local configuration, validate it, migrate legacy overrides,
-or print the complete config schema. Subcommands are
-.BR show ,
-.BR validate ,
-.BR migrate ,
-and
-.BR schema .
+git\-slop\-compare(1)
+Compare two existing schema\-5 reports without rerunning the detector
 .TP
-.B doctor
-Diagnose Git history, config, latest-report, and resource readiness. Use
-.BI --format " text|json"
-or
-.BI --bundle " directory" .
+git\-slop\-report(1)
+Validate or inspect the versioned report contract
 .TP
-.B list
-List findings, relationships, clusters, or profiles from an existing report.
-Use
-.BI --kind " kind" ,
-.BI --top " count" ,
-and
-.BI --format " text|json" .
+git\-slop\-sarif(1)
+Export action\-queue findings from an existing schema\-5 report as SARIF
 .TP
-.B prune
-Remove old immutable run snapshots according to configured retention. Use
-.B --dry-run
-to preview and
-.BI --keep " count"
-to override the configured count.
+git\-slop\-health(1)
+Render repository health for CI summaries, annotations, or automation
 .TP
-.B completions
-Generate completion source from the live command tree for Bash, Zsh, Fish,
-PowerShell, or Nushell.
+git\-slop\-config(1)
+Inspect or migrate effective configuration
 .TP
-.B html
-Write a self-contained local report browser. Options are
-.BI --report " path"
-and
-.BI --output " path" .
+git\-slop\-doctor(1)
+Diagnose repository readiness and optionally write a redacted bundle
 .TP
-.B version
-Print
-.B git-slop
-and the installed package version.
+git\-slop\-list(1)
+List findings, relationships, clusters, or profiles
 .TP
-.B build-info
-Print schema-1 JSON containing the package version and source-build provenance.
-The only format is
-.BR "--format json" .
-Verified release builds report the full source revision and
-.BR "source_dirty: false" ;
-unverifiable local source identity is represented by nullable fields.
-.SH REPORT FILES
-Unless overridden with
-.BR --report ,
-report-consuming commands read
-.BR .slop/latest/report.json .
-The current machine contract is report schema 4.
-.PP
-.B summary.md
-contains detailed detector and overlay evidence.
-.B health.md
-contains status bands, token distributions, review candidates, watchlists,
-actionable findings, and profile/language rollups for humans and CI.
-.SH EXAMPLES
+git\-slop\-prune(1)
+Remove old immutable run snapshots according to retention policy
 .TP
-.B git slop init
-Create repository-local config and generated-state boundaries.
+git\-slop\-cache(1)
+Inspect or prune the packed token cache
 .TP
-.B git slop find
-Generate a schema-4 report bundle for the current repository.
+git\-slop\-completions(1)
+Generate shell completion source
 .TP
-.B git slop health
-Render the repository-health dashboard from the latest report to standard
-output without rewriting
-.BR health.md .
+git\-slop\-man(1)
+Generate the roff manual from the live Clap command tree
 .TP
-.B git slop health --format github --max-annotations 10
-Emit at most ten GitHub workflow annotations.
+git\-slop\-reference(1)
+Generate Markdown command reference from the live Clap command tree
 .TP
-.B git slop explain --path src/report.rs
-Explain stable cost and additive evidence for one path.
+git\-slop\-html(1)
+Write a self\-contained, local, searchable HTML report
 .TP
-.B git slop plan --path src --max-slices 3
-Propose up to three bounded maintenance slices.
+git\-slop\-version(1)
+Print version information
 .TP
-.B git slop check --fail-on-context-band warning
-Fail when any file is at or above the warning context band.
+git\-slop\-build\-info(1)
+Print package and source\-build provenance
 .TP
-.B git slop compare --base old.json --head new.json
-Compare two previously generated reports.
+git\-slop\-schema(1)
+Print a published JSON Schema for a machine contract
 .TP
-.B git slop build-info --format json
-Print the package version, full source revision when known, and source-dirty
-state as schema-1 JSON.
-.SH EXIT STATUS
-.B health
-returns 0 after successful rendering even when findings are present. Invalid
-input or a runtime failure returns a nonzero status.
-.PP
-.B check
-returns 0 when no file meets either threshold, 1 when findings meet a
-threshold, and 2 for invalid report or command input.
-Other commands return 0 on success and a nonzero status for invalid input or
-runtime failure.
-.SH FILES
-.TP
-.B .slop/config.yaml
-Repository-owned config schema 2.
-.TP
-.B .slop/.gitignore
-Ignore rules for routine generated state.
-.TP
-.B .slop/latest/
-Latest compact report bundle, plus optional compatibility YAML.
-.TP
-.B .slop/runs/
-Timestamped report bundles.
-.TP
-.B .slop/cache/
-Disposable generated cache state.
-.SH BOUNDARIES
-Git Slop does not rewrite code, mutate GitHub, invoke a hosted model, or treat
-findings as correctness proofs. Stable costs, overlays, and health projections
-remain separate.
-.SH SEE ALSO
-.BR git (1)
+git\-slop\-help(1)
+Print this message or the help of the given subcommand(s)
+.SH VERSION
+v0.11.0

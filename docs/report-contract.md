@@ -8,11 +8,12 @@ projections of that data.
 
 The current report schema is:
 
-- `schema_version: 4`
+- `schema_version: 5`
 
 Canonical top-level fields and sections are:
 
 - `schema_version`
+- `analyzer`
 - `generated_at`
 - `analyzed_revision_at`
 - `summary`
@@ -22,11 +23,14 @@ Canonical top-level fields and sections are:
 - `stats`
 - `files`
 - `folders`
+- `ranked_files`
 - `action_queue`
 - `costs`
 - `overlays`
 - `health`
 - `collection_metadata`
+- `evidence_completeness`
+- `terminology`
 - `diagnostics`
 
 `generated_at` records when the detector ran.
@@ -34,10 +38,16 @@ Canonical top-level fields and sections are:
 available. Repository provenance, including branch, HEAD SHA, remote URL,
 shallow status, and repository root, lives under `repo`.
 
-`scope` records its mode, normalized repo-relative path, selected path count,
-and SHA-256 selected-path digest. Baseline compatibility includes repository,
-analyzer, tokenizer, configuration, history completeness, and scope identity.
-Forced comparisons retain exact base and head mismatch values.
+`scope` records its mode, normalized repo-relative selector, selected path
+count, and SHA-256 selected-path digest. Compatibility uses the stable
+repository identity, scope mode/selector, analysis contract, tokenizer,
+analysis/evidence configuration, and history completeness. Path count and
+digest remain snapshot evidence so ordinary additions and removals can be
+compared. Forced comparisons retain exact base and head mismatch values.
+
+`analyzer` publishes separate analysis, evidence, policy, and presentation
+configuration digests. Its `analysis_contract_version` is the comparison
+semantic boundary; package patch versions are not.
 
 Canonical file records include `content_fingerprint`, preventing history-only
 movement from being mistaken for source changes. Canonical arrays are complete;
@@ -62,7 +72,8 @@ The stable detector fields are:
 - `slop_score`
 - `slop_band`
 - `context_band`
-- `action_queue`
+- `ranked_files` (the exhaustive ranking)
+- `action_queue` (only records requiring attention)
 
 `slop_score` and `slop_band` are deterministic maintenance-pressure evidence,
 not overall quality scores. `context_band` is the separate file context/load
@@ -78,13 +89,13 @@ Canonical overlay sections are:
 - `overlays.navigation`
 - `overlays.blast_radius`
 - `overlays.stewardship`
-- `overlays.semantic_drift`
+- `overlays.concept_dispersion`
 
 Overlay evidence explains adjacent structural and operational pressure. It does
 not change stable scoring or `check` behavior.
 
 Every overlay wrapper carries `analysis_status` and `analysis_version`.
-`overlays.semantic_drift` also always carries a `findings` array, including when
+`overlays.concept_dispersion` also always carries a `findings` array, including when
 there are no findings.
 
 The Rust organization analyzer is `analysis_version: 2`. Its deterministic
@@ -113,17 +124,13 @@ The canonical `clusters` object always carries `analysis_status`,
 All canonical arrays remain present when empty. Relationship and cluster
 records retain the exact `kind` value associated with their canonical section.
 
-For one compatibility cycle, reports also emit these top-level mirrors:
-
-- `organization_metrics`
-- `relationships`
-- `clusters`
-
-New consumers should prefer the canonical `costs` and `overlays` sections.
+Relationship and cluster records are stored once under the canonical
+organization overlay and referenced by stable IDs from file evidence. Consumers
+should use `costs` and `overlays`; schema 5 removes duplicated graph mirrors.
 
 ### Repository Health
 
-Schema 4 now contains an additive `health` section with:
+Schema 5 contains an additive `health` section with:
 
 - `file_band_counts`
 - `folder_band_counts`
@@ -145,16 +152,16 @@ Health file bands are a human-facing projection of context/load bands:
 - `compact`
 - `healthy`
 - `warning`
-- `refactor_required`
+- `budget_exceeded`
 
 Folder health bands use direct child-file counts and direct token totals from
 the `health.folder_bands` config. They do not alter file-level stable scoring.
 
-For every warning or refactor-required folder surfaced in Markdown, the
+For every warning or budget-exceeded folder surfaced in Markdown, the
 projection names each direct metric that crossed the boundary for the displayed
 band. Warning rows compare against the configured healthy ceilings, for example
 `19 direct files > 17 healthy ceiling` or
-`128,001 direct tokens > 128,000 healthy ceiling`. Refactor-required rows
+`128,001 direct tokens > 128,000 healthy ceiling`. Budget-exceeded rows
 compare against the warning ceilings. When both direct metrics cross the
 relevant ceiling, the two clauses are joined with `; `.
 
@@ -206,7 +213,7 @@ The same four files are written to one timestamped directory under
 `.slop/runs/`.
 
 - `report.json` is the canonical automation format.
-- `report.yaml` contains the equivalent schema-4 payload only when explicitly enabled.
+- `report.yaml` contains the equivalent schema-5 payload only when explicitly enabled.
 - `summary.md` preserves the detailed detector and overlay view.
 - `health.md` presents status bands, distributions, review candidates,
   watchlists, actionable findings, and compact rollups for humans and CI.
@@ -220,8 +227,8 @@ Downstream commands consume existing reports and emit additive payloads:
 
 - `git slop explain`: schema-v2 explain payload
 - `git slop plan`: schema-v2 plan payload
-- `git slop compare`: schema-v1 comparison of two schema-4 reports
-- `git slop sarif`: SARIF 2.1.0 projection of one schema-4 report
+- `git slop compare`: schema-v1 comparison of two schema-5 reports
+- `git slop sarif`: SARIF 2.1.0 projection of one schema-5 report
 - `git slop health --format json`: JSON projection of the additive health data
 
 `git slop health --format markdown` regenerates the human dashboard.
@@ -236,8 +243,10 @@ the stable threshold gate.
 
 These commands do not rerun the detector, rescore detector truth, or change
 `check` semantics. `explain` and `plan` write local prompt packs only when the
-caller explicitly supplies `--prompt-pack`; `sarif` writes a file only when the
-caller supplies `--output`.
+caller explicitly supplies `--prompt-pack`. Source/test excerpts, repository
+guidance, and inferred verification commands require the additional
+`--include-repository-context` opt-in and are byte- and count-bounded. `sarif`
+writes a file only when the caller supplies `--output`.
 
 ## Config
 
@@ -256,7 +265,9 @@ Current config namespaces are:
 - `navigation`
 - `blast_radius`
 - `stewardship`
-- `semantic_drift`
+- `semantic_drift` (configuration namespace retained for compatibility; report output is `concept_dispersion`)
+- `resources`
+- `output`
 - `health`
 - `check`
 
@@ -269,7 +280,7 @@ The `health` namespace has these schema-2 defaults:
 | `health.folder_bands.healthy_max_direct_tokens` | `128000` | Inclusive healthy direct-token ceiling |
 | `health.folder_bands.warning_max_direct_tokens` | `256000` | Inclusive warning direct-token ceiling |
 | `health.folder_bands.warning_max_direct_files` | `17` | Inclusive direct-file ceiling before warning |
-| `health.folder_bands.refactor_required_max_direct_files` | `37` | Inclusive direct-file ceiling before `refactor_required` |
+| `health.folder_bands.refactor_required_max_direct_files` | `37` | Compatibility key: inclusive direct-file ceiling before `budget_exceeded` |
 | `health.summary_top_files` | `10` | File rows retained in rendered dashboard sections |
 | `health.summary_top_folders` | `10` | Folder rows retained in rendered dashboard sections |
 
@@ -278,7 +289,7 @@ File health bands project the existing
 `healthy_max_tokens: 8000`, and `warning_max_tokens: 10000` defaults. Folder
 bands use direct `agent_context` tokens and files: values above the healthy
 token or warning file ceiling are `warning`; values above the warning token or
-refactor-required file ceiling are `refactor_required`.
+legacy-named file ceiling are `budget_exceeded`.
 
 Important defaults:
 
@@ -294,11 +305,12 @@ memory for one compatibility cycle. `git slop init` writes schema 2.
 
 ## Compatibility Rules
 
-- Additive fields may appear inside schema 4.
+- Schema 5 is strict: unknown fields fail validation with a stable error code
+  and JSON pointer.
 - Removing or retyping accepted fields requires a schema-version change.
 - Rendered Markdown may evolve without changing the report schema.
 - Overlay and health additions may not silently alter stable scoring or check
   thresholds.
-- Unknown additive fields should be ignored by consumers.
+- Schema 4 is accepted only through explicit migration or `--allow-legacy`.
 - Repositories should keep their generated report bundles untracked unless
   they are deliberately curated fixtures.

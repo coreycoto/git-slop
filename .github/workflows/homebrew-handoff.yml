@@ -79,6 +79,8 @@ jobs:
           printf '%s\n' \
             SHA256SUMS \
             git-slop.rb \
+            git-slop.cdx.json \
+            git-slop.spdx.json \
             "git-slop-${tag}-aarch64-apple-darwin.tar.gz" \
             "git-slop-${tag}-aarch64-pc-windows-msvc.zip" \
             "git-slop-${tag}-aarch64-unknown-linux-gnu.tar.gz" \
@@ -89,14 +91,14 @@ jobs:
             release-manifest.json | LC_ALL=C sort > expected-assets.txt
           diff -u expected-assets.txt actual-assets.txt
 
-          test "$(wc -l < release-assets/SHA256SUMS | tr -d ' ')" = "9"
+          test "$(wc -l < release-assets/SHA256SUMS | tr -d ' ')" = "11"
           awk '
             NF != 2 { exit 1 }
             length($1) != 64 || $1 !~ /^[0-9a-f]+$/ { exit 1 }
             substr($2, 1, 1) == "*" { $2 = substr($2, 2) }
             $2 ~ /(^\/|\\|\.\.)/ { exit 1 }
             seen[$2]++ { exit 1 }
-            END { if (NR != 9) exit 1 }
+            END { if (NR != 11) exit 1 }
           ' release-assets/SHA256SUMS
           awk '{ name = $2; sub(/^\*/, "", name); print name }' release-assets/SHA256SUMS | LC_ALL=C sort > checksum-assets.txt
           grep -v '^SHA256SUMS$' expected-assets.txt > expected-checksum-assets.txt

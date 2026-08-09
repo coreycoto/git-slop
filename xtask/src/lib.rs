@@ -6,6 +6,7 @@ pub mod issue_forms;
 pub mod manifest;
 pub mod release;
 pub mod repository;
+pub mod sbom;
 pub mod workflows;
 
 use anyhow::{Result, bail};

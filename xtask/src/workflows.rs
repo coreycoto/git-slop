@@ -812,15 +812,16 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             ));
             return;
         };
+        require(generate, "cargo xtask sbom --output-dir dist", name, errors);
         require(
             generate,
-            "sha256sum git-slop.rb >> SHA256SUMS",
+            "sha256sum git-slop.rb git-slop.cdx.json git-slop.spdx.json >> SHA256SUMS",
             name,
             errors,
         );
         require(
             generate,
-            "test \"$(wc -l < dist/SHA256SUMS | tr -d ' ')\" = \"9\"",
+            "test \"$(wc -l < dist/SHA256SUMS | tr -d ' ')\" = \"11\"",
             name,
             errors,
         );
@@ -937,7 +938,9 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
                 ));
             }
         } else {
-            errors.push(format!("{name} must verify the exact ten release assets."));
+            errors.push(format!(
+                "{name} must verify the exact twelve release assets."
+            ));
         }
         if let Some(verify_action) =
             named_step(draft, "Verify Action installer against release assets")
@@ -1984,7 +1987,7 @@ fn validate_homebrew_handoff(payload: &YamlValue, errors: &mut Vec<String>) {
     };
     for required in [
         ".tag_name == $tag and .draft == false and .prerelease == false",
-        "test \"$(wc -l < release-assets/SHA256SUMS | tr -d ' ')\" = \"9\"",
+        "test \"$(wc -l < release-assets/SHA256SUMS | tr -d ' ')\" = \"11\"",
         "sha256sum --check SHA256SUMS",
         ".crate_source.registry == \"crates.io\"",
         "https://static.crates.io/crates/git-slop/git-slop-",
@@ -2073,7 +2076,7 @@ fn validate_exact_release_assets(run: &str, name: &str, tag: &str, errors: &mut 
         .collect::<Vec<_>>()
         .join(" ");
     let exact = format!(
-        "printf '%s\\n' SHA256SUMS git-slop.rb \
+        "printf '%s\\n' SHA256SUMS git-slop.rb git-slop.cdx.json git-slop.spdx.json \
          \"git-slop-{tag}-aarch64-apple-darwin.tar.gz\" \
          \"git-slop-{tag}-aarch64-pc-windows-msvc.zip\" \
          \"git-slop-{tag}-aarch64-unknown-linux-gnu.tar.gz\" \
@@ -2085,7 +2088,7 @@ fn validate_exact_release_assets(run: &str, name: &str, tag: &str, errors: &mut 
     );
     if !normalized.contains(&exact) {
         errors.push(format!(
-            "{name} must compare the exact ten release assets against the published inventory."
+            "{name} must compare the exact twelve release assets against the published inventory."
         ));
     }
     for required in [
@@ -3415,8 +3418,8 @@ mod tests {
             ),
             (
                 valid.replacen(
-                    "            git tag \"$TAG\" \"$REVISION\"\n          fi\n          authorization=",
-                    "            git tag -f \"$TAG\" \"$REVISION\"\n          fi\n          authorization=",
+                    "            git tag -s -m \"Git Slop ${TAG}\" \"$TAG\" \"$REVISION\"\n            git verify-tag \"$TAG\"",
+                    "            git tag -f -s -m \"Git Slop ${TAG}\" \"$TAG\" \"$REVISION\"\n            git verify-tag \"$TAG\"",
                     1,
                 ),
                 "must not include git tag -f",
@@ -3451,7 +3454,7 @@ mod tests {
                     "\"unexpected.zip\"",
                     1,
                 ),
-                "exact ten release assets",
+                "exact twelve release assets",
             ),
             (
                 format!("{relay}\n# gh workflow run homebrew-handoff.yml\n"),
@@ -3507,11 +3510,11 @@ mod tests {
                     "\"unexpected.zip\"",
                     1,
                 ),
-                "exact ten release assets",
+                "exact twelve release assets",
             ),
             (
                 homebrew.replacen(
-                    "wc -l < release-assets/SHA256SUMS | tr -d ' ')\" = \"9\"",
+                    "wc -l < release-assets/SHA256SUMS | tr -d ' ')\" = \"11\"",
                     "wc -l < release-assets/SHA256SUMS | tr -d ' ')\" = \"6\"",
                     1,
                 ),

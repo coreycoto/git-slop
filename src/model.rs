@@ -8,6 +8,10 @@ use serde_json::Value;
 pub struct RepoMetadata {
     pub repo_name: String,
     pub repo_root: String,
+    /// Stable, privacy-safe comparator identity. Remote-backed repositories
+    /// use normalized host/owner/name; local-only repositories use root commit.
+    pub repository_id: Option<String>,
+    pub repository_identity_source: Option<String>,
     pub branch: Option<String>,
     pub head_commit: Option<String>,
     pub head_commit_timestamp: Option<String>,
@@ -23,6 +27,7 @@ pub struct RepoMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ScopeIdentity {
     pub mode: String,
     pub path: Option<String>,
@@ -50,6 +55,9 @@ pub struct InventoryFile {
     pub profile: String,
     pub classification: String,
     pub text: String,
+    pub analysis_status: String,
+    pub skipped_reason: Option<String>,
+    pub symlink_metadata: Option<Value>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -78,9 +86,13 @@ pub struct CommitRecord {
     pub author: String,
     pub paths: Vec<String>,
     pub line_churn_by_path: BTreeMap<String, usize>,
+    pub change_set_size: usize,
+    pub change_kind: String,
+    pub calibration_weight: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FileAnalysis {
     pub path: String,
     pub bytes: usize,
@@ -91,6 +103,9 @@ pub struct FileAnalysis {
     pub language: String,
     pub profile: String,
     pub classification: String,
+    pub analysis_status: String,
+    pub skipped_reason: Option<String>,
+    pub symlink_metadata: Option<Value>,
     pub has_inline_tests: bool,
     pub tokens: usize,
     pub context_band: String,
@@ -102,6 +117,7 @@ pub struct FileAnalysis {
     pub structural_tokens: Vec<String>,
     pub structural_token_count: usize,
     pub top_structural_terms: Vec<String>,
+    pub structural_categories: Value,
     pub age_days: u64,
     pub revisions_window: usize,
     pub recency_weighted_commits: f64,
@@ -129,6 +145,7 @@ pub struct FileAnalysis {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FolderAnalysis {
     pub path: String,
     pub descendant_file_count: usize,
@@ -161,7 +178,9 @@ pub struct OrganizationAnalysis {
 
 #[derive(Debug, Clone)]
 pub struct Analysis {
-    pub repo_root: PathBuf,
+    pub output_root: PathBuf,
+    pub report_profile: String,
+    pub compression: String,
     pub repo: RepoMetadata,
     pub config: Value,
     pub generated_at: String,
@@ -184,10 +203,12 @@ pub struct FindResult {
     pub report_yaml: PathBuf,
     pub summary_md: PathBuf,
     pub health_md: PathBuf,
+    pub compressed_report: Option<PathBuf>,
     pub terminal: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Finding {
     pub path: String,
     pub profile: String,
@@ -203,6 +224,7 @@ pub struct Finding {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HealthRollup {
     pub file_band_counts: BTreeMap<String, usize>,
     pub folder_band_counts: BTreeMap<String, usize>,

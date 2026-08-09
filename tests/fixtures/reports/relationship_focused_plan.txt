@@ -1,16 +1,16 @@
 Plan: relationship near_duplicate_neighborhood-35e7fad1c4e0 [near_duplicate_neighborhood]
 
-1. Inspect relationship near_duplicate_neighborhood-35e7fad1c4e0
+1. Inspect src/consumer_toolkit/github/current_repo.py ↔ src/consumer_toolkit/github/shared/current_repo.py
    scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py
-   objective: Reduce the bounded maintenance pressure across src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py without expanding the reviewed scope.
+   objective: Keep the highest scoped slop score at or below 12.600000 across src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py, introduce zero native compare regressions, and pass every discovered verification command without expanding the reviewed scope.
    rationale: Start with the selected coupled pair before considering any surrounding cluster evidence.
    evidence: Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py.
    expected_outcome: highest scoped score does not exceed 12.6; no native compare regression; verification passes
    verification: none
-   rerun: git-slop find && git-slop compare --base <baseline-report.json> --head .slop/latest/report.json --fail-on-regression
+   rerun: git-slop find && git-slop compare --base .slop/plan-baseline.json --head .slop/latest/report.json --detail summary --fail-on-regression
    abandon_if: Stop and abandon or re-scope this slice if preserving behavior requires an out-of-scope change, verification cannot be identified, or the native comparison reports a regression.
    rollback: Revert only the explicitly reviewed code changes; report and prompt artifacts are advisory and can be regenerated.
-   backlog: Maintenance: Inspect relationship near_duplicate_neighborhood-35e7fad1c4e0 priority=Later policy=preview_only
+   backlog: Maintenance: Inspect src/consumer_toolkit/github/current_repo.py ↔ src/consumer_toolkit/github/shared/current_repo.py priority=Later policy=preview_only
    out_of_scope: none
 
 Plan boundary: this is a bounded proposal only. It does not mutate code, GitHub, or detector truth, and it does not guarantee correctness or safety.

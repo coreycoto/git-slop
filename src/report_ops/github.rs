@@ -1,4 +1,121 @@
 use super::*;
+use std::io::Read;
+
+fn collect_prompt_paths(value: &Value, paths: &mut BTreeSet<String>) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                if matches!(key.as_str(), "path" | "source_path" | "target_path") {
+                    if let Some(path) = value.as_str() {
+                        paths.insert(path.to_string());
+                    }
+                } else if matches!(key.as_str(), "scope_paths" | "in_scope") {
+                    if let Some(values) = value.as_array() {
+                        paths.extend(
+                            values
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .map(ToOwned::to_owned),
+                        );
+                    }
+                }
+                collect_prompt_paths(value, paths);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                collect_prompt_paths(value, paths);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn bounded_repository_text(root: &Path, relative: &str, byte_limit: usize) -> Option<Value> {
+    let relative_path = Path::new(relative);
+    if relative_path.as_os_str().is_empty()
+        || relative_path.is_absolute()
+        || relative_path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir | std::path::Component::RootDir
+            )
+        })
+    {
+        return None;
+    }
+    let absolute = root.join(relative_path);
+    let metadata = fs::symlink_metadata(&absolute).ok()?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(byte_limit.saturating_add(1));
+    std::io::Read::read_to_end(
+        &mut fs::File::open(absolute)
+            .ok()?
+            .take(u64::try_from(byte_limit.saturating_add(1)).ok()?),
+        &mut bytes,
+    )
+    .ok()?;
+    let truncated = bytes.len() > byte_limit;
+    bytes.truncate(byte_limit);
+    Some(json!({
+        "path": relative,
+        "excerpt": String::from_utf8_lossy(&bytes),
+        "bytes_returned": bytes.len(),
+        "truncated": truncated
+    }))
+}
+
+fn repository_context(
+    payload: &Value,
+    _report: &Value,
+    root: &Path,
+    excerpt_bytes: usize,
+) -> Value {
+    let byte_limit = excerpt_bytes.clamp(256, 4096);
+    let mut candidate_paths = BTreeSet::new();
+    collect_prompt_paths(payload, &mut candidate_paths);
+    let source_excerpts = candidate_paths
+        .iter()
+        .filter_map(|path| bounded_repository_text(root, path, byte_limit))
+        .take(10)
+        .collect::<Vec<_>>();
+    let guidance = ["AGENTS.md", "CONTRIBUTING.md", "README.md"]
+        .iter()
+        .filter_map(|path| bounded_repository_text(root, path, byte_limit))
+        .collect::<Vec<_>>();
+    let verification_commands = if root.join("Cargo.toml").is_file() {
+        vec![
+            "cargo fmt --all -- --check",
+            "cargo clippy --all-targets --all-features -- -D warnings",
+            "cargo test --all-targets",
+        ]
+    } else if root.join("go.mod").is_file() {
+        vec!["go test ./..."]
+    } else if root.join("pyproject.toml").is_file() {
+        vec!["pytest"]
+    } else if root.join("package.json").is_file() {
+        vec!["npm test"]
+    } else {
+        Vec::new()
+    };
+    json!({
+        "included": true,
+        "reason": "explicit_opt_in",
+        "source_excerpts": source_excerpts,
+        "guidance": guidance,
+        "verification_commands": verification_commands,
+        "truncation": {
+            "per_file_byte_limit": byte_limit,
+            "source_file_limit": 10,
+            "source_candidate_count": candidate_paths.len(),
+            "source_returned_count": source_excerpts.len(),
+            "guidance_file_limit": 3,
+            "guidance_returned_count": guidance.len()
+        }
+    })
+}
 
 pub fn health_json_payload(report: &Value) -> Value {
     json!({
@@ -82,6 +199,8 @@ pub fn write_prompt_pack(
     payload: &Value,
     report: &Value,
     output_dir: &Path,
+    repository_root: Option<&Path>,
+    excerpt_bytes: usize,
 ) -> Result<()> {
     if output_dir.exists() {
         if !output_dir.is_dir() {
@@ -106,16 +225,66 @@ pub fn write_prompt_pack(
         fs::remove_dir_all(&temporary)?;
     }
     fs::create_dir(&temporary)?;
+    let report_digest = serde_json::to_vec(report)
+        .map(|bytes| hex::encode(Sha256::digest(bytes)))
+        .unwrap_or_default();
+    let evidence_excerpts = array_at(report, &["files"])
+        .iter()
+        .take(20)
+        .map(|file| {
+            json!({
+                "path": file.get("path"),
+                "slop_score": file.get("slop_score"),
+                "slop_band": file.get("slop_band"),
+                "context_band": file.get("context_band"),
+                "reason_codes": file.get("reason_codes"),
+                "content_fingerprint": file.get("content_fingerprint")
+            })
+        })
+        .collect::<Vec<_>>();
+    let repository_context = repository_root.map_or_else(
+        || {
+            json!({
+                "included": false,
+                "reason": "not_requested",
+                "source_excerpts": [],
+                "guidance": [],
+                "verification_commands": [],
+                "truncation": {"per_file_byte_limit": 0, "file_limit": 0}
+            })
+        },
+        |root| repository_context(payload, report, root, excerpt_bytes),
+    );
     let context = json!({
         "prompt_pack_version": 1,
         "command": command,
         "payload": payload,
+        "provenance": {
+            "analyzer_version": report.pointer("/analyzer/version").cloned().unwrap_or(Value::Null),
+            "analysis_contract_version": report.pointer("/analyzer/analysis_contract_version").cloned().unwrap_or(Value::Null),
+            "analysis_config_digest": report.pointer("/analyzer/analysis_config_digest").cloned().unwrap_or(Value::Null),
+            "evidence_config_digest": report.pointer("/analyzer/evidence_config_digest").cloned().unwrap_or(Value::Null),
+            "policy_config_digest": report.pointer("/analyzer/policy_config_digest").cloned().unwrap_or(Value::Null),
+            "presentation_config_digest": report.pointer("/analyzer/presentation_config_digest").cloned().unwrap_or(Value::Null),
+            "head_sha": report.pointer("/repo/head_sha").cloned().unwrap_or(Value::Null),
+            "generated_at": report.get("generated_at").cloned().unwrap_or(Value::Null),
+            "analyzed_revision_at": report.get("analyzed_revision_at").cloned().unwrap_or(Value::Null),
+            "worktree_state_digest": report.pointer("/repo/worktree_state_digest").cloned().unwrap_or(Value::Null),
+            "analyzed_content_digest": report.pointer("/repo/analyzed_content_digest").cloned().unwrap_or(Value::Null),
+            "evidence_completeness": report.get("evidence_completeness").cloned().unwrap_or(Value::Null),
+            "report_sha256": report_digest.clone(),
+        },
         "report_excerpt": {
             "schema_version": report.get("schema_version").cloned().unwrap_or(Value::Null),
             "repo": report.get("repo").cloned().unwrap_or_else(|| json!({})),
             "summary": report.get("summary").cloned().unwrap_or_else(|| json!({})),
             "stats": report.get("stats").cloned().unwrap_or_else(|| json!({})),
+            "analyzer": report.get("analyzer").cloned().unwrap_or_else(|| json!({})),
+            "evidence_excerpts": evidence_excerpts,
+            "collection_metadata": report.get("collection_metadata").cloned().unwrap_or(Value::Null),
+            "truncation": {"evidence_excerpt_limit": 20, "evidence_excerpt_total": report.get("files").and_then(Value::as_array).map(Vec::len).unwrap_or_default()},
         },
+        "repository_context": repository_context,
         "boundary": "Local model output is advisory only and must not rescore detector truth or mutate code, GitHub, or report data.",
     });
     let context_json = render_json(&context)?;
@@ -139,7 +308,9 @@ pub fn write_prompt_pack(
              Files:\n\n\
              - `context.json`: deterministic git-slop payload plus minimal report metadata.\n\
              - `prompt.md`: prompt text for a local model.\n\
-             - `README.md`: these usage notes.\n\n\
+             - `README.md`: these usage notes.\n\
+             - `response-template.md`: evidence-aware answer structure.\n\
+             - `verification.md`: reproducibility checks.\n\n\
              Boundary rules:\n\n\
              - This pack is advisory only.\n\
              - Local model output must not mutate code, GitHub, or detector truth.\n\
@@ -149,10 +320,16 @@ pub fn write_prompt_pack(
              - Keep hotspot cost separate from overlay evidence.\n\
              - `manifest.json` binds every payload file to its SHA-256 digest.\n"
     );
+    let response_template = "# Maintainer response\n\n## Summary\n\n## Evidence cited\n\n- Path, metric, and content fingerprint:\n\n## Proposed next step\n\n## Verification\n\n## Missing evidence and non-claims\n".to_string();
+    let verification = format!(
+        "# Verification\n\n- Validate the source report: `git-slop report validate --allow-legacy <report.json>`\n- Reproduce the selected payload with `git-slop {command} --format json` and the selector in context.json.\n- Confirm context.json and prompt.md digests against manifest.json.\n- Do not treat model prose as detector evidence.\n"
+    );
     let files = [
         ("context.json", context_json),
         ("prompt.md", prompt),
         ("README.md", readme),
+        ("response-template.md", response_template),
+        ("verification.md", verification),
     ];
     for (name, contents) in &files {
         fs::write(temporary.join(name), contents)?;
@@ -174,7 +351,10 @@ pub fn write_prompt_pack(
         "report": {
             "schema_version": report.get("schema_version").cloned().unwrap_or(Value::Null),
             "config_digest": report.pointer("/analyzer/config_digest").cloned().unwrap_or(Value::Null),
-            "scope": report.get("scope").cloned().unwrap_or(Value::Null)
+            "scope": report.get("scope").cloned().unwrap_or(Value::Null),
+            "head_sha": report.pointer("/repo/head_sha").cloned().unwrap_or(Value::Null),
+            "report_sha256": report_digest,
+            "generated_at": report.get("generated_at").cloned().unwrap_or(Value::Null)
         }
     });
     fs::write(temporary.join("manifest.json"), render_json(&manifest)?)?;

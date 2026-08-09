@@ -28,13 +28,17 @@ fn assert_close(actual: f64, expected: f64) {
     );
 }
 
-fn assert_stdout_matches_golden(output: &std::process::Output, expected: &str) {
+fn assert_stdout_matches_golden(output: &std::process::Output, golden: &std::path::Path) {
     assert!(
         output.status.success(),
         "command failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let actual = std::str::from_utf8(&output.stdout).expect("command stdout is UTF-8");
+    if std::env::var_os("UPDATE_GIT_SLOP_GOLDENS").is_some() {
+        fs::write(golden, actual).expect("update text golden");
+    }
+    let expected = fs::read_to_string(golden).expect("read text golden");
     assert_eq!(actual.replace("\r\n", "\n"), expected.replace("\r\n", "\n"));
 }
 
@@ -203,7 +207,7 @@ fn build_info_reports_version_and_source_identity_as_json() {
 }
 
 #[test]
-fn find_writes_schema_four_and_all_human_and_machine_surfaces() {
+fn find_writes_schema_five_and_all_human_and_machine_surfaces() {
     let repository = committed_repository();
     cargo_bin_cmd!("git-slop")
         .current_dir(repository.path())
@@ -222,17 +226,26 @@ fn find_writes_schema_four_and_all_human_and_machine_surfaces() {
         &fs::read(latest.join("report.json")).expect("read generated report"),
     )
     .expect("parse generated report");
-    assert_eq!(report["schema_version"], 4);
+    assert_eq!(report["schema_version"], 5);
     assert_eq!(report["files"].as_array().map(Vec::len), Some(3));
     assert!(report["health"]["findings"].is_array());
     assert!(report["repo"]["head_sha"].as_str().is_some());
     assert_eq!(
-        report["organization_metrics"]["analysis_status"],
+        report["overlays"]["organization_health"]["analysis_status"],
         "experimental"
     );
-    assert_eq!(report["organization_metrics"]["analysis_version"], 2);
-    assert_eq!(report["relationships"]["analysis_version"], 2);
-    assert_eq!(report["clusters"]["analysis_version"], 2);
+    assert_eq!(
+        report["overlays"]["organization_health"]["analysis_version"],
+        2
+    );
+    assert_eq!(
+        report["overlays"]["organization_health"]["relationships"]["analysis_version"],
+        2
+    );
+    assert_eq!(
+        report["overlays"]["organization_health"]["clusters"]["analysis_version"],
+        2
+    );
     for key in [
         "duplicate_neighborhoods",
         "near_duplicate_neighborhoods",
@@ -240,7 +253,7 @@ fn find_writes_schema_four_and_all_human_and_machine_surfaces() {
         "lexical_affinity_edges",
         "boundary_leakage_edges",
     ] {
-        assert!(report["relationships"][key].is_array());
+        assert!(report["overlays"]["organization_health"]["relationships"][key].is_array());
     }
     for key in [
         "duplicate_sets",
@@ -248,7 +261,7 @@ fn find_writes_schema_four_and_all_human_and_machine_surfaces() {
         "boundary_leakage_clusters",
         "consolidation_candidates",
     ] {
-        assert!(report["clusters"][key].is_array());
+        assert!(report["overlays"]["organization_health"]["clusters"][key].is_array());
     }
     for overlay in [
         "organization_health",
@@ -256,7 +269,7 @@ fn find_writes_schema_four_and_all_human_and_machine_surfaces() {
         "navigation",
         "blast_radius",
         "stewardship",
-        "semantic_drift",
+        "concept_dispersion",
     ] {
         assert_eq!(
             report["overlays"][overlay]["analysis_status"],
@@ -264,7 +277,7 @@ fn find_writes_schema_four_and_all_human_and_machine_surfaces() {
         );
         assert_eq!(report["overlays"][overlay]["analysis_version"], 2);
     }
-    assert!(report["overlays"]["semantic_drift"]["findings"].is_array());
+    assert!(report["overlays"]["concept_dispersion"]["findings"].is_array());
 
     let files = report["files"].as_array().expect("file records");
     let total_tokens: u64 = files
@@ -443,8 +456,7 @@ fn relationship_plan_matches_json_and_text_goldens() {
     .expect("parse golden JSON");
     assert_eq!(actual, expected);
 
-    let expected_text =
-        fs::read_to_string(fixture("relationship_focused_plan.txt")).expect("golden text");
+    let text_golden = fixture("relationship_focused_plan.txt");
     let text_output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
         .args([
@@ -458,7 +470,7 @@ fn relationship_plan_matches_json_and_text_goldens() {
         ])
         .output()
         .expect("run text plan");
-    assert_stdout_matches_golden(&text_output, &expected_text);
+    assert_stdout_matches_golden(&text_output, &text_golden);
 }
 
 #[test]
@@ -493,8 +505,7 @@ fn show_preserves_same_id_memberships_across_cluster_kinds() {
 fn relationship_explain_matches_rich_text_golden_without_changing_json_contract() {
     let report = fixture("relationship_focused_report.json");
     let relationship = "near_duplicate_neighborhood-35e7fad1c4e0";
-    let expected_text =
-        fs::read_to_string(fixture("relationship_focused_explain.txt")).expect("golden text");
+    let text_golden = fixture("relationship_focused_explain.txt");
 
     let text_output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
@@ -509,7 +520,7 @@ fn relationship_explain_matches_rich_text_golden_without_changing_json_contract(
         ])
         .output()
         .expect("run text relationship explain");
-    assert_stdout_matches_golden(&text_output, &expected_text);
+    assert_stdout_matches_golden(&text_output, &text_golden);
 
     let output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
@@ -536,7 +547,7 @@ fn relationship_explain_matches_rich_text_golden_without_changing_json_contract(
         490
     );
     assert_eq!(
-        payload["overlay_summary"]["target_overlays"]["semantic_drift"]["semantic_drift_pressure"],
+        payload["overlay_summary"]["target_overlays"]["concept_dispersion"]["concept_dispersion_pressure"],
         1.0
     );
 }
@@ -545,8 +556,7 @@ fn relationship_explain_matches_rich_text_golden_without_changing_json_contract(
 fn cluster_explain_uses_cluster_kind_and_matches_rich_text_golden() {
     let report = fixture("relationship_focused_report.json");
     let cluster = "duplicate_set-ce293b441009";
-    let expected_text =
-        fs::read_to_string(fixture("cluster_focused_explain.txt")).expect("golden text");
+    let text_golden = fixture("cluster_focused_explain.txt");
 
     let text_output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
@@ -561,7 +571,7 @@ fn cluster_explain_uses_cluster_kind_and_matches_rich_text_golden() {
         ])
         .output()
         .expect("run text cluster explain");
-    assert_stdout_matches_golden(&text_output, &expected_text);
+    assert_stdout_matches_golden(&text_output, &text_golden);
 
     let output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
@@ -621,8 +631,7 @@ fn health_github_is_advisory_capped_actionable_and_escaped() {
 #[test]
 fn health_markdown_matches_folder_guidance_golden() {
     let report = fixture("health_folder_guidance_report.json");
-    let expected = fs::read_to_string(fixture("health_folder_guidance.md"))
-        .expect("folder guidance Markdown golden");
+    let golden = fixture("health_folder_guidance.md");
     let output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
         .args([
@@ -635,7 +644,7 @@ fn health_markdown_matches_folder_guidance_golden() {
         .output()
         .expect("run health Markdown");
 
-    assert_stdout_matches_golden(&output, &expected);
+    assert_stdout_matches_golden(&output, &golden);
 }
 
 #[test]
@@ -664,7 +673,7 @@ fn health_github_preserves_error_warning_and_notice_severity() {
 }
 
 #[test]
-fn health_json_derives_the_persisted_contract_for_complete_schema_four_reports() {
+fn health_json_derives_the_persisted_contract_for_explicit_legacy_reports() {
     let report = write_report(&health_report());
     let output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
@@ -681,10 +690,7 @@ fn health_json_derives_the_persisted_contract_for_complete_schema_four_reports()
     let payload: Value = serde_json::from_slice(&output.stdout).expect("health JSON");
     assert_eq!(payload["schema_version"], 1);
     assert_eq!(payload["command"], "health");
-    assert_eq!(
-        payload["health"]["file_band_counts"]["refactor_required"],
-        1
-    );
+    assert_eq!(payload["health"]["file_band_counts"]["budget_exceeded"], 1);
     assert_eq!(payload["health"]["file_band_counts"]["warning"], 1);
     assert_eq!(payload["health"]["findings"][0]["path"], "src/a,b%file.rs");
 }

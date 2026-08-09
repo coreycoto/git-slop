@@ -183,7 +183,7 @@ pub fn folder_health_band(
     ) as usize;
 
     if direct_tokens > warning_max_tokens || direct_file_count > refactor_max_files {
-        "refactor_required"
+        "budget_exceeded"
     } else if direct_tokens > healthy_max_tokens || direct_file_count > warning_max_files {
         "warning"
     } else if direct_tokens > compact_max_tokens {
@@ -412,7 +412,7 @@ fn folder_overlays(folder_path: &str, descendants: &[&FileAnalysis]) -> Value {
         "navigation",
         "blast_radius",
         "stewardship",
-        "semantic_drift",
+        "concept_dispersion",
     ];
     let mut result = serde_json::Map::new();
     for overlay_name in overlay_names {
@@ -512,6 +512,9 @@ mod tests {
             language: "Rust".to_string(),
             profile: "agent_context".to_string(),
             classification: "source".to_string(),
+            analysis_status: "analyzed".to_string(),
+            skipped_reason: None,
+            symlink_metadata: None,
             has_inline_tests: false,
             tokens,
             context_band: "compact".to_string(),
@@ -520,6 +523,7 @@ mod tests {
             structural_tokens: Vec::new(),
             structural_token_count: 0,
             top_structural_terms: Vec::new(),
+            structural_categories: json!({"mode": "code"}),
             age_days: 0,
             revisions_window: revisions,
             recency_weighted_commits: 0.0,
@@ -667,7 +671,7 @@ mod tests {
         assert_eq!(folder_health_band(32_000, 17, &config), "healthy");
         assert_eq!(folder_health_band(128_001, 17, &config), "warning");
         assert_eq!(folder_health_band(1, 18, &config), "warning");
-        assert_eq!(folder_health_band(256_001, 1, &config), "refactor_required");
-        assert_eq!(folder_health_band(1, 38, &config), "refactor_required");
+        assert_eq!(folder_health_band(256_001, 1, &config), "budget_exceeded");
+        assert_eq!(folder_health_band(1, 38, &config), "budget_exceeded");
     }
 }

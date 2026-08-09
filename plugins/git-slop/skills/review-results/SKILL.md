@@ -19,10 +19,10 @@ or `health.md` artifact.
 4. Treat health output as advisory: findings do not change the command's
    success status or the stable `check` gate.
 5. Use overlays only as supporting evidence about organization, verification,
-   navigation, blast radius, stewardship, and semantic drift.
+   navigation, blast radius, stewardship, and concept dispersion.
 6. Follow a finding's deterministic `next_command`, or run a targeted
    `git-slop explain`, before recommending work.
-7. Treat `refactor_required` as a threshold label and review candidate, not an
+7. Treat `budget_exceeded` as a threshold label and review candidate, not an
    automatic mandate to change code.
 8. Stop after explaining and prioritizing the evidence unless the user
    explicitly asks for a maintenance proposal.
