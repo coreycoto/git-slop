@@ -1653,6 +1653,7 @@ fn validate_release_tag_secret_scope(
         return;
     };
     for required in [
+        r#"$1 == "fpr" {print $10; exit}"#,
         r#"gpg --batch --with-colons --list-secret-keys "$signing_key""#,
         r#"match($10, /<[^<>[:space:]]+@[^<>[:space:]]+>/)"#,
         r#"test -n "$signing_email""#,
@@ -3515,6 +3516,14 @@ mod tests {
                     1,
                 ),
                 "git config user.email \"$signing_email\"",
+            ),
+            (
+                valid.replacen(
+                    r#"$1 == "fpr" {print $10; exit}"#,
+                    r#"$1 == \"fpr\" {print $10; exit}"#,
+                    1,
+                ),
+                r#"$1 == "fpr" {print $10; exit}"#,
             ),
             (
                 valid.replacen(
