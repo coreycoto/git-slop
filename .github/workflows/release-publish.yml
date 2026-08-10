@@ -661,7 +661,7 @@ jobs:
           export GNUPGHOME
           trap 'rm -rf "$GNUPGHOME"' EXIT
           printf '%s' "$RELEASE_SIGNING_PRIVATE_KEY" | gpg --batch --import
-          signing_key="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == \"fpr\" {print $10; exit}')"
+          signing_key="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" {print $10; exit}')"
           test -n "$signing_key"
           signing_email="$(
             gpg --batch --with-colons --list-secret-keys "$signing_key" |
