@@ -30,7 +30,7 @@ pub fn write_json_atomically(path: &Path, value: &Value) -> Result<()> {
 pub fn schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.4/schemas/report-5.json",
+        "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/report-5.json",
         "title": "Git Slop report schema 5",
         "type": "object",
         "additionalProperties": false,

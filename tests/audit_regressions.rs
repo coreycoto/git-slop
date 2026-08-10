@@ -530,6 +530,49 @@ fn tracked_broken_symlink_is_a_valid_scope() {
 }
 
 #[test]
+fn policy_checks_accept_non_text_inventory_but_reject_real_coverage_loss() {
+    let repository = fixture_repository();
+    fs::create_dir_all(repository.path().join("assets")).unwrap();
+    fs::write(
+        repository.path().join("assets/image.png"),
+        b"\x89PNG\r\n\x1a\n\0binary",
+    )
+    .unwrap();
+    git(repository.path(), &["add", "assets/image.png"]);
+    git(
+        repository.path(),
+        &["commit", "--quiet", "-m", "add binary asset"],
+    );
+
+    let output = tempdir().unwrap();
+    let report_path = write_report(repository.path(), output.path());
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["check", "--report", report_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let mut report: Value =
+        serde_json::from_str(&fs::read_to_string(&report_path).unwrap()).unwrap();
+    let binary = report["files"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|record| record["path"] == "assets/image.png")
+        .unwrap();
+    assert_eq!(binary["analysis_status"], "skipped");
+    assert_eq!(binary["skipped_reason"], "binary");
+    binary["skipped_reason"] = Value::String("large_file_limit".into());
+    fs::write(&report_path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["check", "--report", report_path.to_str().unwrap()])
+        .assert()
+        .code(2);
+}
+
+#[test]
 fn config_schema_uses_the_published_schemas_path() {
     let output = cargo_bin_cmd!("git-slop")
         .args(["schema", "config"])
@@ -539,6 +582,6 @@ fn config_schema_uses_the_published_schemas_path() {
     let schema: Value = serde_json::from_slice(&output.stdout).expect("json");
     assert_eq!(
         schema["$id"],
-        "https://github.com/coreycoto/git-slop/blob/v0.11.4/schemas/config-2.json"
+        "https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/config-2.json"
     );
 }

@@ -10,7 +10,7 @@ inputs:
   version:
     description: Git Slop release version to install, with or without a leading v.
     required: false
-    default: "0.11.4"
+    default: "0.11.5"
   release-repository:
     description: GitHub repository that owns the versioned release assets.
     required: false

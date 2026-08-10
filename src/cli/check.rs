@@ -8,7 +8,7 @@ fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|record| record.get("analysis_status").and_then(Value::as_str) != Some("analyzed"))
+        .filter(|record| crate::report_ops::inventory_record_has_incomplete_evidence(record))
         .count();
     if incomplete_records > 0 && !args.allow_incomplete_evidence {
         return Err(ClassifiedError::new(

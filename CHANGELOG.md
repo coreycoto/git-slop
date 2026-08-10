@@ -1,6 +1,22 @@
 # Changelog
 
-## 0.11.4 - Unreleased
+## 0.11.5 - Unreleased
+
+This patch supersedes 0.11.4 before GitHub Release publication. Version 0.11.4
+remains immutable on crates.io and as a signed tag.
+
+### Evidence completeness
+
+- Treat binary files, Git submodules, and undecodable non-text files as
+  intentionally outside structural policy evaluation instead of reporting
+  them as missing evidence.
+- Keep policy checks and comparisons fail-closed for actual coverage loss,
+  including missing paths, configured large-file limits, degraded analysis,
+  and unknown inventory states.
+- Exercise both the accepted non-text boundary and rejected coverage-loss
+  boundary in generated-report and comparison regression tests.
+
+## 0.11.4 - 2026-08-10 (superseded before GitHub Release publication)
 
 ### Action reliability
 

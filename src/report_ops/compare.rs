@@ -322,9 +322,7 @@ fn require_comparison_ready(
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
-            .filter(|record| {
-                record.get("analysis_status").and_then(Value::as_str) != Some("analyzed")
-            })
+            .filter(|record| inventory_record_has_incomplete_evidence(record))
             .count();
         if incomplete_records > 0 {
             bail!(
@@ -1117,5 +1115,37 @@ mod tests {
         assert_eq!(base_policy["summary"]["regression_count"], 0);
         assert_eq!(head_policy["policy_source"], "head");
         assert_eq!(head_policy["summary"]["regression_count"], 1);
+    }
+
+    #[test]
+    fn comparison_distinguishes_non_text_inventory_from_coverage_loss() {
+        let mut binary = record("assets/image.png", 0.0);
+        binary["analysis_status"] = json!("skipped");
+        binary["skipped_reason"] = json!("binary");
+        binary["content_fingerprint"] = json!("incomplete:binary:8");
+
+        compare_payload_with_options(
+            &report("standard", vec![binary.clone()]),
+            &report("standard", vec![binary.clone()]),
+            None,
+            None,
+            10,
+            false,
+            false,
+        )
+        .expect("non-text records are intentionally outside structural analysis");
+
+        binary["skipped_reason"] = json!("large_file_limit");
+        let error = compare_payload_with_options(
+            &report("standard", vec![binary.clone()]),
+            &report("standard", vec![binary]),
+            None,
+            None,
+            10,
+            false,
+            false,
+        )
+        .expect_err("large-file coverage loss remains fail-closed");
+        assert!(error.to_string().contains("incomplete canonical inventory"));
     }
 }

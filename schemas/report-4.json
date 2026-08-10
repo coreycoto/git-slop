@@ -30,7 +30,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.4/schemas/report-4.json",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/report-4.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
   "properties": {
