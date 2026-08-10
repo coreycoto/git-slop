@@ -1,6 +1,17 @@
 # Changelog
 
-## 0.11.3 - Unreleased
+## 0.11.4 - Unreleased
+
+### Action reliability
+
+- Preserve each file's analysis profile in generated action-queue entries so
+  reports satisfy their own schema and the composite Action can validate a
+  real repository scan.
+- Validate a freshly generated non-empty report in the regression suite,
+  closing the gap that allowed candidate packaging to pass while the final
+  release Action smoke failed.
+
+## 0.11.3 - 2026-08-10
 
 This release preserves the complete 0.11.2 audit-hardening contract while
 decomposing the largest maintainer and runtime hotspots identified by the

@@ -15,7 +15,7 @@ import { createManifestVerifier } from "./install/manifest.mjs";
 import { createReleaseApi } from "./install/release-api.mjs";
 import { createToolCache } from "./install/tool-cache.mjs";
 
-const releaseVersion = (process.env.GIT_SLOP_ACTION_VERSION || "0.11.3").trim();
+const releaseVersion = (process.env.GIT_SLOP_ACTION_VERSION || "0.11.4").trim();
 const releaseRepository = (
   process.env.GIT_SLOP_RELEASE_REPOSITORY || "coreycoto/git-slop"
 ).trim();

@@ -143,6 +143,10 @@ fn schema_five_reports_reject_each_missing_required_root_field_with_a_pointer() 
         .success();
     let report_path = repository.path().join(".slop/latest/report.json");
     let report: Value = serde_json::from_str(&fs::read_to_string(&report_path).unwrap()).unwrap();
+    cargo_bin_cmd!("git-slop")
+        .args(["report", "validate", report_path.to_str().unwrap()])
+        .assert()
+        .success();
     let schema_output = cargo_bin_cmd!("git-slop")
         .args(["schema", "report"])
         .output()
@@ -535,6 +539,6 @@ fn config_schema_uses_the_published_schemas_path() {
     let schema: Value = serde_json::from_slice(&output.stdout).expect("json");
     assert_eq!(
         schema["$id"],
-        "https://github.com/coreycoto/git-slop/blob/v0.11.3/schemas/config-2.json"
+        "https://github.com/coreycoto/git-slop/blob/v0.11.4/schemas/config-2.json"
     );
 }

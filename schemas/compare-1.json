@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.3/schemas/compare-1.json",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.4/schemas/compare-1.json",
   "title": "Git Slop comparison schema 1",
   "type": "object",
   "required": ["schema_version", "report_schema_version", "command", "policy_source", "base_report", "head_report", "summary", "file_deltas", "folder_deltas", "queue_movement", "overlay_deltas", "regressions", "boundary_note", "compatibility_forced", "baseline_status", "baseline_compatible", "compatibility_mismatches"],

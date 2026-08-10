@@ -148,9 +148,10 @@ fn action_queue_from_files(files: &[Value]) -> Vec<Value> {
             let pure_context = !reasons.is_empty()
                 && reasons.iter().all(|reason| {
                     matches!(reason.as_str(), "high_token_cost" | "critical_token_cost")
-                });
+            });
             json!({
                 "path": string_field(&file, "path"),
+                "profile": string_field(&file, "profile"),
                 "slop_score": float_field(&file, "slop_score"),
                 "slop_band": string_field(&file, "slop_band"),
                 "context_band": string_field(&file, "context_band"),
@@ -533,4 +534,29 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
             "health.watchlist": {"total": health.watchlist.len(), "returned": health.watchlist.len(), "limit": null, "truncated": false}
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::action_queue_from_files;
+
+    #[test]
+    fn fallback_action_queue_preserves_the_file_profile() {
+        let queue = action_queue_from_files(&[json!({
+            "path": "fixtures/data.json",
+            "profile": "data_context",
+            "slop_score": 42.0,
+            "slop_band": "moderate",
+            "context_band": "warning",
+            "tokens": 1_000,
+            "age_days": 2,
+            "revisions_window": 5,
+            "churn_pressure": 0.25,
+            "reason_codes": ["high_token_cost"]
+        })]);
+
+        assert_eq!(queue[0]["profile"], "data_context");
+    }
 }

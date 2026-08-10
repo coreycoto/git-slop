@@ -210,6 +210,7 @@ fn action_queue(
             });
             json!({
                 "path": file.path,
+                "profile": file.profile,
                 "slop_score": file.slop_score,
                 "slop_band": file.slop_band,
                 "context_band": file.context_band,
