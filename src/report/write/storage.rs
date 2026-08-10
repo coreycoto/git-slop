@@ -150,7 +150,10 @@ fn enforce_retention(runs_root: &Path, keep: usize, max_bytes: u64) -> Result<()
     runs.sort_by_key(|(entry, _)| std::cmp::Reverse(entry.file_name()));
     let mut retained_bytes = 0u64;
     for (index, (entry, bytes)) in runs.into_iter().enumerate() {
-        if index < keep && retained_bytes.saturating_add(bytes) <= max_bytes {
+        let retain_newest_even_if_oversized = index == 0 && keep > 0;
+        if retain_newest_even_if_oversized
+            || (index < keep && retained_bytes.saturating_add(bytes) <= max_bytes)
+        {
             retained_bytes = retained_bytes.saturating_add(bytes);
             continue;
         }
@@ -292,6 +295,8 @@ pub fn write_report_bundle(analysis: &Analysis, health: &HealthRollup) -> Result
         report["diagnostics"]["report_sizes"] = json!({
             "report_json_bytes": json_bytes,
             "report_yaml_bytes": yaml_bytes,
+            "logical_artifact_bytes": json_bytes.saturating_add(yaml_bytes),
+            "physical_storage_semantics": "latest may hard-link immutable run artifacts; do not sum logical paths to estimate allocated disk bytes",
         });
     }
     let report_json = if pretty_json {
@@ -320,6 +325,12 @@ pub fn write_report_bundle(analysis: &Analysis, health: &HealthRollup) -> Result
             .as_ref()
             .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
     )?;
+    let newest_run_bytes = retained_directory_size(&run_root)?;
+    if newest_run_bytes > retention_bytes {
+        eprintln!(
+            "warning: newest immutable run uses {newest_run_bytes} bytes, exceeding output.retention_bytes={retention_bytes}; retained newest run and pruned only older runs"
+        );
+    }
     let latest = analysis.output_root.join("latest");
     replace_latest_from_run(
         &latest,

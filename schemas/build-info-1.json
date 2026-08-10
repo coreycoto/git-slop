@@ -1,1 +1,38 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/build-info-1.json","title":"Git Slop build-info schema 1","type":"object","required":["schema_version","name","version"],"properties":{"schema_version":{"const":1},"name":{"const":"git-slop"},"version":{"type":"string"}}}
+{
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/build-info-1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "const": "git-slop"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_dirty": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "source_revision": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "project",
+    "version",
+    "source_revision",
+    "source_dirty"
+  ],
+  "title": "Git Slop build-info schema 1",
+  "type": "object"
+}

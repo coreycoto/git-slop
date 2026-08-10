@@ -35,7 +35,11 @@ fn organization_candidates<'a>(files: &'a [FileAnalysis], config: &Value) -> Vec
     let mut candidates: Vec<&FileAnalysis> = files
         .iter()
         .filter(|file| {
-            file.structural_token_count >= min_tokens && file.structural_token_count <= max_tokens
+            !matches!(
+                file.classification.as_str(),
+                "generated" | "vendored" | "snapshot" | "fixture" | "migration_fixture"
+            ) && file.structural_token_count >= min_tokens
+                && file.structural_token_count <= max_tokens
         })
         .collect();
     candidates.sort_by(|left, right| {
@@ -71,7 +75,28 @@ pub(super) fn build_relationships(
     let max_pairs = pointer_u64(config, "/organization/max_pairs_per_file", 20) as usize;
     let shingle_size = pointer_u64(config, "/organization/shingle_size", 8) as usize;
     let window_step = pointer_u64(config, "/organization/window_step", 32) as usize;
+    let actionable_paths = files
+        .iter()
+        .filter(|file| {
+            !matches!(
+                file.classification.as_str(),
+                "generated" | "vendored" | "snapshot" | "fixture" | "migration_fixture"
+            )
+        })
+        .map(|file| file.path.as_str())
+        .collect::<BTreeSet<_>>();
     let candidates = organization_candidates(files, config);
+    let mut term_document_frequency: BTreeMap<&str, usize> = BTreeMap::new();
+    for file in &candidates {
+        let terms = file
+            .top_structural_terms
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        for term in terms {
+            *term_document_frequency.entry(term).or_default() += 1;
+        }
+    }
     let shingle_sets = candidates
         .iter()
         .map(|file| {
@@ -127,6 +152,9 @@ pub(super) fn build_relationships(
                 "target_path": target,
                 "evidence_score": round6(relationship_similarity),
                 "similarity": round6(relationship_similarity),
+                "support_count": 1,
+                "confidence_lower_bound": round6(if exact { 1.0 } else { relationship_similarity * 0.5 }),
+                "confidence": if exact { "supported" } else { "limited" },
                 "crosses_top_level_boundary": top_level_root(source) != top_level_root(target)
             });
             *pair_counts.entry(source.to_string()).or_default() += 1;
@@ -147,6 +175,11 @@ pub(super) fn build_relationships(
     let mut seen_pairs = BTreeSet::new();
     for (source, facts) in coordination {
         for (target, support) in &facts.neighbors {
+            if !actionable_paths.contains(source.as_str())
+                || !actionable_paths.contains(target.as_str())
+            {
+                continue;
+            }
             let pair = if source <= target {
                 (source.as_str(), target.as_str())
             } else {
@@ -233,7 +266,34 @@ pub(super) fn build_relationships(
             if top_level_root(&left.path) == top_level_root(&right.path) {
                 continue;
             }
-            let similarity = jaccard(&left.top_structural_terms, &right.top_structural_terms);
+            let max_document_frequency = (candidates.len() / 3).max(2);
+            let left_terms = left
+                .top_structural_terms
+                .iter()
+                .filter(|term| {
+                    term.len() >= 4
+                        && term_document_frequency
+                            .get(term.as_str())
+                            .copied()
+                            .unwrap_or_default()
+                            <= max_document_frequency
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let right_terms = right
+                .top_structural_terms
+                .iter()
+                .filter(|term| {
+                    term.len() >= 4
+                        && term_document_frequency
+                            .get(term.as_str())
+                            .copied()
+                            .unwrap_or_default()
+                            <= max_document_frequency
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let similarity = jaccard(&left_terms, &right_terms);
             if similarity < 0.35 {
                 continue;
             }
@@ -248,6 +308,9 @@ pub(super) fn build_relationships(
                 "source_path": source,
                 "target_path": target,
                 "evidence_score": round6(similarity),
+                "support_count": left_terms.iter().filter(|term| right_terms.contains(term)).count(),
+                "confidence_lower_bound": round6(similarity * 0.5),
+                "confidence": if similarity >= 0.6 { "limited" } else { "low_support" },
                 "crosses_top_level_boundary": true
             }));
         }
@@ -386,6 +449,7 @@ mod tests {
             language: "Rust".to_string(),
             profile: "agent_context".to_string(),
             classification: "source".to_string(),
+            generated_from: Vec::new(),
             analysis_status: "analyzed".to_string(),
             skipped_reason: None,
             symlink_metadata: None,
@@ -394,6 +458,7 @@ mod tests {
             context_band: "compact".to_string(),
             context_pressure: 0.1,
             content_fingerprint: format!("fingerprint-{index}"),
+            content_sha256: format!("sha256-{index}"),
             structural_tokens: vec![format!("unique-{index}")],
             structural_token_count: 300,
             top_structural_terms: vec!["shared".to_string()],

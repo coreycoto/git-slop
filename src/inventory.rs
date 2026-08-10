@@ -1,9 +1,12 @@
 use std::fs;
+use std::io::Read;
 use std::path::Path;
+use std::process::Command;
 
 use anyhow::{Context, Result};
 use globset::{Glob, GlobMatcher, GlobSet, GlobSetBuilder};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::config::{pointer_strings, pointer_u64};
 use crate::model::{InventoryFile, SkippedCounts};
@@ -135,6 +138,13 @@ fn classification_for_path(path: &str) -> &'static str {
         || name.ends_with(".snap")
     {
         "snapshot"
+    } else if lower.starts_with("fixtures/")
+        || lower.contains("/fixtures/")
+        || lower.starts_with("testdata/")
+        || lower.contains("/testdata/")
+        || name.contains("fixture")
+    {
+        "fixture"
     } else if (lower.contains("/migrations/") || lower.starts_with("migrations/"))
         && (lower.contains("fixture") || lower.contains("test"))
     {
@@ -191,6 +201,23 @@ fn has_generated_marker(text: &str) -> bool {
             || normalized.starts_with("// @generated")
             || normalized.starts_with("/* @generated")
     })
+}
+
+fn generated_sources(text: &str) -> Vec<String> {
+    text.lines()
+        .take(3)
+        .filter_map(|line| {
+            let normalized = line.trim().trim_start_matches(['#', '/', '*', ' ']).trim();
+            let lower = normalized.to_ascii_lowercase();
+            let marker = lower.find("@generated from ")?;
+            Some(
+                normalized[marker + "@generated from ".len()..]
+                    .trim()
+                    .to_string(),
+            )
+        })
+        .filter(|source| !source.is_empty())
+        .collect()
 }
 
 fn line_counts(text: &str, language: &str) -> (usize, usize, usize, usize) {
@@ -306,10 +333,58 @@ fn path_override(
     (classification, profile, language)
 }
 
+fn sha256_bytes(raw: &[u8]) -> String {
+    hex::encode(Sha256::digest(raw))
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    let mut file = fs::File::open(path)
+        .with_context(|| format!("failed to open {} for hashing", path.display()))?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .with_context(|| format!("failed to hash {}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    Ok(hex::encode(digest.finalize()))
+}
+
+fn tracked_index_sha256(repo_root: &Path, path: &str, reason: &str) -> String {
+    let index_spec = format!(":{path}");
+    if let Ok(output) = Command::new("git")
+        .args(["show", "--no-ext-diff", &index_spec])
+        .current_dir(repo_root)
+        .output()
+    {
+        if output.status.success() {
+            return sha256_bytes(&output.stdout);
+        }
+    }
+    if let Ok(output) = Command::new("git")
+        .args(["ls-files", "--stage", "--", path])
+        .current_dir(repo_root)
+        .output()
+    {
+        if output.status.success() && !output.stdout.is_empty() {
+            return sha256_bytes(&output.stdout);
+        }
+    }
+    // This branch is reachable only for inconsistent callers (for example a
+    // unit-test fixture that names an untracked missing path). Keep the field
+    // structurally valid while making the absence explicit in its preimage.
+    sha256_bytes(format!("unavailable:{reason}:{path}").as_bytes())
+}
+
 fn skipped_record(
     path: &str,
     bytes: usize,
     reason: &str,
+    content_sha256: String,
     config: &Value,
     overrides: &[CompiledPathOverride],
 ) -> InventoryFile {
@@ -326,6 +401,8 @@ fn skipped_record(
         profile: profile_override.unwrap_or_else(|| profile_for(path, bytes, config).to_string()),
         classification: classification_override
             .unwrap_or_else(|| classification_for_path(path).to_string()),
+        generated_from: Vec::new(),
+        content_sha256,
         text: String::new(),
         analysis_status: "skipped".to_string(),
         skipped_reason: Some(reason.to_string()),
@@ -358,6 +435,7 @@ pub fn build(
                     relative_path,
                     0,
                     "missing",
+                    tracked_index_sha256(repo_root, relative_path, "missing"),
                     config,
                     &path_overrides,
                 ));
@@ -377,6 +455,7 @@ pub fn build(
                 relative_path,
                 0,
                 "gitlink",
+                tracked_index_sha256(repo_root, relative_path, "gitlink"),
                 config,
                 &path_overrides,
             ));
@@ -384,10 +463,12 @@ pub fn build(
         }
         if !metadata.file_type().is_symlink() && metadata.len() > large_file_bytes as u64 {
             let bytes = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+            let content_sha256 = sha256_file(&absolute_path)?;
             records.push(skipped_record(
                 relative_path,
                 bytes,
                 "large_file_limit",
+                content_sha256,
                 config,
                 &path_overrides,
             ));
@@ -406,12 +487,14 @@ pub fn build(
             fs::read(&absolute_path)
                 .with_context(|| format!("failed to read {}", absolute_path.display()))?
         };
+        let content_sha256 = sha256_bytes(&raw);
         if looks_binary(&raw) {
             skipped.binary += 1;
             records.push(skipped_record(
                 relative_path,
                 raw.len(),
                 "binary",
+                content_sha256,
                 config,
                 &path_overrides,
             ));
@@ -424,6 +507,7 @@ pub fn build(
                 relative_path,
                 bytes,
                 "undecodable",
+                content_sha256,
                 config,
                 &path_overrides,
             ));
@@ -453,6 +537,8 @@ pub fn build(
                     classification_for_path(relative_path).to_string()
                 }
             }),
+            generated_from: generated_sources(&text),
+            content_sha256,
             text,
             analysis_status: "analyzed".to_string(),
             skipped_reason: None,
@@ -580,5 +666,27 @@ mod tests {
         )
         .expect("inventory");
         assert_eq!(files[0].classification, "generated");
+        assert_eq!(
+            files[0].generated_from,
+            vec!["reviewed stage fragments".to_string()]
+        );
+    }
+
+    #[test]
+    fn golden_report_fixtures_are_not_classified_as_actionable_tests() {
+        let repository = tempdir().expect("repository");
+        fs::create_dir_all(repository.path().join("tests/fixtures/reports")).expect("fixture dir");
+        fs::write(
+            repository.path().join("tests/fixtures/reports/large.json"),
+            "{\"fixture\":true}\n",
+        )
+        .expect("fixture");
+        let (files, _) = build(
+            repository.path(),
+            &["tests/fixtures/reports/large.json".to_string()],
+            &config::default_config(),
+        )
+        .expect("inventory");
+        assert_eq!(files[0].classification, "fixture");
     }
 }

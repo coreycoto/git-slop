@@ -128,7 +128,13 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
         "analyzer": loaded.get("analyzer"),
         "repo": loaded.get("repo"),
         "scope": loaded.get("scope"),
-        "config_digests": loaded.pointer("/analyzer/config_digests"),
+        "config_digests": {
+            "config": loaded.pointer("/analyzer/config_digest"),
+            "analysis": loaded.pointer("/analyzer/analysis_config_digest"),
+            "evidence": loaded.pointer("/analyzer/evidence_config_digest"),
+            "policy": loaded.pointer("/analyzer/policy_config_digest"),
+            "presentation": loaded.pointer("/analyzer/presentation_config_digest")
+        },
         "collection_metadata": loaded.get("collection_metadata"),
         "evidence_completeness": loaded.get("evidence_completeness"),
         "files": bounded("/files", embedded_limit),
@@ -142,7 +148,15 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
             "relationships": bounded_sections("/overlays/organization_health/relationships", embedded_limit),
             "clusters": bounded_sections("/overlays/organization_health/clusters", embedded_limit)
         },
-        "embedded_evidence": {"record_limit_per_view": embedded_limit},
+        "embedded_evidence": {
+            "record_limit_per_view": embedded_limit,
+            "truncated_views": {
+                "files": loaded.pointer("/files").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit),
+                "folders": loaded.pointer("/folders").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit),
+                "action_queue": loaded.pointer("/action_queue").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit),
+                "health": loaded.pointer("/health/findings").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit)
+            }
+        },
         "source_report": source_report
     }))?
     .replace("</", "<\\/");
@@ -157,6 +171,7 @@ th,td {{ text-align:left; padding:.5rem; border-bottom:1px solid #8885 }} th but
 code {{ overflow-wrap:anywhere }} details {{ margin:1rem 0 }} .muted {{ opacity:.7 }} .sr {{ position:absolute;left:-10000px }}
 .views button[aria-pressed="true"] {{ font-weight:700;text-decoration:underline }} tr:target {{ outline:2px solid currentColor }}
 </style></head><body><h1>Git Slop local report</h1><p id="descriptor" class="muted"></p>
+<p id="truncation" role="status"></p>
 <nav class="views" aria-label="Report view"><button data-view="files" aria-pressed="true">Files</button> <button data-view="folders" aria-pressed="false">Folders</button> <button data-view="queue" aria-pressed="false">Action queue</button> <button data-view="health" aria-pressed="false">Health findings</button> <button data-view="relationships" aria-pressed="false">Relationships</button> <button data-view="clusters" aria-pressed="false">Clusters</button></nav>
 <label for="query" class="sr">Search paths</label><input id="query" type="search" placeholder="Search paths"><label for="profile" class="sr">Profile</label><select id="profile"><option value="">All profiles</option></select>
 <label id="severity-label" for="severity" class="sr">Maintenance band</label><select id="severity"><option value="">All maintenance bands</option><option>critical</option><option>high</option><option>moderate</option><option>low</option><option>error</option><option>warning</option><option>notice</option></select>
@@ -169,23 +184,24 @@ const files=report.files??[], folders=report.folders??[], queue=report.action_qu
 document.getElementById('descriptor').textContent=`${{report.repo?.repo_name||'repository'}} · ${{report.generated_at||'unknown time'}} · schema ${{report.schema_version}}`;
 const profile=document.getElementById('profile'); [...new Set(files.map(f=>f.profile).filter(Boolean))].sort().forEach(v=>profile.insertAdjacentHTML('beforeend',`<option>${{esc(v)}}</option>`));
 document.getElementById('query').value=params.get('q')||''; profile.value=params.get('profile')||''; document.getElementById('severity').value=params.get('band')||'';
-const columns={{files:[['path','Path'],['profile','Profile'],['language','Language'],['slop_band','Maintenance'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],folders:[['path','Folder'],['classification','Classification'],['health_band','Health'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],queue:[['path','Path'],['severity','Severity'],['reason_code','Reason'],['evidence_status','Evidence'],['next_action','Next action']],health:[['path','Path'],['severity','Severity'],['title','Finding'],['message','Message']],relationships:[['id','Relationship'],['kind','Kind'],['source_path','Source'],['target_path','Target'],['evidence_score','Evidence']],clusters:[['id','Cluster'],['kind','Kind'],['member_count','Members'],['evidence_score','Evidence']]}};
+const columns={{files:[['path','Path'],['profile','Profile'],['language','Language'],['slop_band','Maintenance'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],folders:[['path','Folder'],['classification','Classification'],['health_band','Health'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],queue:[['path','Path'],['severity','Severity'],['reason_codes','Reasons'],['evidence_status','Evidence'],['next_action','Next action']],health:[['path','Path'],['severity','Severity'],['title','Finding'],['message','Message']],relationships:[['id','Relationship'],['kind','Kind'],['source_path','Source'],['target_path','Target'],['evidence_score','Evidence']],clusters:[['id','Cluster'],['kind','Kind'],['member_count','Members'],['evidence_score','Evidence']]}};
 function records() {{ return view==='folders'?folders:view==='queue'?queue:view==='health'?findings:view==='relationships'?relationships:view==='clusters'?clusters:files }}
 function syncUrl() {{ const p=new URLSearchParams(); for (const [k,v] of Object.entries({{view,q:document.getElementById('query').value,profile:profile.value,band:document.getElementById('severity').value,sort:sortKey,dir:ascending?'asc':'desc',page}})) if(v!==''&&v!==0)p.set(k,v); history.replaceState(null,'',`${{location.pathname}}?${{p}}${{location.hash}}`) }}
 function render() {{ const q=document.getElementById('query').value.toLowerCase(), p=profile.value, s=document.getElementById('severity').value, source=records();
  document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===view)));
  const activeColumns=columns[view]??columns.files; if(!activeColumns.some(([key])=>key===sortKey))sortKey=activeColumns[0][0]; document.getElementById('headers').innerHTML=activeColumns.map(([key,label])=>`<th scope="col"><button data-key="${{esc(key)}}" aria-sort="${{key===sortKey?(ascending?'ascending':'descending'):'none'}}">${{esc(label)}}</button></th>`).join('');
  document.getElementById('severity-label').textContent=view==='health'||view==='queue'?'Finding severity':'Maintenance band';
- const haystack=f=>[f.path,f.id,f.source_path,f.target_path,...(f.members??[])].join(' ').toLowerCase(); const selected=source.filter(f=>(!q||haystack(f).includes(q))&&(!p||f.profile===p)&&(!s||(f.slop_band??f.severity)===s)).sort((a,b)=>{{const x=a[sortKey],y=b[sortKey]; return (typeof x==='number'?x-y:String(x??'').localeCompare(String(y??'')))*(ascending?1:-1)}});
+ const profileApplies=view==='files'||view==='queue', bandApplies=view==='files'||view==='folders'||view==='queue'||view==='health'; profile.disabled=!profileApplies; document.getElementById('severity').disabled=!bandApplies;
+ const haystack=f=>[f.path,f.id,f.source_path,f.target_path,...(f.members??[])].join(' ').toLowerCase(); const selected=source.filter(f=>(!q||haystack(f).includes(q))&&(!profileApplies||!p||f.profile===p)&&(!bandApplies||!s||(f.slop_band??f.severity)===s)).sort((a,b)=>{{const x=a[sortKey],y=b[sortKey]; return (typeof x==='number'?x-y:String(x??'').localeCompare(String(y??'')))*(ascending?1:-1)}});
  const pages=Math.max(1,Math.ceil(selected.length/pageSize)); page=Math.min(page,pages-1); const visible=selected.slice(page*pageSize,(page+1)*pageSize);
  document.getElementById('count').textContent=`${{selected.length}} of ${{source.length}} ${{view.replace('_',' ')}} records · page ${{page+1}} of ${{pages}}`;
  document.getElementById('previous').disabled=page===0; document.getElementById('next').disabled=page+1>=pages;
  document.getElementById('sort-state').textContent=`Sorted by ${{activeColumns.find(([key])=>key===sortKey)?.[1]??sortKey}}, ${{ascending?'ascending':'descending'}}`;
- document.getElementById('rows').innerHTML=visible.map((f,i)=>`<tr tabindex="0" id="record-${{page*pageSize+i}}" data-index="${{page*pageSize+i}}">${{activeColumns.map(([key],column)=>`<td>${{column===0?`<button class="record"><code>${{esc(f[key]??f.path??f.id)}}</code></button>`:esc(f[key]??(key==='member_count'?(f.members??[]).length:''))}}</td>`).join('')}}</tr>`).join('');
+ document.getElementById('rows').innerHTML=visible.map((f,i)=>`<tr tabindex="0" id="record-${{page*pageSize+i}}" data-index="${{page*pageSize+i}}">${{activeColumns.map(([key],column)=>`<td>${{column===0?`<button class="record"><code>${{esc(f[key]??f.path??f.id)}}</code></button>`:esc(Array.isArray(f[key])?f[key].join(', '):(f[key]??(key==='member_count'?(f.members??[]).length:'')))}}</td>`).join('')}}</tr>`).join('');
  document.querySelectorAll('.record').forEach((button,i)=>button.addEventListener('click',()=>{{document.getElementById('detail').textContent=JSON.stringify(visible[i],null,2);document.getElementById('file-detail').open=true;location.hash=`record-${{page*pageSize+i}}`}})); syncUrl(); }}
 document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>{{page=0;render()}})); document.getElementById('headers').addEventListener('click',event=>{{const el=event.target.closest('button');if(!el)return;ascending=sortKey===el.dataset.key?!ascending:true;sortKey=el.dataset.key;page=0;render()}});
 document.querySelectorAll('[data-view]').forEach(el=>el.addEventListener('click',()=>{{view=el.dataset.view;page=0;render()}})); document.getElementById('previous').addEventListener('click',()=>{{page=Math.max(0,page-1);render()}}); document.getElementById('next').addEventListener('click',()=>{{page+=1;render()}});
-document.addEventListener('keydown',event=>{{const rows=[...document.querySelectorAll('tbody tr')];const index=rows.indexOf(document.activeElement);if(event.key==='ArrowDown'&&index>=0){{event.preventDefault();rows[Math.min(rows.length-1,index+1)]?.focus()}}if(event.key==='ArrowUp'&&index>=0){{event.preventDefault();rows[Math.max(0,index-1)]?.focus()}}}}); document.getElementById('evidence-summary').textContent=JSON.stringify({{completeness:report.evidence_completeness,collections:report.collection_metadata,embedded:report.embedded_evidence,source_report:report.source_report}},null,2); render();
+document.addEventListener('keydown',event=>{{const rows=[...document.querySelectorAll('tbody tr')];const index=rows.indexOf(document.activeElement);if(event.key==='ArrowDown'&&index>=0){{event.preventDefault();rows[Math.min(rows.length-1,index+1)]?.focus()}}if(event.key==='ArrowUp'&&index>=0){{event.preventDefault();rows[Math.max(0,index-1)]?.focus()}}}}); const truncated=Object.entries(report.embedded_evidence?.truncated_views??{{}}).filter(([,value])=>value).map(([key])=>key); document.getElementById('truncation').textContent=truncated.length?`Embedded view limit reached for: ${{truncated.join(', ')}}. Open ${{report.source_report}} for complete evidence.`:''; document.getElementById('evidence-summary').textContent=JSON.stringify({{config_digests:report.config_digests,completeness:report.evidence_completeness,collections:report.collection_metadata,embedded:report.embedded_evidence,source_report:report.source_report}},null,2); render();
 </script></body></html>"#
     );
     fs::write(&output, html)?;

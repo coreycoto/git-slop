@@ -57,6 +57,27 @@
             --manifest candidate-dist/release-manifest.json \
             --formula candidate-dist/git-slop.rb
           cargo xtask sbom --output-dir candidate-dist
+          mkdir -p official-schemas/cyclonedx official-schemas/spdx
+          curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/CycloneDX/specification/1.5/schema/bom-1.5.schema.json \
+            --output official-schemas/cyclonedx/bom-1.5.schema.json
+          curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/CycloneDX/specification/1.5/schema/jsf-0.82.schema.json \
+            --output official-schemas/cyclonedx/jsf-0.82.schema.json
+          curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/CycloneDX/specification/1.5/schema/spdx.schema.json \
+            --output official-schemas/cyclonedx/spdx.schema.json
+          curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/spdx/spdx-spec/v2.3/schemas/spdx-schema.json \
+            --output official-schemas/spdx/spdx-schema.json
+          npx --yes ajv-cli@5.0.0 validate --strict=false \
+            -s official-schemas/cyclonedx/bom-1.5.schema.json \
+            -r official-schemas/cyclonedx/jsf-0.82.schema.json \
+            -r official-schemas/cyclonedx/spdx.schema.json \
+            -d candidate-dist/git-slop.cdx.json
+          npx --yes ajv-cli@5.0.0 validate --strict=false \
+            -s official-schemas/spdx/spdx-schema.json \
+            -d candidate-dist/git-slop.spdx.json
           cargo xtask release-manifest \
             --dist-dir candidate-dist \
             --crate-source candidate/crate-source.json \

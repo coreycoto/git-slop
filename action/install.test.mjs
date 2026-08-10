@@ -308,6 +308,10 @@ if (process.argv[2] === "version") {
         `gh release download ${tag} --repo example/git-slop --pattern 'git-slop-${tag}-<target>.*' --pattern SHA256SUMS`,
         "sha256sum --check SHA256SUMS --ignore-missing",
       ];
+      manifest.install.attestation = [
+        `gh attestation verify 'git-slop-${tag}-<target>.*' --repo example/git-slop --signer-repo example/git-slop`,
+      ];
+      manifest.install.cargo = [`cargo install git-slop --version ${version} --locked`];
       if (manifestMutator) {
         manifestMutator(manifest);
       }

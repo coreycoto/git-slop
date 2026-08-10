@@ -54,6 +54,9 @@ pub struct InventoryFile {
     pub language: String,
     pub profile: String,
     pub classification: String,
+    pub generated_from: Vec<String>,
+    /// SHA-256 of the tracked raw bytes before decoding or newline normalization.
+    pub content_sha256: String,
     pub text: String,
     pub analysis_status: String,
     pub skipped_reason: Option<String>,
@@ -103,6 +106,7 @@ pub struct FileAnalysis {
     pub language: String,
     pub profile: String,
     pub classification: String,
+    pub generated_from: Vec<String>,
     pub analysis_status: String,
     pub skipped_reason: Option<String>,
     pub symlink_metadata: Option<Value>,
@@ -113,6 +117,8 @@ pub struct FileAnalysis {
     /// Stable content identity used to distinguish source changes from
     /// history-only score movement during report comparison.
     pub content_fingerprint: String,
+    /// Exact tracked-content identity, including binary and otherwise skipped records.
+    pub content_sha256: String,
     #[serde(skip)]
     pub structural_tokens: Vec<String>,
     pub structural_token_count: usize,
@@ -192,6 +198,7 @@ pub struct Analysis {
     pub folders: Vec<FolderAnalysis>,
     pub organization: OrganizationAnalysis,
     pub action_queue: Vec<Value>,
+    pub observation_feed: Vec<Value>,
     pub diagnostics: Value,
 }
 

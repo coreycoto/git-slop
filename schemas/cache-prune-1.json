@@ -1,1 +1,51 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/cache-prune-1.json","title":"Git Slop cache prune schema 1","type":"object","required":["schema_version","command","dry_run","before","removed_entries","removed_payload_bytes","after"],"properties":{"schema_version":{"const":1},"command":{"const":"cache prune"},"dry_run":{"type":"boolean"},"compact":{"type":"boolean"},"limits":{"type":"object"},"before":{"type":"object"},"removed_entries":{"type":"integer","minimum":0},"removed_payload_bytes":{"type":"integer","minimum":0},"physical_reclaimed_bytes":{"type":"integer","minimum":0},"after":{"type":"object"}},"additionalProperties":false}
+{
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/cache-prune-1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "after": {
+      "type": "object"
+    },
+    "before": {
+      "type": "object"
+    },
+    "command": {
+      "const": "cache prune"
+    },
+    "compact": {
+      "type": "boolean"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "limits": {
+      "type": "object"
+    },
+    "physical_reclaimed_bytes": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "removed_entries": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "removed_payload_bytes": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "dry_run",
+    "before",
+    "removed_entries",
+    "removed_payload_bytes",
+    "after"
+  ],
+  "title": "Git Slop cache prune schema 1",
+  "type": "object"
+}

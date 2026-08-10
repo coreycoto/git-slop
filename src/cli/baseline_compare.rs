@@ -52,23 +52,56 @@ fn write_named_baseline(path: &Path, report: &Value, replace: bool) -> Result<()
     Ok(())
 }
 
+fn emit_baseline_result(format: DisplayFormat, payload: &Value, text: &str) -> Result<()> {
+    match format {
+        DisplayFormat::Text => println!("{text}"),
+        DisplayFormat::Json => print_text(&render_json(payload)?),
+        DisplayFormat::Yaml => print_text(&serde_yaml::to_string(payload)?),
+    }
+    Ok(())
+}
+
 fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
     match args.command {
         BaselineCommand::Create {
             name,
             report,
             force,
+            allow_dirty,
+            allow_incomplete_evidence,
+            format,
         } => {
             let (loaded, source) = report_or_missing(repo_root, report.as_deref())?;
+            let readiness = crate::report_ops::evaluate_report_readiness(
+                &loaded,
+                !allow_dirty,
+                allow_incomplete_evidence,
+            );
+            if !readiness.comparison_ready {
+                return Err(ClassifiedError::new(
+                    ErrorKind::Contract,
+                    "baseline_not_comparison_ready",
+                    "Baseline source is not comparison-ready.",
+                )
+                .with_details(readiness.as_json())
+                .into());
+            }
             let path = baseline_path(repo_root, &name)?;
             write_named_baseline(&path, &loaded, force)?;
-            println!(
-                "Created baseline '{name}' from {} in Git-private runtime storage.",
-                source.display()
-            );
+            emit_baseline_result(
+                format,
+                &json!({"schema_version":1,"command":"baseline create","name":name,"source_report":source,"storage":"git_private","readiness":readiness.as_json()}),
+                &format!("Created baseline '{name}' from {} in Git-private runtime storage.", source.display()),
+            )?;
             Ok(0)
         }
-        BaselineCommand::Update { name, report } => {
+        BaselineCommand::Update {
+            name,
+            report,
+            allow_dirty,
+            allow_incomplete_evidence,
+            format,
+        } => {
             let path = baseline_path(repo_root, &name)?;
             if !path.exists() {
                 return Err(ClassifiedError::new(
@@ -81,8 +114,66 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 .into());
             }
             let (loaded, source) = report_or_missing(repo_root, report.as_deref())?;
+            let readiness = crate::report_ops::evaluate_report_readiness(
+                &loaded,
+                !allow_dirty,
+                allow_incomplete_evidence,
+            );
+            if !readiness.comparison_ready {
+                return Err(ClassifiedError::new(
+                    ErrorKind::Contract,
+                    "baseline_not_comparison_ready",
+                    "Baseline source is not comparison-ready.",
+                )
+                .with_details(readiness.as_json())
+                .into());
+            }
             write_named_baseline(&path, &loaded, true)?;
-            println!("Updated baseline '{name}' from {}.", source.display());
+            emit_baseline_result(
+                format,
+                &json!({"schema_version":1,"command":"baseline update","name":name,"source_report":source,"storage":"git_private","readiness":readiness.as_json()}),
+                &format!("Updated baseline '{name}' from {}.", source.display()),
+            )?;
+            Ok(0)
+        }
+        BaselineCommand::List { format } => {
+            let directory = config::git_runtime_dir(repo_root)?.join("baselines");
+            let mut baselines = Vec::new();
+            if directory.is_dir() {
+                for entry in fs::read_dir(&directory)? {
+                    let path = entry?.path();
+                    if path.extension().and_then(|value| value.to_str()) != Some("json") {
+                        continue;
+                    }
+                    let Some(report) = load_report_at(&path)? else { continue };
+                    let readiness = crate::report_ops::evaluate_report_readiness(&report, true, false);
+                    baselines.push(json!({
+                        "name": path.file_stem().and_then(|value| value.to_str()).unwrap_or_default(),
+                        "head_sha": report.pointer("/repo/head_sha"),
+                        "generated_at": report.get("generated_at"),
+                        "repository_id": report.pointer("/repo/repository_id"),
+                        "scope": report.get("scope"),
+                        "readiness": readiness.as_json(),
+                    }));
+                }
+            }
+            baselines.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
+            let payload = json!({"schema_version": 1, "command": "baseline list", "storage": "git_private", "baselines": baselines});
+            match format {
+                DisplayFormat::Json => print_text(&render_json(&payload)?),
+                DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
+                DisplayFormat::Text => {
+                    if baselines.is_empty() { println!("No named baselines."); }
+                    for item in baselines {
+                        println!(
+                            "{} revision={} comparison_ready={}",
+                            item["name"].as_str().unwrap_or_default(),
+                            item["head_sha"].as_str().unwrap_or("unknown"),
+                            item.pointer("/readiness/comparison_ready").and_then(Value::as_bool).unwrap_or(false)
+                        );
+                    }
+                }
+            }
             Ok(0)
         }
         BaselineCommand::Inspect { name, format } => {
@@ -102,13 +193,25 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 "command": "baseline inspect",
                 "name": name,
                 "storage": "git_private",
+                "readiness": crate::report_ops::evaluate_report_readiness(&report, true, false).as_json(),
+                "storage_bytes": fs::metadata(&path).map(|value| value.len()).unwrap_or_default(),
+                "updated_at": fs::metadata(&path).ok().and_then(|value| value.modified().ok()).map(|value| chrono::DateTime::<chrono::Utc>::from(value).to_rfc3339()),
                 "report": {
                     "schema_version": report.get("schema_version"),
                     "generated_at": report.get("generated_at"),
                     "head_sha": report.pointer("/repo/head_sha"),
                     "scope": report.get("scope"),
                     "report_profile": report.pointer("/analyzer/report_profile"),
-                    "evidence_completeness": report.get("evidence_completeness")
+                    "evidence_completeness": report.get("evidence_completeness"),
+                    "worktree_clean": report.pointer("/repo/worktree_clean"),
+                    "analysis_status": report.pointer("/diagnostics/analysis/analysis_status"),
+                    "collection_metadata": report.get("collection_metadata"),
+                    "analysis_config_digest": report.pointer("/analyzer/analysis_config_digest"),
+                    "evidence_config_digest": report.pointer("/analyzer/evidence_config_digest"),
+                    "policy_config_digest": report.pointer("/analyzer/policy_config_digest"),
+                    "presentation_config_digest": report.pointer("/analyzer/presentation_config_digest"),
+                    "worktree_state_digest": report.pointer("/repo/worktree_state_digest"),
+                    "analyzed_content_digest": report.pointer("/repo/analyzed_content_digest")
                 }
             });
             match format {
@@ -129,7 +232,7 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
             }
             Ok(0)
         }
-        BaselineCommand::Validate { name } => {
+        BaselineCommand::Validate { name, format } => {
             let path = baseline_path(repo_root, &name)?;
             let Some(_) = load_report_at(&path)? else {
                 return Err(ClassifiedError::new(
@@ -141,10 +244,14 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 .with_details(json!({"name": name}))
                 .into());
             };
-            println!("Baseline '{name}' is valid.");
+            emit_baseline_result(
+                format,
+                &json!({"schema_version":1,"command":"baseline validate","name":name,"valid":true}),
+                &format!("Baseline '{name}' is valid."),
+            )?;
             Ok(0)
         }
-        BaselineCommand::Remove { name } => {
+        BaselineCommand::Remove { name, format } => {
             let path = baseline_path(repo_root, &name)?;
             if !path.exists() {
                 return Err(ClassifiedError::new(
@@ -157,7 +264,11 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 .into());
             }
             fs::remove_file(path)?;
-            println!("Removed baseline '{name}'.");
+            emit_baseline_result(
+                format,
+                &json!({"schema_version":1,"command":"baseline remove","name":name,"removed":true}),
+                &format!("Removed baseline '{name}'."),
+            )?;
             Ok(0)
         }
     }
@@ -204,22 +315,35 @@ fn run_compare(repo_root: &Path, args: CompareArgs) -> Result<i32> {
     let Some(top) = usize::try_from(args.top).ok().filter(|count| *count > 0) else {
         return usage_error("--top must be greater than zero.");
     };
+    let local_descriptor = |path: &Path| {
+        if args.include_local_paths {
+            path.to_string_lossy().into_owned()
+        } else {
+            path.file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("report.json")
+                .to_string()
+        }
+    };
     let base_descriptor = if let Some(materialized) = materialized.as_ref() {
         format!(
-            "git:{}@{}",
-            args.base_ref.as_deref().unwrap_or("unknown"),
+            "{}@{}",
+            base_report
+                .pointer("/repo/repository_id")
+                .and_then(Value::as_str)
+                .unwrap_or("repository"),
             materialized.revision
         )
     } else if let Some(name) = args.baseline.as_deref() {
         format!("baseline:{name}")
     } else {
-        base_path.to_string_lossy().into_owned()
+        local_descriptor(&base_path)
     };
     let payload = match compare_payload_with_policy(
         &base_report,
         &head_report,
         Some(&base_descriptor),
-        Some(&args.head.to_string_lossy()),
+        Some(&local_descriptor(&args.head)),
         top,
         args.force,
         args.allow_incomplete_evidence,

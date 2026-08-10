@@ -1,24 +1,172 @@
 {
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/check-1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/check-1.json",
-  "title": "Git Slop check schema 1",
-  "type": "object",
-  "required": ["schema_version", "command", "report", "boundary", "passed", "finding_count", "details_included", "gate_scope"],
-  "properties": {
-    "schema_version": {"const": 1},
-    "command": {"const": "check"},
-    "report": {"type": "object", "required": ["schema_version", "analyzer", "repo", "scope"], "properties": {"schema_version": {"type": "integer"}, "analyzer": {"type": "object"}, "repo": {"type": "object"}, "scope": {"type": "object"}}, "additionalProperties": false},
-    "boundary": {"type": "object", "required": ["context_band", "slop_band"], "properties": {"context_band": {"enum": ["compact", "healthy", "warning", "critical"]}, "slop_band": {"enum": ["low", "moderate", "high", "critical"]}}, "additionalProperties": false},
-    "passed": {"type": "boolean"},
-    "finding_count": {"type": "integer", "minimum": 0},
-    "details_included": {"type": "boolean"},
-    "gate_scope": {"enum": ["files", "files_and_folders"]},
-    "findings": {"type": "array", "items": {"type": "object"}},
-    "collection": {"type": "object", "required": ["total", "offset", "limit", "returned", "truncated"], "properties": {"total": {"type": "integer", "minimum": 0}, "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 10000}, "returned": {"type": "integer", "minimum": 0}, "truncated": {"type": "boolean"}}, "additionalProperties": false}
-  },
+  "additionalProperties": false,
   "allOf": [
-    {"if": {"properties": {"details_included": {"const": true}}}, "then": {"required": ["findings", "collection"]}},
-    {"if": {"properties": {"details_included": {"const": false}}}, "then": {"not": {"anyOf": [{"required": ["findings"]}, {"required": ["collection"]}]}}}
+    {
+      "if": {
+        "properties": {
+          "details_included": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "findings",
+          "collection"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "details_included": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "findings"
+              ]
+            },
+            {
+              "required": [
+                "collection"
+              ]
+            }
+          ]
+        }
+      }
+    }
   ],
-  "additionalProperties": false
+  "properties": {
+    "boundary": {
+      "additionalProperties": false,
+      "properties": {
+        "context_band": {
+          "enum": [
+            "compact",
+            "healthy",
+            "warning",
+            "critical"
+          ]
+        },
+        "slop_band": {
+          "enum": [
+            "low",
+            "moderate",
+            "high",
+            "critical"
+          ]
+        }
+      },
+      "required": [
+        "context_band",
+        "slop_band"
+      ],
+      "type": "object"
+    },
+    "collection": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "returned": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "total",
+        "offset",
+        "limit",
+        "returned",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "command": {
+      "const": "check"
+    },
+    "details_included": {
+      "type": "boolean"
+    },
+    "finding_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "findings": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "gate_scope": {
+      "enum": [
+        "files",
+        "files_and_folders"
+      ]
+    },
+    "passed": {
+      "type": "boolean"
+    },
+    "report": {
+      "additionalProperties": false,
+      "properties": {
+        "analyzer": {
+          "type": "object"
+        },
+        "repo": {
+          "type": "object"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "scope": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema_version",
+        "analyzer",
+        "repo",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "report",
+    "boundary",
+    "passed",
+    "finding_count",
+    "details_included",
+    "gate_scope"
+  ],
+  "title": "Git Slop check schema 1",
+  "type": "object"
 }

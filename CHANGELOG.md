@@ -1,6 +1,36 @@
 # Changelog
 
-## 0.11.5 - Unreleased
+## 0.11.6 - 2026-08-10
+
+This patch makes the published machine contracts independently valid and
+closes the post-0.11.5 audit across evidence readiness, automation, release
+integrity, detector policy, planning, presentation, cache, and storage.
+
+### Contract and automation integrity
+
+- Separate expected non-text records from real coverage loss, share one
+  fail-closed readiness evaluator, and give every tracked record a raw-byte
+  SHA-256 identity.
+- Align every published schema with emitted output, restore compact reports,
+  emit physical-line NDJSON, and bind prompt packs to exact source bytes.
+- Contain every Action consumer failure, reserve `check` for enforcement,
+  expose compressed artifacts, and refresh identity-keyed token caches.
+- Emit valid CycloneDX licenses, Cargo.lock hashes, standard scopes, richer
+  release manifests and notes, and independently exercise packaged outputs.
+
+### Detector and maintainer experience
+
+- Make policy and queue behavior classification-aware, distinguish generated
+  and fixture investigation from source intervention, group mechanical release
+  synchronization, and expose calibrated relationship evidence.
+- Make baselines comparison-ready by default, enrich inspection and formats,
+  improve compare pagination/privacy, and produce report-bound idempotent plans
+  with source-controllable acceptance criteria.
+- Repair prompt-pack/HTML completeness and provenance, reject meaningless CLI
+  filters, unify typed scope/config errors, and harden cache/report recovery and
+  retention accounting.
+
+## 0.11.5 - 2026-08-10
 
 This patch supersedes 0.11.4 before GitHub Release publication. Version 0.11.4
 remains immutable on crates.io and as a signed tag.

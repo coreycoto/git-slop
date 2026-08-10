@@ -110,29 +110,32 @@ fn metric_changed(base: &Value, head: &Value) -> bool {
         || !record_overlay_delta(Some(base), Some(head)).is_empty()
 }
 
+fn record_content_identity(record: &Value) -> Option<String> {
+    optional_string(record.get("content_sha256"))
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            optional_string(record.get("content_fingerprint"))
+                .filter(|value| !value.is_empty() && !value.starts_with("incomplete:"))
+        })
+}
+
 fn record_delta_status(base: Option<&Value>, head: Option<&Value>) -> &'static str {
     match (base, head) {
         (None, Some(_)) => "added",
         (Some(_), None) => "removed",
         (None, None) => "unchanged",
         (Some(base), Some(head))
-            if optional_string(base.get("content_fingerprint"))
-                .is_some_and(|value| !value.is_empty())
-                && optional_string(head.get("content_fingerprint"))
-                    .is_some_and(|value| !value.is_empty())
-                && optional_string(base.get("content_fingerprint"))
-                    != optional_string(head.get("content_fingerprint")) =>
+            if record_content_identity(base).is_some()
+                && record_content_identity(head).is_some()
+                && record_content_identity(base) != record_content_identity(head) =>
         {
             "source_changed"
         }
         (Some(base), Some(head)) if !metric_changed(base, head) => "unchanged",
         (Some(base), Some(head))
-            if optional_string(base.get("content_fingerprint"))
-                .is_some_and(|value| !value.is_empty())
-                && optional_string(head.get("content_fingerprint"))
-                    .is_some_and(|value| !value.is_empty())
-                && optional_string(base.get("content_fingerprint"))
-                    == optional_string(head.get("content_fingerprint")) =>
+            if record_content_identity(base).is_some()
+                && record_content_identity(head).is_some()
+                && record_content_identity(base) == record_content_identity(head) =>
         {
             "evidence_drift"
         }
@@ -250,100 +253,14 @@ fn require_comparison_ready(
     allow_incomplete_evidence: bool,
     force: bool,
 ) -> Result<()> {
-    if role == "base"
-        && !force
-        && report
-            .pointer("/repo/worktree_clean")
-            .and_then(Value::as_bool)
-            == Some(false)
-        && [
-            "/repo/staged_change_count",
-            "/repo/modified_tracked_file_count",
-            "/repo/untracked_file_count",
-        ]
-        .into_iter()
-        .filter_map(|pointer| report.pointer(pointer).and_then(Value::as_u64))
-        .sum::<u64>()
-            > 0
-    {
+    let readiness =
+        evaluate_report_readiness(report, role == "base" && !force, allow_incomplete_evidence);
+    if let Some(blocker) = readiness.blockers.first() {
+        let code = string(blocker.get("code"));
+        let pointer = string(blocker.get("pointer"));
+        let message = string(blocker.get("message"));
         bail!(
-            "base report was captured from a dirty worktree and is not comparison-ready; create a clean named baseline or pass --force only after reviewing the source state"
-        );
-    }
-    let profile = report
-        .pointer("/analyzer/report_profile")
-        .and_then(Value::as_str);
-    let has_compare_index = report
-        .pointer("/compare_index/files")
-        .and_then(Value::as_array)
-        .is_some();
-    if profile == Some("compact") && !has_compare_index {
-        bail!(
-            "{role} report uses the compact presentation profile without an exhaustive comparison index and is not comparison-ready; rerun `git slop find` with the current git-slop version"
-        );
-    }
-    for collection in ["files", "folders"] {
-        let metadata = if has_compare_index {
-            report.pointer(&format!("/collection_metadata/compare_index/{collection}"))
-        } else {
-            report.pointer(&format!("/collection_metadata/{collection}"))
-        };
-        let truncated = metadata
-            .and_then(|value| value.get("truncated"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let incomplete_count = metadata
-            .and_then(|value| {
-                Some((
-                    value.get("total")?.as_u64()?,
-                    value.get("returned")?.as_u64()?,
-                ))
-            })
-            .is_some_and(|(total, returned)| total != returned);
-        if truncated || incomplete_count {
-            bail!(
-                "{role} report has an incomplete canonical {collection} index and is not comparison-ready; rerun `git slop find` without degraded analysis"
-            );
-        }
-    }
-    if let Some(status) = report
-        .pointer("/diagnostics/analysis/analysis_status")
-        .and_then(Value::as_str)
-        .filter(|status| status.starts_with("degraded_"))
-    {
-        bail!(
-            "{role} report analysis is {status} and is not comparison-ready; rerun without degraded analysis"
-        );
-    }
-    if !allow_incomplete_evidence {
-        let incomplete_records = report
-            .pointer("/compare_index/files")
-            .or_else(|| report.get("files"))
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|record| inventory_record_has_incomplete_evidence(record))
-            .count();
-        if incomplete_records > 0 {
-            bail!(
-                "{role} report contains {incomplete_records} incomplete canonical inventory record(s) and is not comparison-ready; pass --allow-incomplete-evidence only when this coverage loss is intentional"
-            );
-        }
-    }
-    if let Some((field, status)) = report
-        .get("evidence_completeness")
-        .and_then(Value::as_object)
-        .and_then(|evidence| {
-            evidence.iter().find_map(|(field, value)| {
-                value
-                    .as_str()
-                    .filter(|status| status.starts_with("incomplete_"))
-                    .map(|status| (field.as_str(), status))
-            })
-        })
-    {
-        bail!(
-            "{role} report evidence `{field}` is {status} and is not comparison-ready; acquire complete evidence before comparing"
+            "{role} report is not comparison-ready ({code} at {pointer}): {message}; rerun `git slop find` with complete inputs"
         );
     }
     Ok(())
@@ -360,12 +277,8 @@ fn build_record_delta(path: &str, base: Option<&Value>, head: Option<&Value>) ->
     let head_context = record_band(head, "context_band");
     let base_slop = record_band(base, "slop_band");
     let head_slop = record_band(head, "slop_band");
-    let base_fingerprint =
-        optional_string(base.and_then(|record| record.get("content_fingerprint")))
-            .filter(|value| !value.is_empty());
-    let head_fingerprint =
-        optional_string(head.and_then(|record| record.get("content_fingerprint")))
-            .filter(|value| !value.is_empty());
+    let base_fingerprint = base.and_then(record_content_identity);
+    let head_fingerprint = head.and_then(record_content_identity);
     let content_changed = match (&base_fingerprint, &head_fingerprint) {
         (Some(base), Some(head)) => Some(base != head),
         _ => None,
@@ -503,15 +416,8 @@ fn build_record_deltas(base: &Value, head: &Value, collection: &str) -> Vec<Valu
             if other.contains_key(path) {
                 continue;
             }
-            if let Some(fingerprint) = record
-                .get("content_fingerprint")
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty() && !value.starts_with("incomplete:"))
-            {
-                values
-                    .entry(fingerprint.to_string())
-                    .or_default()
-                    .push(path.clone());
+            if let Some(fingerprint) = record_content_identity(record) {
+                values.entry(fingerprint).or_default().push(path.clone());
             }
         }
         values
@@ -906,6 +812,14 @@ pub fn render_compare_text(payload: &Value, top: usize) -> String {
             integer(value_at(payload, &["summary", "worsened_file_count"])),
             integer(value_at(payload, &["summary", "improved_file_count"])),
         ),
+        format!(
+            "- policy regressions: {} (source-worsened={} can be higher because regression thresholds and new-finding policy are applied separately)",
+            integer(value_at(payload, &["summary", "regression_count"])),
+            integer(value_at(
+                payload,
+                &["summary", "source_worsened_file_count"]
+            )),
+        ),
         String::new(),
         "Top Worsened Files".to_string(),
     ];
@@ -1146,6 +1060,6 @@ mod tests {
             false,
         )
         .expect_err("large-file coverage loss remains fail-closed");
-        assert!(error.to_string().contains("incomplete canonical inventory"));
+        assert!(error.to_string().contains("inventory_evidence_incomplete"));
     }
 }

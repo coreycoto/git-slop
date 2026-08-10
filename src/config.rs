@@ -622,7 +622,7 @@ fn schema_for_value(value: &Value, path: &str) -> Value {
                     "required": ["glob"],
                     "properties": {
                         "glob": {"type": "string", "minLength": 1},
-                        "classification": {"type": "string", "enum": ["source", "test", "docs", "tool", "config", "data", "generated", "snapshot", "vendored", "migration_fixture", "other"]},
+                        "classification": {"type": "string", "enum": ["source", "test", "docs", "tool", "config", "data", "generated", "snapshot", "fixture", "vendored", "migration_fixture", "other"]},
                         "profile": {"type": "string", "enum": ["agent_context", "data_context"]},
                         "language": {"type": "string", "minLength": 1},
                         "verification_applicability": {"type": "string", "enum": ["auto", "applicable", "not_applicable"]}
@@ -701,7 +701,7 @@ pub fn schema() -> Value {
     let mut schema = schema_for_value(&defaults, "");
     schema["$schema"] = json!("https://json-schema.org/draft/2020-12/schema");
     schema["$id"] =
-        json!("https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/config-2.json");
+        json!("https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/config-2.json");
     schema["title"] = json!("Git Slop configuration schema 2");
     schema["required"] = json!(["schema_version"]);
     schema["properties"]["schema_version"] = json!({

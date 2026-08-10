@@ -49,6 +49,7 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
         "folders",
         "ranked_files",
         "action_queue",
+        "observation_feed",
         "costs",
         "overlays",
         "health",
@@ -73,6 +74,7 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
         "compare_index",
         "ranked_files",
         "action_queue",
+        "observation_feed",
         "costs",
         "overlays",
         "health",
@@ -149,6 +151,7 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
         "/diagnostics",
         &[
             "analysis",
+            "compact_profile_note",
             "evidence_limit",
             "migration",
             "relationship_count",
@@ -179,6 +182,8 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
             "estimate_range_contains_measurement",
             "history",
             "history_evidence_status",
+            "incomplete_inventory_files",
+            "intentionally_skipped_non_text_files",
             "measured_peak_rss_bytes",
             "memory_budget_exceeded_checkpoints",
             "memory_measurement_status",
@@ -668,6 +673,7 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
         "language",
         "profile",
         "classification",
+        "generated_from",
         "analysis_status",
         "skipped_reason",
         "symlink_metadata",
@@ -676,6 +682,7 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
         "context_band",
         "context_pressure",
         "content_fingerprint",
+        "content_sha256",
         "structural_token_count",
         "top_structural_terms",
         "structural_categories",
@@ -761,6 +768,10 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
     let queue_fields = [
         "path",
         "profile",
+        "classification",
+        "generated_from",
+        "synchronization_group",
+        "remediation_kind",
         "slop_score",
         "slop_band",
         "context_band",
@@ -784,6 +795,7 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
     ];
     for (collection, fields) in [
         ("action_queue", queue_fields.as_slice()),
+        ("observation_feed", queue_fields.as_slice()),
         ("ranked_files", ranked_fields.as_slice()),
     ] {
         for (index, record) in root

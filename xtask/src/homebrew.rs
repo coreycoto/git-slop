@@ -116,6 +116,10 @@ mod tests {
                 url: format!("{release_url}/{CHECKSUM_FILE_NAME}"),
             },
             InstallInstructions {
+                attestation: vec![format!(
+                    "gh attestation verify 'git-slop-{tag}-<target>.*' --repo {REPO_FULL_NAME} --signer-repo {REPO_FULL_NAME}"
+                )],
+                cargo: vec!["cargo install git-slop --version 0.9.0 --locked".into()],
                 homebrew_tap: vec![
                     "brew tap coreycoto/tap".into(),
                     "brew install coreycoto/tap/git-slop".into(),
@@ -126,6 +130,10 @@ mod tests {
                          'git-slop-{tag}-<target>.*' --pattern {CHECKSUM_FILE_NAME}"
                     ),
                     format!("sha256sum --check {CHECKSUM_FILE_NAME} --ignore-missing"),
+                ],
+                scoop: vec![
+                    "scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket".into(),
+                    "scoop install coreycoto/git-slop".into(),
                 ],
             },
         )

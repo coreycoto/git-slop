@@ -23,14 +23,47 @@ fn sidecar_bytes(path: &Path, suffix: &str) -> u64 {
         .unwrap_or_default()
 }
 
+fn quarantined_stats(path: &Path) -> (usize, u64) {
+    let Some(parent) = path.parent() else {
+        return (0, 0);
+    };
+    let prefix = format!(
+        "{}.",
+        path.file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("token-v4.sqlite3")
+    );
+    fs::read_dir(parent)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+        .filter_map(|entry| fs::metadata(entry.path()).ok())
+        .fold((0usize, 0u64), |(count, bytes), metadata| {
+            (count + 1, bytes.saturating_add(metadata.len()))
+        })
+}
+
 pub fn status(state_root: &Path) -> Result<Value> {
     let path = database_path(state_root);
+    let (quarantined_files, quarantined_bytes) = quarantined_stats(&path);
     if !path.exists() {
         return Ok(
-            json!({"schema_version": 1, "command": "cache status", "status": "absent", "entries": 0, "payload_bytes": 0, "database_bytes": 0}),
+            json!({"schema_version": 1, "command": "cache status", "status": if quarantined_files > 0 { "quarantined_uncached" } else { "absent" }, "entries": 0, "payload_bytes": 0, "database_bytes": 0, "wal_bytes": 0, "shm_bytes": 0, "persistent_bytes": 0, "transient_bytes": 0, "allocated_bytes": 0, "quarantined_files": quarantined_files, "quarantined_bytes": quarantined_bytes, "repair_command": "git slop find", "cleanup_command": "git slop cache prune --max-entries 0 --max-bytes 0 --compact"}),
         );
     }
-    let connection = configured_connection(&path)?;
+    let connection = match configured_connection(&path) {
+        Ok(connection) => connection,
+        Err(error) => {
+            return Ok(json!({
+                "schema_version": 1, "command": "cache status", "status": "unavailable",
+                "entries": 0, "payload_bytes": 0,
+                "database_bytes": fs::metadata(&path).map(|value| value.len()).unwrap_or_default(),
+                "wal_bytes": sidecar_bytes(&path, "-wal"), "shm_bytes": sidecar_bytes(&path, "-shm"),
+                "integrity": "not_checked", "diagnostic": format!("cache could not be opened: {}", error.root_cause())
+            }));
+        }
+    };
     let table_exists: Option<String> = connection
         .query_row(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='token_cache'",
@@ -39,10 +72,13 @@ pub fn status(state_root: &Path) -> Result<Value> {
         )
         .optional()?;
     if table_exists.is_none() {
-        anyhow::bail!(
-            "packed cache is missing token_cache table: {}",
-            path.display()
-        );
+        return Ok(json!({
+            "schema_version": 1, "command": "cache status", "status": "invalid_schema",
+            "entries": 0, "payload_bytes": 0,
+            "database_bytes": fs::metadata(&path).map(|value| value.len()).unwrap_or_default(),
+            "wal_bytes": sidecar_bytes(&path, "-wal"), "shm_bytes": sidecar_bytes(&path, "-shm"),
+            "integrity": "token_cache_table_missing"
+        }));
     }
     let (entries, bytes, oldest, newest): (u64, u64, Option<i64>, Option<i64>) = connection.query_row(
         "SELECT COUNT(*), COALESCE(SUM(payload_bytes), 0), MIN(accessed_at), MAX(accessed_at) FROM token_cache",
@@ -62,7 +98,9 @@ pub fn status(state_root: &Path) -> Result<Value> {
         "schema_version": 1, "command": "cache status", "status": if integrity == "ok" { "ready" } else { "corrupt" },
         "entries": entries, "payload_bytes": bytes,
         "database_bytes": database_bytes, "wal_bytes": wal_bytes, "shm_bytes": shm_bytes,
+        "persistent_bytes": database_bytes, "transient_bytes": wal_bytes.saturating_add(shm_bytes),
         "allocated_bytes": database_bytes.saturating_add(wal_bytes).saturating_add(shm_bytes),
+        "quarantined_files": quarantined_files, "quarantined_bytes": quarantined_bytes,
         "page_count": page_count, "free_pages": free_pages, "page_size": page_size,
         "reclaimable_bytes": free_pages.saturating_mul(page_size), "integrity": integrity,
         "oldest_accessed_at_unix": oldest, "newest_accessed_at_unix": newest
@@ -117,6 +155,9 @@ pub fn prune(
         }
     }
     let removed_bytes = selected.iter().map(|(_, bytes)| *bytes).sum::<u64>();
+    if !dry_run {
+        drop(connection);
+    }
     let after = if dry_run {
         json!({"entries": entries, "payload_bytes": bytes, "projected": true})
     } else {

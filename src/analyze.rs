@@ -398,16 +398,28 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             Ok(cache) => Some(cache),
             Err(error) => {
                 cache_cleanup_warnings.push(quarantine_cache(&cache_path, &error));
-                None
+                TokenCache::open(&cache_path).ok()
             }
         }
     };
     let mut cache_hits = 0usize;
     let mut cache_misses = 0usize;
     let mut structurally_skipped_large_files = 0usize;
+    let mut intentionally_skipped_non_text_files = 0usize;
+    let mut incomplete_inventory_files = 0usize;
     for file in &inventory_files {
-        if file.analysis_status != "analyzed" || file.bytes > large_file_bytes {
+        if file.skipped_reason.as_deref() == Some("large_file_limit") {
             structurally_skipped_large_files += 1;
+        }
+        if matches!(
+            file.skipped_reason.as_deref(),
+            Some("binary" | "gitlink" | "undecodable")
+        ) {
+            intentionally_skipped_non_text_files += 1;
+        } else if file.analysis_status != "analyzed"
+            && file.skipped_reason.as_deref() != Some("large_file_limit")
+        {
+            incomplete_inventory_files += 1;
         }
         if file.analysis_status != "analyzed" {
             let conservative_tokens = if file.skipped_reason.as_deref() == Some("large_file_limit")
@@ -440,7 +452,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
                 Ok(value) => value,
                 Err(error) => {
                     cache_cleanup_warnings.push(quarantine_cache(&cache_path, &error));
-                    cache = None;
+                    cache = TokenCache::open(&cache_path).ok();
                     None
                 }
             }
@@ -466,7 +478,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
                 .and_then(|active_cache| active_cache.put(&cache_key, &cached).err());
             if let Some(error) = put_error {
                 cache_cleanup_warnings.push(quarantine_cache(&cache_path, &error));
-                cache = None;
+                cache = TokenCache::open(&cache_path).ok();
             }
             cached
         };
@@ -554,6 +566,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             language: file.language,
             profile: file.profile.clone(),
             classification: file.classification,
+            generated_from: file.generated_from,
             analysis_status: file.analysis_status,
             skipped_reason: file.skipped_reason,
             symlink_metadata: file.symlink_metadata,
@@ -566,6 +579,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
                 &loaded_config,
             ),
             content_fingerprint,
+            content_sha256: file.content_sha256,
             structural_tokens,
             structural_token_count,
             top_structural_terms,
@@ -619,7 +633,25 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         &mut memory_budget_exceeded_checkpoints,
     )?;
     let folders = scoring::build_folder_analyses(&files, &loaded_config);
-    let queue = action_queue(&files, history_evidence_reliable, &loaded_config);
+    let candidates = action_queue(&files, history_evidence_reliable, &loaded_config);
+    let (queue, observation_feed): (Vec<_>, Vec<_>) = candidates.into_iter().partition(|item| {
+        let classification = item
+            .get("classification")
+            .and_then(Value::as_str)
+            .unwrap_or("other");
+        let actionable = !matches!(
+            classification,
+            "generated" | "vendored" | "snapshot" | "fixture" | "migration_fixture"
+        );
+        let supported = item.get("evidence_status").and_then(Value::as_str) == Some("supported")
+            || item.get("is_pure_context_hotspot").and_then(Value::as_bool) == Some(true);
+        actionable
+            && supported
+            && matches!(
+                item.get("severity").and_then(Value::as_str),
+                Some("warning" | "error")
+            )
+    });
     let generated_at = now.to_rfc3339_opts(SecondsFormat::Secs, true);
     let analyzed_revision_at = repo.head_commit_timestamp.clone();
     let ending_worktree = git::worktree_state_excluding(repo_root, &runtime_exclusions)?;
@@ -640,6 +672,13 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         measured >= estimate.estimated_peak_memory_low_bytes
             && measured <= estimate.estimated_peak_memory_high_bytes
     });
+    let history_evidence_status = if repo.head_commit.is_none() {
+        "not_applicable_unborn"
+    } else if history_evidence_reliable {
+        "supported_with_per_file_shrinkage"
+    } else {
+        "incomplete_suppressed"
+    };
     let analysis = Analysis {
         output_root,
         report_profile: if options.report_profile.is_empty() {
@@ -663,6 +702,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         folders,
         organization,
         action_queue: queue,
+        observation_feed,
         diagnostics: json!({
             "analysis_elapsed_ms_before_report": started.elapsed().as_millis(),
             "estimate": estimate,
@@ -679,12 +719,14 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             "cache_cleanup_warnings": cache_cleanup_warnings,
             "cache_status": if options.no_cache { "disabled" } else { "enabled" },
             "structurally_skipped_large_files": structurally_skipped_large_files,
-            "analysis_status": if tracked_paths.len() < original_selected_path_count || !memory_budget_exceeded_checkpoints.is_empty() { "degraded_resource_budget" } else if structurally_skipped_large_files > 0 { "degraded_large_files" } else { "complete" },
+            "intentionally_skipped_non_text_files": intentionally_skipped_non_text_files,
+            "incomplete_inventory_files": incomplete_inventory_files,
+            "analysis_status": if tracked_paths.len() < original_selected_path_count || !memory_budget_exceeded_checkpoints.is_empty() { "degraded_resource_budget" } else if structurally_skipped_large_files > 0 { "degraded_large_files" } else if incomplete_inventory_files > 0 { "degraded_incomplete_inventory" } else { "complete" },
             "resource_mode": if tracked_paths.len() < original_selected_path_count { "degraded_path_prefix" } else if !memory_budget_exceeded_checkpoints.is_empty() { "degraded_measured_rss" } else { "complete" },
             "original_selected_path_count": original_selected_path_count,
             "degraded_omitted_path_count": original_selected_path_count.saturating_sub(tracked_paths.len()),
             "history": history_diagnostics,
-            "history_evidence_status": if history_evidence_reliable { "supported_with_per_file_shrinkage" } else { "incomplete_suppressed" },
+            "history_evidence_status": history_evidence_status,
             "scope": scope
         }),
     };

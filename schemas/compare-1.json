@@ -1,112 +1,646 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/compare-1.json",
-  "title": "Git Slop comparison schema 1",
-  "type": "object",
-  "required": ["schema_version", "report_schema_version", "command", "policy_source", "base_report", "head_report", "summary", "file_deltas", "folder_deltas", "queue_movement", "overlay_deltas", "regressions", "boundary_note", "compatibility_forced", "baseline_status", "baseline_compatible", "compatibility_mismatches"],
-  "properties": {
-    "schema_version": {"const": 1},
-    "report_schema_version": {"const": 5},
-    "command": {"const": "compare"},
-    "policy_source": {"enum": ["base", "head"]},
-    "base_report": {"$ref": "#/$defs/reportDescriptor"},
-    "head_report": {"$ref": "#/$defs/reportDescriptor"},
-    "summary": {"$ref": "#/$defs/summary"},
-    "file_deltas": {"type": "array", "items": {"$ref": "#/$defs/delta"}},
-    "folder_deltas": {"type": "array", "items": {"$ref": "#/$defs/delta"}},
-    "queue_movement": {"type": "array", "items": {"$ref": "#/$defs/queueMovement"}},
-    "overlay_deltas": {"type": "array", "items": {"$ref": "#/$defs/overlayDelta"}},
-    "regressions": {"type": "array", "items": {"$ref": "#/$defs/regression"}},
-    "boundary_note": {"type": "string", "minLength": 1},
-    "compatibility_forced": {"type": "boolean"},
-    "baseline_status": {"enum": ["compatible", "forced_incompatible", "incompatible"]},
-    "baseline_compatible": {"type": "boolean"},
-    "compatibility_mismatches": {"type": "array", "items": {"$ref": "#/$defs/compatibilityMismatch"}}
-  },
   "$defs": {
-    "nullableString": {"type": ["string", "null"]},
-    "nullableNumber": {"type": ["number", "null"]},
-    "nullableInteger": {"type": ["integer", "null"]},
-    "reportDescriptor": {
-      "type": "object",
-      "required": ["path", "repo_name", "head_sha", "generated_at", "analyzed_revision_at", "schema_version", "report_digest", "content_digest", "scope", "analyzer_version", "analysis_contract_version", "config_digest", "analysis_config_digest", "context_tokenizer", "history_complete"],
+    "compatibilityMismatch": {
+      "additionalProperties": false,
       "properties": {
-        "path": {"$ref": "#/$defs/nullableString"}, "repo_name": {"$ref": "#/$defs/nullableString"},
-        "head_sha": {"$ref": "#/$defs/nullableString"}, "generated_at": {"$ref": "#/$defs/nullableString"},
-        "analyzed_revision_at": {"$ref": "#/$defs/nullableString"}, "schema_version": {"type": ["integer", "null"]},
-        "report_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "content_digest": {"$ref": "#/$defs/nullableString"},
-        "scope": {"type": ["object", "null"]}, "analyzer_version": {"$ref": "#/$defs/nullableString"},
-        "analysis_contract_version": {"$ref": "#/$defs/nullableString"}, "config_digest": {"$ref": "#/$defs/nullableString"},
-        "analysis_config_digest": {"$ref": "#/$defs/nullableString"}, "context_tokenizer": {"$ref": "#/$defs/nullableString"},
-        "history_complete": {"type": ["boolean", "null"]}
+        "base": {},
+        "blocking": {
+          "type": "boolean"
+        },
+        "code": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        },
+        "head": {},
+        "pointer": {
+          "pattern": "^/",
+          "type": "string"
+        }
       },
-      "additionalProperties": false
+      "required": [
+        "field",
+        "pointer",
+        "base",
+        "head"
+      ],
+      "type": "object"
     },
     "counts": {
-      "type": "object",
-      "required": ["added", "removed", "changed", "source_changed", "evidence_drift", "renamed", "aggregate_changed", "unchanged"],
+      "additionalProperties": false,
       "properties": {
-        "added": {"type": "integer", "minimum": 0}, "removed": {"type": "integer", "minimum": 0},
-        "changed": {"type": "integer", "minimum": 0}, "source_changed": {"type": "integer", "minimum": 0},
-        "evidence_drift": {"type": "integer", "minimum": 0}, "renamed": {"type": "integer", "minimum": 0},
-        "aggregate_changed": {"type": "integer", "minimum": 0}, "unchanged": {"type": "integer", "minimum": 0}
+        "added": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "aggregate_changed": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "changed": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "evidence_drift": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "removed": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "renamed": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_changed": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unchanged": {
+          "minimum": 0,
+          "type": "integer"
+        }
       },
-      "additionalProperties": false
-    },
-    "summary": {
-      "type": "object",
-      "required": ["files", "folders", "worsened_file_count", "source_worsened_file_count", "evidence_only_worsened_file_count", "improved_file_count", "regression_count"],
-      "properties": {
-        "files": {"$ref": "#/$defs/counts"}, "folders": {"$ref": "#/$defs/counts"},
-        "worsened_file_count": {"type": "integer", "minimum": 0}, "source_worsened_file_count": {"type": "integer", "minimum": 0},
-        "evidence_only_worsened_file_count": {"type": "integer", "minimum": 0}, "improved_file_count": {"type": "integer", "minimum": 0},
-        "regression_count": {"type": "integer", "minimum": 0}
-      },
-      "additionalProperties": false
-    },
-    "overlayDelta": {
-      "type": "object", "required": ["label", "total_delta"],
-      "properties": {"label": {"type": "string"}, "total_delta": {"type": "number"}},
-      "additionalProperties": false
-    },
-    "recordOverlayDelta": {
-      "type": "object", "required": ["label", "base", "head", "delta"],
-      "properties": {"label": {"type": "string"}, "base": {"type": "number"}, "head": {"type": "number"}, "delta": {"type": "number"}},
-      "additionalProperties": false
+      "required": [
+        "added",
+        "removed",
+        "changed",
+        "source_changed",
+        "evidence_drift",
+        "renamed",
+        "aggregate_changed",
+        "unchanged"
+      ],
+      "type": "object"
     },
     "delta": {
-      "type": "object",
-      "required": ["path", "status", "content_status", "metric_status", "evidence_status", "base_slop_score", "head_slop_score", "slop_score_delta", "base_tokens", "head_tokens", "token_delta", "base_load_pressure", "head_load_pressure", "load_pressure_delta", "base_context_band", "head_context_band", "context_band_delta", "base_slop_band", "head_slop_band", "slop_band_delta", "base_content_fingerprint", "head_content_fingerprint", "content_changed", "overlay_deltas"],
+      "additionalProperties": false,
       "properties": {
-        "path": {"type": "string"}, "status": {"enum": ["added", "removed", "source_changed", "evidence_drift", "aggregate_changed", "renamed", "unchanged"]},
-        "content_status": {"enum": ["added", "removed", "changed", "unchanged", "unknown", "not_applicable", "renamed_unchanged"]},
-        "metric_status": {"enum": ["changed", "unchanged", "not_comparable"]}, "evidence_status": {"enum": ["drifted", "stable", "not_comparable"]},
-        "base_slop_score": {"$ref": "#/$defs/nullableNumber"}, "head_slop_score": {"$ref": "#/$defs/nullableNumber"}, "slop_score_delta": {"$ref": "#/$defs/nullableNumber"},
-        "base_tokens": {"$ref": "#/$defs/nullableInteger"}, "head_tokens": {"$ref": "#/$defs/nullableInteger"}, "token_delta": {"$ref": "#/$defs/nullableInteger"},
-        "base_load_pressure": {"$ref": "#/$defs/nullableNumber"}, "head_load_pressure": {"$ref": "#/$defs/nullableNumber"}, "load_pressure_delta": {"$ref": "#/$defs/nullableNumber"},
-        "base_context_band": {"$ref": "#/$defs/nullableString"}, "head_context_band": {"$ref": "#/$defs/nullableString"}, "context_band_delta": {"$ref": "#/$defs/nullableInteger"},
-        "base_slop_band": {"$ref": "#/$defs/nullableString"}, "head_slop_band": {"$ref": "#/$defs/nullableString"}, "slop_band_delta": {"$ref": "#/$defs/nullableInteger"},
-        "base_content_fingerprint": {"$ref": "#/$defs/nullableString"}, "head_content_fingerprint": {"$ref": "#/$defs/nullableString"}, "content_changed": {"type": ["boolean", "null"]},
-        "overlay_deltas": {"type": "array", "items": {"$ref": "#/$defs/recordOverlayDelta"}},
-        "renamed_from": {"type": "string"}, "renamed_to": {"type": "string"}
+        "base_content_fingerprint": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "base_context_band": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "base_load_pressure": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "base_slop_band": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "base_slop_score": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "base_tokens": {
+          "$ref": "#/$defs/nullableInteger"
+        },
+        "content_changed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "content_status": {
+          "enum": [
+            "added",
+            "removed",
+            "changed",
+            "unchanged",
+            "unknown",
+            "not_applicable",
+            "renamed_unchanged"
+          ]
+        },
+        "context_band_delta": {
+          "$ref": "#/$defs/nullableInteger"
+        },
+        "evidence_status": {
+          "enum": [
+            "drifted",
+            "stable",
+            "not_comparable"
+          ]
+        },
+        "head_content_fingerprint": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "head_context_band": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "head_load_pressure": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "head_slop_band": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "head_slop_score": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "head_tokens": {
+          "$ref": "#/$defs/nullableInteger"
+        },
+        "load_pressure_delta": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "metric_status": {
+          "enum": [
+            "changed",
+            "unchanged",
+            "not_comparable"
+          ]
+        },
+        "overlay_deltas": {
+          "items": {
+            "$ref": "#/$defs/recordOverlayDelta"
+          },
+          "type": "array"
+        },
+        "path": {
+          "type": "string"
+        },
+        "renamed_from": {
+          "type": "string"
+        },
+        "renamed_to": {
+          "type": "string"
+        },
+        "slop_band_delta": {
+          "$ref": "#/$defs/nullableInteger"
+        },
+        "slop_score_delta": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "status": {
+          "enum": [
+            "added",
+            "removed",
+            "source_changed",
+            "evidence_drift",
+            "aggregate_changed",
+            "renamed",
+            "unchanged"
+          ]
+        },
+        "token_delta": {
+          "$ref": "#/$defs/nullableInteger"
+        }
       },
-      "additionalProperties": false
+      "required": [
+        "path",
+        "status",
+        "content_status",
+        "metric_status",
+        "evidence_status",
+        "base_slop_score",
+        "head_slop_score",
+        "slop_score_delta",
+        "base_tokens",
+        "head_tokens",
+        "token_delta",
+        "base_load_pressure",
+        "head_load_pressure",
+        "load_pressure_delta",
+        "base_context_band",
+        "head_context_band",
+        "context_band_delta",
+        "base_slop_band",
+        "head_slop_band",
+        "slop_band_delta",
+        "base_content_fingerprint",
+        "head_content_fingerprint",
+        "content_changed",
+        "overlay_deltas"
+      ],
+      "type": "object"
+    },
+    "nullableInteger": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "nullableNumber": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "overlayDelta": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "total_delta": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "total_delta"
+      ],
+      "type": "object"
+    },
+    "page": {
+      "additionalProperties": false,
+      "properties": {
+        "all_total": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "changed_total": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "limit": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "returned": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "changed_total",
+        "all_total",
+        "offset",
+        "limit",
+        "returned",
+        "has_more"
+      ],
+      "type": "object"
     },
     "queueMovement": {
-      "type": "object", "required": ["path", "status", "base_position", "head_position", "position_delta"],
-      "properties": {"path": {"type": "string"}, "status": {"enum": ["newly_queued", "dropped_from_queue", "moved_up", "moved_down", "unchanged_position"]}, "base_position": {"$ref": "#/$defs/nullableInteger"}, "head_position": {"$ref": "#/$defs/nullableInteger"}, "position_delta": {"$ref": "#/$defs/nullableInteger"}},
-      "additionalProperties": false
+      "additionalProperties": false,
+      "properties": {
+        "base_position": {
+          "$ref": "#/$defs/nullableInteger"
+        },
+        "head_position": {
+          "$ref": "#/$defs/nullableInteger"
+        },
+        "path": {
+          "type": "string"
+        },
+        "position_delta": {
+          "$ref": "#/$defs/nullableInteger"
+        },
+        "status": {
+          "enum": [
+            "newly_queued",
+            "dropped_from_queue",
+            "moved_up",
+            "moved_down",
+            "unchanged_position"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "status",
+        "base_position",
+        "head_position",
+        "position_delta"
+      ],
+      "type": "object"
     },
-    "compatibilityMismatch": {
-      "type": "object", "required": ["field", "pointer", "base", "head"],
-      "properties": {"field": {"type": "string"}, "pointer": {"type": "string", "pattern": "^/"}, "base": {}, "head": {}, "code": {"type": "string"}, "blocking": {"type": "boolean"}},
-      "additionalProperties": false
+    "recordOverlayDelta": {
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "type": "number"
+        },
+        "delta": {
+          "type": "number"
+        },
+        "head": {
+          "type": "number"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "base",
+        "head",
+        "delta"
+      ],
+      "type": "object"
     },
     "regression": {
-      "type": "object", "required": ["path", "status", "reason", "severity", "base_slop_score", "head_slop_score", "slop_score_delta", "context_band", "slop_band"],
-      "properties": {"path": {"type": "string"}, "status": {"enum": ["new", "worsened"]}, "reason": {"enum": ["new_finding", "worse_band", "material_score_increase"]}, "severity": {"enum": ["notice", "warning", "error"]}, "base_slop_score": {"$ref": "#/$defs/nullableNumber"}, "head_slop_score": {"$ref": "#/$defs/nullableNumber"}, "slop_score_delta": {"$ref": "#/$defs/nullableNumber"}, "context_band": {"$ref": "#/$defs/nullableString"}, "slop_band": {"$ref": "#/$defs/nullableString"}},
-      "additionalProperties": false
+      "additionalProperties": false,
+      "properties": {
+        "base_slop_score": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "context_band": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "head_slop_score": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "new_finding",
+            "worse_band",
+            "material_score_increase"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "notice",
+            "warning",
+            "error"
+          ]
+        },
+        "slop_band": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "slop_score_delta": {
+          "$ref": "#/$defs/nullableNumber"
+        },
+        "status": {
+          "enum": [
+            "new",
+            "worsened"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "status",
+        "reason",
+        "severity",
+        "base_slop_score",
+        "head_slop_score",
+        "slop_score_delta",
+        "context_band",
+        "slop_band"
+      ],
+      "type": "object"
+    },
+    "reportDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "analysis_config_digest": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "analysis_contract_version": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "analyzed_revision_at": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "analyzer_version": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "config_digest": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "content_digest": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "context_tokenizer": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "generated_at": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "head_sha": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "history_complete": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "repo_name": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "report_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "schema_version": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "repo_name",
+        "head_sha",
+        "generated_at",
+        "analyzed_revision_at",
+        "schema_version",
+        "report_digest",
+        "content_digest",
+        "scope",
+        "analyzer_version",
+        "analysis_contract_version",
+        "config_digest",
+        "analysis_config_digest",
+        "context_tokenizer",
+        "history_complete"
+      ],
+      "type": "object"
+    },
+    "summary": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_only_worsened_file_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "files": {
+          "$ref": "#/$defs/counts"
+        },
+        "folders": {
+          "$ref": "#/$defs/counts"
+        },
+        "improved_file_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "regression_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_worsened_file_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "worsened_file_count": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "files",
+        "folders",
+        "worsened_file_count",
+        "source_worsened_file_count",
+        "evidence_only_worsened_file_count",
+        "improved_file_count",
+        "regression_count"
+      ],
+      "type": "object"
     }
   },
-  "additionalProperties": false
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/compare-1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "base_report": {
+      "$ref": "#/$defs/reportDescriptor"
+    },
+    "baseline_compatible": {
+      "type": "boolean"
+    },
+    "baseline_status": {
+      "enum": [
+        "compatible",
+        "forced_incompatible",
+        "incompatible"
+      ]
+    },
+    "boundary_note": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "command": {
+      "const": "compare"
+    },
+    "compatibility_forced": {
+      "type": "boolean"
+    },
+    "compatibility_mismatches": {
+      "items": {
+        "$ref": "#/$defs/compatibilityMismatch"
+      },
+      "type": "array"
+    },
+    "detail": {
+      "enum": [
+        "summary",
+        "top",
+        "full"
+      ]
+    },
+    "file_deltas": {
+      "items": {
+        "$ref": "#/$defs/delta"
+      },
+      "type": "array"
+    },
+    "folder_deltas": {
+      "items": {
+        "$ref": "#/$defs/delta"
+      },
+      "type": "array"
+    },
+    "head_report": {
+      "$ref": "#/$defs/reportDescriptor"
+    },
+    "overlay_deltas": {
+      "items": {
+        "$ref": "#/$defs/overlayDelta"
+      },
+      "type": "array"
+    },
+    "pagination": {
+      "additionalProperties": {
+        "$ref": "#/$defs/page"
+      },
+      "type": "object"
+    },
+    "policy_source": {
+      "enum": [
+        "base",
+        "head"
+      ]
+    },
+    "queue_movement": {
+      "items": {
+        "$ref": "#/$defs/queueMovement"
+      },
+      "type": "array"
+    },
+    "regressions": {
+      "items": {
+        "$ref": "#/$defs/regression"
+      },
+      "type": "array"
+    },
+    "report_schema_version": {
+      "const": 5
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    }
+  },
+  "required": [
+    "schema_version",
+    "report_schema_version",
+    "command",
+    "policy_source",
+    "base_report",
+    "head_report",
+    "summary",
+    "file_deltas",
+    "folder_deltas",
+    "queue_movement",
+    "overlay_deltas",
+    "regressions",
+    "boundary_note",
+    "compatibility_forced",
+    "baseline_status",
+    "baseline_compatible",
+    "compatibility_mismatches"
+  ],
+  "title": "Git Slop comparison schema 1",
+  "type": "object"
 }

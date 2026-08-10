@@ -94,6 +94,12 @@
     "version": "0.9.0"
   },
   "install": {
+    "attestation": [
+      "gh attestation verify 'git-slop-v0.9.0-<target>.*' --repo coreycoto/git-slop --signer-repo coreycoto/git-slop"
+    ],
+    "cargo": [
+      "cargo install git-slop --version 0.9.0 --locked"
+    ],
     "github_release": [
       "gh release download v0.9.0 --repo coreycoto/git-slop --pattern 'git-slop-v0.9.0-<target>.*' --pattern SHA256SUMS",
       "sha256sum --check SHA256SUMS --ignore-missing"
@@ -101,6 +107,10 @@
     "homebrew_tap": [
       "brew tap coreycoto/tap",
       "brew install coreycoto/tap/git-slop"
+    ],
+    "scoop": [
+      "scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket",
+      "scoop install coreycoto/git-slop"
     ]
   },
   "project": "git-slop",

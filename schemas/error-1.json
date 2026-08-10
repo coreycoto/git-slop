@@ -1,25 +1,69 @@
 {
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/error-1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/error-1.json",
-  "title": "Git Slop error envelope schema 1",
-  "type": "object",
-  "required": ["schema_version", "error"],
+  "additionalProperties": false,
   "properties": {
-    "schema_version": {"const": 1},
     "error": {
-      "type": "object",
-      "required": ["kind", "code", "pointer", "message", "details", "command", "exit_code"],
+      "additionalProperties": false,
       "properties": {
-        "kind": {"enum": ["contract", "repository", "resource_limit", "io"]},
-        "code": {"type": "string", "minLength": 1},
-        "pointer": {"type": ["string", "null"]},
-        "message": {"type": "string", "minLength": 1},
-        "details": {"type": "object"},
-        "command": {"type": ["string", "null"]},
-        "exit_code": {"enum": [2, 3, 4]}
+        "code": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "details": {
+          "type": "object"
+        },
+        "exit_code": {
+          "enum": [
+            2,
+            3,
+            4
+          ]
+        },
+        "kind": {
+          "enum": [
+            "contract",
+            "repository",
+            "resource_limit",
+            "io"
+          ]
+        },
+        "message": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "pointer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
-      "additionalProperties": false
+      "required": [
+        "kind",
+        "code",
+        "pointer",
+        "message",
+        "details",
+        "command",
+        "exit_code"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
     }
   },
-  "additionalProperties": false
+  "required": [
+    "schema_version",
+    "error"
+  ],
+  "title": "Git Slop error envelope schema 1",
+  "type": "object"
 }

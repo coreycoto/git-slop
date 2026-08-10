@@ -876,7 +876,7 @@ fn validate_release_workflow(repo_root: &Path, errors: &mut Vec<String>) {
                 "cargo publish -p git-slop --locked --no-verify",
                 "cargo xtask verify-crate",
                 "verified-registry-crate",
-                "gh release create \"$TAG\" --draft --generate-notes --title \"$TAG\" --verify-tag",
+                "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\" --verify-tag",
                 "marketplace-ready:",
                 "only manual approval for the release",
                 "Dispatch immutable release identity to Homebrew tap",
