@@ -4,27 +4,10 @@ use serde_json::Value;
 
 use super::support::{float_field, string_array, string_field, usize_field};
 use crate::health::{github_blob_url, humanize_reason_code};
+use crate::text::{inline_code, markdown_escape, visible_controls};
 
 pub(super) const DEFAULT_SUMMARY_LIMIT: usize = 10;
 const MAX_SUMMARY_LIMIT: usize = 25;
-
-fn markdown_escape(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('|', "\\|")
-        .replace('[', "\\[")
-        .replace(']', "\\]")
-        .replace('<', "\\<")
-        .replace('>', "\\>")
-}
-
-fn inline_code(value: &str) -> String {
-    if value.contains('`') {
-        format!("`` {value} ``")
-    } else {
-        format!("`{value}`")
-    }
-}
 
 fn format_int(value: usize) -> String {
     let digits = value.to_string();
@@ -45,16 +28,7 @@ fn path_cell(report: &Value, path: &str) -> String {
 }
 
 fn terminal_safe(value: &str) -> String {
-    value
-        .chars()
-        .map(|character| {
-            if character.is_control() {
-                '�'
-            } else {
-                character
-            }
-        })
-        .collect()
+    visible_controls(value)
 }
 
 fn summary_limit(report: &Value) -> usize {

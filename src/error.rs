@@ -1,6 +1,7 @@
 use std::fmt;
 
 use serde::Serialize;
+use serde_json::{Map, Value};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -29,6 +30,7 @@ pub struct ClassifiedError {
     pub code: &'static str,
     pub pointer: Option<String>,
     pub message: String,
+    pub details: Value,
 }
 
 impl ClassifiedError {
@@ -38,11 +40,17 @@ impl ClassifiedError {
             code,
             pointer: None,
             message: message.to_string(),
+            details: Value::Object(Map::new()),
         }
     }
 
     pub fn at(mut self, pointer: impl Into<String>) -> Self {
         self.pointer = Some(pointer.into());
+        self
+    }
+
+    pub fn with_details(mut self, details: Value) -> Self {
+        self.details = details;
         self
     }
 }

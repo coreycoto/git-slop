@@ -93,7 +93,8 @@ pub(super) fn classification_for_path(path: &str) -> &'static str {
         "config"
     } else if path.starts_with("docs/") || path.ends_with(".md") || path.ends_with(".mdx") {
         "docs"
-    } else if path.starts_with("scripts/")
+    } else if path.starts_with("action/")
+        || path.starts_with("scripts/")
         || path.starts_with("tools/")
         || path.starts_with(".github/")
     {

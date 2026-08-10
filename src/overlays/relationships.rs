@@ -10,6 +10,13 @@ use super::common::{
 };
 use super::coordination::CoordinationFacts;
 
+#[derive(Clone, Debug, Default)]
+pub(super) struct RelationshipReferences {
+    pub ids: Vec<String>,
+    pub raw_count: usize,
+    pub suppressed_count: usize,
+}
+
 fn shingles(tokens: &[String], size: usize, step: usize) -> Vec<String> {
     if tokens.len() < size {
         return tokens.to_vec();
@@ -59,7 +66,7 @@ pub(super) fn build_relationships(
     files: &[FileAnalysis],
     coordination: &BTreeMap<String, CoordinationFacts>,
     config: &Value,
-) -> (Value, Vec<Value>, BTreeMap<String, Vec<String>>) {
+) -> (Value, Vec<Value>, BTreeMap<String, RelationshipReferences>) {
     let min_similarity = pointer_f64(config, "/organization/min_similarity", 0.72);
     let max_pairs = pointer_u64(config, "/organization/max_pairs_per_file", 20) as usize;
     let shingle_size = pointer_u64(config, "/organization/shingle_size", 8) as usize;
@@ -77,21 +84,28 @@ pub(super) fn build_relationships(
 
     let mut duplicate = Vec::new();
     let mut near_duplicate = Vec::new();
-    let mut relationship_ids: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut relationship_ids: BTreeMap<String, RelationshipReferences> = BTreeMap::new();
     let mut pair_counts: HashMap<String, usize> = HashMap::new();
+    let mut suppressed_incident_counts: HashMap<String, usize> = HashMap::new();
     for (index, left) in candidates.iter().enumerate() {
         for right in candidates.iter().skip(index + 1) {
-            if pair_counts.get(&left.path).copied().unwrap_or_default() >= max_pairs
-                || pair_counts.get(&right.path).copied().unwrap_or_default() >= max_pairs
-            {
-                continue;
-            }
             let left_shingles = &shingle_sets[&left.path.as_str()];
             let right_shingles = &shingle_sets[&right.path.as_str()];
             let similarity = jaccard(left_shingles, right_shingles);
             let exact = !left.content_fingerprint.is_empty()
                 && left.content_fingerprint == right.content_fingerprint;
             if !exact && similarity < min_similarity {
+                continue;
+            }
+            if pair_counts.get(&left.path).copied().unwrap_or_default() >= max_pairs
+                || pair_counts.get(&right.path).copied().unwrap_or_default() >= max_pairs
+            {
+                *suppressed_incident_counts
+                    .entry(left.path.clone())
+                    .or_default() += 1;
+                *suppressed_incident_counts
+                    .entry(right.path.clone())
+                    .or_default() += 1;
                 continue;
             }
             let relationship_similarity = if exact { 1.0 } else { similarity };
@@ -115,14 +129,6 @@ pub(super) fn build_relationships(
                 "similarity": round6(relationship_similarity),
                 "crosses_top_level_boundary": top_level_root(source) != top_level_root(target)
             });
-            relationship_ids
-                .entry(source.to_string())
-                .or_default()
-                .push(id.clone());
-            relationship_ids
-                .entry(target.to_string())
-                .or_default()
-                .push(id.clone());
             *pair_counts.entry(source.to_string()).or_default() += 1;
             *pair_counts.entry(target.to_string()).or_default() += 1;
             if exact {
@@ -198,18 +204,16 @@ pub(super) fn build_relationships(
                 "calibrated_jaccard": round6(calibrated_coupling),
                 "lift_score": round6(lift),
                 "confidence_lower_bound": round6(confidence_lower_bound),
-                "confidence": if observation_commits >= 20 { "supported" } else if observation_commits >= 5 { "limited" } else { "low_support" },
+                "confidence": if *support >= 5 && confidence_lower_bound >= 0.10 && evidence_score >= 0.10 {
+                    "supported"
+                } else if *support >= 2 && confidence_lower_bound >= 0.01 && evidence_score >= 0.02 {
+                    "limited"
+                } else {
+                    "low_support"
+                },
                 "evidence_score": round6(evidence_score),
                 "crosses_top_level_boundary": top_level_root(pair.0) != top_level_root(pair.1)
             });
-            relationship_ids
-                .entry(pair.0.to_string())
-                .or_default()
-                .push(id.clone());
-            relationship_ids
-                .entry(pair.1.to_string())
-                .or_default()
-                .push(id);
             temporal.push(item);
         }
     }
@@ -294,13 +298,23 @@ pub(super) fn build_relationships(
                 .then_with(|| left.1.cmp(&right.1))
         });
         values.dedup_by(|left, right| left.1 == right.1);
+        let raw_count = values.len()
+            + suppressed_incident_counts
+                .get(&path)
+                .copied()
+                .unwrap_or_default();
+        let ids = values
+            .into_iter()
+            .take(max_pairs)
+            .map(|(_, id)| id)
+            .collect::<Vec<_>>();
         relationship_ids.insert(
             path,
-            values
-                .into_iter()
-                .take(max_pairs)
-                .map(|(_, id)| id)
-                .collect(),
+            RelationshipReferences {
+                suppressed_count: raw_count.saturating_sub(ids.len()),
+                raw_count,
+                ids,
+            },
         );
     }
     let all_duplicate: Vec<Value> = duplicate
@@ -565,6 +579,35 @@ mod tests {
                 .as_array()
                 .map(Vec::len),
             Some(0)
+        );
+    }
+
+    #[test]
+    fn incident_reference_caps_report_raw_retained_and_suppressed_counts() {
+        let mut files: Vec<FileAnalysis> = (0..3).map(test_file).collect();
+        for file in &mut files {
+            file.content_fingerprint = "same-content".to_string();
+        }
+        let config = json!({
+            "organization": {
+                "candidate_file_limit": 3,
+                "min_file_tokens": 0,
+                "max_file_tokens": 50_000,
+                "min_similarity": 1.0,
+                "max_pairs_per_file": 1,
+                "min_cochange_support": 3
+            }
+        });
+        let coordination = coordination_facts(&files, &[], &config);
+        let (_, _, references) = build_relationships(&files, &coordination, &config);
+
+        assert!(references.values().any(|reference| {
+            reference.raw_count > reference.ids.len() && reference.suppressed_count > 0
+        }));
+        assert!(
+            references
+                .values()
+                .all(|reference| reference.ids.len() <= 1)
         );
     }
 }

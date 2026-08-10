@@ -2,10 +2,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use chrono::{SecondsFormat, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -35,349 +35,8 @@ static ACRONYM_BOUNDARY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"([A-Z]+)([A-Z][a-z])").expect("valid acronym regex"));
 static NUMBER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b\d+(?:\.\d+)?\b").expect("valid number regex"));
-#[derive(Debug, Serialize, Deserialize)]
-struct CachedTokenData {
-    token_count: usize,
-    structural_tokens: Vec<String>,
-    content_fingerprint: String,
-}
-
-fn token_cache_key(text: &str, tokenizer: &str, large_file_bytes: usize, mode: &str) -> String {
-    let mut digest = Sha256::new();
-    digest.update(b"git-slop-token-cache-v3\0");
-    digest.update(tokenizer.as_bytes());
-    digest.update([0]);
-    digest.update(large_file_bytes.to_le_bytes());
-    digest.update(mode.as_bytes());
-    digest.update([0]);
-    digest.update(text.as_bytes());
-    hex::encode(digest.finalize())
-}
-
-struct TokenCache {
-    connection: Connection,
-}
-
-#[derive(Default)]
-struct CacheStats {
-    entries: usize,
-    bytes: u64,
-    failed_evictions: usize,
-}
-
-impl TokenCache {
-    fn open(path: &Path) -> Result<Self> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let connection = Connection::open(path)
-            .with_context(|| format!("failed to open packed cache {}", path.display()))?;
-        connection.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             CREATE TABLE IF NOT EXISTS token_cache (
-               cache_key TEXT PRIMARY KEY,
-               payload BLOB NOT NULL,
-               payload_bytes INTEGER NOT NULL,
-               accessed_at INTEGER NOT NULL
-             );
-             CREATE INDEX IF NOT EXISTS token_cache_accessed ON token_cache(accessed_at, cache_key);",
-        )?;
-        Ok(Self { connection })
-    }
-
-    fn get(&self, key: &str) -> Result<Option<CachedTokenData>> {
-        let payload: Option<Vec<u8>> = self
-            .connection
-            .query_row(
-                "SELECT payload FROM token_cache WHERE cache_key = ?1",
-                [key],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let Some(payload) = payload else {
-            return Ok(None);
-        };
-        self.connection.execute(
-            "UPDATE token_cache SET accessed_at = unixepoch() WHERE cache_key = ?1",
-            [key],
-        )?;
-        Ok(serde_json::from_slice(&payload).ok())
-    }
-
-    fn put(&self, key: &str, value: &CachedTokenData) -> Result<()> {
-        let payload = serde_json::to_vec(value)?;
-        let payload_bytes = payload.len() as u64;
-        self.connection.execute(
-            "INSERT INTO token_cache(cache_key, payload, payload_bytes, accessed_at)
-             VALUES(?1, ?2, ?3, unixepoch())
-             ON CONFLICT(cache_key) DO UPDATE SET
-               payload = excluded.payload,
-               payload_bytes = excluded.payload_bytes,
-               accessed_at = excluded.accessed_at",
-            params![key, payload, payload_bytes],
-        )?;
-        Ok(())
-    }
-
-    fn enforce_limits(&self, max_entries: usize, max_bytes: u64) -> Result<CacheStats> {
-        let mut stats = self.stats()?;
-        while stats.entries > max_entries || stats.bytes > max_bytes {
-            let candidate: Option<(String, u64)> = self
-                .connection
-                .query_row(
-                    "SELECT cache_key, payload_bytes FROM token_cache ORDER BY accessed_at, cache_key LIMIT 1",
-                    [],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .optional()?;
-            let Some((key, bytes)) = candidate else {
-                break;
-            };
-            match self
-                .connection
-                .execute("DELETE FROM token_cache WHERE cache_key = ?1", [&key])
-            {
-                Ok(1) => {
-                    stats.entries = stats.entries.saturating_sub(1);
-                    stats.bytes = stats.bytes.saturating_sub(bytes);
-                }
-                _ => {
-                    stats.failed_evictions += 1;
-                    break;
-                }
-            }
-        }
-        Ok(stats)
-    }
-
-    fn stats(&self) -> Result<CacheStats> {
-        let (entries, bytes): (u64, u64) = self.connection.query_row(
-            "SELECT COUNT(*), COALESCE(SUM(payload_bytes), 0) FROM token_cache",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
-        Ok(CacheStats {
-            entries: entries as usize,
-            bytes,
-            failed_evictions: 0,
-        })
-    }
-}
-
-fn replace_quoted_strings(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    let mut previous = None;
-    while let Some(character) = chars.next() {
-        if !matches!(character, '\'' | '"' | '`') {
-            result.push(character);
-            previous = Some(character);
-            continue;
-        }
-        if character == '\''
-            && previous.is_some_and(char::is_alphanumeric)
-            && chars.peek().is_some_and(|next| next.is_alphanumeric())
-        {
-            result.push(character);
-            previous = Some(character);
-            continue;
-        }
-        result.push_str(" str ");
-        let quote = character;
-        let mut escaped = false;
-        for next in chars.by_ref() {
-            if escaped {
-                escaped = false;
-                continue;
-            }
-            if next == '\\' {
-                escaped = true;
-            } else if next == quote {
-                break;
-            }
-        }
-        previous = Some(' ');
-    }
-    result
-}
-
-fn structural_mode(path: &str) -> &'static str {
-    match Path::new(path).extension().and_then(|value| value.to_str()) {
-        Some("md" | "mdx") => "markdown",
-        Some("txt") => "prose",
-        Some("sql") => "sql",
-        Some("html" | "htm" | "xml" | "svg") => "markup",
-        _ => "code",
-    }
-}
-
-fn structural_categories(mode: &str, text: &str) -> Value {
-    match mode {
-        "markdown" => {
-            let mut fenced = false;
-            let mut prose_lines = 0usize;
-            let mut fenced_code_lines = 0usize;
-            for line in text.lines() {
-                if line.trim_start().starts_with("```") {
-                    fenced = !fenced;
-                } else if fenced {
-                    fenced_code_lines += 1;
-                } else {
-                    prose_lines += 1;
-                }
-            }
-            json!({"mode": mode, "prose_lines": prose_lines, "fenced_code_lines": fenced_code_lines})
-        }
-        "sql" => {
-            json!({"mode": mode, "query_lines": text.lines().count(), "string_literals_normalized": true})
-        }
-        "markup" => {
-            json!({"mode": mode, "markup_lines": text.lines().count(), "tag_and_text_categories": true})
-        }
-        "prose" => json!({"mode": mode, "prose_lines": text.lines().count()}),
-        _ => {
-            json!({"mode": "code", "code_lines": text.lines().count(), "string_literals_normalized": true})
-        }
-    }
-}
-
-fn structural_content_tokens(mode: &str, text: &str) -> Vec<String> {
-    let normalized: String = text.nfkc().collect();
-    let normalized = normalized.replace(['\u{2018}', '\u{2019}'], "'");
-    let normalized = ACRONYM_BOUNDARY_RE.replace_all(&normalized, "$1 $2");
-    let normalized = CAMEL_CASE_RE.replace_all(&normalized, "$1 $2");
-    let normalized = normalized.replace(['-', '/'], " ");
-    let normalized = if matches!(mode, "prose" | "markdown") {
-        normalized
-    } else {
-        replace_quoted_strings(&normalized)
-    };
-    let normalized = NUMBER_RE.replace_all(&normalized, " 0 ");
-    let lower = normalized.to_lowercase();
-    lower
-        .unicode_words()
-        .flat_map(|word| word.split('_'))
-        .map(|word| {
-            word.split_once('\'')
-                .filter(|(prefix, suffix)| prefix.chars().count() == 1 && !suffix.is_empty())
-                .map_or(word, |(_, suffix)| suffix)
-        })
-        .filter(|item| item.chars().count() > 1)
-        .map(ToOwned::to_owned)
-        .collect()
-}
-
-fn structural_path_tokens(path: &str) -> Vec<String> {
-    path.replace(['-', '_', '.'], "/")
-        .to_ascii_lowercase()
-        .split('/')
-        .filter(|item| !item.is_empty())
-        .map(ToOwned::to_owned)
-        .collect()
-}
-
-#[cfg(test)]
-fn structural_tokens(path: &str, text: &str) -> Vec<String> {
-    let mut tokens = structural_content_tokens(structural_mode(path), text);
-    tokens.extend(structural_path_tokens(path));
-    tokens
-}
-
-fn content_fingerprint(text: &str) -> String {
-    hex::encode(Sha256::digest(text.as_bytes()))
-}
-
-fn top_terms(tokens: &[String], limit: usize) -> Vec<String> {
-    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for token in tokens {
-        *counts.entry(token).or_default() += 1;
-    }
-    let mut ranked: Vec<(&str, usize)> = counts.into_iter().collect();
-    ranked.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
-    ranked
-        .into_iter()
-        .take(limit)
-        .map(|(term, _)| term.to_string())
-        .collect()
-}
-
-fn has_inline_tests(language: &str, text: &str) -> bool {
-    match language {
-        "Rust" => text.contains("#[cfg(test)]") || text.contains("#[test]"),
-        "Go" => text.contains("func Test") || text.contains("func Benchmark"),
-        "Python" => text.contains("def test_") || text.contains("class Test"),
-        "JavaScript" | "JSX" | "TypeScript" | "TSX" => {
-            text.contains("describe(") || text.contains("test(") || text.contains("it(")
-        }
-        "Swift" => text.contains("XCTestCase") || text.contains("@Test"),
-        _ => false,
-    }
-}
-
-fn configured_context_encoder(config: &Value) -> Result<CoreBPE> {
-    let tokenizer_name = match config.pointer("/tokenization/context_tokenizer_name") {
-        Some(Value::String(name)) if !name.trim().is_empty() => name.as_str(),
-        Some(Value::String(_)) => {
-            bail!("tokenization.context_tokenizer_name must not be empty")
-        }
-        Some(_) => bail!("tokenization.context_tokenizer_name must be a string"),
-        None => "cl100k_base",
-    };
-    let encoder = match tokenizer_name {
-        "cl100k_base" => cl100k_base(),
-        "o200k_base" => o200k_base(),
-        "o200k_harmony" => o200k_harmony(),
-        "p50k_base" => p50k_base(),
-        "p50k_edit" => p50k_edit(),
-        "r50k_base" => r50k_base(),
-        unsupported => {
-            bail!(
-                "unsupported tokenization.context_tokenizer_name {unsupported:?}; \
-                 supported encodings: cl100k_base, o200k_base, o200k_harmony, \
-                 p50k_base, p50k_edit, r50k_base"
-            )
-        }
-    };
-    encoder.with_context(|| format!("failed to initialize {tokenizer_name} tokenizer"))
-}
-
-fn action_queue(files: &[FileAnalysis]) -> Vec<Value> {
-    let mut files: Vec<&FileAnalysis> = files.iter().collect();
-    files.sort_by(|left, right| {
-        right
-            .slop_score
-            .total_cmp(&left.slop_score)
-            .then_with(|| right.tokens.cmp(&left.tokens))
-            .then_with(|| left.path.cmp(&right.path))
-    });
-    files
-        .into_iter()
-        .filter(|file| {
-            !file.reason_codes.is_empty()
-                || matches!(file.context_band.as_str(), "warning" | "critical")
-                || matches!(file.slop_band.as_str(), "high" | "critical")
-        })
-        .map(|file| {
-            let non_context_reasons = file.reason_codes.iter().any(|reason| {
-                !matches!(reason.as_str(), "critical_token_cost" | "high_token_cost")
-            });
-            json!({
-                "path": file.path,
-                "slop_score": file.slop_score,
-                "slop_band": file.slop_band,
-                "context_band": file.context_band,
-                "tokens": file.tokens,
-                "age_days": file.age_days,
-                "revisions_window": file.revisions_window,
-                "churn_pressure": file.churn_pressure,
-                "reason_codes": file.reason_codes,
-                "is_pure_context_hotspot": !file.reason_codes.is_empty() && !non_context_reasons
-            })
-        })
-        .collect()
-}
-
+include!("analyze/cache.rs");
+include!("analyze/structural.rs");
 pub fn run_find() -> Result<FindResult> {
     let repo_root = git::resolve_repo_root()?;
     run_find_in(&repo_root)
@@ -401,11 +60,12 @@ pub struct FindOptions {
     pub output_dir: Option<PathBuf>,
     pub no_cache: bool,
     pub allow_degraded: bool,
+    pub as_of: Option<DateTime<Utc>>,
     pub report_profile: String,
     pub compression: String,
 }
 
-fn normalize_scope(value: Option<&str>) -> Result<Option<String>> {
+pub(crate) fn normalize_scope(value: Option<&str>) -> Result<Option<String>> {
     let Some(raw) = value.map(str::trim) else {
         return Ok(None);
     };
@@ -458,7 +118,17 @@ fn measure_rss_checkpoint(
     }
     exceeded_checkpoints.push(checkpoint);
     if allow_degraded {
-        return Ok(());
+        return Err(ClassifiedError::new(
+            ErrorKind::ResourceLimit,
+            "degraded_memory_recovery_unavailable",
+            format!(
+                "analysis stopped at {checkpoint}: measured RSS {} MiB still exceeds resources.memory_budget_mb={} after deterministic degraded sampling; continuing would violate the memory contract",
+                rss_bytes.div_ceil(1024 * 1024),
+                memory_budget_bytes / 1024 / 1024
+            ),
+        )
+        .at("/resources/memory_budget_mb")
+        .into());
     }
     Err(ClassifiedError::new(
         ErrorKind::ResourceLimit,
@@ -497,6 +167,36 @@ fn selected_content_digest(repo_root: &Path, paths: &[String]) -> Result<String>
         digest.update([0]);
     }
     Ok(hex::encode(digest.finalize()))
+}
+
+fn balanced_path_sample(paths: &[String], limit: usize) -> Vec<String> {
+    let mut roots = BTreeMap::<&str, Vec<&String>>::new();
+    for path in paths {
+        roots
+            .entry(path.split('/').next().unwrap_or("."))
+            .or_default()
+            .push(path);
+    }
+    let mut selected = Vec::with_capacity(limit.min(paths.len()));
+    let mut offset = 0usize;
+    while selected.len() < limit {
+        let mut added = false;
+        for values in roots.values() {
+            if let Some(path) = values.get(offset) {
+                selected.push((*path).clone());
+                added = true;
+                if selected.len() == limit {
+                    break;
+                }
+            }
+        }
+        if !added {
+            break;
+        }
+        offset += 1;
+    }
+    selected.sort();
+    selected
 }
 
 pub fn run_find_scoped(
@@ -614,7 +314,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
                 high = middle.saturating_sub(1);
             }
         }
-        tracked_paths.truncate(low);
+        tracked_paths = balanced_path_sample(&tracked_paths, low);
     }
     let scope_identity = ScopeIdentity {
         mode: if scope.is_some() {
@@ -691,10 +391,16 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             }
         }
     }
-    let cache = if options.no_cache {
+    let mut cache = if options.no_cache {
         None
     } else {
-        Some(TokenCache::open(&cache_path)?)
+        match TokenCache::open(&cache_path) {
+            Ok(cache) => Some(cache),
+            Err(error) => {
+                cache_cleanup_warnings.push(quarantine_cache(&cache_path, &error));
+                None
+            }
+        }
     };
     let mut cache_hits = 0usize;
     let mut cache_misses = 0usize;
@@ -704,21 +410,43 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             structurally_skipped_large_files += 1;
         }
         if file.analysis_status != "analyzed" {
-            token_counts.insert(file.path.clone(), 0);
+            let conservative_tokens = if file.skipped_reason.as_deref() == Some("large_file_limit")
+            {
+                file.bytes.div_ceil(4)
+            } else {
+                0
+            };
+            token_counts.insert(file.path.clone(), conservative_tokens);
             line_counts.insert(file.path.clone(), 0);
             token_data.insert(
                 file.path.clone(),
-                (0, Vec::new(), Vec::new(), String::new()),
+                (
+                    0,
+                    Vec::new(),
+                    Vec::new(),
+                    format!(
+                        "incomplete:{}:{}",
+                        file.skipped_reason.as_deref().unwrap_or("unknown"),
+                        file.bytes
+                    ),
+                ),
             );
             continue;
         }
         let mode = structural_mode(&file.path);
         let cache_key = token_cache_key(&file.text, &tokenizer, large_file_bytes, mode);
-        let cached_value = cache
-            .as_ref()
-            .map(|cache| cache.get(&cache_key))
-            .transpose()?
-            .flatten();
+        let cached_value = if let Some(active_cache) = cache.as_ref() {
+            match active_cache.get(&cache_key) {
+                Ok(value) => value,
+                Err(error) => {
+                    cache_cleanup_warnings.push(quarantine_cache(&cache_path, &error));
+                    cache = None;
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let cached = if let Some(cached) = cached_value {
             cache_hits += 1;
             cached
@@ -733,8 +461,12 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
                 },
                 content_fingerprint: content_fingerprint(&file.text),
             };
-            if let Some(cache) = &cache {
-                cache.put(&cache_key, &cached)?;
+            let put_error = cache
+                .as_ref()
+                .and_then(|active_cache| active_cache.put(&cache_key, &cached).err());
+            if let Some(error) = put_error {
+                cache_cleanup_warnings.push(quarantine_cache(&cache_path, &error));
+                cache = None;
             }
             cached
         };
@@ -759,10 +491,16 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         );
     }
     let cache_stats = if let Some(cache) = &cache {
-        cache.enforce_limits(
+        match cache.enforce_limits(
             config::pointer_u64(&loaded_config, "/resources/cache_max_entries", 10_000) as usize,
             config::pointer_u64(&loaded_config, "/resources/cache_max_bytes", 536_870_912),
-        )?
+        ) {
+            Ok(stats) => stats,
+            Err(error) => {
+                cache_cleanup_warnings.push(quarantine_cache(&cache_path, &error));
+                CacheStats::default()
+            }
+        }
     } else {
         CacheStats::default()
     };
@@ -779,7 +517,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         .iter()
         .map(|file| file.path.clone())
         .collect();
-    let now = Utc::now();
+    let now = options.as_of.unwrap_or_else(Utc::now);
     let (history_by_path, commits, history_diagnostics) = history::analyze_history(
         repo_root,
         &analyzed_paths,
@@ -814,15 +552,19 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             code_lines: file.code_lines,
             comment_lines: file.comment_lines,
             language: file.language,
-            profile: file.profile,
+            profile: file.profile.clone(),
             classification: file.classification,
             analysis_status: file.analysis_status,
             skipped_reason: file.skipped_reason,
             symlink_metadata: file.symlink_metadata,
             has_inline_tests: inline_tests,
             tokens,
-            context_band: scoring::context_band_for_tokens(tokens, &loaded_config),
-            context_pressure: scoring::context_pressure_for_tokens(tokens, &loaded_config),
+            context_band: scoring::context_band_for_profile(tokens, &file.profile, &loaded_config),
+            context_pressure: scoring::context_pressure_for_profile(
+                tokens,
+                &file.profile,
+                &loaded_config,
+            ),
             content_fingerprint,
             structural_tokens,
             structural_token_count,
@@ -854,7 +596,19 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             overlays: json!({}),
         });
     }
-    scoring::apply_scoring(&mut files, &loaded_config);
+    let history_evidence_reliable = !repo.is_shallow
+        && !history_diagnostics
+            .get("history_cap_reached")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        && ![
+            "full_history_cap_status",
+            "window_status_cap_status",
+            "window_numstat_cap_status",
+        ]
+        .into_iter()
+        .any(|field| history_diagnostics.get(field).and_then(Value::as_str) == Some("truncated"));
+    scoring::apply_scoring_with_evidence(&mut files, &loaded_config, history_evidence_reliable);
     let organization = overlays::analyze(&mut files, &commits, &loaded_config)?;
     phase("relationships");
     measure_rss_checkpoint(
@@ -865,7 +619,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         &mut memory_budget_exceeded_checkpoints,
     )?;
     let folders = scoring::build_folder_analyses(&files, &loaded_config);
-    let queue = action_queue(&files);
+    let queue = action_queue(&files, history_evidence_reliable, &loaded_config);
     let generated_at = now.to_rfc3339_opts(SecondsFormat::Secs, true);
     let analyzed_revision_at = repo.head_commit_timestamp.clone();
     let ending_worktree = git::worktree_state_excluding(repo_root, &runtime_exclusions)?;
@@ -877,6 +631,15 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             "selected file content changed during analysis; no mixed-snapshot report was published"
         );
     }
+    let estimator_error_ratio = measured_peak_rss_bytes.map(|measured| {
+        let estimated = estimate.estimated_peak_memory_bytes.max(1) as f64;
+        ((measured as f64 - estimated) / estimated * 1_000_000.0).round() / 1_000_000.0
+    });
+    let estimate_range_contains_measurement = measured_peak_rss_bytes.map(|measured| {
+        let measured = u128::from(measured);
+        measured >= estimate.estimated_peak_memory_low_bytes
+            && measured <= estimate.estimated_peak_memory_high_bytes
+    });
     let analysis = Analysis {
         output_root,
         report_profile: if options.report_profile.is_empty() {
@@ -904,6 +667,8 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             "analysis_elapsed_ms_before_report": started.elapsed().as_millis(),
             "estimate": estimate,
             "measured_peak_rss_bytes": measured_peak_rss_bytes,
+            "estimator_error_ratio": estimator_error_ratio,
+            "estimate_range_contains_measurement": estimate_range_contains_measurement,
             "memory_budget_exceeded_checkpoints": memory_budget_exceeded_checkpoints,
             "memory_measurement_status": if measured_peak_rss_bytes.is_some() { "measured" } else { "unsupported" },
             "cache_hits": cache_hits,
@@ -919,6 +684,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             "original_selected_path_count": original_selected_path_count,
             "degraded_omitted_path_count": original_selected_path_count.saturating_sub(tracked_paths.len()),
             "history": history_diagnostics,
+            "history_evidence_status": if history_evidence_reliable { "supported_with_per_file_shrinkage" } else { "incomplete_suppressed" },
             "scope": scope
         }),
     };
@@ -931,132 +697,4 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
     Ok(result)
 }
 
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-    use tiktoken_rs::{cl100k_base, r50k_base};
-
-    use super::{
-        action_queue, configured_context_encoder, replace_quoted_strings, structural_tokens,
-    };
-    use crate::model::FileAnalysis;
-    use crate::scoring;
-
-    fn file(path: &str, relative_churn: f64) -> FileAnalysis {
-        FileAnalysis {
-            path: path.to_string(),
-            bytes: 400,
-            lines: 100,
-            blank_lines: 0,
-            code_lines: 100,
-            comment_lines: 0,
-            language: "Rust".to_string(),
-            profile: "agent_context".to_string(),
-            classification: "source".to_string(),
-            analysis_status: "analyzed".to_string(),
-            skipped_reason: None,
-            symlink_metadata: None,
-            has_inline_tests: false,
-            tokens: 100,
-            context_band: "compact".to_string(),
-            context_pressure: 0.0,
-            content_fingerprint: String::new(),
-            structural_tokens: Vec::new(),
-            structural_token_count: 0,
-            top_structural_terms: Vec::new(),
-            structural_categories: json!({"mode": "code"}),
-            age_days: 0,
-            revisions_window: 1,
-            recency_weighted_commits: 0.0,
-            added_window: 0,
-            deleted_window: 0,
-            churn_lines_window: 0,
-            line_churn_window: 0,
-            token_churn_window: 0,
-            relative_churn_window: relative_churn,
-            late_churn_spike: 0.0,
-            author_count_window: 0,
-            author_entropy: 0.0,
-            top_author_share: 0.0,
-            days_since_non_bot_edit: None,
-            recent_maintainer_diversity: 0,
-            age_pressure: 0.0,
-            revision_norm: 0.0,
-            relative_churn_norm: 0.0,
-            churn_pressure: 0.0,
-            slop_score: 0.0,
-            slop_band: String::new(),
-            reason_codes: Vec::new(),
-            costs: json!({}),
-            overlays: json!({}),
-        }
-    }
-
-    #[test]
-    fn structural_normalization_is_deterministic() {
-        let tokens = structural_tokens(
-            "src/my_file.rs",
-            "let camelCase = \"secret 123\"; // hello-world",
-        );
-        assert!(tokens.contains(&"camel".to_string()));
-        assert!(tokens.contains(&"case".to_string()));
-        assert!(tokens.contains(&"str".to_string()));
-        assert!(tokens.contains(&"my".to_string()));
-        assert_eq!(
-            replace_quoted_strings("'one' \"two\" `three`"),
-            " str   str   str "
-        );
-    }
-
-    #[test]
-    fn structural_normalization_preserves_unicode_and_apostrophe_words() {
-        let tokens = structural_tokens("docs/café.md", "L’équipe can’t rename HTTPServer_value");
-        assert!(tokens.contains(&"équipe".to_string()));
-        assert!(tokens.contains(&"can't".to_string()));
-        assert!(tokens.contains(&"http".to_string()));
-        assert!(tokens.contains(&"server".to_string()));
-        assert!(tokens.contains(&"value".to_string()));
-        assert!(tokens.iter().any(|token| token.contains("café")));
-    }
-
-    #[test]
-    fn configured_tokenizer_is_used_exactly_and_unknown_names_fail_closed() {
-        let text = "お誕生日おめでとう";
-        let configured = configured_context_encoder(&json!({"tokenization": {
-            "context_tokenizer_name": "r50k_base"
-        }}))
-        .unwrap();
-        assert_eq!(
-            configured.encode_ordinary(text).len(),
-            r50k_base().unwrap().encode_ordinary(text).len()
-        );
-        assert_ne!(
-            configured.encode_ordinary(text).len(),
-            cl100k_base().unwrap().encode_ordinary(text).len()
-        );
-
-        let result = configured_context_encoder(&json!({"tokenization": {
-            "context_tokenizer_name": "not-a-real-encoding"
-        }}));
-        let error = match result {
-            Ok(_) => panic!("unsupported tokenizer must fail closed"),
-            Err(error) => error,
-        };
-        assert!(
-            error
-                .to_string()
-                .contains("unsupported tokenization.context_tokenizer_name")
-        );
-    }
-
-    #[test]
-    fn action_queue_prioritizes_line_relative_churn_signal() {
-        let mut files = vec![file("src/quiet.rs", 0.1), file("src/volatile.rs", 2.0)];
-        scoring::apply_scoring(&mut files, &json!({}));
-        let queue = action_queue(&files);
-
-        assert_eq!(queue[0]["path"], "src/volatile.rs");
-        assert_eq!(queue[0]["reason_codes"][1], "high_relative_churn");
-        assert_eq!(queue[0]["is_pure_context_hotspot"], false);
-    }
-}
+include!("analyze/tests.rs");

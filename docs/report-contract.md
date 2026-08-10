@@ -276,6 +276,9 @@ The `health` namespace has these schema-2 defaults:
 | Key | Default | Purpose |
 | --- | ---: | --- |
 | `health.data_context_min_bytes` | `262144` | Size threshold used with supported data extensions when assigning the `data_context` profile |
+| `health.profile_threshold_policy` | `shared` | Use shared token and queue thresholds, or opt into `per_profile` thresholds |
+| `health.profile_context_bands.*` | profile-specific | Context-band ceilings used only when `profile_threshold_policy: per_profile` |
+| `health.profile_queue_minimum_score.*` | agent `0`, data `50` | Minimum score for actionable queue admission under the per-profile policy |
 | `health.folder_bands.compact_max_direct_tokens` | `31999` | Inclusive compact direct-token ceiling |
 | `health.folder_bands.healthy_max_direct_tokens` | `128000` | Inclusive healthy direct-token ceiling |
 | `health.folder_bands.warning_max_direct_tokens` | `256000` | Inclusive warning direct-token ceiling |

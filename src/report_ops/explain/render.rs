@@ -1,4 +1,20 @@
 use super::super::*;
+use crate::text::visible_controls;
+
+fn string(value: Option<&Value>) -> String {
+    visible_controls(&super::super::string(value))
+}
+
+fn string_or(value: Option<&Value>, fallback: &str) -> String {
+    visible_controls(&super::super::string_or(value, fallback))
+}
+
+fn string_array(value: Option<&Value>) -> Vec<String> {
+    super::super::string_array(value)
+        .into_iter()
+        .map(|value| visible_controls(&value))
+        .collect()
+}
 
 fn format_reasons(value: Option<&Value>) -> String {
     let values = string_array(value);
@@ -219,7 +235,11 @@ fn render_overlay_lines(overlays: Option<&Value>) -> Vec<String> {
             "- concept_dispersion: pressure={:.3}, terms={}",
             number(drift.and_then(|value| value.get("concept_dispersion_pressure"))),
             {
-                let terms = string_array(drift.and_then(|value| value.get("drift_terms")));
+                let terms = string_array(drift.and_then(|value| {
+                    value
+                        .get("dispersed_terms")
+                        .or_else(|| value.get("drift_terms"))
+                }));
                 if terms.is_empty() {
                     "none".to_string()
                 } else {

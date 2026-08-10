@@ -3,7 +3,7 @@
 Git Slop is distributed as one `git-slop` executable. When it is on `PATH`, Git
 also accepts `git slop`.
 
-The examples below pin 0.11.1. Confirm that the requested distribution surface
+The examples below pin 0.11.3. Confirm that the requested distribution surface
 publishes that exact version before installing it; documentation on `main` does
 not itself prove availability.
 
@@ -46,7 +46,7 @@ manifest lives in the separate, public
 repository and consumes the existing Windows release archives; it is not an
 additional `git-slop` release asset.
 
-After the bucket lists 0.11.1, install it from PowerShell:
+After the bucket lists 0.11.3, install it from PowerShell:
 
 ```powershell
 scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket
@@ -102,7 +102,7 @@ Download the archive plus `SHA256SUMS`, verify the exact filename, then place
 `git-slop` (`git-slop.exe` on Windows) on `PATH`. For example:
 
 ```bash
-release=v0.11.1
+release=v0.11.3
 target=x86_64-unknown-linux-gnu
 gh release download "$release" \
   --repo coreycoto/git-slop \
@@ -165,21 +165,36 @@ gh attestation verify "git-slop-${release}-${target}.tar.gz" --repo coreycoto/gi
 
 Release tags through `v0.10.1` are lightweight tags whose target commit is
 GitHub-signed. Starting with `v0.11.0`, releases use annotated OpenPGP-signed
-tags and can be checked with `git verify-tag`. Continue to verify the release
-manifest, checksums, SBOMs, artifact attestations, and installed binary
-`build-info` identity as separate provenance layers.
+tags. Pin the release-signing primary-key fingerprint before trusting a tag:
+
+```bash
+expected_fingerprint=62AC6FBF75A48D27E24083C733212861C6351839
+key_file="$(mktemp)"
+trap 'rm -f "$key_file"' EXIT
+curl --fail --silent --show-error --location https://github.com/coreycoto.gpg >"$key_file"
+gpg --batch --with-colons --show-keys "$key_file" \
+  | awk -F: '$1 == "fpr" { print $10 }' \
+  | grep -Fx "$expected_fingerprint"
+gpg --batch --import "$key_file"
+git verify-tag "${release}"
+```
+
+The fingerprint, not an email address or short key ID, is the trust anchor.
+Continue to verify the release manifest, checksums, SBOMs, artifact
+attestations, and installed binary `build-info` identity as separate provenance
+layers.
 
 ## Cargo
 
 Install the canonical crates.io package directly:
 
 ```bash
-cargo install git-slop --version 0.11.1 --locked
+cargo install git-slop --version 0.11.3 --locked
 git-slop build-info --format json
 ```
 
-For a verified 0.11.1 release, `source_revision` is the full commit named by
-`v0.11.1` and `source_dirty` is `false`. A local source build can report `null`
+For a verified 0.11.3 release, `source_revision` is the full commit named by
+`v0.11.3` and `source_dirty` is `false`. A local source build can report `null`
 for provenance it cannot prove; that is not equivalent to a release build.
 
 CI jobs should prefer the repository's GitHub Action or a checksummed prebuilt

@@ -5,6 +5,7 @@ use serde_json::Value;
 use super::model::*;
 use super::rollup::health_rollup_from_report;
 use crate::model::HealthRollup;
+use crate::text::{inline_code, markdown_escape, visible_controls};
 
 const URL_PATH_SEGMENT_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b' ')
@@ -23,52 +24,6 @@ const URL_PATH_SEGMENT_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b'{')
     .add(b'|')
     .add(b'}');
-
-fn visible_controls(value: &str) -> String {
-    let mut rendered = String::with_capacity(value.len());
-    for character in value.chars() {
-        match character {
-            '\n' => rendered.push_str("\\n"),
-            '\r' => rendered.push_str("\\r"),
-            '\t' => rendered.push_str("\\t"),
-            control if control.is_control() => {
-                rendered.push_str(&format!("\\u{{{:x}}}", control as u32));
-            }
-            printable => rendered.push(printable),
-        }
-    }
-    rendered
-}
-
-fn markdown_escape(value: &str) -> String {
-    visible_controls(value)
-        .replace('\\', "\\\\")
-        .replace('|', "\\|")
-        .replace('[', "\\[")
-        .replace(']', "\\]")
-        .replace('<', "\\<")
-        .replace('>', "\\>")
-        .replace('`', "\\`")
-}
-
-fn inline_code(value: &str) -> String {
-    let value = visible_controls(value);
-    let mut longest_run: usize = 0;
-    let mut current_run: usize = 0;
-    for character in value.chars() {
-        if character == '`' {
-            current_run += 1;
-            longest_run = longest_run.max(current_run);
-        } else {
-            current_run = 0;
-        }
-    }
-    if longest_run == 0 {
-        return format!("`{value}`");
-    }
-    let fence = "`".repeat(longest_run.saturating_add(1));
-    format!("{fence} {value} {fence}")
-}
 
 fn format_int(value: usize) -> String {
     let digits = value.to_string();

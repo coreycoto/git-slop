@@ -41,6 +41,13 @@ enum Command {
     /// Validate GitHub Actions workflow contracts.
     ValidateWorkflows,
 
+    /// Generate the public release workflow from independently reviewed stage fragments.
+    GenerateReleaseWorkflow {
+        /// Verify the generated workflow is current without writing it.
+        #[arg(long)]
+        check: bool,
+    },
+
     /// Validate repository issue forms and their contact link.
     CheckIssueForms,
 
@@ -139,6 +146,14 @@ fn run(cli: Cli) -> Result<()> {
         ),
         Command::ValidateWorkflows => {
             finish_validation("Workflow contracts", workflows::validate(&repo_root))
+        }
+        Command::GenerateReleaseWorkflow { check } => {
+            workflows::generate_release_workflow(&repo_root, check)?;
+            println!(
+                "{} release-publish.yml from stage fragments.",
+                if check { "Verified" } else { "Generated" }
+            );
+            Ok(())
         }
         Command::CheckIssueForms => {
             finish_validation("Issue forms", issue_forms::validate(&repo_root))

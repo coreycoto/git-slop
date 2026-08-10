@@ -1,0 +1,36 @@
+# @generated from .github/workflow-sources/release-publish/*.yml by cargo xtask generate-release-workflow
+name: Release Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Explicitly authorize publishing exact current main, or recover an already-published immutable crate.
+        required: true
+        default: publish
+        type: choice
+        options:
+          - publish
+          - recover
+      version:
+        description: Strict stable version to publish or recover.
+        required: true
+        default: "0.11.3"
+        type: string
+      recovery_revision:
+        description: Recovery only - full 40-character source revision embedded in the published crate.
+        required: false
+        type: string
+      recovery_crate_sha256:
+        description: Recovery only - full 64-character crates.io package SHA-256.
+        required: false
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:

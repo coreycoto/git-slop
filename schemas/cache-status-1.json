@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.3/schemas/cache-status-1.json",
+  "title": "Git Slop cache status schema 1",
+  "type": "object",
+  "required": ["schema_version", "command", "status", "entries", "payload_bytes", "database_bytes"],
+  "properties": {
+    "schema_version": {"const": 1}, "command": {"const": "cache status"},
+    "status": {"enum": ["absent", "ready", "corrupt"]},
+    "entries": {"type":"integer","minimum":0}, "payload_bytes": {"type":"integer","minimum":0},
+    "database_bytes": {"type":"integer","minimum":0}, "wal_bytes": {"type":"integer","minimum":0},
+    "shm_bytes": {"type":"integer","minimum":0}, "allocated_bytes": {"type":"integer","minimum":0},
+    "page_count": {"type":"integer","minimum":0}, "free_pages": {"type":"integer","minimum":0},
+    "page_size": {"type":"integer","minimum":0}, "reclaimable_bytes": {"type":"integer","minimum":0},
+    "integrity": {"type":["string","null"]}, "oldest_accessed_at_unix": {"type":["integer","null"]},
+    "newest_accessed_at_unix": {"type":["integer","null"]}
+  },
+  "additionalProperties": false
+}

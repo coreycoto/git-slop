@@ -1,0 +1,264 @@
+  publish-crate:
+    name: Dispatch-authorized crates.io publication and exact tag
+    needs: [candidate, candidate-distribution, candidate-homebrew-audit]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    outputs:
+      mode: ${{ needs.candidate.outputs.mode }}
+      control-revision: ${{ needs.candidate.outputs.control-revision }}
+      version: ${{ steps.registry.outputs.version }}
+      tag: ${{ steps.registry.outputs.tag }}
+      revision: ${{ steps.registry.outputs.revision }}
+      crate-url: ${{ steps.registry.outputs.crate-url }}
+      crate-sha256: ${{ steps.registry.outputs.crate-sha256 }}
+    steps:
+      - name: Checkout exact candidate without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.candidate.outputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.1
+
+      - name: Download trusted candidate package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: source-package
+          path: ${{ runner.temp }}/source-package
+
+      - name: Revalidate dispatch-authorized release identity
+        shell: bash
+        env:
+          MODE: ${{ needs.candidate.outputs.mode }}
+          CONTROL_REVISION: ${{ needs.candidate.outputs.control-revision }}
+          REVISION: ${{ needs.candidate.outputs.revision }}
+          VERSION: ${{ needs.candidate.outputs.version }}
+          EXPECTED_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
+          CANDIDATE_DIR: ${{ runner.temp }}/source-package
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          [[ "$CONTROL_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$CONTROL_REVISION" = "$GITHUB_SHA"
+          test "$CONTROL_REVISION" = "$(git rev-parse refs/remotes/origin/main)"
+          test "$REVISION" = "$(git rev-parse HEAD)"
+          case "$MODE" in
+            publish)
+              test "$REVISION" = "$CONTROL_REVISION"
+              ;;
+            recover)
+              git merge-base --is-ancestor "$REVISION" refs/remotes/origin/main
+              ;;
+            *)
+              echo "Unsupported release mode: $MODE" >&2
+              exit 1
+              ;;
+          esac
+          test -z "$(git status --short)"
+          test "$(sha256sum "${CANDIDATE_DIR}/git-slop-${VERSION}.crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
+          cargo xtask verify-crate --crate-file "${CANDIDATE_DIR}/git-slop-${VERSION}.crate" --version "$VERSION" --revision "$REVISION" --expected-sha256 "$EXPECTED_CRATE_SHA256" --output "${CANDIDATE_DIR}/reverified-crate-source.json"
+          cmp "${CANDIDATE_DIR}/crate-source.json" "${CANDIDATE_DIR}/reverified-crate-source.json"
+          if test "$MODE" = publish; then
+            cargo package -p git-slop --locked --no-verify
+            cmp "target/package/git-slop-${VERSION}.crate" "${CANDIDATE_DIR}/git-slop-${VERSION}.crate"
+          else
+            status="$(curl --user-agent "git-slop-release-workflow/1 (https://github.com/coreycoto/git-slop)" -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
+            test "$status" = 200
+            jq -e --arg version "$VERSION" --arg checksum "$EXPECTED_CRATE_SHA256" \
+              '.version.num == $version and .version.yanked == false and .version.checksum == $checksum' \
+              registry-version.json >/dev/null
+            crate_url="https://static.crates.io/crates/git-slop/git-slop-${VERSION}.crate"
+            curl --fail --location --retry 5 --retry-delay 5 "$crate_url" --output registry-recovery.crate
+            test "$(sha256sum registry-recovery.crate | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
+            cmp registry-recovery.crate "${CANDIDATE_DIR}/git-slop-${VERSION}.crate"
+          fi
+
+      - name: Inspect immutable registry and tag state
+        id: state
+        shell: bash
+        env:
+          MODE: ${{ needs.candidate.outputs.mode }}
+          VERSION: ${{ needs.candidate.outputs.version }}
+          TAG: ${{ needs.candidate.outputs.tag }}
+          REVISION: ${{ needs.candidate.outputs.revision }}
+        run: |
+          set -euo pipefail
+          status="$(curl --user-agent "git-slop-release-workflow/1 (https://github.com/coreycoto/git-slop)" -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
+          case "$status" in
+            200)
+              jq -e '.version.yanked == false' registry-version.json >/dev/null
+              crate_exists=true
+              ;;
+            404) crate_exists=false ;;
+            *) cat registry-version.json >&2; exit 1 ;;
+          esac
+          if test "$MODE" = recover && test "$crate_exists" != true; then
+            echo "Recovery requires an existing, non-yanked crates.io package." >&2
+            exit 1
+          fi
+          remote_tag="$(git ls-remote --refs origin "refs/tags/${TAG}" | awk '{print $1}')"
+          if test -n "$remote_tag"; then
+            git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}"
+            test "$(git rev-parse "refs/tags/${TAG}^{commit}")" = "$REVISION"
+            if test "$crate_exists" != true; then
+              echo "Exact tag exists before crates.io publication; refusing to reverse the release order." >&2
+              exit 1
+            fi
+          fi
+          echo "crate-exists=$crate_exists" >> "$GITHUB_OUTPUT"
+          echo "tag-exists=$([[ -n "$remote_tag" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Exchange GitHub OIDC identity for crates.io token
+        id: crates-io-auth
+        if: needs.candidate.outputs.mode == 'publish' && steps.state.outputs.crate-exists != 'true'
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish exact crates.io package
+        id: publish
+        if: needs.candidate.outputs.mode == 'publish' && steps.state.outputs.crate-exists != 'true'
+        continue-on-error: true
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
+        run: cargo publish -p git-slop --locked --no-verify
+
+      - name: Download and verify exact registry bytes
+        id: registry
+        shell: bash
+        env:
+          VERSION: ${{ needs.candidate.outputs.version }}
+          TAG: ${{ needs.candidate.outputs.tag }}
+          REVISION: ${{ needs.candidate.outputs.revision }}
+          EXPECTED_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
+          CANDIDATE_DIR: ${{ runner.temp }}/source-package
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            status="$(curl --user-agent "git-slop-release-workflow/1 (https://github.com/coreycoto/git-slop)" -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
+            test "$status" = 200 && break
+            test "$attempt" != 30
+            sleep 10
+          done
+          jq -e '.version.yanked == false' registry-version.json >/dev/null
+          index_sha256="$(jq -r '.version.checksum' registry-version.json)"
+          test "$index_sha256" = "$EXPECTED_CRATE_SHA256"
+          crate_url="https://static.crates.io/crates/git-slop/git-slop-${VERSION}.crate"
+          mkdir -p registry
+          curl --fail --location --retry 5 --retry-delay 5 "$crate_url" --output "registry/git-slop-${VERSION}.crate"
+          registry_sha256="$(sha256sum "registry/git-slop-${VERSION}.crate" | awk '{print $1}')"
+          test "$registry_sha256" = "$index_sha256"
+          test "$registry_sha256" = "$EXPECTED_CRATE_SHA256"
+          cargo xtask verify-crate --crate-file "registry/git-slop-${VERSION}.crate" --version "$VERSION" --revision "$REVISION" --expected-sha256 "$registry_sha256" --output registry/crate-source.json
+          cmp "${CANDIDATE_DIR}/crate-source.json" registry/crate-source.json
+          {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "revision=$REVISION"
+            echo "crate-url=$crate_url"
+            echo "crate-sha256=$registry_sha256"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create missing exact release tag
+        if: steps.state.outputs.tag-exists != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ needs.candidate.outputs.mode }}
+          CONTROL_REVISION: ${{ needs.candidate.outputs.control-revision }}
+          TAG: ${{ needs.candidate.outputs.tag }}
+          REVISION: ${{ needs.candidate.outputs.revision }}
+          RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          test "$CONTROL_REVISION" = "$GITHUB_SHA"
+          test "$CONTROL_REVISION" = "$(git rev-parse refs/remotes/origin/main)"
+          if test "$MODE" = recover; then
+            git merge-base --is-ancestor "$REVISION" refs/remotes/origin/main
+          else
+            test "$REVISION" = "$CONTROL_REVISION"
+          fi
+          test -z "$(git ls-remote --refs origin "refs/tags/${TAG}")"
+          test -n "$RELEASE_SIGNING_PRIVATE_KEY"
+          GNUPGHOME="$(mktemp -d)"
+          export GNUPGHOME
+          trap 'rm -rf "$GNUPGHOME"' EXIT
+          printf '%s' "$RELEASE_SIGNING_PRIVATE_KEY" | gpg --batch --import
+          signing_key="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" {print $10; exit}')"
+          test -n "$signing_key"
+          signing_email="$(
+            gpg --batch --with-colons --list-secret-keys "$signing_key" |
+              awk -F: '$1 == "uid" && match($10, /<[^<>[:space:]]+@[^<>[:space:]]+>/) {
+                print substr($10, RSTART + 1, RLENGTH - 2)
+                exit
+              }'
+          )"
+          test -n "$signing_email"
+          git config user.signingkey "$signing_key"
+          git config user.name "git-slop release automation"
+          git config user.email "$signing_email"
+          if git rev-parse --verify "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
+            test "$(git rev-parse "refs/tags/${TAG}^{commit}")" = "$REVISION"
+            git verify-tag "$TAG"
+          else
+            git tag -s -m "Git Slop ${TAG}" "$TAG" "$REVISION"
+            git verify-tag "$TAG"
+          fi
+          authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${authorization}" \
+            push origin "refs/tags/${TAG}"
+          unset authorization
+          test "$(git ls-remote origin "refs/tags/${TAG}^{}" | awk '{print $1}')" = "$REVISION"
+
+      - name: Dispatch immutable release identity to Homebrew tap
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
+          VERSION: ${{ steps.registry.outputs.version }}
+          REVISION: ${{ steps.registry.outputs.revision }}
+          CRATE_URL: ${{ steps.registry.outputs.crate-url }}
+          CRATE_SHA256: ${{ steps.registry.outputs.crate-sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CRATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test "$CRATE_URL" = "https://static.crates.io/crates/git-slop/git-slop-${VERSION}.crate"
+          gh workflow run update-git-slop.yml \
+            --repo coreycoto/homebrew-tap \
+            --ref main \
+            --field version="$VERSION" \
+            --field revision="$REVISION" \
+            --field crate_url="$CRATE_URL" \
+            --field crate_sha256="$CRATE_SHA256"
+
+      - name: Summarize dispatch-authorized publication
+        shell: bash
+        env:
+          VERSION: ${{ steps.registry.outputs.version }}
+          REVISION: ${{ steps.registry.outputs.revision }}
+          CRATE_SHA256: ${{ steps.registry.outputs.crate-sha256 }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Dispatch-authorized publication
+
+          - authorization: explicit Release Publish workflow dispatch by \`${GITHUB_ACTOR}\`; the branch-restricted \`release\` environment adds no reviewer gate
+          - version: \`${VERSION}\`
+          - source revision: \`${REVISION}\`
+          - crate SHA-256: \`${CRATE_SHA256}\`
+          - Homebrew: the tap receiver was dispatched with this immutable identity and will wait for the exact public GitHub Release before deriving and reverifying its Formula and manifest digests
+          EOF
+
+      - name: Upload verified registry package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: verified-registry-crate
+          path: registry
+          if-no-files-found: error
+          retention-days: 1

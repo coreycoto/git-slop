@@ -13,6 +13,10 @@ pub struct AnalysisEstimate {
     pub tracked_path_count: usize,
     pub inventory_bytes: u128,
     pub estimated_peak_memory_bytes: u128,
+    pub estimated_peak_memory_low_bytes: u128,
+    pub estimated_peak_memory_high_bytes: u128,
+    pub runtime_overhead_bytes: u128,
+    pub confidence: String,
     pub memory_budget_bytes: u128,
     pub estimated_cache_bytes: u128,
     pub estimated_report_bytes: u128,
@@ -107,15 +111,28 @@ pub fn build(repo_root: &Path, paths: &[String], config_value: &Value) -> Analys
     let report_bytes = inventory_bytes
         .saturating_div(2)
         .saturating_add(path_count.saturating_mul(4_096));
+    let runtime_overhead_bytes = 32_u128 * 1024 * 1024;
     let estimated_peak_memory_bytes = inventory_bytes
         .saturating_add(tokenizer_bytes)
         .saturating_add(graph_bytes)
         .saturating_add(history_bytes)
-        .saturating_add(report_bytes);
+        .saturating_add(report_bytes)
+        .saturating_add(runtime_overhead_bytes);
     AnalysisEstimate {
         tracked_path_count: paths.len(),
         inventory_bytes,
         estimated_peak_memory_bytes,
+        estimated_peak_memory_low_bytes: estimated_peak_memory_bytes.saturating_mul(80) / 100,
+        estimated_peak_memory_high_bytes: estimated_peak_memory_bytes.saturating_mul(140) / 100,
+        runtime_overhead_bytes,
+        confidence: if paths.is_empty() {
+            "low"
+        } else if estimated_history_commit_count == 0 {
+            "moderate"
+        } else {
+            "calibrated_heuristic"
+        }
+        .to_string(),
         memory_budget_bytes: config::pointer_u64(config_value, "/resources/memory_budget_mb", 1024)
             as u128
             * 1024
@@ -165,6 +182,24 @@ mod tests {
             started.elapsed().as_secs() < 10,
             "30k preflight exceeded 10 seconds"
         );
+    }
+
+    #[test]
+    fn one_thousand_and_one_hundred_thousand_path_fixtures_scale_monotonically() {
+        let repository = tempdir().unwrap();
+        let estimate_for = |count| {
+            let paths = (0..count)
+                .map(|index| format!("package-{}/src/file-{index}.rs", index % 100))
+                .collect::<Vec<_>>();
+            build(repository.path(), &paths, &config::default_config())
+        };
+        let small = estimate_for(1_000);
+        let large = estimate_for(100_000);
+        assert_eq!(small.tracked_path_count, 1_000);
+        assert_eq!(large.tracked_path_count, 100_000);
+        assert!(large.estimated_peak_memory_low_bytes > small.estimated_peak_memory_high_bytes);
+        assert!(large.estimated_seconds >= small.estimated_seconds);
+        assert_eq!(large.path_breadth, 100);
     }
 
     #[test]

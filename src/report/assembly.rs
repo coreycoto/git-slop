@@ -159,7 +159,10 @@ fn action_queue_from_files(files: &[Value]) -> Vec<Value> {
                 "revisions_window": usize_field(&file, "revisions_window"),
                 "churn_pressure": float_field(&file, "churn_pressure"),
                 "reason_codes": reasons,
-                "is_pure_context_hotspot": pure_context
+                "is_pure_context_hotspot": pure_context,
+                "severity": if matches!(string_field(&file, "context_band"), "critical") || matches!(string_field(&file, "slop_band"), "critical") { "error" } else if matches!(string_field(&file, "context_band"), "warning") || matches!(string_field(&file, "slop_band"), "high") { "warning" } else { "notice" },
+                "evidence_status": if usize_field(&file, "revisions_window") >= 5 { "supported" } else { "low_support" },
+                "next_action": format!("git slop explain --path {}", string_field(&file, "path"))
             })
         })
         .collect()
@@ -327,10 +330,45 @@ fn top_structural_paths(analysis: &Analysis) -> Vec<String> {
         .collect()
 }
 
+fn comparison_record(record: &Value) -> Value {
+    let overlays = record.get("overlays").unwrap_or(&Value::Null);
+    json!({
+        "path": record.get("path").cloned().unwrap_or(Value::Null),
+        "content_fingerprint": record.get("content_fingerprint").cloned().unwrap_or(Value::Null),
+        "analysis_status": record.get("analysis_status").cloned().unwrap_or_else(|| json!("analyzed")),
+        "tokens": record.get("tokens").cloned().unwrap_or_else(|| json!(0)),
+        "context_band": record.get("context_band").cloned().unwrap_or_else(|| json!("compact")),
+        "slop_score": record.get("slop_score").cloned().unwrap_or_else(|| json!(0.0)),
+        "slop_band": record.get("slop_band").cloned().unwrap_or_else(|| json!("low")),
+        "overlays": {
+            "organization_health": {
+                "duplication_pressure": overlays.pointer("/organization_health/duplication_pressure").cloned().unwrap_or(Value::Null),
+                "diffusion_pressure": overlays.pointer("/organization_health/diffusion_pressure").cloned().unwrap_or(Value::Null),
+                "coupling_pressure": overlays.pointer("/organization_health/coupling_pressure").cloned().unwrap_or(Value::Null),
+                "boundary_pressure": overlays.pointer("/organization_health/boundary_pressure").cloned().unwrap_or(Value::Null)
+            },
+            "verification": {"verification_gap": overlays.pointer("/verification/verification_gap").cloned().unwrap_or(Value::Null)},
+            "navigation": {"navigation_pressure": overlays.pointer("/navigation/navigation_pressure").cloned().unwrap_or(Value::Null)},
+            "blast_radius": {"blast_radius_pressure": overlays.pointer("/blast_radius/blast_radius_pressure").cloned().unwrap_or(Value::Null)},
+            "stewardship": {"stewardship_pressure": overlays.pointer("/stewardship/stewardship_pressure").cloned().unwrap_or(Value::Null)},
+            "concept_dispersion": {"concept_dispersion_pressure": overlays.pointer("/concept_dispersion/concept_dispersion_pressure").cloned().unwrap_or(Value::Null)}
+        },
+        "costs": {
+            "load": {
+                "load_pressure": record.pointer("/costs/load/load_pressure").cloned().unwrap_or_else(|| json!(0.0))
+            }
+        }
+    })
+}
+
 pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
     let mut files = serialize_values(&analysis.files);
     let suppressed_saturated_overlays = suppress_saturated_overlays(&mut files);
     let folders = serialize_values(&analysis.folders);
+    let compare_index = json!({
+        "files": files.iter().map(comparison_record).collect::<Vec<_>>(),
+        "folders": folders.iter().map(comparison_record).collect::<Vec<_>>()
+    });
     let action_queue = if analysis.action_queue.is_empty() {
         action_queue_from_files(&files)
     } else {
@@ -397,6 +435,7 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
             "name": "git-slop",
             "version": VERSION,
             "report_profile": analysis.report_profile,
+            "analysis_clock": analysis.generated_at,
             "analysis_contract_version": ANALYSIS_CONTRACT_VERSION,
             "config_digest": config_digest,
             "analysis_config_digest": analysis_config_digest,
@@ -447,8 +486,8 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
             "history_window_days": analysis.config.pointer("/history/churn_window_days").cloned().unwrap_or(Value::Null),
             "history_max_commits": analysis.config.pointer("/history/max_commits").cloned().unwrap_or(Value::Null),
             "first_seen_age": if history_complete { "complete" } else { "bounded" },
-            "churn_window": if analysis.repo.is_shallow { "incomplete_shallow" } else { "complete_window" },
-            "author_evidence": if analysis.repo.is_shallow { "incomplete_shallow" } else { "complete_window" },
+            "churn_window": if history_not_applicable { "not_applicable" } else if analysis.repo.is_shallow { "incomplete_shallow" } else { "complete_window" },
+            "author_evidence": if history_not_applicable { "not_applicable" } else if analysis.repo.is_shallow { "incomplete_shallow" } else { "complete_window" },
             "relationship_evidence": if history_complete { "complete" } else { "bounded" },
             "missing_test_evidence_count": overlays.pointer("/verification/files")
                 .and_then(Value::as_array)
@@ -465,11 +504,12 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
         "diagnostics": {
             "suppressed_saturated_overlays": suppressed_saturated_overlays,
             "relationship_count": analysis.organization.relationships.as_object().map(|collections| collections.values().filter_map(Value::as_array).map(Vec::len).sum::<usize>()).unwrap_or_default(),
-            "structural_tokens_omitted": true,
+            "structural_token_payload_omitted": true,
             "analysis": analysis.diagnostics
         },
         "files": files,
         "folders": folders,
+        "compare_index": compare_index,
         "action_queue": action_queue,
         "ranked_files": ranked_files,
         "costs": {
@@ -482,6 +522,10 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
         "collection_metadata": {
             "files": {"total": files.len(), "returned": files.len(), "limit": null, "truncated": false},
             "folders": {"total": folders.len(), "returned": folders.len(), "limit": null, "truncated": false},
+            "compare_index": {
+                "files": {"total": files.len(), "returned": files.len(), "limit": null, "truncated": false},
+                "folders": {"total": folders.len(), "returned": folders.len(), "limit": null, "truncated": false}
+            },
             "action_queue": {"total": action_queue.len(), "returned": action_queue.len(), "limit": null, "truncated": false},
             "ranked_files": {"total": ranked_files.len(), "returned": ranked_files.len(), "limit": null, "truncated": false},
             "health.findings": {"total": health.findings.len(), "returned": health.findings.len(), "limit": null, "truncated": false},

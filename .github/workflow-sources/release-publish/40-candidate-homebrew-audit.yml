@@ -1,0 +1,28 @@
+  candidate-homebrew-audit:
+    name: Audit candidate Formula with Homebrew
+    needs: candidate-distribution
+    runs-on: macos-26
+    permissions:
+      contents: read
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@df4b09108a1de9d6f995fe68f302b3f68bd6d2ef # 2026.07.20.1
+
+      - name: Download candidate Formula
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: candidate-homebrew-formula
+          path: ${{ runner.temp }}/candidate-homebrew
+
+      - name: Audit candidate Formula with Homebrew
+        shell: bash
+        env:
+          FORMULA_PATH: ${{ runner.temp }}/candidate-homebrew/git-slop.rb
+        run: |
+          set -euo pipefail
+          tap=coreycoto/git-slop-release-candidate
+          brew tap-new --no-git "$tap"
+          tap_root="$(brew --repository "$tap")"
+          cp "$FORMULA_PATH" "$tap_root/Formula/git-slop.rb"
+          brew audit --strict --formula "$tap/git-slop"
+          brew style --formula "$tap/git-slop"

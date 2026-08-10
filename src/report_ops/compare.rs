@@ -1,4 +1,5 @@
 use super::*;
+use crate::text::visible_controls;
 
 fn optional_number(value: Option<&Value>) -> Option<f64> {
     value.and_then(Value::as_f64).map(round6)
@@ -9,7 +10,12 @@ fn optional_integer(value: Option<&Value>) -> Option<i64> {
 }
 
 fn records_by_path(report: &Value, collection: &str) -> BTreeMap<String, Value> {
-    array_at(report, &[collection])
+    let records = report
+        .pointer(&format!("/compare_index/{collection}"))
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_else(|| array_at(report, &[collection]));
+    records
         .iter()
         .filter_map(|record| {
             record
@@ -165,6 +171,18 @@ fn compatibility_mismatches(base: &Value, head: &Value) -> Vec<Value> {
             "code": if base_identity.is_none() || head_identity.is_none() { "repository_identity_unavailable" } else { "repository_identity_mismatch" }
         }));
     }
+    let base_profile = base.pointer("/analyzer/report_profile");
+    let head_profile = head.pointer("/analyzer/report_profile");
+    if base_profile != head_profile {
+        mismatches.push(json!({
+            "field": "report profile",
+            "pointer": "/analyzer/report_profile",
+            "base": base_profile.cloned().unwrap_or(Value::Null),
+            "head": head_profile.cloned().unwrap_or(Value::Null),
+            "code": "presentation_profile_mismatch",
+            "blocking": false
+        }));
+    }
     for (label, pointer, fallback) in [
         (
             "tokenizer",
@@ -180,6 +198,11 @@ fn compatibility_mismatches(base: &Value, head: &Value) -> Vec<Value> {
             "analysis contract",
             "/analyzer/analysis_contract_version",
             "/analyzer/version",
+        ),
+        (
+            "evidence configuration digest",
+            "/analyzer/evidence_config_digest",
+            "/analyzer/config_digest",
         ),
         ("analysis scope mode", "/scope/mode", "/scope/mode"),
         ("analysis scope path", "/scope/path", "/scope/path"),
@@ -201,12 +224,128 @@ fn compatibility_mismatches(base: &Value, head: &Value) -> Vec<Value> {
 }
 
 fn require_compatible_reports(mismatches: &[Value]) -> Result<()> {
-    if let Some(first) = mismatches.first() {
+    if let Some(first) = mismatches
+        .iter()
+        .find(|mismatch| mismatch.get("blocking").and_then(Value::as_bool) != Some(false))
+    {
         let label = string(first.get("field"));
         let base = first.get("base").cloned().unwrap_or(Value::Null);
         let head = first.get("head").cloned().unwrap_or(Value::Null);
         bail!(
             "reports have incompatible {label}: base={base}, head={head}; rerun compare with --force only if this mismatch is intentional"
+        );
+    }
+    Ok(())
+}
+
+fn has_blocking_mismatches(mismatches: &[Value]) -> bool {
+    mismatches
+        .iter()
+        .any(|mismatch| mismatch.get("blocking").and_then(Value::as_bool) != Some(false))
+}
+
+fn require_comparison_ready(
+    report: &Value,
+    role: &str,
+    allow_incomplete_evidence: bool,
+    force: bool,
+) -> Result<()> {
+    if role == "base"
+        && !force
+        && report
+            .pointer("/repo/worktree_clean")
+            .and_then(Value::as_bool)
+            == Some(false)
+        && [
+            "/repo/staged_change_count",
+            "/repo/modified_tracked_file_count",
+            "/repo/untracked_file_count",
+        ]
+        .into_iter()
+        .filter_map(|pointer| report.pointer(pointer).and_then(Value::as_u64))
+        .sum::<u64>()
+            > 0
+    {
+        bail!(
+            "base report was captured from a dirty worktree and is not comparison-ready; create a clean named baseline or pass --force only after reviewing the source state"
+        );
+    }
+    let profile = report
+        .pointer("/analyzer/report_profile")
+        .and_then(Value::as_str);
+    let has_compare_index = report
+        .pointer("/compare_index/files")
+        .and_then(Value::as_array)
+        .is_some();
+    if profile == Some("compact") && !has_compare_index {
+        bail!(
+            "{role} report uses the compact presentation profile without an exhaustive comparison index and is not comparison-ready; rerun `git slop find` with the current git-slop version"
+        );
+    }
+    for collection in ["files", "folders"] {
+        let metadata = if has_compare_index {
+            report.pointer(&format!("/collection_metadata/compare_index/{collection}"))
+        } else {
+            report.pointer(&format!("/collection_metadata/{collection}"))
+        };
+        let truncated = metadata
+            .and_then(|value| value.get("truncated"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let incomplete_count = metadata
+            .and_then(|value| {
+                Some((
+                    value.get("total")?.as_u64()?,
+                    value.get("returned")?.as_u64()?,
+                ))
+            })
+            .is_some_and(|(total, returned)| total != returned);
+        if truncated || incomplete_count {
+            bail!(
+                "{role} report has an incomplete canonical {collection} index and is not comparison-ready; rerun `git slop find` without degraded analysis"
+            );
+        }
+    }
+    if let Some(status) = report
+        .pointer("/diagnostics/analysis/analysis_status")
+        .and_then(Value::as_str)
+        .filter(|status| status.starts_with("degraded_"))
+    {
+        bail!(
+            "{role} report analysis is {status} and is not comparison-ready; rerun without degraded analysis"
+        );
+    }
+    if !allow_incomplete_evidence {
+        let incomplete_records = report
+            .pointer("/compare_index/files")
+            .or_else(|| report.get("files"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|record| {
+                record.get("analysis_status").and_then(Value::as_str) != Some("analyzed")
+            })
+            .count();
+        if incomplete_records > 0 {
+            bail!(
+                "{role} report contains {incomplete_records} incomplete canonical inventory record(s) and is not comparison-ready; pass --allow-incomplete-evidence only when this coverage loss is intentional"
+            );
+        }
+    }
+    if let Some((field, status)) = report
+        .get("evidence_completeness")
+        .and_then(Value::as_object)
+        .and_then(|evidence| {
+            evidence.iter().find_map(|(field, value)| {
+                value
+                    .as_str()
+                    .filter(|status| status.starts_with("incomplete_"))
+                    .map(|status| (field.as_str(), status))
+            })
+        })
+    {
+        bail!(
+            "{role} report evidence `{field}` is {status} and is not comparison-ready; acquire complete evidence before comparing"
         );
     }
     Ok(())
@@ -360,15 +499,76 @@ fn regression_for_delta(delta: &Value, base: &Value) -> Option<Value> {
 fn build_record_deltas(base: &Value, head: &Value, collection: &str) -> Vec<Value> {
     let base_records = records_by_path(base, collection);
     let head_records = records_by_path(head, collection);
+    let fingerprint_paths = |records: &BTreeMap<String, Value>, other: &BTreeMap<String, Value>| {
+        let mut values: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (path, record) in records {
+            if other.contains_key(path) {
+                continue;
+            }
+            if let Some(fingerprint) = record
+                .get("content_fingerprint")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty() && !value.starts_with("incomplete:"))
+            {
+                values
+                    .entry(fingerprint.to_string())
+                    .or_default()
+                    .push(path.clone());
+            }
+        }
+        values
+    };
+    let base_fingerprints = fingerprint_paths(&base_records, &head_records);
+    let head_fingerprints = fingerprint_paths(&head_records, &base_records);
+    let mut renamed_base_paths = BTreeSet::new();
+    let mut renamed_head_paths = BTreeSet::new();
+    let mut renamed = Vec::new();
+    for (fingerprint, old_paths) in &base_fingerprints {
+        let Some(new_paths) = head_fingerprints.get(fingerprint) else {
+            continue;
+        };
+        if old_paths.len() != 1 || new_paths.len() != 1 {
+            continue;
+        }
+        let old_path = &old_paths[0];
+        let new_path = &new_paths[0];
+        renamed_base_paths.insert(old_path.clone());
+        renamed_head_paths.insert(new_path.clone());
+        let mut delta = build_record_delta(
+            new_path,
+            base_records.get(old_path),
+            head_records.get(new_path),
+        );
+        delta["status"] = json!("renamed");
+        delta["content_status"] = json!("renamed_unchanged");
+        delta["renamed_from"] = json!(old_path);
+        delta["renamed_to"] = json!(new_path);
+        renamed.push(delta);
+    }
     let paths: BTreeSet<String> = base_records
         .keys()
         .chain(head_records.keys())
+        .filter(|path| !renamed_base_paths.contains(*path) && !renamed_head_paths.contains(*path))
         .cloned()
         .collect();
-    paths
+    let mut deltas = paths
         .into_iter()
-        .map(|path| build_record_delta(&path, base_records.get(&path), head_records.get(&path)))
-        .collect()
+        .map(|path| {
+            let mut delta =
+                build_record_delta(&path, base_records.get(&path), head_records.get(&path));
+            if collection == "folders"
+                && delta.get("status").and_then(Value::as_str) == Some("source_changed")
+                && delta.get("content_status").and_then(Value::as_str) == Some("unknown")
+            {
+                delta["status"] = json!("aggregate_changed");
+                delta["content_status"] = json!("not_applicable");
+            }
+            delta
+        })
+        .collect::<Vec<_>>();
+    deltas.extend(renamed);
+    deltas.sort_by_key(|left| string(left.get("path")));
+    deltas
 }
 
 fn queue_positions(report: &Value) -> BTreeMap<String, usize> {
@@ -455,9 +655,11 @@ fn delta_counts(items: &[Value]) -> Value {
     json!({
         "added": count("added"),
         "removed": count("removed"),
-        "changed": count("source_changed") + count("evidence_drift"),
+        "changed": count("source_changed") + count("evidence_drift") + count("aggregate_changed"),
         "source_changed": count("source_changed"),
         "evidence_drift": count("evidence_drift"),
+        "renamed": count("renamed"),
+        "aggregate_changed": count("aggregate_changed"),
         "unchanged": count("unchanged"),
     })
 }
@@ -516,14 +718,42 @@ fn report_descriptor(report: &Value, path: Option<&str>) -> Value {
     })
 }
 
-pub fn compare_payload_with_force(
+#[cfg(test)]
+fn compare_payload_with_options(
     base_report: &Value,
     head_report: &Value,
     base_path: Option<&str>,
     head_path: Option<&str>,
     top: usize,
     force: bool,
+    allow_incomplete_evidence: bool,
 ) -> Result<Value> {
+    compare_payload_with_policy(
+        base_report,
+        head_report,
+        base_path,
+        head_path,
+        top,
+        force,
+        allow_incomplete_evidence,
+        "base",
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn compare_payload_with_policy(
+    base_report: &Value,
+    head_report: &Value,
+    base_path: Option<&str>,
+    head_path: Option<&str>,
+    top: usize,
+    force: bool,
+    allow_incomplete_evidence: bool,
+    policy_source: &str,
+) -> Result<Value> {
+    if !matches!(policy_source, "base" | "head") {
+        bail!("comparison policy source must be base or head");
+    }
     if report_schema(base_report) != REPORT_SCHEMA_VERSION {
         bail!("base report must use schema {REPORT_SCHEMA_VERSION}.");
     }
@@ -533,7 +763,24 @@ pub fn compare_payload_with_force(
     if top == 0 {
         bail!("--top must be greater than zero.");
     }
+    require_comparison_ready(base_report, "base", allow_incomplete_evidence, force)?;
+    require_comparison_ready(head_report, "head", allow_incomplete_evidence, force)?;
+    if let (Some(base_time), Some(head_time)) = (
+        base_report
+            .get("generated_at")
+            .and_then(Value::as_str)
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok()),
+        head_report
+            .get("generated_at")
+            .and_then(Value::as_str)
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok()),
+    ) {
+        if base_time > head_time + chrono::Duration::hours(1) {
+            bail!("base report timestamp is implausibly later than the head report timestamp");
+        }
+    }
     let compatibility_mismatches = compatibility_mismatches(base_report, head_report);
+    let blocking_mismatches = has_blocking_mismatches(&compatibility_mismatches);
     if !force {
         require_compatible_reports(&compatibility_mismatches)?;
     }
@@ -557,23 +804,46 @@ pub fn compare_payload_with_force(
             ) && number(item.get("slop_score_delta")) < 0.0
         })
         .count();
-    let mut queue_movement = build_queue_movement(base_report, head_report);
-    queue_movement.truncate(top);
+    let source_worsened = file_deltas
+        .iter()
+        .filter(|item| {
+            matches!(
+                string(item.get("status")).as_str(),
+                "source_changed" | "added"
+            ) && number(item.get("slop_score_delta")) > 0.0
+        })
+        .count();
+    let evidence_only_worsened = file_deltas
+        .iter()
+        .filter(|item| {
+            string(item.get("status")) == "evidence_drift"
+                && number(item.get("slop_score_delta")) > 0.0
+        })
+        .count();
+    let queue_movement = build_queue_movement(base_report, head_report);
     let overlay_deltas = aggregate_overlay_deltas(&file_deltas);
+    let policy_report = if policy_source == "head" {
+        head_report
+    } else {
+        base_report
+    };
     let regressions = file_deltas
         .iter()
-        .filter_map(|delta| regression_for_delta(delta, base_report))
+        .filter_map(|delta| regression_for_delta(delta, policy_report))
         .collect::<Vec<_>>();
     Ok(json!({
         "schema_version": COMPARE_SCHEMA_VERSION,
         "report_schema_version": REPORT_SCHEMA_VERSION,
         "command": "compare",
+        "policy_source": policy_source,
         "base_report": report_descriptor(base_report, base_path),
         "head_report": report_descriptor(head_report, head_path),
         "summary": {
             "files": delta_counts(&file_deltas),
             "folders": delta_counts(&folder_deltas),
             "worsened_file_count": worsened,
+            "source_worsened_file_count": source_worsened,
+            "evidence_only_worsened_file_count": evidence_only_worsened,
             "improved_file_count": improved,
             "regression_count": regressions.len(),
         },
@@ -584,15 +854,15 @@ pub fn compare_payload_with_force(
         "regressions": regressions,
         "boundary_note": COMPARE_BOUNDARY_NOTE,
         "compatibility_forced": force,
-        "baseline_status": if compatibility_mismatches.is_empty() { "compatible" } else if force { "forced" } else { "incompatible" },
-        "baseline_compatible": compatibility_mismatches.is_empty(),
+        "baseline_status": if !blocking_mismatches { "compatible" } else if force { "forced_incompatible" } else { "incompatible" },
+        "baseline_compatible": !blocking_mismatches,
         "compatibility_mismatches": compatibility_mismatches,
     }))
 }
 
 pub fn render_compare_text(payload: &Value, top: usize) -> String {
-    let base_path = string(value_at(payload, &["base_report", "path"]));
-    let head_path = string(value_at(payload, &["head_report", "path"]));
+    let base_path = visible_controls(&string(value_at(payload, &["base_report", "path"])));
+    let head_path = visible_controls(&string(value_at(payload, &["head_report", "path"])));
     let basename = |value: &str, fallback: &str| {
         std::path::Path::new(value)
             .file_name()
@@ -658,7 +928,7 @@ pub fn render_compare_text(payload: &Value, top: usize) -> String {
         lines.extend(worsened.into_iter().take(top).map(|item| {
             format!(
                 "- {}: {} -> {} (delta={})",
-                string(item.get("path")),
+                visible_controls(&string(item.get("path"))),
                 json_scalar_text(item.get("base_slop_score")),
                 json_scalar_text(item.get("head_slop_score")),
                 json_scalar_text(item.get("slop_score_delta")),
@@ -682,7 +952,7 @@ pub fn render_compare_text(payload: &Value, top: usize) -> String {
         lines.extend(improved.into_iter().take(top).map(|item| {
             format!(
                 "- {}: {} -> {} (delta={})",
-                string(item.get("path")),
+                visible_controls(&string(item.get("path"))),
                 json_scalar_text(item.get("base_slop_score")),
                 json_scalar_text(item.get("head_slop_score")),
                 json_scalar_text(item.get("slop_score_delta")),
@@ -697,7 +967,7 @@ pub fn render_compare_text(payload: &Value, top: usize) -> String {
         lines.extend(movement.iter().take(top).map(|item| {
             format!(
                 "- {}: {} base={} head={}",
-                string(item.get("path")),
+                visible_controls(&string(item.get("path"))),
                 string(item.get("status")),
                 json_scalar_text(item.get("base_position")),
                 json_scalar_text(item.get("head_position")),
@@ -706,4 +976,146 @@ pub fn render_compare_text(payload: &Value, top: usize) -> String {
     }
     lines.extend([String::new(), string(payload.get("boundary_note"))]);
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(path: &str, score: f64) -> Value {
+        json!({
+            "path": path,
+            "content_fingerprint": format!("fingerprint-{path}"),
+            "analysis_status": "analyzed",
+            "tokens": 10,
+            "context_band": "compact",
+            "slop_score": score,
+            "slop_band": if score >= 50.0 { "high" } else { "low" },
+            "costs": {"load": {"load_pressure": score / 100.0}},
+            "overlays": {}
+        })
+    }
+
+    fn report(profile: &str, records: Vec<Value>) -> Value {
+        let returned = records.len();
+        json!({
+            "schema_version": 5,
+            "analyzer": {
+                "report_profile": profile,
+                "context_tokenizer": "cl100k_base",
+                "analysis_config_digest": "analysis",
+                "evidence_config_digest": "evidence",
+                "analysis_contract_version": 2
+            },
+            "repo": {"repository_id": "repo"},
+            "scope": {"mode": "repository", "path": null},
+            "files": records.iter().take(250).cloned().collect::<Vec<_>>(),
+            "folders": [],
+            "compare_index": {"files": records, "folders": []},
+            "action_queue": [],
+            "collection_metadata": {
+                "compare_index": {
+                    "files": {"total": returned, "returned": returned, "limit": null, "truncated": false},
+                    "folders": {"total": 0, "returned": 0, "limit": null, "truncated": false}
+                }
+            },
+            "evidence_completeness": {"history": "complete"},
+            "diagnostics": {"analysis": {"analysis_status": "complete"}}
+        })
+    }
+
+    #[test]
+    fn unchanged_compact_and_full_reports_compare_via_exhaustive_index() {
+        let records = (0..300)
+            .map(|index| record(&format!("src/{index:03}.rs"), index as f64 / 10.0))
+            .collect::<Vec<_>>();
+        let payload = compare_payload_with_options(
+            &report("compact", records.clone()),
+            &report("full_evidence", records),
+            None,
+            None,
+            10,
+            false,
+            false,
+        )
+        .expect("cross-profile comparison");
+        assert_eq!(payload["summary"]["files"]["added"], 0);
+        assert_eq!(payload["summary"]["files"]["removed"], 0);
+        assert_eq!(payload["summary"]["files"]["changed"], 0);
+        assert_eq!(payload["summary"]["files"]["unchanged"], 300);
+        assert_eq!(payload["baseline_compatible"], true);
+        assert_eq!(
+            payload["compatibility_mismatches"][0]["code"],
+            "presentation_profile_mismatch"
+        );
+    }
+
+    #[test]
+    fn compact_rank_shift_does_not_create_phantom_additions_or_removals() {
+        let base = (0..300)
+            .map(|index| record(&format!("src/{index:03}.rs"), index as f64 / 10.0))
+            .collect::<Vec<_>>();
+        let mut head = base.clone();
+        head[299] = record("src/299.rs", 99.0);
+        let payload = compare_payload_with_options(
+            &report("compact", base),
+            &report("compact", head),
+            None,
+            None,
+            10,
+            false,
+            false,
+        )
+        .expect("compact comparison");
+        assert_eq!(payload["summary"]["files"]["added"], 0);
+        assert_eq!(payload["summary"]["files"]["removed"], 0);
+        assert_eq!(payload["summary"]["files"]["changed"], 1);
+        assert_eq!(payload["summary"]["files"]["unchanged"], 299);
+    }
+
+    #[test]
+    fn unique_content_fingerprint_is_reported_as_a_rename() {
+        let mut old = record("src/old.rs", 20.0);
+        let mut new = record("src/new.rs", 20.0);
+        old["content_fingerprint"] = json!("same-content");
+        new["content_fingerprint"] = json!("same-content");
+        let payload = compare_payload_with_options(
+            &report("standard", vec![old]),
+            &report("standard", vec![new]),
+            None,
+            None,
+            10,
+            false,
+            false,
+        )
+        .expect("rename comparison");
+        assert_eq!(payload["summary"]["files"]["added"], 0);
+        assert_eq!(payload["summary"]["files"]["removed"], 0);
+        assert_eq!(payload["summary"]["files"]["renamed"], 1);
+        assert_eq!(payload["file_deltas"][0]["renamed_from"], "src/old.rs");
+        assert_eq!(payload["file_deltas"][0]["renamed_to"], "src/new.rs");
+        assert_eq!(payload["regressions"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn explicit_policy_source_selects_base_or_head_thresholds() {
+        let mut base = report("standard", vec![record("src/lib.rs", 20.0)]);
+        let mut changed = record("src/lib.rs", 23.0);
+        changed["content_fingerprint"] = json!("changed-content");
+        let mut head = report("standard", vec![changed]);
+        base["config"] =
+            json!({"check": {"regression_score_delta": 5.0, "fail_on_evidence_drift": false}});
+        head["config"] =
+            json!({"check": {"regression_score_delta": 2.0, "fail_on_evidence_drift": false}});
+        let base_policy =
+            compare_payload_with_policy(&base, &head, None, None, 10, false, false, "base")
+                .unwrap();
+        let head_policy =
+            compare_payload_with_policy(&base, &head, None, None, 10, false, false, "head")
+                .unwrap();
+        assert_eq!(base_policy["policy_source"], "base");
+        assert_eq!(base_policy["summary"]["regression_count"], 0);
+        assert_eq!(head_policy["policy_source"], "head");
+        assert_eq!(head_policy["summary"]["regression_count"], 1);
+    }
 }

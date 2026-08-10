@@ -211,6 +211,58 @@ fn schema_five_rejects_every_missing_file_field_and_unknown_fields() {
 }
 
 #[test]
+fn schema_five_rejects_unknown_nested_cost_diagnostic_and_relationship_fields() {
+    let repository = fixture_repository();
+    let output = tempdir().expect("output");
+    let report_path = write_report(repository.path(), output.path());
+    let report: Value = serde_json::from_str(&fs::read_to_string(report_path).unwrap()).unwrap();
+    let mutations = [
+        ("cost", "/files/0/costs/load/unexpected"),
+        ("diagnostic", "/diagnostics/analysis/unexpected"),
+        (
+            "relationship",
+            "/overlays/organization_health/relationships/duplicate_neighborhoods/0/unexpected",
+        ),
+    ];
+    for (name, pointer) in mutations {
+        let mut mutated = report.clone();
+        if name == "relationship" {
+            mutated
+                .pointer_mut("/overlays/organization_health/relationships/duplicate_neighborhoods")
+                .unwrap()
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "id": "duplicate-neighborhood-test",
+                    "kind": "duplicate_neighborhood",
+                    "source_path": "src/lib.rs",
+                    "target_path": "src/lib.rs",
+                    "evidence_score": 1.0,
+                    "unexpected": true
+                }));
+        } else {
+            let parent = pointer.rsplit_once('/').unwrap().0;
+            mutated
+                .pointer_mut(parent)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .insert("unexpected".to_string(), Value::Bool(true));
+        }
+        let path = repository
+            .path()
+            .join(format!("unknown-nested-{name}.json"));
+        fs::write(&path, serde_json::to_vec(&mutated).unwrap()).unwrap();
+        let validation = cargo_bin_cmd!("git-slop")
+            .args(["report", "validate", path.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert_eq!(validation.status.code(), Some(2), "{name}");
+        assert!(String::from_utf8_lossy(&validation.stderr).contains("unknown_field"));
+    }
+}
+
+#[test]
 fn comparison_allows_file_additions_and_detects_equal_metric_content_changes() {
     let repository = fixture_repository();
     let base_output = tempdir().expect("base output");
@@ -252,6 +304,7 @@ fn comparison_allows_file_additions_and_detects_equal_metric_content_changes() {
     let base: Value = serde_json::from_str(&fs::read_to_string(base_path).unwrap()).unwrap();
     let mut changed = base.clone();
     changed["files"][0]["content_fingerprint"] = Value::String("f".repeat(64));
+    changed["compare_index"]["files"][0]["content_fingerprint"] = Value::String("f".repeat(64));
     let changed_path = repository.path().join("equal-metrics-changed-content.json");
     fs::write(&changed_path, serde_json::to_vec(&changed).unwrap()).unwrap();
     let comparison = cargo_bin_cmd!("git-slop")
@@ -424,6 +477,14 @@ fn unborn_repository_reports_not_applicable_history() {
         report["evidence_completeness"]["history"],
         "not_applicable_unborn_repository"
     );
+    assert_eq!(
+        report["evidence_completeness"]["churn_window"],
+        "not_applicable"
+    );
+    assert_eq!(
+        report["evidence_completeness"]["author_evidence"],
+        "not_applicable"
+    );
 }
 
 #[cfg(unix)]
@@ -474,6 +535,6 @@ fn config_schema_uses_the_published_schemas_path() {
     let schema: Value = serde_json::from_slice(&output.stdout).expect("json");
     assert_eq!(
         schema["$id"],
-        "https://github.com/coreycoto/git-slop/blob/main/schemas/config-2.json"
+        "https://github.com/coreycoto/git-slop/blob/v0.11.3/schemas/config-2.json"
     );
 }

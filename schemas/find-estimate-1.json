@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.3/schemas/find-estimate-1.json",
+  "title": "Git Slop find estimate schema 1",
+  "type": "object",
+  "required": ["schema_version", "command", "scope", "estimate"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "command": {"const": "find estimate"},
+    "scope": {"type": ["string", "null"]},
+    "estimate": {"$ref": "#/$defs/estimate"}
+  },
+  "$defs": {
+    "estimate": {
+      "type": "object",
+      "required": ["tracked_path_count", "inventory_bytes", "estimated_peak_memory_bytes", "estimated_peak_memory_low_bytes", "estimated_peak_memory_high_bytes", "runtime_overhead_bytes", "confidence", "memory_budget_bytes", "estimated_cache_bytes", "estimated_report_bytes", "estimated_inode_count", "estimated_seconds", "estimated_history_commit_count", "path_breadth", "dominant_subsystem", "symlink_count"],
+      "properties": {
+        "tracked_path_count": {"type": "integer", "minimum": 0},
+        "inventory_bytes": {"type": "integer", "minimum": 0},
+        "estimated_peak_memory_bytes": {"type": "integer", "minimum": 0},
+        "estimated_peak_memory_low_bytes": {"type": "integer", "minimum": 0},
+        "estimated_peak_memory_high_bytes": {"type": "integer", "minimum": 0},
+        "runtime_overhead_bytes": {"type": "integer", "minimum": 0},
+        "confidence": {"enum": ["low", "moderate", "calibrated_heuristic"]},
+        "memory_budget_bytes": {"type": "integer", "minimum": 0},
+        "estimated_cache_bytes": {"type": "integer", "minimum": 0},
+        "estimated_report_bytes": {"type": "integer", "minimum": 0},
+        "estimated_inode_count": {"type": "integer", "minimum": 0},
+        "estimated_seconds": {"type": "integer", "minimum": 0},
+        "estimated_history_commit_count": {"type": "integer", "minimum": 0},
+        "path_breadth": {"type": "integer", "minimum": 0},
+        "dominant_subsystem": {"type": ["string", "null"]},
+        "symlink_count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

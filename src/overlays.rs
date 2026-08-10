@@ -23,9 +23,14 @@ use folders::folder_overlay_map;
 use relationships::build_relationships;
 
 fn language_common_term(term: &str) -> bool {
+    if term.len() <= 2 {
+        return true;
+    }
     matches!(
         term,
-        "let"
+        "arg"
+            | "args"
+            | "let"
             | "if"
             | "else"
             | "for"
@@ -59,6 +64,24 @@ fn language_common_term(term: &str) -> bool {
             | "var"
             | "import"
             | "export"
+            | "value"
+            | "values"
+            | "text"
+            | "item"
+            | "items"
+            | "data"
+            | "get"
+            | "set"
+            | "new"
+            | "default"
+            | "error"
+            | "ok"
+            | "map"
+            | "iter"
+            | "type"
+            | "name"
+            | "object"
+            | "array"
     )
 }
 
@@ -139,7 +162,13 @@ pub fn analyze(
     let test_markers = pointer_strings(config, "/verification/test_path_markers");
     let configured_test_path = |path: &str| {
         let lower = path.to_ascii_lowercase();
+        let name = lower.rsplit('/').next().unwrap_or(&lower);
         is_test_path(path)
+            || lower.starts_with(".github/workflows/")
+            || ((lower.starts_with("scripts/") || lower.contains("/scripts/"))
+                && ["test", "check", "validate", "verify", "ci"]
+                    .iter()
+                    .any(|marker| name.contains(marker)))
             || test_markers
                 .iter()
                 .any(|marker| lower.contains(&marker.to_ascii_lowercase()))
@@ -403,11 +432,21 @@ pub fn analyze(
             (drift_term_weight / total_term_weight).min(1.0)
         };
         let drift_term_count = drift_terms.len();
+        let ambiguous_term_ratio = file
+            .top_structural_terms
+            .iter()
+            .filter(|term| term_documents.get(*term).copied().unwrap_or_default() > 1)
+            .count() as f64
+            / file.top_structural_terms.len().max(1) as f64;
+        let navigation_term_dispersion =
+            (search_ambiguity * 0.6 + ambiguous_term_ratio * 0.4).min(1.0);
 
-        let related_relationship_ids = relationship_ids
+        let relationship_references = relationship_ids
             .get(&file.path)
             .cloned()
             .unwrap_or_default();
+        let related_relationship_ids = relationship_references.ids.clone();
+        let retained_relationship_count = related_relationship_ids.len();
         let top_duplicate_relationship_ids: Vec<String> = related_relationship_ids
             .iter()
             .filter(|id| {
@@ -435,6 +474,11 @@ pub fn analyze(
             "top_duplicate_relationship_ids": top_duplicate_relationship_ids,
             "top_coupling_relationship_ids": top_coupling_relationship_ids,
             "relationship_ids": related_relationship_ids,
+            "relationship_reference_counts": {
+                "raw": relationship_references.raw_count,
+                "retained": retained_relationship_count,
+                "suppressed": relationship_references.suppressed_count
+            },
             "cluster_ids": cluster_ids.get(&file.path).cloned().unwrap_or_default()
         });
         let folder = immediate_parent(&file.path);
@@ -480,7 +524,17 @@ pub fn analyze(
             "verification": {
                 "path": file.path,
                 "applicability": verification_applicability,
-                "evidence_status": if verification_applicability == "applicable" { "measured" } else { "not_applicable" },
+                "evidence_status": if verification_applicability != "applicable" {
+                    "not_applicable"
+                } else if file.analysis_status != "analyzed" {
+                    "evidence_unavailable"
+                } else if file.has_inline_tests || !nearby_tests.is_empty() || test_cochange_ratio > 0.0 {
+                    "evidence_found"
+                } else if test_paths.is_empty() {
+                    "no_mapping"
+                } else {
+                    "no_evidence"
+                },
                 "test_adjacency_score": round6(test_adjacency),
                 "inline_tests_detected": file.has_inline_tests,
                 "nearby_test_paths": nearby_tests,
@@ -495,7 +549,7 @@ pub fn analyze(
                 "sibling_count": sibling_count,
                 "folder_width": sibling_count,
                 "search_ambiguity": round6(search_ambiguity),
-                "term_dispersion": round6(semantic_drift_pressure),
+                "term_dispersion": round6(navigation_term_dispersion),
                 "top_distinctive_terms": distinctive_terms,
                 "duplicate_name_count": duplicate_name_count,
                 "navigation_pressure": round6(navigation_pressure)
@@ -542,7 +596,12 @@ pub fn analyze(
         if let Some(item) = structural.as_object_mut() {
             item.insert("path".into(), json!(file.path));
         }
-        top_structural_files.push(structural.clone());
+        let structural_supported = file.tokens >= 128
+            && (file.revisions_window >= 2 || retained_relationship_count >= 2)
+            && matches!(file.classification.as_str(), "source" | "tool");
+        if structural_supported {
+            top_structural_files.push(structural.clone());
+        }
         file_overlays.insert(file.path.clone(), structural);
     }
     top_structural_files.sort_by(|left, right| {

@@ -673,6 +673,32 @@ fn health_github_preserves_error_warning_and_notice_severity() {
 }
 
 #[test]
+fn check_github_escapes_hostile_tracked_paths_as_one_command() {
+    let mut report = health_report();
+    report["files"][0]["path"] = json!("src/hostile.rs\n::warning file=owned.rs::owned:message,%");
+    let report = write_report(&report);
+    let output = cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .args([
+            "check",
+            "--report",
+            report.path().to_str().expect("report path"),
+            "--format",
+            "github",
+        ])
+        .output()
+        .expect("run check GitHub renderer");
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8(output.stdout).expect("GitHub annotations are UTF-8");
+    let annotations = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(annotations.len(), 1);
+    assert_eq!(
+        annotations[0],
+        "::error file=src/hostile.rs%0A%3A%3Awarning file=owned.rs%3A%3Aowned%3Amessage%2C%25::Git Slop context=critical slop=critical score=88.0"
+    );
+}
+
+#[test]
 fn health_json_derives_the_persisted_contract_for_explicit_legacy_reports() {
     let report = write_report(&health_report());
     let output = cargo_bin_cmd!("git-slop")

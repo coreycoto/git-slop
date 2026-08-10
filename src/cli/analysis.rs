@@ -1,0 +1,186 @@
+fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
+    if args.estimate_only {
+        let config = config::load(repo_root)?;
+        let scope = args
+            .scope
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != ".");
+        let paths = git::list_tracked_files(repo_root)?
+            .into_iter()
+            .filter(|path| {
+                scope.is_none_or(|scope| path == scope || path.starts_with(&format!("{scope}/")))
+            })
+            .collect::<Vec<_>>();
+        let payload = json!({
+            "schema_version": 1,
+            "command": "find estimate",
+            "scope": scope,
+            "estimate": crate::estimate::build(repo_root, &paths, &config)
+        });
+        print_text(&render_json(&payload)?);
+        return Ok(0);
+    }
+    let as_of = args
+        .as_of
+        .as_deref()
+        .map(chrono::DateTime::parse_from_rfc3339)
+        .transpose()
+        .context("--as-of must be an RFC 3339 timestamp")?
+        .map(|value| value.with_timezone(&chrono::Utc));
+    let result = analyze::run_find_with_options(
+        repo_root,
+        &analyze::FindOptions {
+            allow_shallow: args.allow_shallow,
+            scope: args.scope,
+            progress: !args.quiet && !args.no_progress && std::io::stderr().is_terminal(),
+            allow_empty_scope: args.allow_empty_scope,
+            state_dir: args.state_dir,
+            output_dir: args.output_dir,
+            no_cache: args.no_cache,
+            allow_degraded: args.allow_degraded,
+            as_of,
+            report_profile: args.report_profile.as_str().to_string(),
+            compression: args.compression.as_str().to_string(),
+        },
+    )?;
+    if args.quiet {
+        return Ok(0);
+    }
+    print_text(&result.terminal);
+    println!("Wrote report to {}.", result.report_json.display());
+    if result.report_yaml.exists() {
+        println!("Wrote YAML report to {}.", result.report_yaml.display());
+    }
+    println!("Wrote summary to {}.", result.summary_md.display());
+    println!(
+        "Wrote repository health summary to {}.",
+        result.health_md.display()
+    );
+    if let Some(path) = result.compressed_report {
+        println!("Wrote compressed report to {}.", path.display());
+    }
+    Ok(0)
+}
+
+fn run_show(repo_root: &Path, args: ShowArgs) -> Result<i32> {
+    let (loaded, report_path) = report_or_missing(repo_root, args.report.as_deref())?;
+    let target = selector_path(repo_root, &args.target_path);
+    let Some(payload) = show_payload(&loaded, &target) else {
+        return Err(ClassifiedError::new(
+            ErrorKind::Contract,
+            "selector_not_found",
+            format!(
+                "No record found for '{}' in {}.",
+                args.target_path,
+                report_path.display()
+            ),
+        )
+        .at("/target_path")
+        .with_details(json!({"selector": args.target_path, "report": report_path}))
+        .into());
+    };
+    match args.format {
+        DisplayFormat::Json => print_text(&render_json(&payload)?),
+        DisplayFormat::Text => print_text(&render_show_text(&payload)),
+        DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
+    }
+    Ok(0)
+}
+
+fn explain_selector(args: &ExplainArgs, repo_root: &Path) -> Result<ExplainSelector> {
+    if let Some(path) = &args.path {
+        Ok(ExplainSelector::Path(selector_path(repo_root, path)))
+    } else if let Some(id) = &args.cluster {
+        Ok(ExplainSelector::Cluster(id.clone()))
+    } else if let Some(id) = &args.relationship {
+        Ok(ExplainSelector::Relationship(id.clone()))
+    } else {
+        let count = args.top.unwrap_or(5);
+        match usize::try_from(count).ok().filter(|count| *count > 0) {
+            Some(count) => Ok(ExplainSelector::Top(count)),
+            None => Err(ClassifiedError::new(
+                ErrorKind::Contract,
+                "invalid_argument",
+                "--top must be greater than zero",
+            )
+            .at("/top")
+            .into()),
+        }
+    }
+}
+
+fn run_explain(repo_root: &Path, args: ExplainArgs) -> Result<i32> {
+    if args.include_repository_context && !(256..=4096).contains(&args.excerpt_bytes) {
+        return usage_error("--excerpt-bytes must be between 256 and 4096");
+    }
+    let (loaded, _) = report_or_missing(repo_root, args.report.as_deref())?;
+    let selector = explain_selector(&args, repo_root)?;
+    let payload = match explain_payload(&loaded, Some(selector)) {
+        Ok(payload) => payload,
+        Err(error) => return usage_error(error),
+    };
+    if let Some(output_dir) = args.prompt_pack.as_deref() {
+        ensure_prompt_pack_target(output_dir)?;
+        write_prompt_pack(
+            "explain",
+            &payload,
+            &loaded,
+            output_dir,
+            args.include_repository_context.then_some(repo_root),
+            args.excerpt_bytes,
+            args.force,
+        )?;
+    }
+    match args.format {
+        DisplayFormat::Json => print_text(&render_json(&payload)?),
+        DisplayFormat::Text => print_text(&render_explain_text(&payload)),
+        DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
+    }
+    Ok(0)
+}
+
+fn plan_selector(args: &PlanArgs, repo_root: &Path) -> PlanSelector {
+    if let Some(path) = &args.path {
+        PlanSelector::Path(selector_path(repo_root, path))
+    } else if let Some(id) = &args.cluster {
+        PlanSelector::Cluster(id.clone())
+    } else {
+        PlanSelector::Relationship(args.relationship.clone().unwrap_or_default())
+    }
+}
+
+fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
+    if args.include_repository_context && !(256..=4096).contains(&args.excerpt_bytes) {
+        return usage_error("--excerpt-bytes must be between 256 and 4096");
+    }
+    let (loaded, _) = report_or_missing(repo_root, args.report.as_deref())?;
+    let Some(max_slices) = usize::try_from(args.max_slices)
+        .ok()
+        .filter(|count| *count > 0)
+    else {
+        return usage_error("--max-slices must be greater than zero");
+    };
+    let payload = match plan_payload(&loaded, plan_selector(&args, repo_root), max_slices) {
+        Ok(payload) => payload,
+        Err(error) => return usage_error(error),
+    };
+    if let Some(output_dir) = args.prompt_pack.as_deref() {
+        ensure_prompt_pack_target(output_dir)?;
+        write_prompt_pack(
+            "plan",
+            &payload,
+            &loaded,
+            output_dir,
+            args.include_repository_context.then_some(repo_root),
+            args.excerpt_bytes,
+            args.force,
+        )?;
+    }
+    match args.format {
+        DisplayFormat::Json => print_text(&render_json(&payload)?),
+        DisplayFormat::Text => print_text(&render_plan_text(&payload)),
+        DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
+    }
+    Ok(0)
+}

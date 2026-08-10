@@ -1,0 +1,75 @@
+  candidate-distribution:
+    name: Validate candidate manifest and Formula
+    needs: [candidate, candidate-targets]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.candidate.outputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.1
+
+      - name: Download candidate provenance
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: source-package
+          path: candidate
+
+      - name: Download candidate archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: candidate-*
+          path: candidate-dist
+          merge-multiple: true
+
+      - name: Dry-run release manifest and crates-backed Formula
+        shell: bash
+        env:
+          VERSION: ${{ needs.candidate.outputs.version }}
+          TAG: ${{ needs.candidate.outputs.tag }}
+          REVISION: ${{ needs.candidate.outputs.revision }}
+          EXPECTED_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(sha256sum "candidate/git-slop-${VERSION}.crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
+          if ! git rev-parse --verify "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
+            git \
+              -c user.name="git-slop release validation" \
+              -c user.email="git-slop-release-validation@users.noreply.github.com" \
+              tag -a -m "Git Slop ${TAG}" "$TAG" "$REVISION"
+          fi
+          test "$(git rev-parse "refs/tags/${TAG}^{commit}")" = "$REVISION"
+          cargo xtask release-manifest \
+            --dist-dir candidate-dist \
+            --crate-source candidate/crate-source.json \
+            --output candidate-dist/release-manifest.json \
+            --checksum-output candidate-dist/SHA256SUMS \
+            --tag "$TAG"
+          cargo xtask homebrew-formula \
+            --manifest candidate-dist/release-manifest.json \
+            --formula candidate-dist/git-slop.rb
+          cargo xtask sbom --output-dir candidate-dist
+          cargo xtask release-manifest \
+            --dist-dir candidate-dist \
+            --crate-source candidate/crate-source.json \
+            --output candidate-dist/release-manifest.json \
+            --checksum-output candidate-dist/SHA256SUMS \
+            --tag "$TAG"
+          (cd candidate-dist && sha256sum --check SHA256SUMS)
+          test "$(wc -l < candidate-dist/SHA256SUMS | tr -d ' ')" = "11"
+
+      - name: Upload candidate Formula for Homebrew audit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: candidate-homebrew-formula
+          path: candidate-dist/git-slop.rb
+          if-no-files-found: error
+          retention-days: 1

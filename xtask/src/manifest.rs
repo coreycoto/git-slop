@@ -15,6 +15,15 @@ pub const PROJECT_NAME: &str = "git-slop";
 pub const REPO_FULL_NAME: &str = "coreycoto/git-slop";
 pub const MANIFEST_SCHEMA_VERSION: u32 = 3;
 pub const CHECKSUM_FILE_NAME: &str = "SHA256SUMS";
+pub const SUPPLEMENTAL_RELEASE_ASSETS: [(&str, &str, &str); 3] = [
+    ("git-slop.rb", "homebrew_formula", "text/x-ruby"),
+    (
+        "git-slop.cdx.json",
+        "cyclonedx_sbom",
+        "application/vnd.cyclonedx+json",
+    ),
+    ("git-slop.spdx.json", "spdx_sbom", "application/spdx+json"),
+];
 /// Public Action download and manifest limit for every native release archive.
 pub const MAX_RELEASE_ARTIFACT_BYTES: u64 = 128 * 1024 * 1024;
 
@@ -226,6 +235,20 @@ pub struct ReleaseArtifact {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct SupplementalReleaseAsset {
+    pub name: String,
+    pub path: String,
+    pub role: String,
+    pub media_type: String,
+    pub required: bool,
+    pub contract_version: u32,
+    pub sha256: String,
+    pub size_bytes: u64,
+    pub url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChecksumMetadata {
     pub algorithm: String,
     pub name: String,
@@ -250,6 +273,8 @@ pub struct ReleaseManifest {
     pub repository: String,
     pub crate_source: CrateSource,
     pub artifacts: Vec<ReleaseArtifact>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supplemental_assets: Vec<SupplementalReleaseAsset>,
     pub checksums: ChecksumMetadata,
     pub install: InstallInstructions,
 }
@@ -270,6 +295,7 @@ impl ReleaseManifest {
             repository: identity.repository,
             crate_source: identity.crate_source,
             artifacts,
+            supplemental_assets: Vec::new(),
             checksums,
             install,
         }
@@ -350,6 +376,36 @@ impl ReleaseManifest {
             }
             if artifact.url != format!("{release_url}/{name}") {
                 bail!("release artifact {name} URL does not match the release identity");
+            }
+        }
+        if !self.supplemental_assets.is_empty() {
+            if self.supplemental_assets.len() != SUPPLEMENTAL_RELEASE_ASSETS.len() {
+                bail!(
+                    "release manifest supplemental asset inventory must contain exactly {} entries",
+                    SUPPLEMENTAL_RELEASE_ASSETS.len()
+                );
+            }
+            let mut names = BTreeSet::new();
+            for (name, role, media_type) in SUPPLEMENTAL_RELEASE_ASSETS {
+                let asset = self
+                    .supplemental_assets
+                    .iter()
+                    .find(|asset| asset.name == name)
+                    .ok_or_else(|| {
+                        anyhow!("release manifest is missing supplemental asset {name}")
+                    })?;
+                if !names.insert(asset.name.as_str())
+                    || asset.path != name
+                    || asset.role != role
+                    || asset.media_type != media_type
+                    || !asset.required
+                    || asset.contract_version != 1
+                    || !is_sha256(&asset.sha256)
+                    || asset.size_bytes == 0
+                    || asset.url != format!("{release_url}/{name}")
+                {
+                    bail!("release manifest supplemental asset {name} has invalid metadata");
+                }
             }
         }
         let expected_checksums = ChecksumMetadata {
@@ -512,7 +568,7 @@ pub fn build_manifest_with_runner(
     }
     let release_url =
         format!("https://github.com/{REPO_FULL_NAME}/releases/download/{release_tag}");
-    let manifest = ReleaseManifest::new(
+    let mut manifest = ReleaseManifest::new(
         ReleaseIdentity::new(version, &release_tag, revision, crate_source.clone()),
         artifacts,
         ChecksumMetadata {
@@ -522,8 +578,48 @@ pub fn build_manifest_with_runner(
         },
         install_instructions(&release_tag),
     );
+    manifest.supplemental_assets = supplemental_release_assets(dist_dir, &release_url)?;
     manifest.validate()?;
     Ok(manifest)
+}
+
+fn supplemental_release_assets(
+    dist_dir: &Path,
+    release_url: &str,
+) -> Result<Vec<SupplementalReleaseAsset>> {
+    let present = SUPPLEMENTAL_RELEASE_ASSETS
+        .iter()
+        .filter(|(name, _, _)| dist_dir.join(name).is_file())
+        .count();
+    if present == 0 {
+        return Ok(Vec::new());
+    }
+    if present != SUPPLEMENTAL_RELEASE_ASSETS.len() {
+        bail!("supplemental release assets must be generated as one complete set");
+    }
+    SUPPLEMENTAL_RELEASE_ASSETS
+        .into_iter()
+        .map(|(name, role, media_type)| {
+            let path = dist_dir.join(name);
+            let size_bytes = fs::metadata(&path)
+                .with_context(|| format!("unable to inspect {}", path.display()))?
+                .len();
+            if size_bytes == 0 {
+                bail!("supplemental release asset {name} must not be empty");
+            }
+            Ok(SupplementalReleaseAsset {
+                name: name.to_owned(),
+                path: name.to_owned(),
+                role: role.to_owned(),
+                media_type: media_type.to_owned(),
+                required: true,
+                contract_version: 1,
+                sha256: sha256_file(&path)?,
+                size_bytes,
+                url: format!("{release_url}/{name}"),
+            })
+        })
+        .collect()
 }
 
 fn release_artifacts(dist_dir: &Path, tag: &str) -> Result<Vec<ReleaseArtifact>> {
@@ -625,12 +721,18 @@ pub fn checksum_lines(artifacts: &[ReleaseArtifact]) -> String {
 
 pub fn checksum_lines_with_manifest(
     artifacts: &[ReleaseArtifact],
+    supplemental_assets: &[SupplementalReleaseAsset],
     manifest_name: &str,
     manifest_sha256: &str,
 ) -> String {
     let mut lines = artifacts
         .iter()
         .map(|artifact| (artifact.name.as_str(), artifact.sha256.as_str()))
+        .chain(
+            supplemental_assets
+                .iter()
+                .map(|artifact| (artifact.name.as_str(), artifact.sha256.as_str())),
+        )
         .chain(std::iter::once((manifest_name, manifest_sha256)))
         .map(|(name, digest)| format!("{digest}  {name}\n"))
         .collect::<Vec<_>>();
@@ -685,7 +787,12 @@ pub fn write_manifest_outputs(
     let manifest_sha256 = sha256_file(&output)?;
     fs::write(
         &checksum_output,
-        checksum_lines_with_manifest(&manifest.artifacts, manifest_name, &manifest_sha256),
+        checksum_lines_with_manifest(
+            &manifest.artifacts,
+            &manifest.supplemental_assets,
+            manifest_name,
+            &manifest_sha256,
+        ),
     )
     .with_context(|| format!("unable to write {}", checksum_output.display()))?;
     Ok(ManifestOutputPaths {
@@ -866,6 +973,54 @@ mod tests {
             include_str!("../tests/fixtures/release-manifest-v0.9.0.json")
         );
         assert_eq!(json, render_manifest_json(&manifest)?);
+        Ok(())
+    }
+
+    #[test]
+    fn supplemental_asset_roles_drive_the_complete_published_inventory() -> Result<()> {
+        let (temp, dist) = fixture()?;
+        for (name, _, _) in SUPPLEMENTAL_RELEASE_ASSETS {
+            fs::write(dist.join(name), format!("fixture for {name}\n"))?;
+        }
+        let mut runner = FakeRunner {
+            outputs: VecDeque::from(["a".repeat(40)]),
+            ..FakeRunner::default()
+        };
+        let manifest = build_manifest_with_runner(
+            temp.path(),
+            &dist,
+            &crate_source(),
+            Some("v0.9.0"),
+            &mut runner,
+        )?;
+
+        assert_eq!(
+            manifest
+                .supplemental_assets
+                .iter()
+                .map(|asset| asset.role.as_str())
+                .collect::<Vec<_>>(),
+            vec!["homebrew_formula", "cyclonedx_sbom", "spdx_sbom"]
+        );
+        assert!(
+            manifest
+                .supplemental_assets
+                .iter()
+                .all(|asset| asset.required && asset.contract_version == 1)
+        );
+        let rendered = render_manifest_json(&manifest)?;
+        let output = temp.path().join("dist/release-manifest.json");
+        fs::write(&output, &rendered)?;
+        let checksums = checksum_lines_with_manifest(
+            &manifest.artifacts,
+            &manifest.supplemental_assets,
+            "release-manifest.json",
+            &sha256_file(&output)?,
+        );
+        assert_eq!(checksums.lines().count(), 11);
+        for (name, _, _) in SUPPLEMENTAL_RELEASE_ASSETS {
+            assert!(checksums.lines().any(|line| line.ends_with(name)));
+        }
         Ok(())
     }
 

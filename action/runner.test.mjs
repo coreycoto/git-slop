@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   writeFileSync,
 } from "node:fs";
@@ -12,6 +13,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+
+import { isolatedActionEnvironment } from "./test-environment.mjs";
 
 const actionDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(actionDirectory, "..");
@@ -91,10 +94,7 @@ process.exit(2);
 function run(command, environment) {
   return spawnSync(process.execPath, [runner, command], {
     encoding: "utf8",
-    env: {
-      ...process.env,
-      ...environment,
-    },
+    env: isolatedActionEnvironment(environment),
   });
 }
 
@@ -199,6 +199,7 @@ test("baseline enforcement uses the native comparator and fails only on regressi
     GIT_SLOP_WORKING_DIRECTORY: ".",
     GIT_SLOP_BASELINE_REPORT: baseline,
     GIT_SLOP_ENFORCEMENT: "regression",
+    GIT_SLOP_REQUIRE_BASELINE_ANCESTOR: "false",
   });
   assert.equal(analysis.status, 0, analysis.stderr);
   const values = outputs(state.output);
@@ -367,7 +368,15 @@ test("publication failure is reflected in final status", () => {
 
 test("metadata and installer pin bounded secure defaults and supported targets", () => {
   const metadata = readFileSync(join(repositoryRoot, "action.yml"), "utf8");
-  const installer = readFileSync(join(actionDirectory, "install.mjs"), "utf8");
+  const installer = [
+    join(actionDirectory, "install.mjs"),
+    ...readdirSync(join(actionDirectory, "install"), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".mjs"))
+      .map((entry) => join(actionDirectory, "install", entry.name))
+      .sort(),
+  ]
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
   assert.match(metadata, /default: advisory/u);
   assert.match(metadata, /default: summary/u);
   assert.match(metadata, /default: "14"/u);

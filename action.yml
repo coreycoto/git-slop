@@ -10,7 +10,7 @@ inputs:
   version:
     description: Git Slop release version to install, with or without a leading v.
     required: false
-    default: "0.11.1"
+    default: "0.11.3"
   release-repository:
     description: GitHub repository that owns the versioned release assets.
     required: false
@@ -31,6 +31,18 @@ inputs:
     description: Optional repo-relative monorepo scope; Git evidence remains repository-wide.
     required: false
     default: ""
+  report-profile:
+    description: Report detail profile. Compact remains comparison-safe through its exhaustive index; full-evidence retains all evidence detail.
+    required: false
+    default: standard
+  compression:
+    description: Optional report compression written alongside report.json (none, gzip, or zstd).
+    required: false
+    default: none
+  token-cache:
+    description: Persist the content-addressed token cache between trusted workflow runs.
+    required: false
+    default: "false"
   baseline-report:
     description: Optional base report.json used to emit only new or worsened pull-request findings.
     required: false
@@ -59,6 +71,10 @@ inputs:
     description: Reject a baseline report older than this many days.
     required: false
     default: "30"
+  require-baseline-ancestor:
+    description: Require the baseline revision to be an ancestor of the head for regression enforcement; baseline-force is the explicit escape hatch.
+    required: false
+    default: "true"
   fail-on-context-band:
     description: Optional context-band override passed to git-slop check when policy is enforce.
     required: false
@@ -121,6 +137,9 @@ outputs:
   release-manifest-sha256:
     description: Verified SHA-256 digest of release-manifest.json.
     value: ${{ steps.install.outputs.release-manifest-sha256 }}
+  cache-hit:
+    description: Whether the verified binary was reused from RUNNER_TOOL_CACHE.
+    value: ${{ steps.install.outputs.cache-hit }}
   analysis-exit-code:
     description: Exit code from the one git-slop find invocation.
     value: ${{ steps.analyze.outputs.analysis-exit-code }}
@@ -128,17 +147,20 @@ outputs:
     description: Exit code from git-slop check, or zero in advisory mode.
     value: ${{ steps.finalize.outputs.policy-exit-code }}
   finding-count:
-    description: Deprecated alias for policy-finding-count.
+    description: Deprecated alias for selected-policy-finding-count.
     value: ${{ steps.analyze.outputs.finding-count }}
   health-finding-count:
     description: Uncapped actionable health findings in the head report.
     value: ${{ steps.analyze.outputs.health-finding-count }}
   policy-finding-count:
-    description: Findings relevant to the selected absolute or regression policy.
+    description: Deprecated alias for selected-policy-finding-count.
     value: ${{ steps.analyze.outputs.policy-finding-count }}
   absolute-finding-count:
-    description: Uncapped actionable finding count in the head report.
+    description: Findings from the absolute head policy gate after configured thresholds.
     value: ${{ steps.analyze.outputs.absolute-finding-count }}
+  selected-policy-finding-count:
+    description: Findings selected by enforcement mode (absolute-policy findings or regressions).
+    value: ${{ steps.analyze.outputs.selected-policy-finding-count }}
   regression-count:
     description: Native comparator regression count when baseline-report is supplied.
     value: ${{ steps.analyze.outputs.regression-count }}
@@ -146,7 +168,7 @@ outputs:
     description: Deprecated boolean compatibility alias; prefer baseline-status.
     value: ${{ steps.analyze.outputs.baseline-compatible }}
   baseline-status:
-    description: Baseline state (not_evaluated, compatible, forced, incompatible, or error).
+    description: Baseline state (not_evaluated, compatible, forced_incompatible, incompatible, or error).
     value: ${{ steps.analyze.outputs.baseline-status }}
   comparison-path:
     description: Versioned native comparison JSON path when baseline-report is supplied.
@@ -196,6 +218,14 @@ runs:
         GIT_SLOP_GITHUB_TOKEN: ${{ inputs.github-token || github.token }}
       run: node "${{ github.action_path }}/action/install.mjs"
 
+    - name: Restore optional token cache
+      id: token-cache
+      if: ${{ inputs.token-cache == 'true' }}
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ${{ runner.temp }}/git-slop-action/state/cache
+        key: git-slop-token-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
+
     - name: Analyze repository and publish job summary
       id: analyze
       if: ${{ always() }}
@@ -205,6 +235,9 @@ runs:
         GIT_SLOP_INSTALL_OUTCOME: ${{ steps.install.outcome }}
         GIT_SLOP_WORKING_DIRECTORY: ${{ inputs.working-directory }}
         GIT_SLOP_SCOPE: ${{ inputs.scope }}
+        GIT_SLOP_REPORT_PROFILE: ${{ inputs.report-profile }}
+        GIT_SLOP_COMPRESSION: ${{ inputs.compression }}
+        GIT_SLOP_TOKEN_CACHE: ${{ inputs.token-cache }}
         GIT_SLOP_BASELINE_REPORT: ${{ inputs.baseline-report }}
         GIT_SLOP_BASELINE_REF: ${{ inputs.baseline-ref }}
         GIT_SLOP_ALLOW_SHALLOW: ${{ inputs.allow-shallow }}
@@ -212,6 +245,7 @@ runs:
         GIT_SLOP_ENFORCEMENT: ${{ inputs.enforcement }}
         GIT_SLOP_BASELINE_FORCE: ${{ inputs.baseline-force }}
         GIT_SLOP_MAX_BASELINE_AGE_DAYS: ${{ inputs.max-baseline-age-days }}
+        GIT_SLOP_REQUIRE_BASELINE_ANCESTOR: ${{ inputs.require-baseline-ancestor }}
         GIT_SLOP_FAIL_ON_CONTEXT_BAND: ${{ inputs.fail-on-context-band }}
         GIT_SLOP_FAIL_ON_SLOP_BAND: ${{ inputs.fail-on-slop-band }}
         GIT_SLOP_ANNOTATIONS: ${{ inputs.annotations }}
@@ -221,6 +255,13 @@ runs:
         GIT_SLOP_RETENTION_DAYS: ${{ inputs.retention-days }}
         GIT_SLOP_PR_COMMENT: ${{ inputs.pr-comment }}
       run: node "${{ github.action_path }}/action/runner.mjs" analyze
+
+    - name: Save optional token cache
+      if: ${{ always() && inputs.token-cache == 'true' && steps.analyze.outputs.analysis-exit-code == '0' && steps.token-cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: ${{ runner.temp }}/git-slop-action/state/cache
+        key: git-slop-token-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
 
     - name: Emit bounded repository-health annotations
       id: annotate
@@ -247,6 +288,7 @@ runs:
         GIT_SLOP_REPORT_YAML_PATH: ${{ steps.analyze.outputs.report-yaml-path }}
         GIT_SLOP_SUMMARY_PATH: ${{ steps.analyze.outputs.summary-path }}
         GIT_SLOP_COMPARISON_PATH: ${{ steps.analyze.outputs.comparison-path }}
+        GIT_SLOP_COMPARISON_ERROR_PATH: ${{ steps.analyze.outputs.comparison-error-path }}
       run: node "${{ github.action_path }}/action/runner.mjs" artifacts
 
     - name: Upload bounded Git Slop artifact
@@ -270,25 +312,45 @@ runs:
       uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
       env:
         GIT_SLOP_HEALTH_PATH: ${{ steps.analyze.outputs.health-path }}
+        GIT_SLOP_COMPARISON_PATH: ${{ steps.analyze.outputs.comparison-path }}
+        GIT_SLOP_COMPARISON_ERROR_PATH: ${{ steps.analyze.outputs.comparison-error-path }}
       with:
         github-token: ${{ inputs.github-token || github.token }}
         script: |
           const fs = require("fs");
           const marker = "<!-- git-slop-repository-health -->";
           const report = fs.readFileSync(process.env.GIT_SLOP_HEALTH_PATH, "utf8");
+          let baseline = "\n\n## Regression baseline\n\nNo baseline comparison was requested.";
+          if (process.env.GIT_SLOP_COMPARISON_PATH && fs.existsSync(process.env.GIT_SLOP_COMPARISON_PATH)) {
+            const comparison = JSON.parse(fs.readFileSync(process.env.GIT_SLOP_COMPARISON_PATH, "utf8"));
+            baseline = `\n\n## Regression baseline\n\n- regressions: **${comparison.summary?.regression_count ?? 0}**\n- status: **${comparison.baseline_status ?? "unknown"}**\n\nThe repository-health section above is the absolute head state; this section reports only baseline movement.`;
+          } else if (process.env.GIT_SLOP_COMPARISON_ERROR_PATH && fs.existsSync(process.env.GIT_SLOP_COMPARISON_ERROR_PATH)) {
+            baseline = "\n\n## Regression baseline\n\n> [!WARNING]\n> Baseline comparison failed. The absolute head health above remains valid; inspect the workflow artifact for the comparison diagnostic.";
+          }
           const maximumBodyLength = 60_000;
           const suffix = "\n\n_Report truncated in the pull request comment; use the job summary or artifact for the complete analysis._";
-          const available = maximumBodyLength - marker.length - suffix.length - 2;
-          const body = report.length > available
-            ? `${marker}\n${report.slice(0, available)}${suffix}`
-            : `${marker}\n${report}`;
+          const prefix = `${marker}\n`;
+          const utf8Prefix = (value, maximumBytes) => {
+            const bytes = Buffer.from(value, "utf8");
+            if (bytes.length <= maximumBytes) return value;
+            let end = maximumBytes;
+            while (end > 0 && (bytes[end] & 0xC0) === 0x80) end -= 1;
+            return bytes.subarray(0, end).toString("utf8");
+          };
+          const completeBody = `${prefix}${report}${baseline}`;
+          const available = maximumBodyLength - Buffer.byteLength(prefix) - Buffer.byteLength(suffix);
+          const body = Buffer.byteLength(completeBody) > maximumBodyLength
+            ? `${prefix}${utf8Prefix(`${report}${baseline}`, available)}${suffix}`
+            : completeBody;
           const comments = await github.paginate(github.rest.issues.listComments, {
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: context.issue.number,
             per_page: 100,
           });
-          const existing = comments.find((comment) => comment.body?.includes(marker));
+          const existing = comments.find((comment) =>
+            comment.user?.login === "github-actions[bot]" && comment.body?.includes(marker)
+          );
           const response = existing
             ? await github.rest.issues.updateComment({
                 owner: context.repo.owner,

@@ -79,6 +79,57 @@ fn item_by_path<'a>(items: &'a Value, path: &str) -> &'a Value {
 }
 
 #[test]
+fn check_folder_gate_and_detail_pagination_are_explicit() {
+    let report = fixture("local_repo_folder_report.json");
+    let file_only = command()
+        .args(["check", "--report"])
+        .arg(&report)
+        .args(["--format", "json"])
+        .output()
+        .expect("run file-only check");
+    assert_exit_code(&file_only, 1);
+    let file_only: Value = serde_json::from_slice(&file_only.stdout).unwrap();
+
+    let with_folders = command()
+        .args(["check", "--report"])
+        .arg(&report)
+        .args([
+            "--format",
+            "json",
+            "--include-folders",
+            "--details",
+            "--offset",
+            "1",
+            "--limit",
+            "2",
+        ])
+        .output()
+        .expect("run folder-aware paginated check");
+    assert_exit_code(&with_folders, 1);
+    let with_folders: Value = serde_json::from_slice(&with_folders.stdout).unwrap();
+    assert_eq!(file_only["gate_scope"], "files");
+    assert_eq!(with_folders["gate_scope"], "files_and_folders");
+    assert!(with_folders["finding_count"].as_u64() > file_only["finding_count"].as_u64());
+    assert_eq!(with_folders["collection"]["offset"], 1);
+    let expected_returned = with_folders["finding_count"]
+        .as_u64()
+        .unwrap()
+        .saturating_sub(1)
+        .min(2);
+    assert_eq!(
+        with_folders["collection"]["returned"].as_u64(),
+        Some(expected_returned)
+    );
+    assert!(
+        with_folders["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|finding| matches!(finding["record_type"].as_str(), Some("file" | "folder")))
+    );
+}
+
+#[test]
 fn compare_json_preserves_status_deltas_and_queue_movement() {
     let base = fixture("compare_base_report.json");
     let head = fixture("compare_head_report.json");
@@ -271,6 +322,70 @@ fn compare_reports_missing_invalid_and_incomplete_inputs_as_usage_errors() {
     assert!(
         String::from_utf8_lossy(&bad_top_output.stderr)
             .contains("--top must be greater than zero.")
+    );
+}
+
+#[test]
+fn compare_rejects_truncated_compact_and_degraded_inputs_even_with_force() {
+    let directory = TempDir::new().expect("temporary report directory");
+    let valid = load_fixture("compare_head_report.json");
+
+    let mut compact = load_fixture("compare_base_report.json");
+    compact["analyzer"] = json!({"report_profile": "compact"});
+    compact["collection_metadata"] = json!({
+        "files": {"total": 10, "returned": 3, "limit": 3, "truncated": true},
+        "folders": {"total": 1, "returned": 1, "limit": null, "truncated": false}
+    });
+    let compact_path = write_report(&directory, "compact.json", &compact);
+    let valid_path = write_report(&directory, "valid.json", &valid);
+    let compact_output = command()
+        .args(["compare", "--base"])
+        .arg(&compact_path)
+        .arg("--head")
+        .arg(&valid_path)
+        .args(["--force", "--fail-on-regression"])
+        .output()
+        .expect("run compact compare");
+    assert_exit_code(&compact_output, 2);
+    assert!(
+        String::from_utf8_lossy(&compact_output.stderr)
+            .contains("incomplete canonical files index")
+    );
+
+    let mut degraded = load_fixture("compare_base_report.json");
+    degraded["diagnostics"] = json!({
+        "analysis": {"analysis_status": "degraded_resource_budget"}
+    });
+    let degraded_path = write_report(&directory, "degraded.json", &degraded);
+    let degraded_output = command()
+        .args(["compare", "--base"])
+        .arg(&degraded_path)
+        .arg("--head")
+        .arg(&valid_path)
+        .arg("--force")
+        .output()
+        .expect("run degraded compare");
+    assert_exit_code(&degraded_output, 2);
+    assert!(
+        String::from_utf8_lossy(&degraded_output.stderr)
+            .contains("degraded_resource_budget and is not comparison-ready")
+    );
+
+    let mut shallow = load_fixture("compare_base_report.json");
+    shallow["evidence_completeness"] = json!({"history": "incomplete_shallow"});
+    let shallow_path = write_report(&directory, "shallow.json", &shallow);
+    let shallow_output = command()
+        .args(["compare", "--base"])
+        .arg(shallow_path)
+        .arg("--head")
+        .arg(valid_path)
+        .arg("--force")
+        .output()
+        .expect("run shallow compare");
+    assert_exit_code(&shallow_output, 2);
+    assert!(
+        String::from_utf8_lossy(&shallow_output.stderr)
+            .contains("evidence `history` is incomplete_shallow")
     );
 }
 

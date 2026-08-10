@@ -249,8 +249,8 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     let out_of_scope_paths = string_array(slice.get("out_of_scope_paths"));
     let relationship_ids = string_array(slice.get("supporting_relationship_ids"));
     let cluster_ids = string_array(slice.get("supporting_cluster_ids"));
-    let baseline_command = "cp .slop/latest/report.json .slop/plan-baseline.json";
-    let rerun_command = "git-slop find && git-slop compare --base .slop/plan-baseline.json --head .slop/latest/report.json --detail summary --fail-on-regression";
+    let baseline_command = "git-slop baseline create --name plan";
+    let rerun_command = "git-slop find && git-slop compare --baseline plan --head .slop/latest/report.json --detail summary --fail-on-regression";
     let top_score = string_array(slice.get("scope_paths"))
         .iter()
         .map(|path| record_slop_score(report, path))
@@ -261,6 +261,12 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         "Next"
     } else {
         "Later"
+    };
+    let target_score = (top_score - (top_score * 0.05).max(1.0)).max(0.0);
+    let plan_type = if top_score >= 40.0 || !relationship_ids.is_empty() {
+        "intervention"
+    } else {
+        "investigation"
     };
     let relationship_labels = relationship_ids
         .iter()
@@ -279,22 +285,14 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     let repository_paths = array_at(report, &["files"])
         .iter()
         .filter_map(|record| record.get("path").and_then(Value::as_str))
+        .map(str::to_owned)
         .collect::<BTreeSet<_>>();
-    let verification_commands = if repository_paths.contains("Cargo.toml") {
-        vec![
-            "cargo fmt --all -- --check",
-            "cargo clippy --all-targets --all-features -- -D warnings",
-            "cargo test --all-targets",
-        ]
-    } else if repository_paths.contains("go.mod") {
-        vec!["go test ./..."]
-    } else if repository_paths.contains("pyproject.toml") {
-        vec!["pytest"]
-    } else if repository_paths.contains("package.json") {
-        vec!["npm test"]
-    } else {
-        Vec::new()
-    };
+    let configured_commands = string_array(report.pointer("/config/verification/commands"));
+    let verification_commands = super::super::verification::from_report_paths(
+        &repository_paths,
+        &scope_paths,
+        &configured_commands,
+    );
     let verification_classes = scope_paths
         .iter()
         .filter_map(|path| {
@@ -321,7 +319,7 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         "evidence_summary": evidence_summary,
         "acceptance_criteria": [
             format!("Change no more than {scope_path_count} scoped paths unless the plan is regenerated."),
-            format!("Keep the highest scoped slop score at or below {top_score:.6}."),
+            format!("Reduce the highest scoped slop score from {top_score:.3} to at most {target_score:.3}."),
             "Produce zero native compare regressions and pass every discovered verification command.",
         ],
         "source": {
@@ -335,10 +333,11 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     object.insert(
         "objective".to_string(),
         json!(format!(
-            "Keep the highest scoped slop score at or below {top_score:.6} across {}, introduce zero native compare regressions, and pass every discovered verification command without expanding the reviewed scope.",
+            "Reduce the highest scoped slop score from {top_score:.3} to at most {target_score:.3} across {}, introduce zero native compare regressions, and pass every discovered verification command without expanding the reviewed scope.",
             render_limited(&scope_paths, 5)
         )),
     );
+    object.insert("plan_type".to_string(), json!(plan_type));
     object.insert("rationale".to_string(), json!(rationale));
     object.insert(
         "evidence".to_string(),
@@ -378,9 +377,10 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         json!({
             "maximum_scope_paths": scope_path_count,
             "baseline_top_slop_score": top_score,
+            "target_top_slop_score": target_score,
             "required": [
                 "No new native compare regression.",
-                "No increase in the highest scoped slop score.",
+                format!("Highest scoped slop score is at most {target_score:.3}."),
                 "All reviewed verification commands pass."
             ]
         }),
@@ -460,70 +460,87 @@ fn render_limited(values: &[String], limit: usize) -> String {
 }
 
 pub fn render_plan_text(payload: &Value) -> String {
+    let safe = |value: Option<&Value>| crate::text::visible_controls(&string(value));
+    let safe_array = |value: Option<&Value>| {
+        string_array(value)
+            .into_iter()
+            .map(|value| crate::text::visible_controls(&value))
+            .collect::<Vec<_>>()
+    };
     let target = payload.get("target").unwrap_or(&Value::Null);
     let header = match string(target.get("kind")).as_str() {
         "path" => format!(
             "Plan: path {} [{}]",
-            string(target.get("path")),
-            string(target.get("record_type"))
+            safe(target.get("path")),
+            safe(target.get("record_type"))
         ),
         "cluster" => format!(
             "Plan: cluster {} [{}]",
-            string(target.get("id")),
-            string(target.get("cluster_kind"))
+            safe(target.get("id")),
+            safe(target.get("cluster_kind"))
         ),
         _ => format!(
             "Plan: relationship {} [{}]",
-            string(target.get("id")),
-            string(target.get("relationship_kind"))
+            safe(target.get("id")),
+            safe(target.get("relationship_kind"))
         ),
     };
     let mut lines = vec![header];
     for (index, slice) in array_at(payload, &["proposed_slices"]).iter().enumerate() {
         lines.extend([
             String::new(),
-            format!("{}. {}", index + 1, string(slice.get("title"))),
+            format!("{}. {}", index + 1, safe(slice.get("title"))),
             format!(
                 "   scope: {}",
-                render_limited(&string_array(slice.get("scope_paths")), usize::MAX)
+                render_limited(&safe_array(slice.get("scope_paths")), usize::MAX)
             ),
-            format!("   objective: {}", string(slice.get("objective"))),
-            format!("   rationale: {}", string(slice.get("rationale"))),
+            format!("   objective: {}", safe(slice.get("objective"))),
+            format!("   plan_type: {}", safe(slice.get("plan_type"))),
+            format!("   rationale: {}", safe(slice.get("rationale"))),
             format!(
-                "   evidence: {}",
-                string(value_at(slice, &["evidence", "summary"]))
+                "   evidence: {}; relationships={}",
+                safe(value_at(slice, &["evidence", "summary"])),
+                array_at(slice, &["evidence", "relationships"])
+                    .iter()
+                    .map(|relationship| format!(
+                        "{}({})",
+                        safe(relationship.get("id")),
+                        render_limited(&safe_array(relationship.get("paths")), 2)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             format!(
-                "   expected_outcome: highest scoped score does not exceed {}; no native compare regression; verification passes",
-                json_scalar_text(value_at(slice, &["expected_outcome", "baseline_top_slop_score"]))
+                "   expected_outcome: highest scoped score is at most {}; no native compare regression; verification passes",
+                json_scalar_text(value_at(slice, &["expected_outcome", "target_top_slop_score"]))
             ),
             format!(
                 "   verification: {}",
                 render_limited(
-                    &string_array(value_at(slice, &["verification", "discovered_commands"])),
+                    &safe_array(value_at(slice, &["verification", "discovered_commands"])),
                     5
                 )
             ),
-            format!("   rerun: {}", string(slice.get("rerun_command"))),
+            format!("   rerun: {}", safe(slice.get("rerun_command"))),
             format!(
                 "   abandon_if: {}",
-                string(slice.get("abandonment_condition"))
+                safe(slice.get("abandonment_condition"))
             ),
-            format!("   rollback: {}", string(slice.get("rollback"))),
+            format!("   rollback: {}", safe(slice.get("rollback"))),
             format!(
                 "   backlog: {} priority={} policy=preview_only",
-                string(value_at(
+                safe(value_at(
                     slice,
                     &["backlog_handoff", "proposed_issue_title"]
                 )),
-                string(value_at(slice, &["backlog_handoff", "priority_hint"])),
+                safe(value_at(slice, &["backlog_handoff", "priority_hint"])),
             ),
             format!(
                 "   out_of_scope: {}",
-                render_limited(&string_array(slice.get("out_of_scope_paths")), 5)
+                render_limited(&safe_array(slice.get("out_of_scope_paths")), 5)
             ),
         ]);
     }
-    lines.extend([String::new(), string(payload.get("boundary_note"))]);
+    lines.extend([String::new(), safe(payload.get("boundary_note"))]);
     lines.join("\n")
 }
