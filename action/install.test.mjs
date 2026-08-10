@@ -209,6 +209,8 @@ if (process.argv[2] === "version") {
       `class GitSlop < Formula\n  version "${version}"\nend\n`,
       "utf8",
     );
+    const cdxBytes = Buffer.from('{"bomFormat":"CycloneDX"}\n', "utf8");
+    const spdxBytes = Buffer.from('{"spdxVersion":"SPDX-2.3"}\n', "utf8");
     let servedFormulaBytes = formulaBytes;
     let manifestMutator = null;
     let assetMutator = null;
@@ -304,6 +306,16 @@ if (process.argv[2] === "version") {
           name: "git-slop.rb",
           bytes: formulaBytes,
           url: `${apiRoot}/assets/formula`,
+        },
+        {
+          name: "git-slop.cdx.json",
+          bytes: cdxBytes,
+          url: `${apiRoot}/assets/cdx`,
+        },
+        {
+          name: "git-slop.spdx.json",
+          bytes: spdxBytes,
+          url: `${apiRoot}/assets/spdx`,
         },
         {
           name: "release-manifest.json",
@@ -438,8 +450,10 @@ try {
       const artifactChecksums = manifest.artifacts
         .map((artifact) => `${artifact.sha256}  ${artifact.name}`)
         .join("\n");
+      const cdxDigest = createHash("sha256").update(cdxBytes).digest("hex");
+      const spdxDigest = createHash("sha256").update(spdxBytes).digest("hex");
       checksumBytes = Buffer.from(
-        `${artifactChecksums}\n${createHash("sha256").update(formulaBytes).digest("hex")}  git-slop.rb\n${manifestDigest}  release-manifest.json\n`,
+        `${artifactChecksums}\n${createHash("sha256").update(formulaBytes).digest("hex")}  git-slop.rb\n${cdxDigest}  git-slop.cdx.json\n${spdxDigest}  git-slop.spdx.json\n${manifestDigest}  release-manifest.json\n`,
         "utf8",
       );
     }
@@ -776,11 +790,11 @@ try {
 
       refreshMetadata();
       const invalidAssetSets = [
-        ["missing", (assets) => assets.pop(), /exactly ten/u],
+        ["missing", (assets) => assets.pop(), /exactly 12/u],
         [
           "extra",
           (assets) => assets.push({ ...assets[0], name: "unexpected.bin" }),
-          /exactly ten/u,
+          /exactly 12/u,
         ],
         [
           "duplicate",
@@ -798,6 +812,14 @@ try {
             candidate.digest = `sha256:${"9".repeat(64)}`;
           },
           /does not authenticate/u,
+        ],
+        [
+          "SBOM digest",
+          (assets) => {
+            assets.find((entry) => entry.name === "git-slop.cdx.json").digest =
+              `sha256:${"9".repeat(64)}`;
+          },
+          /does not authenticate git-slop\.cdx\.json/u,
         ],
         [
           "unselected size",
