@@ -14,6 +14,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import { isolatedActionEnvironment } from "./test-environment.mjs";
+
 const actionDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(actionDirectory, "..");
 const runner = join(actionDirectory, "runner.mjs");
@@ -92,10 +94,7 @@ process.exit(2);
 function run(command, environment) {
   return spawnSync(process.execPath, [runner, command], {
     encoding: "utf8",
-    env: {
-      ...process.env,
-      ...environment,
-    },
+    env: isolatedActionEnvironment(environment),
   });
 }
 

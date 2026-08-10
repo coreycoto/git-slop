@@ -22,6 +22,7 @@ import {
   validateArchiveFormat,
   verifyCanonicalCrate,
 } from "./install.mjs";
+import { isolatedActionEnvironment } from "./test-environment.mjs";
 import { exerciseArchiveLayout } from "./install/test-scenarios/archive-layout.mjs";
 import { exerciseCrateSource } from "./install/test-scenarios/crate-source.mjs";
 import { exerciseDraftRelease } from "./install/test-scenarios/draft-release.mjs";
@@ -74,7 +75,7 @@ function outputs(path) {
 function runNode(script, environment) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [script], {
-      env: { ...process.env, ...environment },
+      env: isolatedActionEnvironment(environment),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
