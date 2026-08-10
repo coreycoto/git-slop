@@ -21,6 +21,7 @@ const maximumInventoryBytes = 1024 * 1024;
 const maximumReleaseMetadataBytes = 2 * 1024 * 1024;
 const maximumManifestBytes = 1024 * 1024;
 const maximumFormulaBytes = 1024 * 1024;
+const maximumSbomBytes = 4 * 1024 * 1024;
 const maximumChecksumBytes = 64 * 1024;
 const maximumCrateMetadataBytes = 1024 * 1024;
 const maximumTagPeelDepth = 8;
@@ -33,6 +34,7 @@ const supportedTargets = {
   "aarch64-pc-windows-msvc": { os: "windows", arch: "aarch64", archive: "zip" },
   "x86_64-unknown-linux-musl": { os: "linux", arch: "x86_64", archive: "tar.gz" },
 };
+const sbomAssetNames = ["git-slop.cdx.json", "git-slop.spdx.json"];
 
 function appendFileCommand(target, name, value) {
   if (!target) {
@@ -255,6 +257,9 @@ function releaseAssetSizeLimit(name, tag) {
   if (name === "git-slop.rb") {
     return maximumFormulaBytes;
   }
+  if (sbomAssetNames.includes(name)) {
+    return maximumSbomBytes;
+  }
   if (Object.keys(supportedTargets).some((target) => archiveAssetName(tag, target) === name)) {
     return maximumArchiveBytes;
   }
@@ -286,10 +291,13 @@ function exactReleaseAssets(release, releaseRepository, tag) {
     ...Object.keys(supportedTargets).map((target) => archiveAssetName(tag, target)),
     "SHA256SUMS",
     "git-slop.rb",
+    ...sbomAssetNames,
     "release-manifest.json",
   ]);
   if (!Array.isArray(release.assets) || release.assets.length !== expectedNames.size) {
-    throw new Error(`release ${tag} must contain exactly ten distribution assets`);
+    throw new Error(
+      `release ${tag} must contain exactly ${expectedNames.size} distribution assets`,
+    );
   }
   const downloadBase = releaseDownloadBase(release, releaseRepository, tag);
   const assets = new Map();
@@ -807,6 +815,7 @@ function releaseManifestIdentity(
   const expectedChecksumNames = new Set([
     ...nameSet,
     "git-slop.rb",
+    ...sbomAssetNames,
     "release-manifest.json",
   ]);
   if (
@@ -821,6 +830,12 @@ function releaseManifestIdentity(
     formulaAsset.digest !== `sha256:${formulaSha256}`
   ) {
     throw new Error("SHA256SUMS does not authenticate git-slop.rb");
+  }
+  for (const name of sbomAssetNames) {
+    const sbomAsset = releaseAssets.get(name);
+    if (sbomAsset.digest !== `sha256:${requiredChecksum(checksums, name)}`) {
+      throw new Error(`SHA256SUMS does not authenticate ${name}`);
+    }
   }
   const manifestAsset = releaseAssets.get("release-manifest.json");
   if (
