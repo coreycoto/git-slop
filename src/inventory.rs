@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::{Glob, GlobMatcher, GlobSet, GlobSetBuilder};
 use serde_json::{Value, json};
 
 use crate::config::{pointer_strings, pointer_u64};
@@ -112,7 +112,34 @@ fn language_for_path(path: &str) -> &'static str {
 fn classification_for_path(path: &str) -> &'static str {
     let lower = path.to_ascii_lowercase();
     let name = lower.rsplit('/').next().unwrap_or(&lower);
-    if lower.starts_with("tests/")
+    if lower.starts_with("vendor/")
+        || lower.contains("/vendor/")
+        || lower.starts_with("third_party/")
+        || lower.contains("/third_party/")
+        || lower.starts_with("node_modules/")
+    {
+        "vendored"
+    } else if lower.starts_with("generated/")
+        || lower.contains("/generated/")
+        || lower.starts_with("dist/")
+        || name.ends_with(".generated.rs")
+        || name.ends_with(".generated.ts")
+        || name.ends_with(".generated.js")
+    {
+        "generated"
+    } else if lower.contains("/snapshots/")
+        || lower.contains("/__snapshots__/")
+        || lower.contains("/golden/")
+        || lower.starts_with("snapshots/")
+        || lower.starts_with("golden/")
+        || name.ends_with(".snap")
+    {
+        "snapshot"
+    } else if (lower.contains("/migrations/") || lower.starts_with("migrations/"))
+        && (lower.contains("fixture") || lower.contains("test"))
+    {
+        "migration_fixture"
+    } else if lower.starts_with("tests/")
         || lower.starts_with("test/")
         || lower.contains("/tests/")
         || lower.contains("/test/")
@@ -131,7 +158,8 @@ fn classification_for_path(path: &str) -> &'static str {
         "config"
     } else if lower.starts_with("docs/") || lower.ends_with(".md") || lower.ends_with(".mdx") {
         "docs"
-    } else if lower.starts_with("scripts/")
+    } else if lower.starts_with("action/")
+        || lower.starts_with("scripts/")
         || lower.starts_with("tools/")
         || lower.starts_with(".github/actions/")
     {
@@ -213,35 +241,87 @@ fn profile_for(path: &str, bytes: usize, config: &Value) -> &'static str {
     }
 }
 
-fn path_override(path: &str, config: &Value) -> (Option<String>, Option<String>, Option<String>) {
-    let mut classification = None;
-    let mut profile = None;
-    let mut language = None;
-    for mapping in config
+struct CompiledPathOverride {
+    matcher: GlobMatcher,
+    classification: Option<String>,
+    profile: Option<String>,
+    language: Option<String>,
+}
+
+fn compile_path_overrides(config: &Value) -> Result<Vec<CompiledPathOverride>> {
+    config
         .pointer("/inventory/path_overrides")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-    {
-        let Some(pattern) = mapping.get("glob").and_then(Value::as_str) else {
-            continue;
-        };
-        if Glob::new(pattern)
-            .ok()
-            .is_some_and(|glob| glob.compile_matcher().is_match(path))
-        {
-            if let Some(value) = mapping.get("classification").and_then(Value::as_str) {
-                classification = Some(value.to_string());
-            }
-            if let Some(value) = mapping.get("profile").and_then(Value::as_str) {
-                profile = Some(value.to_string());
-            }
-            if let Some(value) = mapping.get("language").and_then(Value::as_str) {
-                language = Some(value.to_string());
-            }
+        .map(|mapping| {
+            let pattern = mapping
+                .get("glob")
+                .and_then(Value::as_str)
+                .context("inventory.path_overrides entry is missing glob")?;
+            Ok(CompiledPathOverride {
+                matcher: Glob::new(pattern)
+                    .with_context(|| format!("invalid path override glob {pattern:?}"))?
+                    .compile_matcher(),
+                classification: mapping
+                    .get("classification")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                profile: mapping
+                    .get("profile")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                language: mapping
+                    .get("language")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+            })
+        })
+        .collect()
+}
+
+fn path_override(
+    path: &str,
+    overrides: &[CompiledPathOverride],
+) -> (Option<String>, Option<String>, Option<String>) {
+    let mut classification = None;
+    let mut profile = None;
+    let mut language = None;
+    for mapping in overrides {
+        if mapping.matcher.is_match(path) {
+            classification.clone_from(&mapping.classification);
+            profile.clone_from(&mapping.profile);
+            language.clone_from(&mapping.language);
         }
     }
     (classification, profile, language)
+}
+
+fn skipped_record(
+    path: &str,
+    bytes: usize,
+    reason: &str,
+    config: &Value,
+    overrides: &[CompiledPathOverride],
+) -> InventoryFile {
+    let (classification_override, profile_override, language_override) =
+        path_override(path, overrides);
+    InventoryFile {
+        path: path.replace('\\', "/"),
+        bytes,
+        lines: 0,
+        blank_lines: 0,
+        code_lines: 0,
+        comment_lines: 0,
+        language: language_override.unwrap_or_else(|| language_for_path(path).into()),
+        profile: profile_override.unwrap_or_else(|| profile_for(path, bytes, config).to_string()),
+        classification: classification_override
+            .unwrap_or_else(|| classification_for_path(path).to_string()),
+        text: String::new(),
+        analysis_status: "skipped".to_string(),
+        skipped_reason: Some(reason.to_string()),
+        symlink_metadata: None,
+    }
 }
 
 pub fn build(
@@ -251,6 +331,7 @@ pub fn build(
 ) -> Result<(Vec<InventoryFile>, SkippedCounts)> {
     let patterns = pointer_strings(config, "/inventory/ignore_globs");
     let ignored = ignore_set(&patterns)?;
+    let path_overrides = compile_path_overrides(config)?;
     let mut skipped = SkippedCounts::default();
     let mut records = Vec::new();
     let large_file_bytes = pointer_u64(config, "/resources/large_file_bytes", 2_097_152) as usize;
@@ -264,6 +345,13 @@ pub fn build(
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 skipped.missing += 1;
+                records.push(skipped_record(
+                    relative_path,
+                    0,
+                    "missing",
+                    config,
+                    &path_overrides,
+                ));
                 continue;
             }
             Err(error) => {
@@ -276,30 +364,24 @@ pub fn build(
         // this analyzer.
         if metadata.is_dir() {
             skipped.ignored += 1;
+            records.push(skipped_record(
+                relative_path,
+                0,
+                "gitlink",
+                config,
+                &path_overrides,
+            ));
             continue;
         }
         if !metadata.file_type().is_symlink() && metadata.len() > large_file_bytes as u64 {
-            let (classification_override, profile_override, language_override) =
-                path_override(relative_path, config);
             let bytes = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
-            records.push(InventoryFile {
-                path: relative_path.replace('\\', "/"),
+            records.push(skipped_record(
+                relative_path,
                 bytes,
-                lines: 0,
-                blank_lines: 0,
-                code_lines: 0,
-                comment_lines: 0,
-                language: language_override
-                    .unwrap_or_else(|| language_for_path(relative_path).into()),
-                profile: profile_override
-                    .unwrap_or_else(|| profile_for(relative_path, bytes, config).to_string()),
-                classification: classification_override
-                    .unwrap_or_else(|| classification_for_path(relative_path).to_string()),
-                text: String::new(),
-                analysis_status: "skipped".to_string(),
-                skipped_reason: Some("large_file_limit".to_string()),
-                symlink_metadata: None,
-            });
+                "large_file_limit",
+                config,
+                &path_overrides,
+            ));
             continue;
         }
         // Analyze the link stored by Git, never the target it happens to resolve to
@@ -317,15 +399,32 @@ pub fn build(
         };
         if looks_binary(&raw) {
             skipped.binary += 1;
+            records.push(skipped_record(
+                relative_path,
+                raw.len(),
+                "binary",
+                config,
+                &path_overrides,
+            ));
             continue;
         }
         let bytes = raw.len();
-        let Some(text) = decode_text(raw) else {
+        let Some(mut text) = decode_text(raw) else {
             skipped.undecodable += 1;
+            records.push(skipped_record(
+                relative_path,
+                bytes,
+                "undecodable",
+                config,
+                &path_overrides,
+            ));
             continue;
         };
+        if !metadata.file_type().is_symlink() && text.contains("\r\n") {
+            text = text.replace("\r\n", "\n");
+        }
         let (classification_override, profile_override, language_override) =
-            path_override(relative_path, config);
+            path_override(relative_path, &path_overrides);
         let language = language_override.unwrap_or_else(|| language_for_path(relative_path).into());
         let (lines, code_lines, comment_lines, blank_lines) = line_counts(&text, &language);
         records.push(InventoryFile {
@@ -401,7 +500,9 @@ mod tests {
         )
         .expect("inventory");
 
-        assert!(files.is_empty());
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].analysis_status, "skipped");
+        assert_eq!(files[0].skipped_reason.as_deref(), Some("gitlink"));
         assert_eq!(skipped.ignored, 1);
     }
 
@@ -429,5 +530,24 @@ mod tests {
         assert_eq!(decoded["utf16.txt"], "hi\n");
         assert_eq!(skipped.binary, 0);
         assert_eq!(skipped.undecodable, 0);
+    }
+
+    #[test]
+    fn tracked_text_normalizes_crlf_for_cross_platform_analysis() {
+        let repository = tempdir().expect("repository");
+        fs::write(
+            repository.path().join("source.rs"),
+            b"fn one() {}\r\nfn two() {}\r\n",
+        )
+        .expect("crlf source");
+        let (files, skipped) = build(
+            repository.path(),
+            &["source.rs".to_string()],
+            &config::default_config(),
+        )
+        .expect("inventory");
+        assert_eq!(skipped.binary, 0);
+        assert_eq!(files[0].text, "fn one() {}\nfn two() {}\n");
+        assert_eq!(files[0].bytes, 26);
     }
 }

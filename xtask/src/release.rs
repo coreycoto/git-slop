@@ -73,6 +73,15 @@ pub fn validate_release_state_with_runner(
     runner: &mut impl CommandRunner,
 ) -> Result<ReleaseState> {
     validate_project_version(project_root, version)?;
+    let worktree_status = runner.output(
+        project_root,
+        &CommandSpec::new("git", ["status", "--porcelain=v1", "--untracked-files=all"]),
+    )?;
+    if !worktree_status.is_empty() {
+        bail!(
+            "release candidate worktree must be clean; commit, ignore, or remove every modified and untracked path before validation"
+        );
+    }
     let revision = head_revision_with_runner(project_root, runner)?;
     if !crate::manifest::is_full_revision(&revision) {
         bail!("release candidate HEAD must be a full commit id");
@@ -260,19 +269,23 @@ mod tests {
         let project = project()?;
         let revision = "a".repeat(40);
         let mut runner = FakeRunner {
-            outputs: VecDeque::from([revision.clone(), String::new()]),
+            outputs: VecDeque::from([String::new(), revision.clone(), String::new()]),
             ..FakeRunner::default()
         };
         let state = validate_release_state_with_runner(project.path(), "0.9.0", &mut runner)?;
         assert_eq!(state.tag, "v0.9.0");
         assert_eq!(state.revision, revision);
-        assert_eq!(runner.output_calls.len(), 2);
+        assert_eq!(runner.output_calls.len(), 3);
         assert_eq!(
             runner.output_calls[0].1,
-            CommandSpec::new("git", ["rev-parse", "HEAD"])
+            CommandSpec::new("git", ["status", "--porcelain=v1", "--untracked-files=all"])
         );
         assert_eq!(
             runner.output_calls[1].1,
+            CommandSpec::new("git", ["rev-parse", "HEAD"])
+        );
+        assert_eq!(
+            runner.output_calls[2].1,
             CommandSpec::new(
                 "git",
                 [
@@ -290,7 +303,7 @@ mod tests {
         let project = project()?;
         let revision = "a".repeat(40);
         let mut exact = FakeRunner {
-            outputs: VecDeque::from([revision.clone(), revision.clone()]),
+            outputs: VecDeque::from([String::new(), revision.clone(), revision.clone()]),
             ..FakeRunner::default()
         };
         assert_eq!(
@@ -299,7 +312,7 @@ mod tests {
         );
 
         let mut drifted = FakeRunner {
-            outputs: VecDeque::from(["a".repeat(40), "b".repeat(40)]),
+            outputs: VecDeque::from([String::new(), "a".repeat(40), "b".repeat(40)]),
             ..FakeRunner::default()
         };
         let error =
@@ -309,10 +322,24 @@ mod tests {
     }
 
     #[test]
+    fn release_candidate_rejects_dirty_or_untracked_paths_before_reading_head() -> Result<()> {
+        let project = project()?;
+        let mut runner = FakeRunner {
+            outputs: VecDeque::from([" M Cargo.toml\n?? release-private.asc".to_owned()]),
+            ..FakeRunner::default()
+        };
+        let error =
+            validate_release_state_with_runner(project.path(), "0.9.0", &mut runner).unwrap_err();
+        assert!(error.to_string().contains("worktree must be clean"));
+        assert_eq!(runner.output_calls.len(), 1);
+        Ok(())
+    }
+
+    #[test]
     fn release_preparation_is_validation_only() -> Result<()> {
         let project = project()?;
         let mut runner = FakeRunner {
-            outputs: VecDeque::from(["b".repeat(40), String::new()]),
+            outputs: VecDeque::from([String::new(), "b".repeat(40), String::new()]),
             ..FakeRunner::default()
         };
         let options = PrepareReleaseOptions::new(project.path(), "0.9.0");

@@ -34,6 +34,7 @@ Scan the repository and generate hotspot reports
 | `--output-dir` | Report output directory. Relative paths resolve from the repository root |
 | `--no-cache` | Disable token-cache reads and writes for an ephemeral scan |
 | `--allow-degraded` | Deterministically analyze the largest path prefix that fits the memory budget |
+| `--as-of` | Fixed RFC 3339 analysis clock for reproducible recency and history windows |
 | `--report-profile` | Report evidence profile |
 | `--compression` | Also write a compressed report beside report.json |
 | `--estimate-only` | Estimate scope, memory, cache, report size, time, and inodes without scanning |
@@ -46,7 +47,7 @@ Show metrics and reasons for one file or folder
 | --- | --- |
 | `target_path` | Repo-relative file or folder path |
 | `--report` | Report path. Defaults to .slop/latest/report.json |
-| `--format` |  |
+| `--format` | Output format |
 
 ## `git-slop explain`
 
@@ -59,8 +60,9 @@ Explain why selected hotspots or structural findings are expensive
 | `--cluster` | Cluster identifier |
 | `--relationship` | Relationship identifier |
 | `--top` | Explain the top N hotspots from the action queue |
-| `--format` |  |
+| `--format` | Output format |
 | `--prompt-pack` | Write a deterministic local-model prompt pack to this directory |
+| `--force` | Atomically replace an existing prompt-pack directory |
 | `--include-repository-context` | Include bounded local source/test excerpts, guidance, and verification hints |
 | `--excerpt-bytes` | Maximum bytes read from each included repository file |
 
@@ -75,8 +77,9 @@ Propose bounded maintenance slices from the current detector report
 | `--cluster` | Cluster identifier |
 | `--relationship` | Relationship identifier |
 | `--max-slices` | Maximum number of bounded maintenance slices to propose |
-| `--format` |  |
+| `--format` | Output format |
 | `--prompt-pack` | Write a deterministic local-model prompt pack to this directory |
+| `--force` | Atomically replace an existing prompt-pack directory |
 | `--include-repository-context` | Include bounded local source/test excerpts, guidance, and verification hints |
 | `--excerpt-bytes` | Maximum bytes read from each included repository file |
 
@@ -89,8 +92,12 @@ Evaluate an existing report against CI thresholds
 | `--report` | Report path. Defaults to .slop/latest/report.json |
 | `--fail-on-context-band` | Override the config default fail threshold for context_band |
 | `--fail-on-slop-band` | Override the config default fail threshold for slop_band |
-| `--format` |  |
+| `--format` | Output format, including escaped GitHub workflow commands |
 | `--details` | Include complete finding records in JSON output |
+| `--include-folders` | Include folder records in addition to the versioned file-only gate |
+| `--offset` | Zero-based finding offset used with --details |
+| `--limit` | Maximum finding records returned with --details |
+| `--allow-incomplete-evidence` | Permit policy evaluation when selected inventory records are incomplete |
 
 ## `git-slop compare`
 
@@ -100,16 +107,67 @@ Compare two existing schema-5 reports without rerunning the detector
 | --- | --- |
 | `--base` | Base report.json path |
 | `--base-ref` | Safely resolve and scan this Git revision in an isolated worktree |
+| `--baseline` | Use a named baseline from Git-private runtime storage |
 | `--head` | Head report.json path |
 | `--scope` | Apply the head repository's scope to an isolated --base-ref scan |
 | `--allow-shallow` | Permit incomplete history in an isolated --base-ref scan |
+| `--allow-incomplete-evidence` | Permit comparison when selected inventory records are incomplete |
 | `--top` | Maximum number of changed files and queue movements to show |
-| `--format` |  |
+| `--format` | Output format |
 | `--detail` | Detail level for machine output |
 | `--offset` | Zero-based record offset for --detail full |
 | `--limit` | Maximum records per collection for --detail full |
 | `--force` | Compare reports with incompatible identity or analyzer metadata |
+| `--policy-from` | Select which report supplies regression thresholds and evidence-drift policy |
 | `--fail-on-regression` | Exit 1 when an existing file worsens or a newly added file is a finding |
+
+## `git-slop baseline`
+
+Manage named comparison baselines in Git-private runtime storage
+
+## `git-slop baseline create`
+
+Create a named baseline from a validated report
+
+| Argument | Description |
+| --- | --- |
+| `--name` | Stable baseline name |
+| `--report` | Report path. Defaults to .slop/latest/report.json |
+| `--force` | Replace an existing named baseline |
+
+## `git-slop baseline update`
+
+Replace an existing named baseline from a validated report
+
+| Argument | Description |
+| --- | --- |
+| `--name` | Stable baseline name |
+| `--report` | Report path. Defaults to .slop/latest/report.json |
+
+## `git-slop baseline inspect`
+
+Inspect baseline identity and evidence status
+
+| Argument | Description |
+| --- | --- |
+| `--name` | Stable baseline name |
+| `--format` | Output format |
+
+## `git-slop baseline validate`
+
+Validate a named baseline against the current report contract
+
+| Argument | Description |
+| --- | --- |
+| `--name` | Stable baseline name |
+
+## `git-slop baseline remove`
+
+Remove a named baseline
+
+| Argument | Description |
+| --- | --- |
+| `--name` | Stable baseline name |
 
 ## `git-slop report`
 
@@ -121,7 +179,7 @@ Validate one report against the complete schema-5 contract
 
 | Argument | Description |
 | --- | --- |
-| `path` |  |
+| `path` | Report JSON to validate |
 | `--allow-legacy` | Accept schema 4 as migration input and validate its normalized schema-5 form |
 
 ## `git-slop report migrate`
@@ -130,8 +188,8 @@ Migrate a schema-4 report to normalized schema 5
 
 | Argument | Description |
 | --- | --- |
-| `path` |  |
-| `--output` |  |
+| `path` | Legacy report to migrate |
+| `--output` | Destination for the normalized schema-5 report |
 
 ## `git-slop report schema`
 
@@ -167,7 +225,7 @@ Show configuration; --effective includes defaults
 
 | Argument | Description |
 | --- | --- |
-| `--effective` |  |
+| `--effective` | Include defaults after applying repository overrides |
 
 ## `git-slop config validate`
 
@@ -192,7 +250,7 @@ Diagnose repository readiness and optionally write a redacted bundle
 | Argument | Description |
 | --- | --- |
 | `--bundle` | Write a privacy-safe diagnostic JSON bundle |
-| `--format` |  |
+| `--format` | Output format |
 | `--scope` | Estimate only this repo-relative scope |
 
 ## `git-slop list`
@@ -203,14 +261,14 @@ List findings, relationships, clusters, or profiles
 
 | Argument | Description |
 | --- | --- |
-| `--report` |  |
-| `--path` |  |
-| `--profile` |  |
-| `--language` |  |
-| `--classification` |  |
-| `--severity` |  |
-| `--top` |  |
-| `--format` |  |
+| `--report` | Report path. Defaults to .slop/latest/report.json |
+| `--path` | Match a finding path, relationship endpoint, or cluster member |
+| `--profile` | Match an analysis profile |
+| `--language` | Match a resolved file language |
+| `--classification` | Match a resolved file classification |
+| `--severity` | Match a finding severity |
+| `--top` | Maximum number of matched records to return |
+| `--format` | Output format |
 | `--wide` | Use a wider terminal layout before truncating fields |
 | `--no-truncate` | Never truncate terminal fields |
 
@@ -218,14 +276,14 @@ List findings, relationships, clusters, or profiles
 
 | Argument | Description |
 | --- | --- |
-| `--report` |  |
-| `--path` |  |
-| `--profile` |  |
-| `--language` |  |
-| `--classification` |  |
-| `--severity` |  |
-| `--top` |  |
-| `--format` |  |
+| `--report` | Report path. Defaults to .slop/latest/report.json |
+| `--path` | Match a finding path, relationship endpoint, or cluster member |
+| `--profile` | Match an analysis profile |
+| `--language` | Match a resolved file language |
+| `--classification` | Match a resolved file classification |
+| `--severity` | Match a finding severity |
+| `--top` | Maximum number of matched records to return |
+| `--format` | Output format |
 | `--wide` | Use a wider terminal layout before truncating fields |
 | `--no-truncate` | Never truncate terminal fields |
 
@@ -233,14 +291,14 @@ List findings, relationships, clusters, or profiles
 
 | Argument | Description |
 | --- | --- |
-| `--report` |  |
-| `--path` |  |
-| `--profile` |  |
-| `--language` |  |
-| `--classification` |  |
-| `--severity` |  |
-| `--top` |  |
-| `--format` |  |
+| `--report` | Report path. Defaults to .slop/latest/report.json |
+| `--path` | Match a finding path, relationship endpoint, or cluster member |
+| `--profile` | Match an analysis profile |
+| `--language` | Match a resolved file language |
+| `--classification` | Match a resolved file classification |
+| `--severity` | Match a finding severity |
+| `--top` | Maximum number of matched records to return |
+| `--format` | Output format |
 | `--wide` | Use a wider terminal layout before truncating fields |
 | `--no-truncate` | Never truncate terminal fields |
 
@@ -248,14 +306,14 @@ List findings, relationships, clusters, or profiles
 
 | Argument | Description |
 | --- | --- |
-| `--report` |  |
-| `--path` |  |
-| `--profile` |  |
-| `--language` |  |
-| `--classification` |  |
-| `--severity` |  |
-| `--top` |  |
-| `--format` |  |
+| `--report` | Report path. Defaults to .slop/latest/report.json |
+| `--path` | Match a finding path, relationship endpoint, or cluster member |
+| `--profile` | Match an analysis profile |
+| `--language` | Match a resolved file language |
+| `--classification` | Match a resolved file classification |
+| `--severity` | Match a finding severity |
+| `--top` | Maximum number of matched records to return |
+| `--format` | Output format |
 | `--wide` | Use a wider terminal layout before truncating fields |
 | `--no-truncate` | Never truncate terminal fields |
 
@@ -276,22 +334,23 @@ Inspect or prune the packed token cache
 
 | Argument | Description |
 | --- | --- |
-| `--state-dir` |  |
+| `--state-dir` | Mutable state directory. Defaults to Git-private runtime storage |
 
 ## `git-slop cache status`
 
 | Argument | Description |
 | --- | --- |
-| `--format` |  |
+| `--format` | Output format |
 
 ## `git-slop cache prune`
 
 | Argument | Description |
 | --- | --- |
-| `--max-entries` |  |
-| `--max-bytes` |  |
-| `--dry-run` |  |
-| `--format` |  |
+| `--max-entries` | Maximum entries to retain |
+| `--max-bytes` | Maximum logical payload bytes to retain |
+| `--dry-run` | Preview cache removals without changing the database |
+| `--compact` | Reclaim free database pages after pruning |
+| `--format` | Output format |
 
 ## `git-slop completions`
 
@@ -299,7 +358,7 @@ Generate shell completion source
 
 | Argument | Description |
 | --- | --- |
-| `shell` |  |
+| `shell` | Shell whose completion source should be generated |
 
 ## `git-slop man`
 
@@ -307,7 +366,7 @@ Generate the roff manual from the live Clap command tree
 
 | Argument | Description |
 | --- | --- |
-| `--output` |  |
+| `--output` | Destination file. Defaults to stdout |
 
 ## `git-slop reference`
 
@@ -315,7 +374,7 @@ Generate Markdown command reference from the live Clap command tree
 
 | Argument | Description |
 | --- | --- |
-| `--output` |  |
+| `--output` | Destination file. Defaults to stdout |
 
 ## `git-slop html`
 
@@ -336,7 +395,7 @@ Print package and source-build provenance
 
 | Argument | Description |
 | --- | --- |
-| `--format` |  |
+| `--format` | Machine-readable build provenance format |
 
 ## `git-slop schema`
 
@@ -344,4 +403,5 @@ Print a published JSON Schema for a machine contract
 
 | Argument | Description |
 | --- | --- |
-| `contract` |  |
+| `contract` | Machine contract whose immutable schema should be printed |
+| `--output` | Destination file. Defaults to stdout |

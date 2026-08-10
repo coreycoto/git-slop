@@ -498,11 +498,17 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             "cargo xtask release-manifest",
             "--crate-source candidate/crate-source.json",
             "cargo xtask homebrew-formula",
-            "sha256sum git-slop.rb >> SHA256SUMS",
+            "cargo xtask sbom --output-dir candidate-dist",
+            "sha256sum --check SHA256SUMS",
             "wc -l < candidate-dist/SHA256SUMS",
-            "= \"9\"",
+            "= \"11\"",
         ] {
             require(run, required, name, errors);
+        }
+        if run.matches("cargo xtask release-manifest").count() != 2 {
+            errors.push(format!(
+                "{name} candidate distribution must regenerate the manifest after Formula and SBOM generation."
+            ));
         }
         forbid(
             run,
@@ -824,10 +830,15 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
         require(generate, "cargo xtask sbom --output-dir dist", name, errors);
         require(
             generate,
-            "sha256sum git-slop.rb git-slop.cdx.json git-slop.spdx.json >> SHA256SUMS",
+            "(cd dist && sha256sum --check SHA256SUMS)",
             name,
             errors,
         );
+        if generate.matches("cargo xtask release-manifest").count() != 2 {
+            errors.push(format!(
+                "{name} final distribution must regenerate the manifest after Formula and SBOM generation."
+            ));
+        }
         require(
             generate,
             "test \"$(wc -l < dist/SHA256SUMS | tr -d ' ')\" = \"11\"",
@@ -948,7 +959,7 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             }
         } else {
             errors.push(format!(
-                "{name} must verify the exact twelve release assets."
+                "{name} must verify the manifest-derived release assets."
             ));
         }
         if let Some(verify_action) =
@@ -2136,28 +2147,30 @@ fn validate_exact_release_assets(run: &str, name: &str, tag: &str, errors: &mut 
         .filter(|token| *token != "\\")
         .collect::<Vec<_>>()
         .join(" ");
-    let exact = format!(
-        "printf '%s\\n' SHA256SUMS git-slop.rb git-slop.cdx.json git-slop.spdx.json \
-         \"git-slop-{tag}-aarch64-apple-darwin.tar.gz\" \
-         \"git-slop-{tag}-aarch64-pc-windows-msvc.zip\" \
-         \"git-slop-{tag}-aarch64-unknown-linux-gnu.tar.gz\" \
-         \"git-slop-{tag}-x86_64-apple-darwin.tar.gz\" \
-         \"git-slop-{tag}-x86_64-pc-windows-msvc.zip\" \
-         \"git-slop-{tag}-x86_64-unknown-linux-gnu.tar.gz\" \
-         \"git-slop-{tag}-x86_64-unknown-linux-musl.tar.gz\" \
-         release-manifest.json | LC_ALL=C sort > expected-assets.txt"
+    let manifest_path = if name == "homebrew-handoff.yml" {
+        "release-assets/release-manifest.json"
+    } else if name == "release-published.yml" {
+        "verification/release-manifest.json"
+    } else {
+        "release-manifest.inventory.json"
+    };
+    let manifest_inventory = format!(
+        "jq -r '.artifacts[].name, .supplemental_assets[].name' {manifest_path} > expected-assets.txt"
     );
-    if !normalized.contains(&exact) {
+    if !normalized.contains(&manifest_inventory) {
         errors.push(format!(
-            "{name} must compare the exact twelve release assets against the published inventory."
+            "{name} must derive the required release-asset inventory from manifest roles."
         ));
     }
     for required in [
+        "printf '%s\\n' SHA256SUMS release-manifest.json >> expected-assets.txt",
+        "LC_ALL=C sort -o expected-assets.txt expected-assets.txt",
         "actual-assets.txt",
         "diff -u expected-assets.txt actual-assets.txt",
     ] {
         require(&normalized, required, name, errors);
     }
+    let _ = tag;
 }
 
 fn workflow_steps(payload: &YamlValue) -> Vec<&YamlValue> {
@@ -2995,11 +3008,11 @@ mod tests {
             ),
             (
                 valid.replacen(
-                    "sha256sum git-slop.rb >> SHA256SUMS",
-                    "sha256sum git-slop.rb release-manifest.json >> SHA256SUMS",
+                    "cargo xtask sbom --output-dir candidate-dist",
+                    "true # omitted candidate SBOM generation",
                     1,
                 ),
-                "must not include sha256sum git-slop.rb release-manifest.json",
+                "must include cargo xtask sbom --output-dir candidate-dist",
             ),
             (
                 valid.replacen(
@@ -3559,11 +3572,11 @@ mod tests {
             ),
             (
                 relay.replacen(
-                    "\"git-slop-${TAG}-aarch64-pc-windows-msvc.zip\"",
-                    "\"unexpected.zip\"",
+                    ".artifacts[].name, .supplemental_assets[].name",
+                    ".artifacts[].name",
                     1,
                 ),
-                "exact twelve release assets",
+                "derive the required release-asset inventory",
             ),
             (
                 format!("{relay}\n# gh workflow run homebrew-handoff.yml\n"),
@@ -3615,11 +3628,11 @@ mod tests {
             ),
             (
                 homebrew.replacen(
-                    "\"git-slop-${tag}-aarch64-pc-windows-msvc.zip\"",
-                    "\"unexpected.zip\"",
+                    ".artifacts[].name, .supplemental_assets[].name",
+                    ".artifacts[].name",
                     1,
                 ),
-                "exact twelve release assets",
+                "derive the required release-asset inventory",
             ),
             (
                 homebrew.replacen(

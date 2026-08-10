@@ -1,11 +1,22 @@
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const releaseVersion = (process.env.GIT_SLOP_ACTION_VERSION || "0.11.1").trim();
+const releaseVersion = (process.env.GIT_SLOP_ACTION_VERSION || "0.11.2").trim();
 const releaseRepository = (
   process.env.GIT_SLOP_RELEASE_REPOSITORY || "coreycoto/git-slop"
 ).trim();
@@ -177,6 +188,109 @@ async function downloadAsset(asset, maximumBytes) {
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function toolCacheDirectory(version, target, revision, manifestSha256) {
+  const root = (process.env.RUNNER_TOOL_CACHE || "").trim();
+  if (!root || !isAbsolute(root)) return null;
+  return join(root, "git-slop", version, target, revision, manifestSha256);
+}
+
+function cachedBinary(cacheDirectory, executableName, expected) {
+  if (!cacheDirectory || !existsSync(cacheDirectory)) return null;
+  try {
+    const binaryPath = join(cacheDirectory, executableName);
+    const metadataPath = join(cacheDirectory, "cache-metadata.json");
+    if (
+      !existsSync(binaryPath) ||
+      !existsSync(metadataPath) ||
+      !lstatSync(binaryPath).isFile() ||
+      lstatSync(binaryPath).isSymbolicLink() ||
+      !lstatSync(metadataPath).isFile() ||
+      lstatSync(metadataPath).isSymbolicLink()
+    ) {
+      throw new Error("cache entries must be regular files");
+    }
+    const metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
+    exactObject(
+      metadata,
+      [
+        "archive_sha256",
+        "binary_sha256",
+        "crate_sha256",
+        "manifest_sha256",
+        "revision",
+        "schema_version",
+        "target",
+        "version",
+      ],
+      "tool cache metadata",
+    );
+    for (const [key, value] of Object.entries(expected)) {
+      if (metadata[key] !== value) throw new Error(`tool cache ${key} mismatch`);
+    }
+    const bytes = readFileSync(binaryPath);
+    if (bytes.length === 0 || bytes.length > maximumArchiveBytes || sha256(bytes) !== metadata.binary_sha256) {
+      throw new Error("tool cache binary digest mismatch");
+    }
+    if (process.platform !== "win32") chmodSync(binaryPath, 0o755);
+    verifyInstalledVersion(binaryPath, expected.version);
+    verifyInstalledBuildInfo(binaryPath, expected.version, expected.revision);
+    return { binaryPath, crateSha256: metadata.crate_sha256 };
+  } catch (error) {
+    console.warn(`Discarding invalid Git Slop tool cache entry: ${error.message}`);
+    rmSync(cacheDirectory, { recursive: true, force: true });
+    return null;
+  }
+}
+
+function populateToolCache(cacheDirectory, executableName, binaryPath, metadata) {
+  if (!cacheDirectory) return binaryPath;
+  const parent = dirname(cacheDirectory);
+  mkdirSync(parent, { recursive: true, mode: 0o700 });
+  const staging = mkdtempSync(join(parent, ".git-slop-cache-"));
+  const cachedPath = join(staging, executableName);
+  copyFileSync(binaryPath, cachedPath);
+  if (process.platform !== "win32") chmodSync(cachedPath, 0o755);
+  writeFileSync(
+    join(staging, "cache-metadata.json"),
+    `${JSON.stringify({ ...metadata, binary_sha256: sha256(readFileSync(cachedPath)) })}\n`,
+    { mode: 0o600 },
+  );
+  try {
+    renameSync(staging, cacheDirectory);
+  } catch (error) {
+    rmSync(staging, { recursive: true, force: true });
+    if (!existsSync(cacheDirectory)) throw error;
+  }
+  return join(cacheDirectory, executableName);
+}
+
+function publishInstallOutputs({
+  version,
+  target,
+  assetName,
+  assetUrl,
+  binaryPath,
+  archiveSha256,
+  revision,
+  crateSha256,
+  manifestSha256,
+  cacheHit,
+}) {
+  if (process.env.GITHUB_PATH) {
+    writeFileSync(process.env.GITHUB_PATH, `${dirname(binaryPath)}\n`, { flag: "a" });
+  }
+  setOutput("version", version);
+  setOutput("target", target);
+  setOutput("asset", assetName);
+  setOutput("asset-url", assetUrl);
+  setOutput("binary-path", binaryPath);
+  setOutput("sha256", archiveSha256);
+  setOutput("source-revision", revision);
+  setOutput("crate-sha256", crateSha256);
+  setOutput("release-manifest-sha256", manifestSha256);
+  setOutput("cache-hit", cacheHit);
 }
 
 function verifyReleaseAssetDigest(asset, bytes) {
@@ -710,6 +824,7 @@ function releaseManifestIdentity(
       "repository",
       "revision",
       "schema_version",
+      "supplemental_assets",
       "tag",
       "version",
     ],
@@ -802,6 +917,58 @@ function releaseManifestIdentity(
   if (Object.keys(supportedTargets).some((supported) => !targetSet.has(supported))) {
     throw new Error("release-manifest.json is missing a supported target artifact");
   }
+  const expectedSupplemental = new Map([
+    ["git-slop.rb", ["homebrew_formula", "text/x-ruby"]],
+    ["git-slop.cdx.json", ["cyclonedx_sbom", "application/vnd.cyclonedx+json"]],
+    ["git-slop.spdx.json", ["spdx_sbom", "application/spdx+json"]],
+  ]);
+  if (
+    !Array.isArray(manifest.supplemental_assets) ||
+    manifest.supplemental_assets.length !== expectedSupplemental.size
+  ) {
+    throw new Error("release-manifest.json must describe the complete supplemental asset set");
+  }
+  const supplementalNames = new Set();
+  for (const candidate of manifest.supplemental_assets) {
+    exactObject(
+      candidate,
+      [
+        "contract_version",
+        "media_type",
+        "name",
+        "path",
+        "required",
+        "role",
+        "sha256",
+        "size_bytes",
+        "url",
+      ],
+      "release-manifest.json supplemental asset",
+    );
+    const contract = expectedSupplemental.get(candidate.name);
+    const releaseAsset = releaseAssets.get(candidate.name);
+    if (
+      !contract ||
+      supplementalNames.has(candidate.name) ||
+      candidate.path !== candidate.name ||
+      candidate.role !== contract[0] ||
+      candidate.media_type !== contract[1] ||
+      candidate.required !== true ||
+      candidate.contract_version !== 1 ||
+      !/^[a-f0-9]{64}$/u.test(candidate.sha256 || "") ||
+      !Number.isSafeInteger(candidate.size_bytes) ||
+      candidate.size_bytes <= 0 ||
+      candidate.url !==
+        `https://github.com/${releaseRepository}/releases/download/${tag}/${candidate.name}` ||
+      !releaseAsset ||
+      releaseAsset.size !== candidate.size_bytes ||
+      releaseAsset.digest !== `sha256:${candidate.sha256}` ||
+      requiredChecksum(checksums, candidate.name) !== candidate.sha256
+    ) {
+      throw new Error(`release-manifest.json does not authenticate ${candidate.name}`);
+    }
+    supplementalNames.add(candidate.name);
+  }
   const artifact = manifest.artifacts.find((candidate) => candidate.target === target);
   if (
     !artifact ||
@@ -844,8 +1011,7 @@ function releaseManifestIdentity(
   );
   const expectedChecksumNames = new Set([
     ...nameSet,
-    "git-slop.rb",
-    ...sbomAssetNames,
+    ...supplementalNames,
     "release-manifest.json",
   ]);
   if (
@@ -948,22 +1114,22 @@ async function main() {
   const manifestAsset = releaseAssets.get("release-manifest.json");
   const formulaAsset = releaseAssets.get("git-slop.rb");
 
-  console.log(`Downloading ${releaseRepository} ${assetName}`);
-  const [archiveBytes, checksumBytes, manifestBytes, formulaBytes] = await Promise.all([
-    downloadAsset(archiveAsset, maximumArchiveBytes),
+  console.log(`Verifying ${releaseRepository} ${assetName}`);
+  const [checksumBytes, manifestBytes, formulaBytes] = await Promise.all([
     downloadAsset(checksumAsset, maximumChecksumBytes),
     downloadAsset(manifestAsset, maximumManifestBytes),
     downloadAsset(formulaAsset, maximumFormulaBytes),
   ]);
-  const actual = verifyReleaseAssetDigest(archiveAsset, archiveBytes);
   verifyReleaseAssetDigest(checksumAsset, checksumBytes);
   const manifestSha256 = verifyReleaseAssetDigest(manifestAsset, manifestBytes);
   const formulaSha256 = verifyReleaseAssetDigest(formulaAsset, formulaBytes);
-  validateArchiveFormat(archiveBytes, extension);
   const checksums = parseChecksums(checksumBytes.toString("utf8"));
   const expected = requiredChecksum(checksums, assetName);
-  if (actual !== expected) {
-    throw new Error(`SHA-256 mismatch for ${assetName}: expected ${expected}, received ${actual}`);
+  const releaseArchiveSha256 = String(archiveAsset.digest || "").replace(/^sha256:/u, "");
+  if (releaseArchiveSha256 !== expected) {
+    throw new Error(
+      `release metadata SHA-256 mismatch for ${assetName}: checksums=${expected}, GitHub=${releaseArchiveSha256}`,
+    );
   }
   const identity = releaseManifestIdentity(manifestBytes, {
     version,
@@ -971,7 +1137,7 @@ async function main() {
     target,
     assetName,
     releaseRepository,
-    archiveSha256: actual,
+    archiveSha256: releaseArchiveSha256,
     checksums,
     releaseAssets,
     manifestSha256,
@@ -983,6 +1149,42 @@ async function main() {
       `release tag ${tag} resolves to ${taggedRevision}, expected ${identity.revision}`,
     );
   }
+
+  const executableName = targetMetadata.os === "windows" ? "git-slop.exe" : "git-slop";
+  const cacheDirectory = toolCacheDirectory(version, target, identity.revision, manifestSha256);
+  const cacheExpected = {
+    schema_version: 1,
+    version,
+    target,
+    revision: identity.revision,
+    manifest_sha256: manifestSha256,
+    archive_sha256: releaseArchiveSha256,
+  };
+  const cached = cachedBinary(cacheDirectory, executableName, cacheExpected);
+  if (cached) {
+    publishInstallOutputs({
+      version,
+      target,
+      assetName,
+      assetUrl: archiveAsset.browser_download_url,
+      binaryPath: cached.binaryPath,
+      archiveSha256: releaseArchiveSha256,
+      revision: identity.revision,
+      crateSha256: cached.crateSha256,
+      manifestSha256,
+      cacheHit: true,
+    });
+    console.log(`Verified cached ${assetName} (${releaseArchiveSha256})`);
+    return;
+  }
+
+  console.log(`Downloading ${releaseRepository} ${assetName}`);
+  const archiveBytes = await downloadAsset(archiveAsset, maximumArchiveBytes);
+  const actual = verifyReleaseAssetDigest(archiveAsset, archiveBytes);
+  if (actual !== releaseArchiveSha256) {
+    throw new Error(`SHA-256 mismatch for ${assetName}: expected ${releaseArchiveSha256}, received ${actual}`);
+  }
+  validateArchiveFormat(archiveBytes, extension);
 
   const baseTemp = process.env.RUNNER_TEMP || tmpdir();
   const installRoot = mkdtempSync(join(baseTemp, "git-slop-action-"));
@@ -1004,9 +1206,8 @@ async function main() {
     identity.revision,
   );
 
-  const executableName = targetMetadata.os === "windows" ? "git-slop.exe" : "git-slop";
   const rootName = assetName.slice(0, -(`.${extension}`.length));
-  const binaryPath = materializeArchive(
+  let binaryPath = materializeArchive(
     archivePath,
     installRoot,
     rootName,
@@ -1020,19 +1221,29 @@ async function main() {
   }
   verifyInstalledVersion(binaryPath, version);
   verifyInstalledBuildInfo(binaryPath, version, identity.revision);
-
-  if (process.env.GITHUB_PATH) {
-    writeFileSync(process.env.GITHUB_PATH, `${dirname(binaryPath)}\n`, { flag: "a" });
+  binaryPath = populateToolCache(cacheDirectory, executableName, binaryPath, {
+    ...cacheExpected,
+    crate_sha256: crateSha256,
+  });
+  if (cacheDirectory) {
+    const stored = cachedBinary(cacheDirectory, executableName, cacheExpected);
+    if (!stored || stored.crateSha256 !== crateSha256) {
+      throw new Error("newly populated Git Slop tool cache failed verification");
+    }
+    binaryPath = stored.binaryPath;
   }
-  setOutput("version", version);
-  setOutput("target", target);
-  setOutput("asset", assetName);
-  setOutput("asset-url", archiveAsset.browser_download_url);
-  setOutput("binary-path", binaryPath);
-  setOutput("sha256", actual);
-  setOutput("source-revision", identity.revision);
-  setOutput("crate-sha256", crateSha256);
-  setOutput("release-manifest-sha256", manifestSha256);
+  publishInstallOutputs({
+    version,
+    target,
+    assetName,
+    assetUrl: archiveAsset.browser_download_url,
+    binaryPath,
+    archiveSha256: actual,
+    revision: identity.revision,
+    crateSha256,
+    manifestSha256,
+    cacheHit: false,
+  });
   console.log(`Verified ${assetName} (${actual})`);
 }
 

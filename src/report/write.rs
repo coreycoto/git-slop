@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -32,19 +33,218 @@ fn cap_collection(report: &mut Value, key: &str, limit: usize) {
     });
 }
 
+fn collect_prioritized_paths(report: &Value) -> Vec<String> {
+    fn push_path(path: Option<&str>, seen: &mut BTreeSet<String>, paths: &mut Vec<String>) {
+        if let Some(path) = path.filter(|path| !path.is_empty()) {
+            if seen.insert(path.to_string()) {
+                paths.push(path.to_string());
+            }
+        }
+    }
+
+    let mut seen = BTreeSet::new();
+    let mut paths = Vec::new();
+    for pointer in [
+        "/health/findings",
+        "/health/refactor_candidates",
+        "/health/watchlist",
+        "/action_queue",
+        "/ranked_files",
+    ] {
+        for record in report
+            .pointer(pointer)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            push_path(
+                record.get("path").and_then(Value::as_str),
+                &mut seen,
+                &mut paths,
+            );
+        }
+    }
+    if let Some(relationships) = report
+        .pointer("/overlays/organization_health/relationships")
+        .and_then(Value::as_object)
+    {
+        for records in relationships.values().filter_map(Value::as_array) {
+            for record in records {
+                push_path(
+                    record.get("source_path").and_then(Value::as_str),
+                    &mut seen,
+                    &mut paths,
+                );
+                push_path(
+                    record.get("target_path").and_then(Value::as_str),
+                    &mut seen,
+                    &mut paths,
+                );
+            }
+        }
+    }
+    paths
+}
+
+fn compact_files(report: &mut Value, limit: usize) -> BTreeSet<String> {
+    let priorities = collect_prioritized_paths(report);
+    let records = report
+        .get_mut("files")
+        .and_then(Value::as_array_mut)
+        .expect("canonical reports contain files");
+    let total = records.len();
+    let original = std::mem::take(records);
+    let mut by_path = original
+        .iter()
+        .filter_map(|record| Some((record.get("path")?.as_str()?.to_string(), record.clone())))
+        .collect::<BTreeMap<_, _>>();
+    for path in priorities {
+        if records.len() >= limit {
+            break;
+        }
+        if let Some(record) = by_path.remove(&path) {
+            records.push(record);
+        }
+    }
+    for record in original {
+        if records.len() >= limit {
+            break;
+        }
+        let Some(path) = record.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        if by_path.remove(path).is_some() {
+            records.push(record);
+        }
+    }
+    let retained = records
+        .iter()
+        .filter_map(|record| record.get("path").and_then(Value::as_str))
+        .map(ToOwned::to_owned)
+        .collect::<BTreeSet<_>>();
+    report["collection_metadata"]["files"] = json!({
+        "total": total,
+        "returned": records.len(),
+        "limit": limit,
+        "truncated": total > records.len()
+    });
+    retained
+}
+
+fn retain_path_collection(
+    report: &mut Value,
+    pointer: &str,
+    metadata_key: &str,
+    retained: &BTreeSet<String>,
+    limit: Option<usize>,
+) {
+    let Some(records) = report.pointer_mut(pointer).and_then(Value::as_array_mut) else {
+        return;
+    };
+    let total = records.len();
+    records.retain(|record| {
+        record
+            .get("path")
+            .and_then(Value::as_str)
+            .is_some_and(|path| retained.contains(path))
+    });
+    if let Some(limit) = limit {
+        records.truncate(limit);
+    }
+    let returned = records.len();
+    report["collection_metadata"][metadata_key] = json!({
+        "total": total,
+        "returned": returned,
+        "limit": limit,
+        "truncated": total > returned
+    });
+}
+
+fn retain_relationship_references(report: &mut Value, retained: &BTreeSet<String>) {
+    let Some(relationships) = report
+        .pointer_mut("/overlays/organization_health/relationships")
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    for records in relationships.values_mut().filter_map(Value::as_array_mut) {
+        records.retain(|record| {
+            ["source_path", "target_path"].into_iter().all(|key| {
+                record
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .is_none_or(|path| retained.contains(path))
+            })
+        });
+    }
+}
+
+fn retain_cluster_references(report: &mut Value, retained: &BTreeSet<String>) {
+    let Some(clusters) = report
+        .pointer_mut("/overlays/organization_health/clusters")
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    for records in clusters.values_mut().filter_map(Value::as_array_mut) {
+        records.retain(|record| {
+            record
+                .get("member_paths")
+                .and_then(Value::as_array)
+                .is_none_or(|members| {
+                    members
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .all(|path| retained.contains(path))
+                })
+        });
+    }
+}
+
 fn apply_report_profile(report: &mut Value, profile: &str) {
     report["diagnostics"]["report_profile"] = json!(profile);
-    if profile != "compact" {
+    report["diagnostics"]["report_profile_semantics"] = json!(match profile {
+        "compact" =>
+            "bounded presentation with exhaustive comparison index and resolvable retained references",
+        "standard" =>
+            "complete primary records with bounded high-cardinality relationship evidence",
+        "full_evidence" => "complete primary records and unbounded retained evidence",
+        _ => "unknown report profile",
+    });
+    if profile == "full_evidence" {
         return;
     }
-    for (key, limit) in [
-        ("files", 250),
-        ("folders", 250),
-        ("ranked_files", 250),
-        ("action_queue", 100),
-    ] {
-        cap_collection(report, key, limit);
+    if profile == "standard" {
+        for pointer in [
+            "/overlays/organization_health/relationships/duplicate_neighborhoods",
+            "/overlays/organization_health/relationships/near_duplicate_neighborhoods",
+            "/overlays/organization_health/relationships/temporal_coupling_edges",
+            "/overlays/organization_health/relationships/lexical_affinity_edges",
+            "/overlays/organization_health/relationships/boundary_leakage_edges",
+        ] {
+            if let Some(records) = report.pointer_mut(pointer).and_then(Value::as_array_mut) {
+                records.truncate(2_000);
+            }
+        }
+        return;
     }
+    let retained = compact_files(report, 250);
+    for (pointer, metadata_key, limit) in [
+        ("/health/findings", "health.findings", None),
+        (
+            "/health/refactor_candidates",
+            "health.refactor_candidates",
+            None,
+        ),
+        ("/health/watchlist", "health.watchlist", None),
+        ("/action_queue", "action_queue", Some(100)),
+        ("/ranked_files", "ranked_files", Some(250)),
+    ] {
+        retain_path_collection(report, pointer, metadata_key, &retained, limit);
+    }
+    retain_relationship_references(report, &retained);
+    retain_cluster_references(report, &retained);
+    cap_collection(report, "folders", 250);
     report["diagnostics"]["compact_profile_note"] = json!(
         "Collections are deterministically bounded; use --report-profile full-evidence for complete records."
     );
@@ -82,7 +282,7 @@ pub fn write_json_atomically(path: &Path, value: &Value) -> Result<()> {
 pub fn schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://github.com/coreycoto/git-slop/blob/main/schemas/report-5.json",
+        "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.2/schemas/report-5.json",
         "title": "Git Slop report schema 5",
         "type": "object",
         "additionalProperties": false,
@@ -99,6 +299,7 @@ pub fn schema() -> Value {
                     "name": {"const": "git-slop"},
                     "version": {"type": "string"},
                     "report_profile": {"enum": ["compact", "standard", "full_evidence"]},
+                    "analysis_clock": {"type": "string", "format": "date-time"},
                     "analysis_contract_version": {"type": "integer", "minimum": 1},
                     "config_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
                     "analysis_config_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
@@ -125,9 +326,18 @@ pub fn schema() -> Value {
             "summary": {"type": "object"},
             "files": {"type": "array", "items": {"$ref": "#/$defs/file"}},
             "folders": {"type": "array", "items": {"$ref": "#/$defs/folder"}},
-            "action_queue": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "slop_score", "slop_band", "context_band", "tokens", "age_days", "revisions_window", "churn_pressure", "reason_codes", "is_pure_context_hotspot"], "properties":{"path":{"type":"string"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"context_band":{"type":"string"},"tokens":{"type":"integer"},"age_days":{"type":"integer"},"revisions_window":{"type":"integer"},"churn_pressure":{"type":"number"},"reason_codes":{"type":"array","items":{"type":"string"}},"is_pure_context_hotspot":{"type":"boolean"}}}},
+            "compare_index": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["files", "folders"],
+                "properties": {
+                    "files": {"type": "array", "items": {"$ref": "#/$defs/compare_record"}},
+                    "folders": {"type": "array", "items": {"$ref": "#/$defs/compare_record"}}
+                }
+            },
+            "action_queue": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "profile", "slop_score", "slop_band", "context_band", "tokens", "age_days", "revisions_window", "churn_pressure", "reason_codes", "is_pure_context_hotspot", "severity", "evidence_status", "next_action"], "properties":{"path":{"type":"string"},"profile":{"enum":["agent_context","data_context"]},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"context_band":{"type":"string"},"tokens":{"type":"integer"},"age_days":{"type":"integer"},"revisions_window":{"type":"integer"},"churn_pressure":{"type":"number"},"reason_codes":{"type":"array","items":{"type":"string"}},"is_pure_context_hotspot":{"type":"boolean"},"severity":{"enum":["error","warning","notice"]},"evidence_status":{"type":"string"},"next_action":{"type":"string"}}}},
             "ranked_files": {"type": "array", "items": {"$ref": "#/$defs/ranked_file"}},
-            "costs": {"type": "object"},
+            "costs": {"$ref": "#/$defs/costs"},
             "overlays": {"type": "object"},
             "health": {"type": "object"},
             "diagnostics": {"type": "object"},
@@ -136,8 +346,10 @@ pub fn schema() -> Value {
             ,"terminology": {"type": "object", "required": ["attention_required", "budget_exceeded", "critical", "error"]}
         },
         "$defs": {
-            "file": {"type": "object", "additionalProperties": false, "required": ["path", "bytes", "lines", "blank_lines", "code_lines", "comment_lines", "language", "profile", "classification", "analysis_status", "skipped_reason", "symlink_metadata", "has_inline_tests", "tokens", "context_band", "context_pressure", "content_fingerprint", "structural_token_count", "top_structural_terms", "structural_categories", "age_days", "revisions_window", "recency_weighted_commits", "added_window", "deleted_window", "churn_lines_window", "line_churn_window", "token_churn_window", "relative_churn_window", "late_churn_spike", "author_count_window", "author_entropy", "top_author_share", "days_since_non_bot_edit", "recent_maintainer_diversity", "age_pressure", "revision_norm", "relative_churn_norm", "churn_pressure", "slop_score", "slop_band", "reason_codes", "costs", "overlays"], "properties": {"path":{"type":"string"},"bytes":{"type":"integer"},"lines":{"type":"integer"},"blank_lines":{"type":"integer"},"code_lines":{"type":"integer"},"comment_lines":{"type":"integer"},"language":{"type":"string"},"profile":{"type":"string"},"classification":{"type":"string"},"analysis_status":{"type":"string"},"skipped_reason":{"type":["string","null"]},"symlink_metadata":{"type":["object","null"]},"has_inline_tests":{"type":"boolean"},"tokens":{"type":"integer"},"context_band":{"type":"string"},"context_pressure":{"type":"number"},"content_fingerprint":{"type":"string"},"structural_token_count":{"type":"integer"},"top_structural_terms":{"type":"array"},"structural_categories":{"type":"object"},"age_days":{"type":"integer"},"revisions_window":{"type":"integer"},"recency_weighted_commits":{"type":"number"},"added_window":{"type":"integer"},"deleted_window":{"type":"integer"},"churn_lines_window":{"type":"integer"},"line_churn_window":{"type":"integer"},"token_churn_window":{"type":"integer"},"relative_churn_window":{"type":"number"},"late_churn_spike":{"type":"number"},"author_count_window":{"type":"integer"},"author_entropy":{"type":"number"},"top_author_share":{"type":"number"},"days_since_non_bot_edit":{"type":["integer","null"]},"recent_maintainer_diversity":{"type":"integer"},"age_pressure":{"type":"number"},"revision_norm":{"type":"number"},"relative_churn_norm":{"type":"number"},"churn_pressure":{"type":"number"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"reason_codes":{"type":"array"},"costs":{"type":"object"},"overlays":{"type":"object"}}},
-            "folder": {"type": "object", "additionalProperties": false, "required": ["path", "descendant_file_count", "direct_file_count", "bytes", "lines", "tokens", "direct_tokens", "context_band", "health_band", "context_pressure", "slop_score", "slop_band", "reason_codes", "top_file_path", "classification", "costs", "overlays"], "properties":{"path":{"type":"string"},"descendant_file_count":{"type":"integer"},"direct_file_count":{"type":"integer"},"bytes":{"type":"integer"},"lines":{"type":"integer"},"tokens":{"type":"integer"},"direct_tokens":{"type":"integer"},"context_band":{"type":"string"},"health_band":{"type":"string"},"context_pressure":{"type":"number"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"reason_codes":{"type":"array"},"top_file_path":{"type":"string"},"classification":{"type":"string"},"costs":{"type":"object"},"overlays":{"type":"object"}}},
+            "costs": {"type":"object","additionalProperties":false,"properties":{"load":{"type":"object","additionalProperties":false,"properties":{"file_token_count":{"type":"integer"},"folder_token_count":{"type":"integer"},"top_file_share":{"type":"number"},"top_3_file_share":{"type":"number"},"token_concentration_ratio":{"type":"number"},"context_band":{"type":"string"},"load_pressure":{"type":"number"}}},"volatility":{"type":"object","additionalProperties":false,"properties":{"commit_count_window":{"type":"number"},"recency_weighted_commits":{"type":"number"},"line_churn_window":{"type":"number"},"token_churn_window":{"type":"number"},"relative_token_churn":{"type":"number"},"late_churn_spike":{"type":"number"},"volatility_pressure":{"type":"number"},"churn_measurement":{"type":"string"}}},"coordination":{"type":"object","additionalProperties":false,"properties":{"files_touched_per_change":{"type":"number"},"folders_touched_per_change":{"type":"number"},"edit_hunks_per_change":{"type":"number"},"change_diffusion":{"type":"number"},"cochange_degree":{"type":"number"},"cochange_centrality":{"type":"number"},"cochange_pagerank":{"type":"number"},"cross_folder_cochange_ratio":{"type":"number"},"coordination_pressure":{"type":"number"}}}}},
+            "compare_record": {"type":"object","additionalProperties":false,"required":["path","content_fingerprint","analysis_status","tokens","context_band","slop_score","slop_band","costs","overlays"],"properties":{"path":{"type":"string"},"content_fingerprint":{"type":["string","null"]},"analysis_status":{"type":"string"},"tokens":{"type":"integer","minimum":0},"context_band":{"type":"string"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"costs":{"$ref":"#/$defs/costs"},"overlays":{"type":"object"}}},
+            "file": {"type": "object", "additionalProperties": false, "required": ["path", "bytes", "lines", "blank_lines", "code_lines", "comment_lines", "language", "profile", "classification", "analysis_status", "skipped_reason", "symlink_metadata", "has_inline_tests", "tokens", "context_band", "context_pressure", "content_fingerprint", "structural_token_count", "top_structural_terms", "structural_categories", "age_days", "revisions_window", "recency_weighted_commits", "added_window", "deleted_window", "churn_lines_window", "line_churn_window", "token_churn_window", "relative_churn_window", "late_churn_spike", "author_count_window", "author_entropy", "top_author_share", "days_since_non_bot_edit", "recent_maintainer_diversity", "age_pressure", "revision_norm", "relative_churn_norm", "churn_pressure", "slop_score", "slop_band", "reason_codes", "costs", "overlays"], "properties": {"path":{"type":"string"},"bytes":{"type":"integer"},"lines":{"type":"integer"},"blank_lines":{"type":"integer"},"code_lines":{"type":"integer"},"comment_lines":{"type":"integer"},"language":{"type":"string"},"profile":{"type":"string"},"classification":{"type":"string"},"analysis_status":{"type":"string"},"skipped_reason":{"type":["string","null"]},"symlink_metadata":{"type":["object","null"]},"has_inline_tests":{"type":"boolean"},"tokens":{"type":"integer"},"context_band":{"type":"string"},"context_pressure":{"type":"number"},"content_fingerprint":{"type":"string"},"structural_token_count":{"type":"integer"},"top_structural_terms":{"type":"array"},"structural_categories":{"type":"object"},"age_days":{"type":"integer"},"revisions_window":{"type":"integer"},"recency_weighted_commits":{"type":"number"},"added_window":{"type":"integer"},"deleted_window":{"type":"integer"},"churn_lines_window":{"type":"integer"},"line_churn_window":{"type":"integer"},"token_churn_window":{"type":"integer"},"relative_churn_window":{"type":"number"},"late_churn_spike":{"type":"number"},"author_count_window":{"type":"integer"},"author_entropy":{"type":"number"},"top_author_share":{"type":"number"},"days_since_non_bot_edit":{"type":["integer","null"]},"recent_maintainer_diversity":{"type":"integer"},"age_pressure":{"type":"number"},"revision_norm":{"type":"number"},"relative_churn_norm":{"type":"number"},"churn_pressure":{"type":"number"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"reason_codes":{"type":"array"},"costs":{"$ref":"#/$defs/costs"},"overlays":{"type":"object"}}},
+            "folder": {"type": "object", "additionalProperties": false, "required": ["path", "descendant_file_count", "direct_file_count", "bytes", "lines", "tokens", "direct_tokens", "context_band", "health_band", "context_pressure", "slop_score", "slop_band", "reason_codes", "top_file_path", "classification", "costs", "overlays"], "properties":{"path":{"type":"string"},"descendant_file_count":{"type":"integer"},"direct_file_count":{"type":"integer"},"bytes":{"type":"integer"},"lines":{"type":"integer"},"tokens":{"type":"integer"},"direct_tokens":{"type":"integer"},"context_band":{"type":"string"},"health_band":{"type":"string"},"context_pressure":{"type":"number"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"reason_codes":{"type":"array"},"top_file_path":{"type":"string"},"classification":{"type":"string"},"costs":{"$ref":"#/$defs/costs"},"overlays":{"type":"object"}}},
             "ranked_file": {"type": "object", "additionalProperties": false, "required": ["path", "slop_score", "slop_band", "context_band", "tokens", "reason_codes"], "properties":{"path":{"type":"string"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"context_band":{"type":"string"},"tokens":{"type":"integer"},"reason_codes":{"type":"array","items":{"type":"string"}}}}
         }
     })
@@ -416,6 +628,13 @@ pub fn migrate_legacy_report(mut report: Value) -> Result<Value> {
                 .unwrap_or_else(|| json!([]));
             for (key, value) in [
                 (
+                    "profile",
+                    source
+                        .get("profile")
+                        .cloned()
+                        .unwrap_or_else(|| json!("agent_context")),
+                ),
+                (
                     "slop_score",
                     source
                         .get("slop_score")
@@ -467,6 +686,18 @@ pub fn migrate_legacy_report(mut report: Value) -> Result<Value> {
                             Some("high_token_cost" | "critical_token_cost")
                         )))),
                 ),
+                ("severity", json!("notice")),
+                ("evidence_status", json!("legacy_unknown")),
+                (
+                    "next_action",
+                    json!(format!(
+                        "git slop explain --path {}",
+                        source
+                            .get("path")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                    )),
+                ),
             ] {
                 object.entry(key).or_insert(value);
             }
@@ -493,6 +724,74 @@ pub fn migrate_legacy_report(mut report: Value) -> Result<Value> {
         .or_insert_with(|| json!(ranked_files));
     root.entry("collection_metadata")
         .or_insert_with(|| json!({}));
+    let comparison_record = |record: &Value| {
+        let overlays = record.get("overlays").unwrap_or(&Value::Null);
+        json!({
+            "path": record.get("path").cloned().unwrap_or(Value::Null),
+            "content_fingerprint": record.get("content_fingerprint").cloned().unwrap_or(Value::Null),
+            "analysis_status": record.get("analysis_status").cloned().unwrap_or_else(|| json!("legacy_unknown")),
+            "tokens": record.get("tokens").cloned().unwrap_or_else(|| json!(0)),
+            "context_band": record.get("context_band").cloned().unwrap_or_else(|| json!("compact")),
+            "slop_score": record.get("slop_score").cloned().unwrap_or_else(|| json!(0.0)),
+            "slop_band": record.get("slop_band").cloned().unwrap_or_else(|| json!("low")),
+            "overlays": {
+                "organization_health": {
+                    "duplication_pressure": overlays.pointer("/organization_health/duplication_pressure").cloned().unwrap_or(Value::Null),
+                    "diffusion_pressure": overlays.pointer("/organization_health/diffusion_pressure").cloned().unwrap_or(Value::Null),
+                    "coupling_pressure": overlays.pointer("/organization_health/coupling_pressure").cloned().unwrap_or(Value::Null),
+                    "boundary_pressure": overlays.pointer("/organization_health/boundary_pressure").cloned().unwrap_or(Value::Null)
+                },
+                "verification": {"verification_gap": overlays.pointer("/verification/verification_gap").cloned().unwrap_or(Value::Null)},
+                "navigation": {"navigation_pressure": overlays.pointer("/navigation/navigation_pressure").cloned().unwrap_or(Value::Null)},
+                "blast_radius": {"blast_radius_pressure": overlays.pointer("/blast_radius/blast_radius_pressure").cloned().unwrap_or(Value::Null)},
+                "stewardship": {"stewardship_pressure": overlays.pointer("/stewardship/stewardship_pressure").cloned().unwrap_or(Value::Null)},
+                "concept_dispersion": {"concept_dispersion_pressure": overlays.pointer("/concept_dispersion/concept_dispersion_pressure").cloned().unwrap_or(Value::Null)}
+            },
+            "costs": {"load": {"load_pressure": record.pointer("/costs/load/load_pressure").cloned().unwrap_or_else(|| json!(0.0))}}
+        })
+    };
+    let compare_files = root
+        .get("files")
+        .and_then(Value::as_array)
+        .map(|records| records.iter().map(&comparison_record).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let compare_folders = root
+        .get("folders")
+        .and_then(Value::as_array)
+        .map(|records| records.iter().map(comparison_record).collect::<Vec<_>>())
+        .unwrap_or_default();
+    root.entry("compare_index")
+        .or_insert_with(|| json!({"files": compare_files, "folders": compare_folders}));
+    let compare_file_count = root
+        .get("compare_index")
+        .and_then(|value| value.get("files"))
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
+    let compare_folder_count = root
+        .get("compare_index")
+        .and_then(|value| value.get("folders"))
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
+    let collection_metadata = root
+        .get_mut("collection_metadata")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| anyhow!("collection_metadata must be an object"))?;
+    if !collection_metadata.contains_key("compare_index") {
+        let files_metadata = collection_metadata
+            .get("files")
+            .cloned()
+            .unwrap_or_else(|| json!({"total": compare_file_count, "returned": compare_file_count, "limit": null, "truncated": false}));
+        let folders_metadata = collection_metadata
+            .get("folders")
+            .cloned()
+            .unwrap_or_else(|| json!({"total": compare_folder_count, "returned": compare_folder_count, "limit": null, "truncated": false}));
+        collection_metadata.insert(
+            "compare_index".to_string(),
+            json!({"files": files_metadata, "folders": folders_metadata}),
+        );
+    }
     root.entry("evidence_completeness").or_insert_with(|| {
         json!({
             "history": "legacy_unknown",
@@ -560,6 +859,27 @@ struct ValidationIssue {
     message: String,
 }
 
+fn collect_unknown_fields(
+    issues: &mut Vec<ValidationIssue>,
+    value: Option<&Value>,
+    pointer: &str,
+    allowed: &[&str],
+) {
+    let Some(object) = value.and_then(Value::as_object) else {
+        return;
+    };
+    for field in object
+        .keys()
+        .filter(|field| !allowed.contains(&field.as_str()))
+    {
+        issues.push(ValidationIssue {
+            code: "unknown_field",
+            pointer: format!("{pointer}/{field}"),
+            message: format!("unknown field {field:?}"),
+        });
+    }
+}
+
 fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
     let mut issues = Vec::new();
     let Some(root) = report.as_object() else {
@@ -604,6 +924,7 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
         "costs",
         "files",
         "folders",
+        "compare_index",
         "ranked_files",
         "action_queue",
         "costs",
@@ -676,6 +997,178 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
             });
         }
     }
+    collect_unknown_fields(
+        &mut issues,
+        root.get("diagnostics"),
+        "/diagnostics",
+        &[
+            "analysis",
+            "evidence_limit",
+            "migration",
+            "relationship_count",
+            "report_profile",
+            "report_profile_semantics",
+            "report_sizes",
+            "structural_token_payload_omitted",
+            "suppressed_saturated_overlays",
+        ],
+    );
+    collect_unknown_fields(
+        &mut issues,
+        report.pointer("/diagnostics/analysis"),
+        "/diagnostics/analysis",
+        &[
+            "analysis_elapsed_ms_before_report",
+            "analysis_status",
+            "cache_bytes",
+            "cache_cleanup_warnings",
+            "cache_entries",
+            "cache_failed_evictions",
+            "cache_hits",
+            "cache_misses",
+            "cache_status",
+            "degraded_omitted_path_count",
+            "estimate",
+            "estimator_error_ratio",
+            "estimate_range_contains_measurement",
+            "history",
+            "history_evidence_status",
+            "measured_peak_rss_bytes",
+            "memory_budget_exceeded_checkpoints",
+            "memory_measurement_status",
+            "original_selected_path_count",
+            "resource_mode",
+            "scope",
+            "structurally_skipped_large_files",
+        ],
+    );
+    let cost_groups = ["load", "volatility", "coordination"];
+    let load_fields = [
+        "file_token_count",
+        "folder_token_count",
+        "top_file_share",
+        "top_3_file_share",
+        "token_concentration_ratio",
+        "context_band",
+        "load_pressure",
+    ];
+    let volatility_fields = [
+        "commit_count_window",
+        "recency_weighted_commits",
+        "line_churn_window",
+        "token_churn_window",
+        "relative_token_churn",
+        "late_churn_spike",
+        "volatility_pressure",
+        "churn_measurement",
+    ];
+    let coordination_fields = [
+        "files_touched_per_change",
+        "folders_touched_per_change",
+        "edit_hunks_per_change",
+        "change_diffusion",
+        "cochange_degree",
+        "cochange_centrality",
+        "cochange_pagerank",
+        "cross_folder_cochange_ratio",
+        "coordination_pressure",
+    ];
+    for (collection, values) in [
+        ("files", root.get("files")),
+        ("folders", root.get("folders")),
+    ] {
+        for (index, record) in values
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            let pointer = format!("/{collection}/{index}/costs");
+            collect_unknown_fields(&mut issues, record.get("costs"), &pointer, &cost_groups);
+            collect_unknown_fields(
+                &mut issues,
+                record.pointer("/costs/load"),
+                &format!("{pointer}/load"),
+                &load_fields,
+            );
+            collect_unknown_fields(
+                &mut issues,
+                record.pointer("/costs/volatility"),
+                &format!("{pointer}/volatility"),
+                &volatility_fields,
+            );
+            collect_unknown_fields(
+                &mut issues,
+                record.pointer("/costs/coordination"),
+                &format!("{pointer}/coordination"),
+                &coordination_fields,
+            );
+        }
+    }
+    let relationship_groups = [
+        "analysis_status",
+        "analysis_version",
+        "duplicate_neighborhoods",
+        "near_duplicate_neighborhoods",
+        "temporal_coupling_edges",
+        "lexical_affinity_edges",
+        "boundary_leakage_edges",
+        "diagnostics",
+    ];
+    let relationships = report.pointer("/overlays/organization_health/relationships");
+    collect_unknown_fields(
+        &mut issues,
+        relationships,
+        "/overlays/organization_health/relationships",
+        &relationship_groups,
+    );
+    let relationship_fields = [
+        "id",
+        "kind",
+        "source_path",
+        "target_path",
+        "evidence_score",
+        "similarity",
+        "crosses_top_level_boundary",
+        "support_count",
+        "calibrated_support",
+        "creation_support_count",
+        "maintenance_support_count",
+        "source_commit_count",
+        "target_commit_count",
+        "observation_commit_count",
+        "source_confidence",
+        "target_confidence",
+        "jaccard",
+        "calibrated_jaccard",
+        "lift_score",
+        "confidence_lower_bound",
+        "confidence",
+        "similarity_ratio",
+        "duplicate_token_mass",
+    ];
+    for group in [
+        "duplicate_neighborhoods",
+        "near_duplicate_neighborhoods",
+        "temporal_coupling_edges",
+        "lexical_affinity_edges",
+        "boundary_leakage_edges",
+    ] {
+        for (index, relationship) in relationships
+            .and_then(|value| value.get(group))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            collect_unknown_fields(
+                &mut issues,
+                Some(relationship),
+                &format!("/overlays/organization_health/relationships/{group}/{index}"),
+                &relationship_fields,
+            );
+        }
+    }
     if let Some(timestamp) = root.get("generated_at") {
         if timestamp
             .as_str()
@@ -710,6 +1203,7 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
             "name",
             "version",
             "report_profile",
+            "analysis_clock",
             "analysis_contract_version",
             "config_digest",
             "analysis_config_digest",
@@ -726,6 +1220,18 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
                 code: "unknown_field",
                 pointer: format!("/analyzer/{key}"),
                 message: format!("unknown analyzer field {key:?}"),
+            });
+        }
+        if analyzer.get("analysis_clock").is_some_and(|value| {
+            value
+                .as_str()
+                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                .is_none()
+        }) {
+            issues.push(ValidationIssue {
+                code: "invalid_timestamp",
+                pointer: "/analyzer/analysis_clock".to_string(),
+                message: "analyzer.analysis_clock must be an RFC 3339 timestamp".to_string(),
             });
         }
         for key in [
@@ -976,6 +1482,36 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
             None => {}
         }
     }
+    if let Some(compare_index) = root.get("compare_index") {
+        let Some(compare_index) = compare_index.as_object() else {
+            issues.push(ValidationIssue {
+                code: "type_mismatch",
+                pointer: "/compare_index".to_string(),
+                message: "compare_index must be an object".to_string(),
+            });
+            return issues;
+        };
+        for collection in ["files", "folders"] {
+            match compare_index.get(collection).and_then(Value::as_array) {
+                Some(records) => {
+                    for (index, record) in records.iter().enumerate() {
+                        if record.get("path").and_then(Value::as_str).is_none() {
+                            issues.push(ValidationIssue {
+                                code: "required_field_missing",
+                                pointer: format!("/compare_index/{collection}/{index}/path"),
+                                message: "path must be a string".to_string(),
+                            });
+                        }
+                    }
+                }
+                None => issues.push(ValidationIssue {
+                    code: "type_mismatch",
+                    pointer: format!("/compare_index/{collection}"),
+                    message: format!("compare_index.{collection} must be an array"),
+                }),
+            }
+        }
+    }
     let file_fields = [
         "path",
         "bytes",
@@ -1078,6 +1614,7 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
     }
     let queue_fields = [
         "path",
+        "profile",
         "slop_score",
         "slop_band",
         "context_band",
@@ -1087,6 +1624,9 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
         "churn_pressure",
         "reason_codes",
         "is_pure_context_hotspot",
+        "severity",
+        "evidence_status",
+        "next_action",
     ];
     let ranked_fields = [
         "path",
@@ -1374,6 +1914,7 @@ fn write_bundle_files(
     report_yaml: Option<&str>,
     summary: &str,
     health: &str,
+    compressed: Option<(&str, &[u8])>,
 ) -> Result<()> {
     fs::create_dir_all(root)
         .with_context(|| format!("failed to create report directory {}", root.display()))?;
@@ -1389,10 +1930,19 @@ fn write_bundle_files(
         let path = root.join(name);
         fs::write(&path, content).with_context(|| format!("failed to write {}", path.display()))?;
     }
+    if let Some((name, bytes)) = compressed {
+        let path = root.join(name);
+        fs::write(&path, bytes).with_context(|| format!("failed to write {}", path.display()))?;
+    }
     Ok(())
 }
 
-fn replace_latest_from_run(latest: &Path, run_root: &Path, yaml_enabled: bool) -> Result<()> {
+fn replace_latest_from_run(
+    latest: &Path,
+    run_root: &Path,
+    yaml_enabled: bool,
+    compressed_name: Option<&str>,
+) -> Result<()> {
     let parent = latest.parent().ok_or_else(|| {
         anyhow!(
             "latest report directory has no parent: {}",
@@ -1405,6 +1955,9 @@ fn replace_latest_from_run(latest: &Path, run_root: &Path, yaml_enabled: bool) -
     let mut names = vec!["report.json", "summary.md", "health.md"];
     if yaml_enabled {
         names.push("report.yaml");
+    }
+    if let Some(name) = compressed_name {
+        names.push(name);
     }
     for name in names {
         let source = run_root.join(name);
@@ -1434,13 +1987,36 @@ fn replace_latest_from_run(latest: &Path, run_root: &Path, yaml_enabled: bool) -
     Ok(())
 }
 
-fn enforce_retention(runs_root: &Path, keep: usize) -> Result<()> {
+fn retained_directory_size(path: &Path) -> Result<u64> {
+    let mut bytes = 0u64;
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        bytes = bytes.saturating_add(if metadata.is_dir() {
+            retained_directory_size(&entry.path())?
+        } else {
+            metadata.len()
+        });
+    }
+    Ok(bytes)
+}
+
+fn enforce_retention(runs_root: &Path, keep: usize, max_bytes: u64) -> Result<()> {
     let mut runs = fs::read_dir(runs_root)?
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .collect::<Vec<_>>();
-    runs.sort_by_key(|entry| std::cmp::Reverse(entry.file_name()));
-    for entry in runs.into_iter().skip(keep) {
+        .map(|entry| {
+            let bytes = retained_directory_size(&entry.path())?;
+            Ok((entry, bytes))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    runs.sort_by_key(|(entry, _)| std::cmp::Reverse(entry.file_name()));
+    let mut retained_bytes = 0u64;
+    for (index, (entry, bytes)) in runs.into_iter().enumerate() {
+        if index < keep && retained_bytes.saturating_add(bytes) <= max_bytes {
+            retained_bytes = retained_bytes.saturating_add(bytes);
+            continue;
+        }
         fs::remove_dir_all(entry.path())?;
     }
     Ok(())
@@ -1509,12 +2085,20 @@ fn write_run_atomically(
     report_yaml: Option<&str>,
     summary: &str,
     health: &str,
+    compressed: Option<(&str, &[u8])>,
 ) -> Result<()> {
     let parent = run_root
         .parent()
         .ok_or_else(|| anyhow!("run report directory has no parent: {}", run_root.display()))?;
     let temporary = temporary_directory(parent, "run");
-    if let Err(error) = write_bundle_files(&temporary, report_json, report_yaml, summary, health) {
+    if let Err(error) = write_bundle_files(
+        &temporary,
+        report_json,
+        report_yaml,
+        summary,
+        health,
+        compressed,
+    ) {
         let _ = fs::remove_dir_all(&temporary);
         return Err(error);
     }
@@ -1537,10 +2121,13 @@ pub fn write_report_bundle(analysis: &Analysis, health: &HealthRollup) -> Result
     fs::create_dir_all(&runs_root)
         .with_context(|| format!("failed to create {}", runs_root.display()))?;
     let retention = config::pointer_u64(&analysis.config, "/output/retention_runs", 20) as usize;
+    let retention_bytes =
+        config::pointer_u64(&analysis.config, "/output/retention_bytes", 2_147_483_648);
     let mut warnings = cleanup_abandoned_publication_state(&analysis.output_root);
-    let retention_warning = enforce_retention(&runs_root, retention.saturating_sub(1))
-        .err()
-        .map(|error| format!("old report retention could not be completed: {error:#}"));
+    let retention_warning =
+        enforce_retention(&runs_root, retention.saturating_sub(1), retention_bytes)
+            .err()
+            .map(|error| format!("old report retention could not be completed: {error:#}"));
     warnings.extend(retention_warning);
     let mut report = assemble_report(analysis, health);
     apply_report_profile(&mut report, &analysis.report_profile);
@@ -1583,6 +2170,7 @@ pub fn write_report_bundle(analysis: &Analysis, health: &HealthRollup) -> Result
     let summary = render_compatibility_summary(&report);
     let health_markdown = render_health_from_report(&report)?;
     let terminal = render_terminal(&report);
+    let compressed = compressed_bytes(&analysis.compression, report_json.as_bytes())?;
 
     let run_root = unique_run_root(&runs_root, &timestamp_slug(&analysis.generated_at));
     write_run_atomically(
@@ -1591,20 +2179,19 @@ pub fn write_report_bundle(analysis: &Analysis, health: &HealthRollup) -> Result
         report_yaml.as_deref(),
         &summary,
         &health_markdown,
+        compressed
+            .as_ref()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
     )?;
     let latest = analysis.output_root.join("latest");
-    replace_latest_from_run(&latest, &run_root, yaml_enabled)?;
-    let compressed_report = compressed_bytes(&analysis.compression, report_json.as_bytes())?
-        .map(|(name, bytes)| -> Result<PathBuf> {
-            let run_path = run_root.join(&name);
-            fs::write(&run_path, &bytes)
-                .with_context(|| format!("failed to write {}", run_path.display()))?;
-            let latest_path = latest.join(name);
-            fs::write(&latest_path, bytes)
-                .with_context(|| format!("failed to write {}", latest_path.display()))?;
-            Ok(latest_path)
-        })
-        .transpose()?;
+    replace_latest_from_run(
+        &latest,
+        &run_root,
+        yaml_enabled,
+        compressed.as_ref().map(|(name, _)| name.as_str()),
+    )?;
+    enforce_retention(&runs_root, retention, retention_bytes)?;
+    let compressed_report = compressed.map(|(name, _)| latest.join(name));
 
     Ok(FindResult {
         report,
@@ -1615,4 +2202,95 @@ pub fn write_report_bundle(analysis: &Analysis, health: &HealthRollup) -> Result
         compressed_report,
         terminal,
     })
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use super::*;
+
+    #[test]
+    fn compact_profile_keeps_an_exhaustive_index_and_resolvable_references() {
+        let files = (0..300)
+            .map(|index| json!({"path": format!("src/{index:03}.rs")}))
+            .collect::<Vec<_>>();
+        let mut report = json!({
+            "files": files.clone(),
+            "folders": [],
+            "compare_index": {"files": files, "folders": []},
+            "ranked_files": [{"path": "src/297.rs"}],
+            "action_queue": [{"path": "src/298.rs"}],
+            "health": {
+                "findings": [{"path": "src/299.rs"}],
+                "refactor_candidates": [],
+                "watchlist": []
+            },
+            "overlays": {"organization_health": {
+                "relationships": {"temporal_coupling_edges": [{
+                    "source_path": "src/298.rs", "target_path": "src/299.rs"
+                }]},
+                "clusters": {"duplicate_sets": [{
+                    "member_paths": ["src/298.rs", "src/299.rs"]
+                }]}
+            }},
+            "summary": {},
+            "diagnostics": {},
+            "collection_metadata": {}
+        });
+        apply_report_profile(&mut report, "compact");
+        let retained = report["files"]
+            .as_array()
+            .expect("compact files")
+            .iter()
+            .filter_map(|record| record["path"].as_str())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(retained.len(), 250);
+        for path in ["src/297.rs", "src/298.rs", "src/299.rs"] {
+            assert!(retained.contains(path), "missing referenced path {path}");
+        }
+        assert_eq!(
+            report["compare_index"]["files"].as_array().map(Vec::len),
+            Some(300)
+        );
+        assert_eq!(
+            report["health"]["findings"].as_array().map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(report["action_queue"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            report["overlays"]["organization_health"]["relationships"]["temporal_coupling_edges"]
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn standard_bounds_high_cardinality_evidence_while_full_evidence_does_not() {
+        let relationships = (0..2_100)
+            .map(|index| json!({"id": index}))
+            .collect::<Vec<_>>();
+        let report = json!({
+            "diagnostics": {},
+            "overlays": {"organization_health": {"relationships": {
+                "temporal_coupling_edges": relationships
+            }}}
+        });
+        let mut standard = report.clone();
+        apply_report_profile(&mut standard, "standard");
+        let mut full = report;
+        apply_report_profile(&mut full, "full_evidence");
+        assert_eq!(
+            standard
+                .pointer("/overlays/organization_health/relationships/temporal_coupling_edges")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(2_000)
+        );
+        assert_eq!(
+            full.pointer("/overlays/organization_health/relationships/temporal_coupling_edges")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(2_100)
+        );
+    }
 }

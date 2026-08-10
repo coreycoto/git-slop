@@ -159,7 +159,8 @@ pub fn default_config() -> Value {
             "test_path_markers": [
                 "test/", "tests/", "spec/", "__tests__/", ".test.", ".spec."
             ],
-            "source_test_mappings": []
+            "source_test_mappings": [],
+            "commands": []
         },
         "navigation": {"top_distinctive_terms": 5},
         "blast_radius": {},
@@ -179,6 +180,11 @@ pub fn default_config() -> Value {
         },
         "health": {
             "profile_threshold_policy": "shared",
+            "profile_context_bands": {
+                "agent_context": {"compact_max_tokens": 3072, "healthy_max_tokens": 8000, "warning_max_tokens": 10000},
+                "data_context": {"compact_max_tokens": 16384, "healthy_max_tokens": 65536, "warning_max_tokens": 131072}
+            },
+            "profile_queue_minimum_score": {"agent_context": 0.0, "data_context": 50.0},
             "data_context_min_bytes": 262144,
             "folder_bands": {
                 "compact_max_direct_tokens": 31999,
@@ -276,8 +282,20 @@ fn validate_override_shape(value: &Value, defaults: &Value, path: &str) -> Resul
                         if let Some(classification) =
                             mapping.get("classification").and_then(Value::as_str)
                         {
-                            if !["source", "test", "docs", "tool", "config", "data", "other"]
-                                .contains(&classification)
+                            if ![
+                                "source",
+                                "test",
+                                "docs",
+                                "tool",
+                                "config",
+                                "data",
+                                "generated",
+                                "snapshot",
+                                "vendored",
+                                "migration_fixture",
+                                "other",
+                            ]
+                            .contains(&classification)
                             {
                                 bail!("{path}[{index}].classification has an unsupported value");
                             }
@@ -375,6 +393,25 @@ pub fn validate(config: &Value) -> Result<()> {
         "/health/summary_top_folders",
     ] {
         require_positive(config, pointer)?;
+    }
+    for profile in ["agent_context", "data_context"] {
+        let pointer = format!("/health/profile_context_bands/{profile}");
+        let bands = config.pointer(&pointer).unwrap_or(&Value::Null);
+        let compact = bands["compact_max_tokens"].as_u64().unwrap_or_default();
+        let healthy = bands["healthy_max_tokens"].as_u64().unwrap_or_default();
+        let warning = bands["warning_max_tokens"].as_u64().unwrap_or_default();
+        if !(compact > 0 && compact < healthy && healthy < warning) {
+            bail!(
+                "health.profile_context_bands.{profile} must be positive and strictly increasing"
+            );
+        }
+        let minimum_score = config
+            .pointer(&format!("/health/profile_queue_minimum_score/{profile}"))
+            .and_then(Value::as_f64)
+            .unwrap_or(-1.0);
+        if !(0.0..=100.0).contains(&minimum_score) {
+            bail!("health.profile_queue_minimum_score.{profile} must be between 0 and 100");
+        }
     }
     let bands = &config["tokenization"]["context_bands"];
     let compact = bands["compact_max_tokens"].as_u64().unwrap_or_default();
@@ -585,7 +622,7 @@ fn schema_for_value(value: &Value, path: &str) -> Value {
                     "required": ["glob"],
                     "properties": {
                         "glob": {"type": "string", "minLength": 1},
-                        "classification": {"type": "string", "enum": ["source", "test", "docs", "tool", "config", "data", "other"]},
+                        "classification": {"type": "string", "enum": ["source", "test", "docs", "tool", "config", "data", "generated", "snapshot", "vendored", "migration_fixture", "other"]},
                         "profile": {"type": "string", "enum": ["agent_context", "data_context"]},
                         "language": {"type": "string", "minLength": 1},
                         "verification_applicability": {"type": "string", "enum": ["auto", "applicable", "not_applicable"]}
@@ -620,7 +657,7 @@ fn schema_for_value(value: &Value, path: &str) -> Value {
                     Some(&["compact", "healthy", "warning", "critical"])
                 }
                 "check.fail_on_slop_band" => Some(&["low", "moderate", "high", "critical"]),
-                "health.profile_threshold_policy" => Some(&["shared"]),
+                "health.profile_threshold_policy" => Some(&["shared", "per_profile"]),
                 _ => None,
             };
             if let Some(allowed) = allowed {
@@ -630,6 +667,7 @@ fn schema_for_value(value: &Value, path: &str) -> Value {
         }
         Value::Number(default) => {
             let minimum = if path.starts_with("scoring.")
+                || path.starts_with("health.profile_queue_minimum_score.")
                 || matches!(
                     path,
                     "organization.min_similarity"
@@ -648,6 +686,9 @@ fn schema_for_value(value: &Value, path: &str) -> Value {
             if matches!(path, "organization.min_similarity") {
                 schema["maximum"] = json!(1.0);
             }
+            if path.starts_with("health.profile_queue_minimum_score.") {
+                schema["maximum"] = json!(100.0);
+            }
             schema
         }
         Value::Bool(default) => json!({"type": "boolean", "default": default}),
@@ -659,7 +700,8 @@ pub fn schema() -> Value {
     let defaults = default_config();
     let mut schema = schema_for_value(&defaults, "");
     schema["$schema"] = json!("https://json-schema.org/draft/2020-12/schema");
-    schema["$id"] = json!("https://github.com/coreycoto/git-slop/blob/main/schemas/config-2.json");
+    schema["$id"] =
+        json!("https://github.com/coreycoto/git-slop/blob/v0.11.2/schemas/config-2.json");
     schema["title"] = json!("Git Slop configuration schema 2");
     schema["required"] = json!(["schema_version"]);
     schema["properties"]["schema_version"] = json!({

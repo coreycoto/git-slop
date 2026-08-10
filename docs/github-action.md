@@ -14,7 +14,7 @@ token, applies a 16 MiB download bound, checks its SHA-256 against the manifest,
 and verifies the package's embedded clean VCS revision. Native archives and
 their manifest entries are each limited to 128 MiB.
 
-The examples below pin `v0.11.1`. Use them only after its verified GitHub
+The examples below pin `v0.11.2`. Use them only after its verified GitHub
 Release is public and the Marketplace listing resolves; a source tag or
 documentation on `main` is not an availability proof.
 
@@ -49,7 +49,7 @@ jobs:
 
       - name: Analyze repository health
         id: git-slop
-        uses: coreycoto/git-slop@v0.11.1
+        uses: coreycoto/git-slop@v0.11.2
 ```
 
 The default is advisory:
@@ -144,7 +144,7 @@ publishes the report and job summary before it evaluates the gate:
 
 ```yaml
       - name: Analyze and enforce repository health
-        uses: coreycoto/git-slop@v0.11.1
+        uses: coreycoto/git-slop@v0.11.2
         with:
           policy: enforce
 ```
@@ -217,7 +217,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.11.1
+  - uses: coreycoto/git-slop@v0.11.2
     with:
       pr-comment: "true"
 ```
@@ -230,15 +230,22 @@ report remains in the job summary and artifact.
 
 | Input | Default | Purpose |
 | --- | --- | --- |
-| `version` | `0.11.1` | Prebuilt release version to download and verify |
+| `version` | `0.11.2` | Prebuilt release version to download and verify |
 | `release-repository` | `coreycoto/git-slop` | Repository containing release assets |
+| `target` | empty | Compatible release target override |
 | `working-directory` | `.` | Directory inside the Git worktree to analyze at its top level |
+| `scope` | empty | Optional repository-relative analysis scope |
+| `report-profile` | `standard` | `compact`, `standard`, or `full-evidence` report semantics |
+| `compression` | `none` | Optional `gzip` or `zstd` report companion |
+| `token-cache` | `false` | Opt in to a content-addressed token cache persisted with `actions/cache` |
 | `policy` | `advisory` | `advisory` or `enforce` |
 | `enforcement` | `absolute` | Absolute thresholds or a native `regression` ratchet |
 | `baseline-report` | empty | Compatible base report for annotations or enforcement |
 | `baseline-ref` | empty | Git revision or SHA scanned in an isolated baseline worktree |
 | `baseline-force` | `false` | Record and allow exact compatibility mismatches |
 | `max-baseline-age-days` | `30` | Reject stale baseline evidence |
+| `require-baseline-ancestor` | `true` | Require ancestor evidence for regression enforcement unless forced |
+| `allow-shallow` | `false` | Explicitly accept incomplete shallow history |
 | `fail-on-context-band` | empty | Optional check threshold override |
 | `fail-on-slop-band` | empty | Optional check threshold override |
 | `annotations` | `true` | Emit workflow annotations |
@@ -250,14 +257,50 @@ report remains in the job summary and artifact.
 | `pr-comment` | `false` | Update one pull request comment |
 | `github-token` | `github.token` | Optional token override |
 
-Useful outputs include `status`, `version`, `target`, `binary-path`,
-`asset-sha256`, `source-revision`, `crate-sha256`,
-`release-manifest-sha256`, `analysis-exit-code`, `policy-exit-code`,
-`finding-count`, `absolute-finding-count`, `regression-count`,
-`baseline-compatible`, `comparison-path`, `annotation-count`, report paths, artifact metadata, and
-`comment-url`. The three provenance outputs let a consuming workflow record the
-same source revision and crate digest used by crates.io, GitHub Release, the
-Marketplace Action, and Homebrew.
+## Outputs
+
+This table is contract-checked against `action.yml`; adding or removing Action
+metadata without updating the documentation fails repository validation.
+
+| Output | Purpose |
+| --- | --- |
+| `status` | Final Action status |
+| `version` | Installed Git Slop version |
+| `target` | Installed Rust target triple |
+| `binary-path` | Absolute verified executable path |
+| `asset-sha256` | Verified native archive digest |
+| `source-revision` | Full verified source revision |
+| `crate-sha256` | Verified crates.io package digest |
+| `release-manifest-sha256` | Verified release-manifest digest |
+| `cache-hit` | Whether the verified executable was reused from `RUNNER_TOOL_CACHE` |
+| `analysis-exit-code` | Exit code from the single analysis invocation |
+| `policy-exit-code` | Exit code from the selected policy gate |
+| `finding-count` | Deprecated alias for `selected-policy-finding-count` |
+| `health-finding-count` | Uncapped actionable head-health findings |
+| `policy-finding-count` | Deprecated alias for `selected-policy-finding-count` |
+| `absolute-finding-count` | Findings from the absolute head gate |
+| `selected-policy-finding-count` | Findings selected by enforcement mode |
+| `regression-count` | Native comparator regressions |
+| `baseline-compatible` | Deprecated compatibility boolean |
+| `baseline-status` | Structured baseline evaluation state |
+| `comparison-path` | Native comparison JSON path |
+| `comparison-error-path` | Preserved baseline-comparison diagnostic path |
+| `annotation-count` | Number of emitted annotations |
+| `health-path` | Absolute `health.md` path |
+| `report-path` | Absolute `report.json` path |
+| `report-yaml-path` | Absolute optional `report.yaml` path |
+| `summary-path` | Absolute `summary.md` path |
+| `artifact-id` | Uploaded artifact ID |
+| `artifact-url` | Uploaded artifact URL |
+| `artifact-digest` | Uploaded artifact digest |
+| `comment-url` | Created or updated pull-request comment URL |
+
+`cache-hit` reports whether the fully verified binary was reused from
+`RUNNER_TOOL_CACHE`; release metadata, manifest, checksums, Formula, tag, and
+cached binary identity are still revalidated on every run. The provenance
+outputs let a consuming workflow record the same source revision and crate
+digest used by crates.io, GitHub Releases, the Marketplace Action, and
+Homebrew.
 
 ## GitHub Marketplace
 
@@ -265,7 +308,7 @@ The Action will be published from this repository's verified stable GitHub
 Release under the **Code quality** and **Continuous integration** categories.
 That first listing requires a maintainer to select GitHub's Marketplace checkbox
 in the draft-release UI, confirm the categories and agreement, and complete
-2FA. Marketplace and direct `uses: coreycoto/git-slop@v0.11.1` installation then
+2FA. Marketplace and direct `uses: coreycoto/git-slop@v0.11.2` installation then
 resolve the same root `action.yml` and release provenance. For
 higher-assurance consumers, pin the Action itself to the full release commit
 SHA; the Action's own nested dependencies are already pinned to full commit

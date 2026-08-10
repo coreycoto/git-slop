@@ -14,7 +14,7 @@ on:
       version:
         description: Strict stable version to publish or recover.
         required: true
-        default: "0.11.1"
+        default: "0.11.2"
         type: string
       recovery_revision:
         description: Recovery only - full 40-character source revision embedded in the published crate.
@@ -429,8 +429,15 @@ jobs:
           cargo xtask homebrew-formula \
             --manifest candidate-dist/release-manifest.json \
             --formula candidate-dist/git-slop.rb
-          (cd candidate-dist && sha256sum git-slop.rb >> SHA256SUMS && LC_ALL=C sort -o SHA256SUMS SHA256SUMS && sha256sum --check SHA256SUMS)
-          test "$(wc -l < candidate-dist/SHA256SUMS | tr -d ' ')" = "9"
+          cargo xtask sbom --output-dir candidate-dist
+          cargo xtask release-manifest \
+            --dist-dir candidate-dist \
+            --crate-source candidate/crate-source.json \
+            --output candidate-dist/release-manifest.json \
+            --checksum-output candidate-dist/SHA256SUMS \
+            --tag "$TAG"
+          (cd candidate-dist && sha256sum --check SHA256SUMS)
+          test "$(wc -l < candidate-dist/SHA256SUMS | tr -d ' ')" = "11"
 
       - name: Upload candidate Formula for Homebrew audit
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -906,12 +913,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo xtask sbom --output-dir dist
           cp registry/crate-source.json dist/crate-source.json
           cargo xtask release-manifest --dist-dir dist --crate-source dist/crate-source.json --output dist/release-manifest.json --checksum-output dist/SHA256SUMS --tag "$TAG"
           cargo xtask homebrew-formula --manifest dist/release-manifest.json --formula dist/git-slop.rb
+          cargo xtask sbom --output-dir dist
+          cargo xtask release-manifest --dist-dir dist --crate-source dist/crate-source.json --output dist/release-manifest.json --checksum-output dist/SHA256SUMS --tag "$TAG"
           rm dist/crate-source.json
-          (cd dist && sha256sum git-slop.rb git-slop.cdx.json git-slop.spdx.json >> SHA256SUMS && LC_ALL=C sort -o SHA256SUMS SHA256SUMS && sha256sum --check SHA256SUMS)
+          (cd dist && sha256sum --check SHA256SUMS)
           test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" = "11"
 
       - name: Inspect existing GitHub Release
@@ -1042,8 +1050,14 @@ jobs:
           test "$(jq -r 'length' release-matches.json)" = 1
           test "$(jq -r '.[0].id' release-matches.json)" = "$RELEASE_ID"
           jq '.[0]' release-matches.json > release.json
+          manifest_asset_id="$(jq -er '.assets[] | select(.name == "release-manifest.json") | .id' release.json)"
+          gh api -H "Accept: application/octet-stream" \
+            "repos/${GITHUB_REPOSITORY}/releases/assets/${manifest_asset_id}" \
+            > release-manifest.inventory.json
           jq -r '.assets[].name' release.json | LC_ALL=C sort > actual-assets.txt
-          printf '%s\n' SHA256SUMS git-slop.rb git-slop.cdx.json git-slop.spdx.json "git-slop-${TAG}-aarch64-apple-darwin.tar.gz" "git-slop-${TAG}-aarch64-pc-windows-msvc.zip" "git-slop-${TAG}-aarch64-unknown-linux-gnu.tar.gz" "git-slop-${TAG}-x86_64-apple-darwin.tar.gz" "git-slop-${TAG}-x86_64-pc-windows-msvc.zip" "git-slop-${TAG}-x86_64-unknown-linux-gnu.tar.gz" "git-slop-${TAG}-x86_64-unknown-linux-musl.tar.gz" release-manifest.json | LC_ALL=C sort > expected-assets.txt
+          jq -r '.artifacts[].name, .supplemental_assets[].name' release-manifest.inventory.json > expected-assets.txt
+          printf '%s\n' SHA256SUMS release-manifest.json >> expected-assets.txt
+          LC_ALL=C sort -o expected-assets.txt expected-assets.txt
           diff -u expected-assets.txt actual-assets.txt
           while IFS=$'\t' read -r asset_id asset_name; do
             [[ "$asset_id" =~ ^[1-9][0-9]*$ ]]
@@ -1052,7 +1066,7 @@ jobs:
               > "release-verification/${asset_name}"
           done < <(jq -r '.assets[] | [.id, .name] | @tsv' release.json)
           (cd release-verification && sha256sum --check SHA256SUMS)
-          jq -e --arg version "$VERSION" --arg tag "$TAG" --arg revision "$REVISION" '.schema_version == 3 and .version == $version and .tag == $tag and .revision == $revision and .crate_source.revision == $revision' release-verification/release-manifest.json
+          jq -e --arg version "$VERSION" --arg tag "$TAG" --arg revision "$REVISION" '.schema_version == 3 and .version == $version and .tag == $tag and .revision == $revision and .crate_source.revision == $revision and (.supplemental_assets | length) == 3 and all(.supplemental_assets[]; .required == true and .contract_version == 1)' release-verification/release-manifest.json
           [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]]
           jq -e --arg tag "$TAG" --argjson release_id "$RELEASE_ID" \
             '.id == $release_id and .tag_name == $tag and .prerelease == false and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))' \

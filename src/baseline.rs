@@ -4,6 +4,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
+use chrono::{DateTime, Utc};
 
 use crate::{analyze, config};
 
@@ -64,6 +65,7 @@ impl MaterializedBaseline {
         reference: &str,
         scope: Option<String>,
         allow_shallow: bool,
+        as_of: Option<DateTime<Utc>>,
     ) -> Result<Self> {
         if !safe_revision(reference) {
             bail!("baseline reference is not a bounded safe Git revision: {reference:?}");
@@ -126,6 +128,7 @@ impl MaterializedBaseline {
                 scope,
                 progress: false,
                 no_cache: true,
+                as_of,
                 ..analyze::FindOptions::default()
             },
         );

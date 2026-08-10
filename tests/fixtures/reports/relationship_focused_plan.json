@@ -26,7 +26,7 @@
       "backlog_handoff": {
         "acceptance_criteria": [
           "Change no more than 2 scoped paths unless the plan is regenerated.",
-          "Keep the highest scoped slop score at or below 12.600000.",
+          "Reduce the highest scoped slop score from 12.600 to at most 11.600.",
           "Produce zero native compare regressions and pass every discovered verification command."
         ],
         "evidence_summary": "Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py.",
@@ -46,7 +46,7 @@
           "maintenance"
         ]
       },
-      "baseline_command": "cp .slop/latest/report.json .slop/plan-baseline.json",
+      "baseline_command": "git-slop baseline create --name plan",
       "boundaries": {
         "in_scope": [
           "src/consumer_toolkit/github/current_repo.py",
@@ -78,16 +78,18 @@
         "maximum_scope_paths": 2,
         "required": [
           "No new native compare regression.",
-          "No increase in the highest scoped slop score.",
+          "Highest scoped slop score is at most 11.600.",
           "All reviewed verification commands pass."
-        ]
+        ],
+        "target_top_slop_score": 11.6
       },
       "id": "anchor-relationship-near_duplicate_neighborhood-35e7fad1c4e0",
-      "objective": "Keep the highest scoped slop score at or below 12.600000 across src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py, introduce zero native compare regressions, and pass every discovered verification command without expanding the reviewed scope.",
+      "objective": "Reduce the highest scoped slop score from 12.600 to at most 11.600 across src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py, introduce zero native compare regressions, and pass every discovered verification command without expanding the reviewed scope.",
       "out_of_scope_paths": [],
+      "plan_type": "intervention",
       "ranking_reason": "Anchor slice always ranks first.",
       "rationale": "Start with the selected coupled pair before considering any surrounding cluster evidence.",
-      "rerun_command": "git-slop find && git-slop compare --base .slop/plan-baseline.json --head .slop/latest/report.json --detail summary --fail-on-regression",
+      "rerun_command": "git-slop find && git-slop compare --baseline plan --head .slop/latest/report.json --detail summary --fail-on-regression",
       "rollback": "Revert only the explicitly reviewed code changes; report and prompt artifacts are advisory and can be regenerated.",
       "scope_paths": [
         "src/consumer_toolkit/github/current_repo.py",

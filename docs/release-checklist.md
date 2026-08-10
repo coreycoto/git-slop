@@ -266,17 +266,22 @@ The workflow builds the seven final archives from the downloaded crates.io
 package, verifies their embedded build identity, and creates or refreshes a
 draft GitHub Release. It never publishes the release automatically.
 
-The draft must contain exactly ten assets:
+The draft must contain exactly twelve assets:
 
 - seven target archives;
-- `SHA256SUMS`, with exactly nine unique entries;
+- `SHA256SUMS`, with exactly eleven unique entries;
 - `release-manifest.json`, schema 3; and
 - `git-slop.rb`, whose source URL and SHA-256 point to the static crates.io
-  package rather than a GitHub archive or Homebrew bottle.
+  package rather than a GitHub archive or Homebrew bottle; and
+- deterministic CycloneDX and SPDX SBOMs.
 
-`SHA256SUMS` covers the seven archives, manifest, and Formula. GitHub's release
-asset digests, the manifest's target matrix and source provenance, the exact
-tag commit, the crate checksum, and the Action installer must all verify before
+`SHA256SUMS` covers the seven archives, manifest, Formula, and both SBOMs. The
+manifest's `supplemental_assets` roles are the authoritative extensible
+inventory for the Formula and SBOMs; publisher and receiver workflows derive
+their expected filenames from it instead of duplicating those filenames.
+GitHub's release asset digests, the manifest's target matrix and source
+provenance, the exact tag commit, the crate checksum, and the Action installer
+must all verify before
 Inspect the draft and workflow summary:
 
 ```bash
@@ -384,8 +389,9 @@ bucket credential shared with the source repository.
 The automatic trusted-main Scoop receiver starts only after the read-only
 public-release verifier has bound the exact version, numeric release ID, source
 revision, and release-manifest SHA-256. Trusted bucket `main` independently
-downloads the public release, requires the exact ten assets and nine
-checksum entries, verifies every GitHub asset digest, resolves the tag, and
+downloads the public release, derives the exact twelve assets from the manifest
+and requires eleven checksum entries, verifies every GitHub asset digest,
+resolves the tag, and
 rerenders `bucket/git-slop.json`. The manifest must select
 `git-slop-v<version>-x86_64-pc-windows-msvc.zip` for `64bit` and
 `git-slop-v<version>-aarch64-pc-windows-msvc.zip` for `arm64`; each literal
@@ -439,6 +445,37 @@ bucket main SHA, and manifest URL. If receiver recovery is necessary, manually
 dispatch `Update git-slop manifest` on exact bucket `main` with the same four
 immutable values; it is idempotent and accepts no caller-supplied archive URL
 or Windows hash.
+
+## Reconcile The Release Surface
+
+Treat publication as complete only when every row is green for the same version
+and source revision:
+
+| Surface | Terminal evidence |
+| --- | --- |
+| GitHub Release | Stable release, signed tag, manifest-derived asset inventory, checksums, SBOM graph validation, and attestations verify |
+| crates.io | Package is not yanked; checksum and `.cargo_vcs_info.json` match the release manifest |
+| GitHub Action | All seven native installer lanes report the exact source, crate, manifest, and archive identities |
+| Homebrew | Receiver and bottle publisher are green; tap `main` installs and reports the exact source revision |
+| Scoop | Receiver and exact bucket-`main` qualification are green on x64 and ARM64 |
+
+The recovery operations are intentionally idempotent. Reverify the current
+surface first, then redispatch only the failed receiver with the immutable
+version and revision already published:
+
+```bash
+gh workflow run homebrew-handoff.yml --repo coreycoto/git-slop --ref main \
+  -f version=<version> -f revision=<40-character-release-revision>
+
+gh workflow run update-git-slop.yml --repo coreycoto/scoop-bucket --ref main \
+  -f version=<version> \
+  -f release_id=<numeric-github-release-id> \
+  -f revision=<40-character-release-revision> \
+  -f release_manifest_sha256=<64-character-manifest-digest>
+```
+
+Neither command may change the crate, tag, GitHub release assets, or supplied
+identity. A receiver whose target already matches is a verified no-op.
 
 ## Verify Consumers And Close Out
 

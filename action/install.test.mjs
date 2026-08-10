@@ -206,6 +206,8 @@ if (process.argv[2] === "version") {
     let servedReleaseId = draftReleaseId;
     let releaseTagRequests = 0;
     let releaseIdRequests = 0;
+    let archiveDownloadRequests = 0;
+    let crateDownloadRequests = 0;
     let releaseDraft = false;
     let releaseTagName = tag;
     let releaseAssetDownloadBaseOverride = null;
@@ -263,6 +265,21 @@ if (process.argv[2] === "version") {
         revision,
         repository: "example/git-slop",
         artifacts,
+        supplemental_assets: [
+          ["git-slop.rb", "homebrew_formula", "text/x-ruby", formulaBytes],
+          ["git-slop.cdx.json", "cyclonedx_sbom", "application/vnd.cyclonedx+json", cdxBytes],
+          ["git-slop.spdx.json", "spdx_sbom", "application/spdx+json", spdxBytes],
+        ].map(([name, role, media_type, bytes]) => ({
+          name,
+          path: name,
+          role,
+          media_type,
+          required: true,
+          contract_version: 1,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          size_bytes: bytes.length,
+          url: `https://github.com/example/git-slop/releases/download/${tag}/${name}`,
+        })),
       });
       Object.assign(manifest.crate_source, {
         schema_version: 1,
@@ -406,6 +423,7 @@ if (process.argv[2] === "version") {
           }),
         );
       } else if (request.url === "/assets/archive") {
+        archiveDownloadRequests += 1;
         response.end(servedArchiveBytes);
       } else if (request.url === "/assets/checksums") {
         response.end(checksumBytes);
@@ -414,6 +432,7 @@ if (process.argv[2] === "version") {
       } else if (request.url === "/assets/formula") {
         response.end(servedFormulaBytes);
       } else if (request.url === `/crates/git-slop/git-slop-${version}.crate`) {
+        crateDownloadRequests += 1;
         crateAuthorizationObserved = request.headers.authorization ?? null;
         if (crateContentLengthOverride !== null) {
           response.setHeader("content-length", crateContentLengthOverride);
@@ -470,6 +489,7 @@ try {
     refreshMetadata();
 
     try {
+      const toolCache = join(root, "tool-cache");
       const installed = await runInstaller({
         GITHUB_API_URL: apiRoot,
         GITHUB_OUTPUT: output,
@@ -478,6 +498,7 @@ try {
         GIT_SLOP_GITHUB_TOKEN: "github-test-token",
         GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
         RUNNER_TEMP: root,
+        RUNNER_TOOL_CACHE: toolCache,
       });
       assert.equal(installed.status, 0, installed.stderr);
       const actual = outputs(output);
@@ -488,12 +509,32 @@ try {
       assert.equal(actual.sha256, digest);
       assert.equal(actual["source-revision"], revision);
       assert.equal(actual["crate-sha256"], crateSha256);
+      assert.equal(actual["cache-hit"], "false");
       assert.match(actual["release-manifest-sha256"], /^[a-f0-9]{64}$/u);
       assert.ok(existsSync(actual["binary-path"]));
       assert.equal(readFileSync(githubPath, "utf8").trim(), dirname(actual["binary-path"]));
       assert.equal(crateAuthorizationObserved, null, "GitHub token leaked to crates.io fetch");
       assert.equal(releaseTagRequests, 1);
       assert.equal(releaseIdRequests, 0);
+      assert.equal(archiveDownloadRequests, 1);
+      assert.equal(crateDownloadRequests, 1);
+
+      const cachedOutput = join(root, "github-cache-output.txt");
+      const cachedInstall = await runInstaller({
+        GITHUB_API_URL: apiRoot,
+        GITHUB_OUTPUT: cachedOutput,
+        GIT_SLOP_ACTION_VERSION: version,
+        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
+        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
+        RUNNER_TEMP: root,
+        RUNNER_TOOL_CACHE: toolCache,
+      });
+      assert.equal(cachedInstall.status, 0, cachedInstall.stderr);
+      const cached = outputs(cachedOutput);
+      assert.equal(cached["cache-hit"], "true");
+      assert.equal(cached["binary-path"], actual["binary-path"]);
+      assert.equal(archiveDownloadRequests, 1, "cache hit downloaded the archive again");
+      assert.equal(crateDownloadRequests, 1, "cache hit downloaded the crate again");
 
       releaseDraft = true;
       const rejectedDraft = await runInstaller({

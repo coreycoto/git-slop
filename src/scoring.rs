@@ -66,6 +66,57 @@ pub fn context_pressure_for_tokens(tokens: usize, config: &Value) -> f64 {
     (tokens as f64 / warning_max).min(1.0)
 }
 
+fn profile_band_pointer(profile: &str, field: &str, config: &Value) -> Option<String> {
+    (config
+        .pointer("/health/profile_threshold_policy")
+        .and_then(Value::as_str)
+        == Some("per_profile"))
+    .then(|| format!("/health/profile_context_bands/{profile}/{field}"))
+}
+
+pub fn context_band_for_profile(tokens: usize, profile: &str, config: &Value) -> String {
+    let threshold = |field: &str, fallback: u64| {
+        profile_band_pointer(profile, field, config)
+            .as_deref()
+            .map(|pointer| pointer_u64(config, pointer, fallback))
+            .unwrap_or_else(|| {
+                pointer_u64(
+                    config,
+                    &format!("/tokenization/context_bands/{field}"),
+                    fallback,
+                )
+            }) as usize
+    };
+    let compact_max = threshold("compact_max_tokens", DEFAULT_COMPACT_MAX_TOKENS);
+    let healthy_max = threshold("healthy_max_tokens", DEFAULT_HEALTHY_MAX_TOKENS);
+    let warning_max = threshold("warning_max_tokens", DEFAULT_WARNING_MAX_TOKENS);
+    if tokens <= compact_max {
+        "compact"
+    } else if tokens <= healthy_max {
+        "healthy"
+    } else if tokens <= warning_max {
+        "warning"
+    } else {
+        "critical"
+    }
+    .to_string()
+}
+
+pub fn context_pressure_for_profile(tokens: usize, profile: &str, config: &Value) -> f64 {
+    let warning_max = profile_band_pointer(profile, "warning_max_tokens", config)
+        .as_deref()
+        .map(|pointer| pointer_u64(config, pointer, DEFAULT_WARNING_MAX_TOKENS))
+        .unwrap_or_else(|| {
+            pointer_u64(
+                config,
+                "/tokenization/context_bands/warning_max_tokens",
+                DEFAULT_WARNING_MAX_TOKENS,
+            )
+        })
+        .max(1) as f64;
+    (tokens as f64 / warning_max).min(1.0)
+}
+
 pub fn slop_band_for_score(score: f64) -> String {
     if score >= 85.0 {
         "critical"
@@ -94,24 +145,26 @@ fn age_pressure(age_days: u64, config: &Value) -> f64 {
     1.0 - 2_f64.powf(-(age_days as f64 / half_life))
 }
 
-fn reason_codes(record: &FileAnalysis) -> Vec<String> {
+fn reason_codes(record: &FileAnalysis, history_supported: bool) -> Vec<String> {
     let mut reasons = Vec::new();
     match record.context_band.as_str() {
         "critical" => reasons.push("critical_token_cost".to_string()),
         "warning" => reasons.push("high_token_cost".to_string()),
         _ => {}
     }
-    if record.age_days >= 180 {
-        reasons.push("old_file".to_string());
-    }
-    if record.revision_norm >= 0.8 {
-        reasons.push("high_revision_frequency".to_string());
-    }
-    if record.relative_churn_norm >= 0.8 {
-        reasons.push("high_relative_churn".to_string());
-    }
-    if record.age_days >= 180 && record.churn_pressure >= 0.6 {
-        reasons.push("old_and_volatile".to_string());
+    if history_supported {
+        if record.age_days >= 180 {
+            reasons.push("old_file".to_string());
+        }
+        if record.revision_norm >= 0.8 {
+            reasons.push("high_revision_frequency".to_string());
+        }
+        if record.relative_churn_norm >= 0.8 {
+            reasons.push("high_relative_churn".to_string());
+        }
+        if record.age_days >= 180 && record.churn_pressure >= 0.6 {
+            reasons.push("old_and_volatile".to_string());
+        }
     }
     reasons
 }
@@ -121,7 +174,16 @@ fn reason_codes(record: &FileAnalysis) -> Vec<String> {
 /// Repository-relative churn components use nearest-rank p95 ordering.
 /// Intermediate metrics are rounded to six decimals and the final score to one
 /// decimal before banding, matching the public report contract.
+#[cfg(test)]
 pub fn apply_scoring(records: &mut [FileAnalysis], config: &Value) {
+    apply_scoring_with_evidence(records, config, true);
+}
+
+pub fn apply_scoring_with_evidence(
+    records: &mut [FileAnalysis],
+    config: &Value,
+    history_evidence_reliable: bool,
+) {
     let revision_p95 = p95(records.iter().map(|record| record.revisions_window as f64)).max(1.0);
     let relative_churn_p95 = p95(records.iter().map(|record| record.relative_churn_window));
     let relative_churn_denom = if relative_churn_p95 > 0.0 {
@@ -134,10 +196,16 @@ pub fn apply_scoring(records: &mut [FileAnalysis], config: &Value) {
     let churn_weight = pointer_f64(config, "/scoring/churn_weight", DEFAULT_CHURN_WEIGHT);
 
     for record in records {
-        let raw_age_pressure = age_pressure(record.age_days, config);
-        let raw_revision_norm = (record.revisions_window as f64 / revision_p95).min(1.0);
+        let history_support = if history_evidence_reliable {
+            (record.revisions_window as f64 / 5.0).min(1.0)
+        } else {
+            0.0
+        };
+        let raw_age_pressure = age_pressure(record.age_days, config) * history_support;
+        let raw_revision_norm =
+            (record.revisions_window as f64 / revision_p95).min(1.0) * history_support;
         let raw_relative_churn_norm =
-            (record.relative_churn_window / relative_churn_denom).min(1.0);
+            (record.relative_churn_window / relative_churn_denom).min(1.0) * history_support;
         let raw_churn_pressure = 0.6 * raw_revision_norm + 0.4 * raw_relative_churn_norm;
         let raw_score = 100.0
             * (context_weight * record.context_pressure
@@ -150,7 +218,7 @@ pub fn apply_scoring(records: &mut [FileAnalysis], config: &Value) {
         record.churn_pressure = round_to(raw_churn_pressure, 6);
         record.slop_score = round_to(raw_score, 1);
         record.slop_band = slop_band_for_score(record.slop_score);
-        record.reason_codes = reason_codes(record);
+        record.reason_codes = reason_codes(record, history_support >= 1.0);
     }
 }
 
@@ -565,6 +633,25 @@ mod tests {
     }
 
     #[test]
+    fn per_profile_context_thresholds_are_opt_in_and_distinct() {
+        let mut config = crate::config::default_config();
+        config["health"]["profile_threshold_policy"] = json!("per_profile");
+        assert_eq!(
+            context_band_for_profile(12_000, "agent_context", &config),
+            "critical"
+        );
+        assert_eq!(
+            context_band_for_profile(12_000, "data_context", &config),
+            "compact"
+        );
+        assert_eq!(
+            context_pressure_for_profile(12_000, "agent_context", &config),
+            1.0
+        );
+        assert!(context_pressure_for_profile(12_000, "data_context", &config) < 0.1);
+    }
+
+    #[test]
     fn scoring_uses_nearest_rank_p95_and_caps_outliers() {
         let mut files: Vec<FileAnalysis> = (1..=20)
             .map(|revision| file(&format!("src/{revision}.rs"), 100, revision, 0.0))
@@ -603,6 +690,9 @@ mod tests {
             file("src/quiet.rs", 100, 1, 0.1),
             file("src/volatile.rs", 100, 1, 2.0),
         ];
+        for file in &mut files {
+            file.revisions_window = 5;
+        }
         apply_scoring(&mut files, &json!({}));
 
         assert_eq!(files[0].relative_churn_norm, 0.05);

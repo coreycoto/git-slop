@@ -199,6 +199,7 @@ test("baseline enforcement uses the native comparator and fails only on regressi
     GIT_SLOP_WORKING_DIRECTORY: ".",
     GIT_SLOP_BASELINE_REPORT: baseline,
     GIT_SLOP_ENFORCEMENT: "regression",
+    GIT_SLOP_REQUIRE_BASELINE_ANCESTOR: "false",
   });
   assert.equal(analysis.status, 0, analysis.stderr);
   const values = outputs(state.output);

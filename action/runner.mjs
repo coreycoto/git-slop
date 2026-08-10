@@ -69,7 +69,11 @@ function workingDirectory() {
 }
 
 function reportPaths(root) {
-  const latest = join(root, ".slop", "latest");
+  return reportPathsFromOutput(join(root, ".slop"));
+}
+
+function reportPathsFromOutput(outputRoot) {
+  const latest = join(outputRoot, "latest");
   return {
     healthPath: join(latest, "health.md"),
     reportPath: join(latest, "report.json"),
@@ -96,6 +100,24 @@ function run(command, args, cwd, stdio = "inherit") {
     stderr: result.stderr || "",
     stdout: result.stdout || "",
   };
+}
+
+function safeLogText(value) {
+  return String(value).replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/gu, (character) => {
+    if (character === "\r") return "\\r";
+    if (character === "\n") return "\\n";
+    if (character === "\t") return "\\t";
+    return `\\u{${character.codePointAt(0).toString(16)}}`;
+  });
+}
+
+function githubPropertyEscape(value) {
+  return String(value)
+    .replace(/%/gu, "%25")
+    .replace(/\r/gu, "%0D")
+    .replace(/\n/gu, "%0A")
+    .replace(/:/gu, "%3A")
+    .replace(/,/gu, "%2C");
 }
 
 function reportFindingCount(reportPath) {
@@ -227,6 +249,10 @@ function validateInputs() {
     allowShallow: normalizedBoolean("GIT_SLOP_ALLOW_SHALLOW", "false"),
     baselineForce: normalizedBoolean("GIT_SLOP_BASELINE_FORCE", "false"),
     maxBaselineAgeDays: boundedInteger("GIT_SLOP_MAX_BASELINE_AGE_DAYS", 30, 1, 3650),
+    requireBaselineAncestor: normalizedBoolean("GIT_SLOP_REQUIRE_BASELINE_ANCESTOR", "true"),
+    reportProfile: enumValue("GIT_SLOP_REPORT_PROFILE", "standard", ["compact", "standard", "full-evidence"]),
+    compression: enumValue("GIT_SLOP_COMPRESSION", "none", ["none", "gzip", "zstd"]),
+    tokenCache: normalizedBoolean("GIT_SLOP_TOKEN_CACHE", "false"),
     failOnContextBand: optionalBand("GIT_SLOP_FAIL_ON_CONTEXT_BAND", [
       "compact",
       "healthy",
@@ -270,7 +296,10 @@ function analyze() {
       throw new Error(`could not resolve the Git worktree root: ${gitRoot.stderr.trim()}`);
     }
     cwd = resolve(gitRoot.stdout.trim());
-    ({ healthPath, reportPath, reportYamlPath, summaryPath } = reportPaths(cwd));
+    const runnerTemp = (process.env.RUNNER_TEMP || "").trim();
+    const outputRoot = runnerTemp ? resolve(runnerTemp, "git-slop-action", "reports") : join(cwd, ".slop");
+    const stateRoot = runnerTemp ? resolve(runnerTemp, "git-slop-action", "state") : join(cwd, ".slop");
+    ({ healthPath, reportPath, reportYamlPath, summaryPath } = reportPathsFromOutput(outputRoot));
     const shallow = run("git", ["rev-parse", "--is-shallow-repository"], cwd, "pipe");
     if (shallow.status !== 0) {
       throw new Error(`could not inspect Git history: ${shallow.stderr.trim()}`);
@@ -291,6 +320,9 @@ function analyze() {
     // stdout/stderr away from the workflow-command parser; the escaped health
     // summary and annotation renderer are the supported publication surfaces.
     const findArgs = ["find", "--quiet"];
+    findArgs.push("--report-profile", inputs.reportProfile, "--compression", inputs.compression);
+    if (runnerTemp) findArgs.push("--output-dir", outputRoot, "--state-dir", stateRoot);
+    if (!inputs.tokenCache) findArgs.push("--no-cache");
     if (inputs.allowShallow) findArgs.push("--allow-shallow");
     const scope = (process.env.GIT_SLOP_SCOPE || "").trim();
     if (scope) findArgs.push("--scope", scope);
@@ -305,7 +337,7 @@ function analyze() {
     }
   } catch (error) {
     failureMessage = error instanceof Error ? error.message : String(error);
-    console.error(`git-slop Action analysis failed: ${failureMessage}`);
+    console.error(`git-slop Action analysis failed: ${safeLogText(failureMessage)}`);
     writeFallbackHealth(healthPath, failureMessage);
   }
 
@@ -326,17 +358,19 @@ function analyze() {
     enforcement: "absolute",
     baselineForce: false,
     maxBaselineAgeDays: 30,
+    requireBaselineAncestor: true,
+    tokenCache: false,
     failOnContextBand: "",
     failOnSlopBand: "",
   };
   const healthFindingCount = analysisExitCode === 0 ? reportFindingCount(reportPath) : 0;
-  let policyFindingCount = healthFindingCount;
+  let absolutePolicyFindingCount = healthFindingCount;
   if (analysisExitCode === 0) {
-    policyFindingCount = reportPolicyFindingCount(
+    absolutePolicyFindingCount = reportPolicyFindingCount(
       (process.env.GIT_SLOP_BINARY || "").trim(), cwd, reportPath, safeInputs,
     );
   }
-  let findingCount = policyFindingCount;
+  let selectedPolicyFindingCount = absolutePolicyFindingCount;
   let regressionCount = 0;
   let baselineStatus = "not_evaluated";
   const baselineInput = (process.env.GIT_SLOP_BASELINE_REPORT || "").trim();
@@ -386,17 +420,30 @@ function analyze() {
         throw new Error("baseline report is missing a valid generated_at timestamp");
       }
       const ageDays = (Date.now() - generatedAt) / 86_400_000;
+      if (ageDays < -1 / 24) {
+        throw new Error("baseline report generated_at is implausibly in the future");
+      }
       if (ageDays > safeInputs.maxBaselineAgeDays) {
         throw new Error(
           `baseline report is ${Math.floor(ageDays)} days old; maximum is ${safeInputs.maxBaselineAgeDays}`,
         );
       }
       comparison.baseline_revision = baselineRevisionStatus(run, cwd, comparison);
+      if (
+        safeInputs.enforcement === "regression" &&
+        safeInputs.requireBaselineAncestor &&
+        !safeInputs.baselineForce &&
+        comparison.baseline_revision.ancestry !== "ancestor"
+      ) {
+        throw new Error(
+          `baseline revision must be an ancestor of the head for regression enforcement; observed ${comparison.baseline_revision.ancestry}`,
+        );
+      }
       comparison.baseline_materialization = materialization;
       writeFileSync(comparisonPath, `${JSON.stringify(comparison)}\n`, "utf8");
       regressionCount = comparison.summary.regression_count;
       baselineStatus = comparison.baseline_status || (comparison.baseline_compatible ? "compatible" : "forced");
-      findingCount = regressionCount;
+      if (safeInputs.enforcement === "regression") selectedPolicyFindingCount = regressionCount;
     }
     if (analysisExitCode === 0 && safeInputs.enforcement === "regression" && !baselineInput && !baselineRef) {
       throw new Error("enforcement=regression requires baseline-report or baseline-ref");
@@ -404,7 +451,7 @@ function analyze() {
   } catch (error) {
     failureMessage = error instanceof Error ? error.message : String(error);
     baselineStatus = "error";
-    findingCount = policyFindingCount;
+    selectedPolicyFindingCount = absolutePolicyFindingCount;
     regressionCount = 0;
     comparisonPath = "";
     comparisonErrorPath = join(dirname(reportPath), "comparison-error.md");
@@ -413,16 +460,17 @@ function analyze() {
       `# Baseline comparison error\n\nThe head analysis completed and its artifacts were preserved.\n\n${String(failureMessage).replace(/\r?\n/gu, " ")}\n`,
       "utf8",
     );
-    console.error(`git-slop Action baseline analysis failed: ${failureMessage}`);
+    console.error(`git-slop Action baseline analysis failed: ${safeLogText(failureMessage)}`);
   }
   appendHealthSummary(healthPath, safeInputs);
   appendComparisonSummary(comparisonPath);
   const artifactContents = analysisExitCode === 0 ? safeInputs.artifactContents : "summary";
   setOutput("analysis-exit-code", analysisExitCode);
-  setOutput("finding-count", findingCount);
+  setOutput("finding-count", selectedPolicyFindingCount);
   setOutput("health-finding-count", healthFindingCount);
-  setOutput("policy-finding-count", policyFindingCount);
-  setOutput("absolute-finding-count", healthFindingCount);
+  setOutput("policy-finding-count", selectedPolicyFindingCount);
+  setOutput("absolute-finding-count", absolutePolicyFindingCount);
+  setOutput("selected-policy-finding-count", selectedPolicyFindingCount);
   setOutput("regression-count", regressionCount);
   setOutput("baseline-status", baselineStatus);
   setOutput("baseline-compatible", baselineStatus === "compatible");
@@ -462,7 +510,7 @@ function annotate() {
   if (comparisonPath && existsSync(comparisonPath)) {
     const comparison = JSON.parse(readFileSync(comparisonPath, "utf8"));
     for (const finding of comparison.regressions.slice(0, maximum)) {
-      const safePath = String(finding.path).replace(/[\r\n\x1b]/gu, " ").replace(/%/gu, "%25").replace(/,/gu, "%2C");
+      const safePath = githubPropertyEscape(finding.path);
       const level = ["error", "warning", "notice"].includes(finding.severity) ? finding.severity : "warning";
       console.log(`::${level} file=${safePath}::Git Slop ${finding.status}: score ${finding.base_slop_score ?? "new"} -> ${finding.head_slop_score}`);
     }
@@ -608,6 +656,6 @@ try {
     throw new Error(`unknown action runner command ${JSON.stringify(command)}`);
   }
 } catch (error) {
-  console.error(`git-slop Action ${command || "runner"} failed: ${error.message}`);
+  console.error(`git-slop Action ${command || "runner"} failed: ${safeLogText(error.message)}`);
   process.exitCode = 1;
 }

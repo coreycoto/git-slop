@@ -2,10 +2,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use chrono::{SecondsFormat, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -72,17 +72,30 @@ impl TokenCache {
         }
         let connection = Connection::open(path)
             .with_context(|| format!("failed to open packed cache {}", path.display()))?;
-        connection.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             CREATE TABLE IF NOT EXISTS token_cache (
-               cache_key TEXT PRIMARY KEY,
-               payload BLOB NOT NULL,
-               payload_bytes INTEGER NOT NULL,
-               accessed_at INTEGER NOT NULL
-             );
-             CREATE INDEX IF NOT EXISTS token_cache_accessed ON token_cache(accessed_at, cache_key);",
-        )?;
+        connection.busy_timeout(Duration::from_secs(5))?;
+        let schema_version: u32 =
+            connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        match schema_version {
+            0 => connection.execute_batch(
+                "PRAGMA journal_mode=WAL;
+                 PRAGMA synchronous=NORMAL;
+                 CREATE TABLE token_cache (
+                   cache_key TEXT PRIMARY KEY,
+                   payload BLOB NOT NULL,
+                   payload_bytes INTEGER NOT NULL,
+                   accessed_at INTEGER NOT NULL
+                 );
+                 CREATE INDEX token_cache_accessed ON token_cache(accessed_at, cache_key);
+                 PRAGMA user_version=1;",
+            )?,
+            1 => connection.execute_batch("PRAGMA synchronous=NORMAL;")?,
+            version => bail!("unsupported packed cache schema version {version}"),
+        }
+        let integrity: String =
+            connection.query_row("PRAGMA quick_check(1)", [], |row| row.get(0))?;
+        if integrity != "ok" {
+            bail!("packed cache integrity check failed: {integrity}");
+        }
         Ok(Self { connection })
     }
 
@@ -99,7 +112,7 @@ impl TokenCache {
             return Ok(None);
         };
         self.connection.execute(
-            "UPDATE token_cache SET accessed_at = unixepoch() WHERE cache_key = ?1",
+            "UPDATE token_cache SET accessed_at = unixepoch() WHERE cache_key = ?1 AND accessed_at < unixepoch() - 3600",
             [key],
         )?;
         Ok(serde_json::from_slice(&payload).ok())
@@ -162,6 +175,36 @@ impl TokenCache {
             bytes,
             failed_evictions: 0,
         })
+    }
+}
+
+fn quarantine_cache(path: &Path, error: &anyhow::Error) -> String {
+    let message = format!("{error:#}");
+    if message.contains("database is locked") || message.contains("database is busy") {
+        return format!("packed token cache was busy; continued uncached: {message}");
+    }
+    if !path.exists() {
+        return format!("packed token cache was unavailable; continued uncached: {message}");
+    }
+    let suffix = format!("corrupt-{}", Utc::now().timestamp());
+    let quarantine = path.with_extension(format!("sqlite3.{suffix}"));
+    match fs::rename(path, &quarantine) {
+        Ok(()) => {
+            for sidecar in ["-wal", "-shm"] {
+                let source = PathBuf::from(format!("{}{sidecar}", path.display()));
+                if source.exists() {
+                    let target = PathBuf::from(format!("{}{sidecar}", quarantine.display()));
+                    let _ = fs::rename(source, target);
+                }
+            }
+            format!(
+                "packed token cache failed validation and was quarantined at {}; continued uncached: {message}",
+                quarantine.display()
+            )
+        }
+        Err(quarantine_error) => format!(
+            "packed token cache failed and could not be quarantined ({quarantine_error}); continued uncached: {message}"
+        ),
     }
 }
 
@@ -342,7 +385,11 @@ fn configured_context_encoder(config: &Value) -> Result<CoreBPE> {
     encoder.with_context(|| format!("failed to initialize {tokenizer_name} tokenizer"))
 }
 
-fn action_queue(files: &[FileAnalysis]) -> Vec<Value> {
+fn action_queue(
+    files: &[FileAnalysis],
+    history_evidence_reliable: bool,
+    config: &Value,
+) -> Vec<Value> {
     let mut files: Vec<&FileAnalysis> = files.iter().collect();
     files.sort_by(|left, right| {
         right
@@ -354,9 +401,12 @@ fn action_queue(files: &[FileAnalysis]) -> Vec<Value> {
     files
         .into_iter()
         .filter(|file| {
-            !file.reason_codes.is_empty()
+            let profile_minimum_score = if config.pointer("/health/profile_threshold_policy").and_then(Value::as_str) == Some("per_profile") {
+                config.pointer(&format!("/health/profile_queue_minimum_score/{}", file.profile)).and_then(Value::as_f64).unwrap_or_default()
+            } else { 0.0 };
+            file.slop_score >= profile_minimum_score && (!file.reason_codes.is_empty()
                 || matches!(file.context_band.as_str(), "warning" | "critical")
-                || matches!(file.slop_band.as_str(), "high" | "critical")
+                || matches!(file.slop_band.as_str(), "high" | "critical"))
         })
         .map(|file| {
             let non_context_reasons = file.reason_codes.iter().any(|reason| {
@@ -372,7 +422,10 @@ fn action_queue(files: &[FileAnalysis]) -> Vec<Value> {
                 "revisions_window": file.revisions_window,
                 "churn_pressure": file.churn_pressure,
                 "reason_codes": file.reason_codes,
-                "is_pure_context_hotspot": !file.reason_codes.is_empty() && !non_context_reasons
+                "is_pure_context_hotspot": !file.reason_codes.is_empty() && !non_context_reasons,
+                "severity": if matches!(file.context_band.as_str(), "critical") || matches!(file.slop_band.as_str(), "critical") { "error" } else if matches!(file.context_band.as_str(), "warning") || matches!(file.slop_band.as_str(), "high") { "warning" } else { "notice" },
+                "evidence_status": if history_evidence_reliable && file.revisions_window >= 5 { "supported" } else { "low_support" },
+                "next_action": format!("git slop explain --path {}", file.path)
             })
         })
         .collect()
@@ -401,11 +454,12 @@ pub struct FindOptions {
     pub output_dir: Option<PathBuf>,
     pub no_cache: bool,
     pub allow_degraded: bool,
+    pub as_of: Option<DateTime<Utc>>,
     pub report_profile: String,
     pub compression: String,
 }
 
-fn normalize_scope(value: Option<&str>) -> Result<Option<String>> {
+pub(crate) fn normalize_scope(value: Option<&str>) -> Result<Option<String>> {
     let Some(raw) = value.map(str::trim) else {
         return Ok(None);
     };
@@ -458,7 +512,17 @@ fn measure_rss_checkpoint(
     }
     exceeded_checkpoints.push(checkpoint);
     if allow_degraded {
-        return Ok(());
+        return Err(ClassifiedError::new(
+            ErrorKind::ResourceLimit,
+            "degraded_memory_recovery_unavailable",
+            format!(
+                "analysis stopped at {checkpoint}: measured RSS {} MiB still exceeds resources.memory_budget_mb={} after deterministic degraded sampling; continuing would violate the memory contract",
+                rss_bytes.div_ceil(1024 * 1024),
+                memory_budget_bytes / 1024 / 1024
+            ),
+        )
+        .at("/resources/memory_budget_mb")
+        .into());
     }
     Err(ClassifiedError::new(
         ErrorKind::ResourceLimit,
@@ -497,6 +561,36 @@ fn selected_content_digest(repo_root: &Path, paths: &[String]) -> Result<String>
         digest.update([0]);
     }
     Ok(hex::encode(digest.finalize()))
+}
+
+fn balanced_path_sample(paths: &[String], limit: usize) -> Vec<String> {
+    let mut roots = BTreeMap::<&str, Vec<&String>>::new();
+    for path in paths {
+        roots
+            .entry(path.split('/').next().unwrap_or("."))
+            .or_default()
+            .push(path);
+    }
+    let mut selected = Vec::with_capacity(limit.min(paths.len()));
+    let mut offset = 0usize;
+    while selected.len() < limit {
+        let mut added = false;
+        for values in roots.values() {
+            if let Some(path) = values.get(offset) {
+                selected.push((*path).clone());
+                added = true;
+                if selected.len() == limit {
+                    break;
+                }
+            }
+        }
+        if !added {
+            break;
+        }
+        offset += 1;
+    }
+    selected.sort();
+    selected
 }
 
 pub fn run_find_scoped(
@@ -614,7 +708,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
                 high = middle.saturating_sub(1);
             }
         }
-        tracked_paths.truncate(low);
+        tracked_paths = balanced_path_sample(&tracked_paths, low);
     }
     let scope_identity = ScopeIdentity {
         mode: if scope.is_some() {
@@ -691,10 +785,16 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             }
         }
     }
-    let cache = if options.no_cache {
+    let mut cache = if options.no_cache {
         None
     } else {
-        Some(TokenCache::open(&cache_path)?)
+        match TokenCache::open(&cache_path) {
+            Ok(cache) => Some(cache),
+            Err(error) => {
+                cache_cleanup_warnings.push(quarantine_cache(&cache_path, &error));
+                None
+            }
+        }
     };
     let mut cache_hits = 0usize;
     let mut cache_misses = 0usize;
@@ -704,21 +804,43 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             structurally_skipped_large_files += 1;
         }
         if file.analysis_status != "analyzed" {
-            token_counts.insert(file.path.clone(), 0);
+            let conservative_tokens = if file.skipped_reason.as_deref() == Some("large_file_limit")
+            {
+                file.bytes.div_ceil(4)
+            } else {
+                0
+            };
+            token_counts.insert(file.path.clone(), conservative_tokens);
             line_counts.insert(file.path.clone(), 0);
             token_data.insert(
                 file.path.clone(),
-                (0, Vec::new(), Vec::new(), String::new()),
+                (
+                    0,
+                    Vec::new(),
+                    Vec::new(),
+                    format!(
+                        "incomplete:{}:{}",
+                        file.skipped_reason.as_deref().unwrap_or("unknown"),
+                        file.bytes
+                    ),
+                ),
             );
             continue;
         }
         let mode = structural_mode(&file.path);
         let cache_key = token_cache_key(&file.text, &tokenizer, large_file_bytes, mode);
-        let cached_value = cache
-            .as_ref()
-            .map(|cache| cache.get(&cache_key))
-            .transpose()?
-            .flatten();
+        let cached_value = if let Some(active_cache) = cache.as_ref() {
+            match active_cache.get(&cache_key) {
+                Ok(value) => value,
+                Err(error) => {
+                    cache_cleanup_warnings.push(quarantine_cache(&cache_path, &error));
+                    cache = None;
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let cached = if let Some(cached) = cached_value {
             cache_hits += 1;
             cached
@@ -733,8 +855,12 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
                 },
                 content_fingerprint: content_fingerprint(&file.text),
             };
-            if let Some(cache) = &cache {
-                cache.put(&cache_key, &cached)?;
+            let put_error = cache
+                .as_ref()
+                .and_then(|active_cache| active_cache.put(&cache_key, &cached).err());
+            if let Some(error) = put_error {
+                cache_cleanup_warnings.push(quarantine_cache(&cache_path, &error));
+                cache = None;
             }
             cached
         };
@@ -759,10 +885,16 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         );
     }
     let cache_stats = if let Some(cache) = &cache {
-        cache.enforce_limits(
+        match cache.enforce_limits(
             config::pointer_u64(&loaded_config, "/resources/cache_max_entries", 10_000) as usize,
             config::pointer_u64(&loaded_config, "/resources/cache_max_bytes", 536_870_912),
-        )?
+        ) {
+            Ok(stats) => stats,
+            Err(error) => {
+                cache_cleanup_warnings.push(quarantine_cache(&cache_path, &error));
+                CacheStats::default()
+            }
+        }
     } else {
         CacheStats::default()
     };
@@ -779,7 +911,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         .iter()
         .map(|file| file.path.clone())
         .collect();
-    let now = Utc::now();
+    let now = options.as_of.unwrap_or_else(Utc::now);
     let (history_by_path, commits, history_diagnostics) = history::analyze_history(
         repo_root,
         &analyzed_paths,
@@ -814,15 +946,19 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             code_lines: file.code_lines,
             comment_lines: file.comment_lines,
             language: file.language,
-            profile: file.profile,
+            profile: file.profile.clone(),
             classification: file.classification,
             analysis_status: file.analysis_status,
             skipped_reason: file.skipped_reason,
             symlink_metadata: file.symlink_metadata,
             has_inline_tests: inline_tests,
             tokens,
-            context_band: scoring::context_band_for_tokens(tokens, &loaded_config),
-            context_pressure: scoring::context_pressure_for_tokens(tokens, &loaded_config),
+            context_band: scoring::context_band_for_profile(tokens, &file.profile, &loaded_config),
+            context_pressure: scoring::context_pressure_for_profile(
+                tokens,
+                &file.profile,
+                &loaded_config,
+            ),
             content_fingerprint,
             structural_tokens,
             structural_token_count,
@@ -854,7 +990,19 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             overlays: json!({}),
         });
     }
-    scoring::apply_scoring(&mut files, &loaded_config);
+    let history_evidence_reliable = !repo.is_shallow
+        && !history_diagnostics
+            .get("history_cap_reached")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        && ![
+            "full_history_cap_status",
+            "window_status_cap_status",
+            "window_numstat_cap_status",
+        ]
+        .into_iter()
+        .any(|field| history_diagnostics.get(field).and_then(Value::as_str) == Some("truncated"));
+    scoring::apply_scoring_with_evidence(&mut files, &loaded_config, history_evidence_reliable);
     let organization = overlays::analyze(&mut files, &commits, &loaded_config)?;
     phase("relationships");
     measure_rss_checkpoint(
@@ -865,7 +1013,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         &mut memory_budget_exceeded_checkpoints,
     )?;
     let folders = scoring::build_folder_analyses(&files, &loaded_config);
-    let queue = action_queue(&files);
+    let queue = action_queue(&files, history_evidence_reliable, &loaded_config);
     let generated_at = now.to_rfc3339_opts(SecondsFormat::Secs, true);
     let analyzed_revision_at = repo.head_commit_timestamp.clone();
     let ending_worktree = git::worktree_state_excluding(repo_root, &runtime_exclusions)?;
@@ -877,6 +1025,15 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             "selected file content changed during analysis; no mixed-snapshot report was published"
         );
     }
+    let estimator_error_ratio = measured_peak_rss_bytes.map(|measured| {
+        let estimated = estimate.estimated_peak_memory_bytes.max(1) as f64;
+        ((measured as f64 - estimated) / estimated * 1_000_000.0).round() / 1_000_000.0
+    });
+    let estimate_range_contains_measurement = measured_peak_rss_bytes.map(|measured| {
+        let measured = u128::from(measured);
+        measured >= estimate.estimated_peak_memory_low_bytes
+            && measured <= estimate.estimated_peak_memory_high_bytes
+    });
     let analysis = Analysis {
         output_root,
         report_profile: if options.report_profile.is_empty() {
@@ -904,6 +1061,8 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             "analysis_elapsed_ms_before_report": started.elapsed().as_millis(),
             "estimate": estimate,
             "measured_peak_rss_bytes": measured_peak_rss_bytes,
+            "estimator_error_ratio": estimator_error_ratio,
+            "estimate_range_contains_measurement": estimate_range_contains_measurement,
             "memory_budget_exceeded_checkpoints": memory_budget_exceeded_checkpoints,
             "memory_measurement_status": if measured_peak_rss_bytes.is_some() { "measured" } else { "unsupported" },
             "cache_hits": cache_hits,
@@ -919,6 +1078,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             "original_selected_path_count": original_selected_path_count,
             "degraded_omitted_path_count": original_selected_path_count.saturating_sub(tracked_paths.len()),
             "history": history_diagnostics,
+            "history_evidence_status": if history_evidence_reliable { "supported_with_per_file_shrinkage" } else { "incomplete_suppressed" },
             "scope": scope
         }),
     };
@@ -933,11 +1093,15 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Barrier};
+
     use serde_json::json;
+    use tempfile::tempdir;
     use tiktoken_rs::{cl100k_base, r50k_base};
 
     use super::{
-        action_queue, configured_context_encoder, replace_quoted_strings, structural_tokens,
+        CachedTokenData, TokenCache, action_queue, configured_context_encoder, quarantine_cache,
+        replace_quoted_strings, structural_tokens,
     };
     use crate::model::FileAnalysis;
     use crate::scoring;
@@ -1052,11 +1216,87 @@ mod tests {
     #[test]
     fn action_queue_prioritizes_line_relative_churn_signal() {
         let mut files = vec![file("src/quiet.rs", 0.1), file("src/volatile.rs", 2.0)];
+        for file in &mut files {
+            file.revisions_window = 5;
+        }
         scoring::apply_scoring(&mut files, &json!({}));
-        let queue = action_queue(&files);
+        let queue = action_queue(&files, true, &json!({}));
 
         assert_eq!(queue[0]["path"], "src/volatile.rs");
         assert_eq!(queue[0]["reason_codes"][1], "high_relative_churn");
         assert_eq!(queue[0]["is_pure_context_hotspot"], false);
+    }
+
+    #[test]
+    fn per_profile_queue_policy_can_suppress_low_score_data_context_noise() {
+        let mut agent = file("src/lib.rs", 0.1);
+        agent.reason_codes = vec!["high_token_cost".to_string()];
+        agent.slop_score = 10.0;
+        let mut data = file("fixtures/data.json", 0.1);
+        data.profile = "data_context".to_string();
+        data.reason_codes = vec!["high_token_cost".to_string()];
+        data.slop_score = 10.0;
+        let mut config = crate::config::default_config();
+        config["health"]["profile_threshold_policy"] = json!("per_profile");
+        let queue = action_queue(&[agent, data], true, &config);
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0]["path"], "src/lib.rs");
+    }
+
+    #[test]
+    fn corrupt_token_cache_is_quarantined_instead_of_blocking_analysis() {
+        let root = tempdir().unwrap();
+        let path = root.path().join("token-v4.sqlite3");
+        std::fs::write(&path, b"not a sqlite database").unwrap();
+        let error = match TokenCache::open(&path) {
+            Ok(_) => panic!("corrupt cache must fail validation"),
+            Err(error) => error,
+        };
+        let warning = quarantine_cache(&path, &error);
+        assert!(warning.contains("continued uncached"));
+        assert!(!path.exists());
+        assert!(
+            std::fs::read_dir(root.path())
+                .unwrap()
+                .flatten()
+                .any(|entry| entry.file_name().to_string_lossy().contains("corrupt-"))
+        );
+    }
+
+    #[test]
+    fn token_cache_accepts_concurrent_writers_with_busy_timeout() {
+        let root = tempdir().unwrap();
+        let path = Arc::new(root.path().join("token-v4.sqlite3"));
+        TokenCache::open(path.as_ref()).unwrap();
+        let barrier = Arc::new(Barrier::new(4));
+        let handles = (0..4)
+            .map(|worker| {
+                let path = Arc::clone(&path);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let cache = TokenCache::open(path.as_ref()).unwrap();
+                    barrier.wait();
+                    for item in 0..10 {
+                        cache
+                            .put(
+                                &format!("worker-{worker}-item-{item}"),
+                                &CachedTokenData {
+                                    token_count: item,
+                                    structural_tokens: vec![format!("token-{item}")],
+                                    content_fingerprint: format!("fingerprint-{worker}-{item}"),
+                                },
+                            )
+                            .unwrap();
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        assert_eq!(
+            TokenCache::open(&path).unwrap().stats().unwrap().entries,
+            40
+        );
     }
 }

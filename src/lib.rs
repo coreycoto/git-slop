@@ -17,6 +17,7 @@ pub(crate) mod overlays;
 pub(crate) mod report;
 pub(crate) mod report_ops;
 pub(crate) mod scoring;
+pub(crate) mod text;
 
 // Supported library surface. Detector and report internals remain private so
 // schema changes cannot accidentally become Rust API compatibility promises.

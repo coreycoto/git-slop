@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
+use crate::text::visible_controls;
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -12,8 +13,9 @@ mod explain;
 mod github;
 mod plan;
 mod sarif;
+mod verification;
 
-pub use compare::{compare_payload_with_force, render_compare_text};
+pub use compare::{compare_payload_with_policy, render_compare_text};
 pub use explain::{explain_payload, render_explain_text};
 pub use github::{health_json_payload, render_github_annotations, write_prompt_pack};
 pub use plan::{plan_payload, render_plan_text};
@@ -339,7 +341,7 @@ pub fn show_payload(report: &Value, target: &str) -> Option<Value> {
 
 pub fn render_show_text(payload: &Value) -> String {
     let kind = string_or(payload.get("record_type"), "record");
-    let path = string(payload.get("path"));
+    let path = visible_controls(&string(payload.get("path")));
     let mut lines = vec![format!(
         "{}: {}",
         if kind == "file" { "File" } else { "Folder" },
@@ -362,12 +364,12 @@ pub fn render_show_text(payload: &Value) -> String {
         for item in relationships.iter().take(5) {
             lines.push(format!(
                 "- {} ↔ {} kind={} support={} strength={:.3} id={}",
-                string(item.get("source_path")),
-                string(item.get("target_path")),
+                visible_controls(&string(item.get("source_path"))),
+                visible_controls(&string(item.get("target_path"))),
                 string(item.get("kind")),
                 integer(item.get("support_count")),
                 number(item.get("evidence_score")),
-                string(item.get("id")),
+                visible_controls(&string(item.get("id"))),
             ));
         }
     }
@@ -375,10 +377,11 @@ pub fn render_show_text(payload: &Value) -> String {
     lines.join("\n") + "\n"
 }
 
-pub fn failing_records(
+pub fn failing_records_in(
     report: &Value,
     fail_on_context_band: Option<&str>,
     fail_on_slop_band: Option<&str>,
+    include_folders: bool,
 ) -> Vec<Value> {
     fn context_rank(value: &str) -> i32 {
         match value {
@@ -398,9 +401,20 @@ pub fn failing_records(
             _ => -1,
         }
     }
-    let mut failures: Vec<Value> = array_at(report, &["files"])
+    let collections: &[&str] = if include_folders {
+        &["files", "folders"]
+    } else {
+        &["files"]
+    };
+    let mut failures: Vec<Value> = collections
         .iter()
+        .flat_map(|collection| {
+            array_at(report, &[*collection])
+                .iter()
+                .map(move |record| (*collection, record))
+        })
         .filter(|record| {
+            let record = record.1;
             let context_failed = fail_on_context_band
                 .map(|threshold| {
                     context_rank(&string(record.get("context_band"))) >= context_rank(threshold)
@@ -413,7 +427,15 @@ pub fn failing_records(
                 .unwrap_or(false);
             context_failed || slop_failed
         })
-        .cloned()
+        .map(|(collection, record)| {
+            let mut record = record.clone();
+            record["record_type"] = json!(if collection == "files" {
+                "file"
+            } else {
+                "folder"
+            });
+            record
+        })
         .collect();
     failures.sort_by(|left, right| {
         cmp_f64_desc(

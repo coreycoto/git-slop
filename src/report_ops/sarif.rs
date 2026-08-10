@@ -63,11 +63,10 @@ fn sarif_result(record: &Value, rank: usize) -> Value {
         "git-slop.maintenance-pressure"
     };
     let fingerprint = hex::encode(Sha256::digest(format!("{rule_id}\0{path}").as_bytes()));
-    json!({
+    let mut result = json!({
         "ruleId": rule_id,
         "ruleIndex": if context_finding { 0 } else { 1 },
         "level": sarif_level(record),
-        "baselineState": record.get("baseline_state").and_then(Value::as_str).unwrap_or("unchanged"),
         "message": {
             "text": format!(
                 "{path} is ranked {} with slop_score {} and context {} ({reasons_text}).",
@@ -94,7 +93,11 @@ fn sarif_result(record: &Value, rank: usize) -> Value {
                 "evidence_boundary": "Hotspot cost and overlay evidence are preserved as separate properties; SARIF export does not rescore the finding.",
             },
         },
-    })
+    });
+    if let Some(state) = record.get("baseline_state").and_then(Value::as_str) {
+        result["baselineState"] = json!(state);
+    }
+    result
 }
 
 pub fn sarif_payload(
@@ -118,6 +121,11 @@ pub fn sarif_payload(
                 .map(|_| sarif_result(&sarif_record(report, item), index + 1))
         })
         .collect();
+    let returned = results.len();
+    let help_uri = format!(
+        "https://github.com/coreycoto/git-slop/blob/v{}/docs/scoring-model.md",
+        crate::VERSION
+    );
     let repo = report.get("repo").unwrap_or(&Value::Null);
     let repository_uri = ["remote_url", "git_remote_url", "repo_name"]
         .into_iter()
@@ -148,7 +156,7 @@ pub fn sarif_payload(
                         "name": "Git Slop context budget",
                         "shortDescription": {"text": "File meets a configured context-cost threshold."},
                         "fullDescription": {"text": "A deterministic context-cost finding from Git Slop."},
-                        "helpUri": "https://github.com/coreycoto/git-slop/blob/main/docs/scoring-model.md",
+                        "helpUri": help_uri,
                         "help": {"text": "Review the git-slop report, explain output, or plan output for supporting evidence before deciding whether maintenance work is appropriate."},
                         "properties": {
                             "precision": "medium",
@@ -159,7 +167,7 @@ pub fn sarif_payload(
                         "name": "Git Slop maintenance pressure",
                         "shortDescription": {"text": "File meets a configured maintenance-pressure threshold."},
                         "fullDescription": {"text": "A deterministic maintenance-pressure finding from Git Slop."},
-                        "helpUri": "https://github.com/coreycoto/git-slop/blob/main/docs/scoring-model.md",
+                        "helpUri": help_uri,
                         "properties": {"precision": "medium", "tags": ["maintainability", "git-slop"]}
                     }],
                 },
@@ -178,6 +186,12 @@ pub fn sarif_payload(
                         "report_path": report_path,
                         "analyzer": report.get("analyzer").cloned().unwrap_or_else(|| json!({})),
                         "boundary_note": SARIF_BOUNDARY_NOTE,
+                        "collection": {
+                            "total": queue.len(),
+                            "returned": returned,
+                            "limit": top,
+                            "truncated": returned < queue.len()
+                        },
                     },
                 },
             }],

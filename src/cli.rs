@@ -14,10 +14,10 @@ use crate::error::{ClassifiedError, ErrorKind};
 use crate::health;
 use crate::report;
 use crate::report_ops::{
-    ExplainSelector, PlanSelector, compare_payload_with_force, explain_payload, failing_records,
-    health_json_payload, plan_payload, render_compare_text, render_explain_text,
-    render_github_annotations, render_json, render_plan_text, render_show_text, sarif_payload,
-    show_payload, write_prompt_pack,
+    ExplainSelector, PlanSelector, compare_payload_with_policy, explain_payload,
+    failing_records_in, health_json_payload, plan_payload, render_compare_text,
+    render_explain_text, render_github_annotations, render_json, render_plan_text,
+    render_show_text, sarif_payload, show_payload, write_prompt_pack,
 };
 use crate::{PROJECT_NAME, VERSION, analyze, git};
 
@@ -54,6 +54,8 @@ enum Command {
     Check(CheckArgs),
     /// Compare two existing schema-5 reports without rerunning the detector.
     Compare(CompareArgs),
+    /// Manage named comparison baselines in Git-private runtime storage.
+    Baseline(BaselineArgs),
     /// Validate or inspect the versioned report contract.
     Report(ReportArgs),
     /// Export action-queue findings from an existing schema-5 report as SARIF.
@@ -86,10 +88,44 @@ enum Command {
     Schema(SchemaArgs),
 }
 
+impl Command {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Init(_) => "init",
+            Self::Find(_) => "find",
+            Self::Show(_) => "show",
+            Self::Explain(_) => "explain",
+            Self::Plan(_) => "plan",
+            Self::Check(_) => "check",
+            Self::Compare(_) => "compare",
+            Self::Baseline(_) => "baseline",
+            Self::Report(_) => "report",
+            Self::Sarif(_) => "sarif",
+            Self::Health(_) => "health",
+            Self::Config(_) => "config",
+            Self::Doctor(_) => "doctor",
+            Self::List(_) => "list",
+            Self::Prune(_) => "prune",
+            Self::Cache(_) => "cache",
+            Self::Completions(_) => "completions",
+            Self::Man(_) => "man",
+            Self::Reference(_) => "reference",
+            Self::Html(_) => "html",
+            Self::Version => "version",
+            Self::BuildInfo(_) => "build-info",
+            Self::Schema(_) => "schema",
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 struct SchemaArgs {
+    /// Machine contract whose immutable schema should be printed.
     #[arg(value_enum)]
     contract: SchemaContract,
+    /// Destination file. Defaults to stdout.
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -107,6 +143,12 @@ enum SchemaContract {
     List,
     Show,
     PromptManifest,
+    Error,
+    FindEstimate,
+    CacheStatus,
+    CachePrune,
+    Prune,
+    CompareNdjson,
 }
 
 #[derive(Debug, Args)]
@@ -138,6 +180,9 @@ struct FindArgs {
     /// Deterministically analyze the largest path prefix that fits the memory budget.
     #[arg(long)]
     allow_degraded: bool,
+    /// Fixed RFC 3339 analysis clock for reproducible recency and history windows.
+    #[arg(long, value_name = "RFC3339")]
+    as_of: Option<String>,
     /// Report evidence profile.
     #[arg(long, value_enum, default_value_t = ReportProfile::Standard)]
     report_profile: ReportProfile,
@@ -185,6 +230,7 @@ impl ReportCompression {
 
 #[derive(Debug, Args)]
 struct BuildInfoArgs {
+    /// Machine-readable build provenance format.
     #[arg(long, value_enum, default_value_t = BuildInfoFormat::Json)]
     format: BuildInfoFormat,
 }
@@ -203,6 +249,7 @@ struct ShowArgs {
     /// Report path. Defaults to .slop/latest/report.json.
     #[arg(long)]
     report: Option<PathBuf>,
+    /// Output format.
     #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
     format: DisplayFormat,
 }
@@ -229,11 +276,15 @@ struct ExplainArgs {
     /// Explain the top N hotspots from the action queue.
     #[arg(long)]
     top: Option<i64>,
+    /// Output format.
     #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
     format: DisplayFormat,
     /// Write a deterministic local-model prompt pack to this directory.
     #[arg(long)]
     prompt_pack: Option<PathBuf>,
+    /// Atomically replace an existing prompt-pack directory.
+    #[arg(long, requires = "prompt_pack")]
+    force: bool,
     /// Include bounded local source/test excerpts, guidance, and verification hints.
     #[arg(long, requires = "prompt_pack")]
     include_repository_context: bool,
@@ -265,11 +316,15 @@ struct PlanArgs {
     /// Maximum number of bounded maintenance slices to propose.
     #[arg(long, default_value_t = 3)]
     max_slices: i64,
+    /// Output format.
     #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
     format: DisplayFormat,
     /// Write a deterministic local-model prompt pack to this directory.
     #[arg(long)]
     prompt_pack: Option<PathBuf>,
+    /// Atomically replace an existing prompt-pack directory.
+    #[arg(long, requires = "prompt_pack")]
+    force: bool,
     /// Include bounded local source/test excerpts, guidance, and verification hints.
     #[arg(long, requires = "prompt_pack")]
     include_repository_context: bool,
@@ -289,11 +344,24 @@ struct CheckArgs {
     /// Override the config default fail threshold for slop_band.
     #[arg(long, value_enum)]
     fail_on_slop_band: Option<SlopBand>,
+    /// Output format, including escaped GitHub workflow commands.
     #[arg(long, value_enum, default_value_t = CheckFormat::Text)]
     format: CheckFormat,
     /// Include complete finding records in JSON output.
     #[arg(long)]
     details: bool,
+    /// Include folder records in addition to the versioned file-only gate.
+    #[arg(long)]
+    include_folders: bool,
+    /// Zero-based finding offset used with --details.
+    #[arg(long, default_value_t = 0, requires = "details")]
+    offset: usize,
+    /// Maximum finding records returned with --details.
+    #[arg(long, default_value_t = 1000, requires = "details")]
+    limit: usize,
+    /// Permit policy evaluation when selected inventory records are incomplete.
+    #[arg(long)]
+    allow_incomplete_evidence: bool,
 }
 
 #[derive(Debug, Args)]
@@ -301,13 +369,16 @@ struct CompareArgs {
     /// Base report.json path.
     #[arg(
         long,
-        required_unless_present = "base_ref",
-        conflicts_with = "base_ref"
+        required_unless_present_any = ["base_ref", "baseline"],
+        conflicts_with_all = ["base_ref", "baseline"]
     )]
     base: Option<PathBuf>,
     /// Safely resolve and scan this Git revision in an isolated worktree.
-    #[arg(long, conflicts_with = "base")]
+    #[arg(long, conflicts_with_all = ["base", "baseline"])]
     base_ref: Option<String>,
+    /// Use a named baseline from Git-private runtime storage.
+    #[arg(long, conflicts_with_all = ["base", "base_ref"])]
+    baseline: Option<String>,
     /// Head report.json path.
     #[arg(long, default_value = ".slop/latest/report.json")]
     head: PathBuf,
@@ -317,9 +388,13 @@ struct CompareArgs {
     /// Permit incomplete history in an isolated --base-ref scan.
     #[arg(long)]
     allow_shallow: bool,
+    /// Permit comparison when selected inventory records are incomplete.
+    #[arg(long)]
+    allow_incomplete_evidence: bool,
     /// Maximum number of changed files and queue movements to show.
     #[arg(long, default_value_t = 10)]
     top: i64,
+    /// Output format.
     #[arg(long, value_enum, default_value_t = CompareFormat::Text)]
     format: CompareFormat,
     /// Detail level for machine output.
@@ -334,9 +409,64 @@ struct CompareArgs {
     /// Compare reports with incompatible identity or analyzer metadata.
     #[arg(long)]
     force: bool,
+    /// Select which report supplies regression thresholds and evidence-drift policy.
+    #[arg(long, value_enum, default_value_t = PolicySource::Base)]
+    policy_from: PolicySource,
     /// Exit 1 when an existing file worsens or a newly added file is a finding.
     #[arg(long)]
     fail_on_regression: bool,
+}
+
+#[derive(Debug, Args)]
+struct BaselineArgs {
+    #[command(subcommand)]
+    command: BaselineCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum BaselineCommand {
+    /// Create a named baseline from a validated report.
+    Create {
+        /// Stable baseline name.
+        #[arg(long, default_value = "default")]
+        name: String,
+        /// Report path. Defaults to .slop/latest/report.json.
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// Replace an existing named baseline.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Replace an existing named baseline from a validated report.
+    Update {
+        /// Stable baseline name.
+        #[arg(long, default_value = "default")]
+        name: String,
+        /// Report path. Defaults to .slop/latest/report.json.
+        #[arg(long)]
+        report: Option<PathBuf>,
+    },
+    /// Inspect baseline identity and evidence status.
+    Inspect {
+        /// Stable baseline name.
+        #[arg(long, default_value = "default")]
+        name: String,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
+        format: DisplayFormat,
+    },
+    /// Validate a named baseline against the current report contract.
+    Validate {
+        /// Stable baseline name.
+        #[arg(long, default_value = "default")]
+        name: String,
+    },
+    /// Remove a named baseline.
+    Remove {
+        /// Stable baseline name.
+        #[arg(long, default_value = "default")]
+        name: String,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -349,6 +479,7 @@ struct ReportArgs {
 enum ReportCommand {
     /// Validate one report against the complete schema-5 contract.
     Validate {
+        /// Report JSON to validate.
         #[arg(value_name = "REPORT_JSON")]
         path: PathBuf,
         /// Accept schema 4 as migration input and validate its normalized schema-5 form.
@@ -357,8 +488,10 @@ enum ReportCommand {
     },
     /// Migrate a schema-4 report to normalized schema 5.
     Migrate {
+        /// Legacy report to migrate.
         #[arg(value_name = "REPORT_JSON")]
         path: PathBuf,
+        /// Destination for the normalized schema-5 report.
         #[arg(long, value_name = "PATH")]
         output: PathBuf,
     },
@@ -402,6 +535,7 @@ struct ConfigArgs {
 enum ConfigCommand {
     /// Show configuration; --effective includes defaults.
     Show {
+        /// Include defaults after applying repository overrides.
         #[arg(long)]
         effective: bool,
     },
@@ -420,6 +554,7 @@ struct DoctorArgs {
     /// Write a privacy-safe diagnostic JSON bundle.
     #[arg(long, num_args = 0..=1, default_missing_value = ".slop/diagnostic-bundle.json")]
     bundle: Option<PathBuf>,
+    /// Output format.
     #[arg(long, value_enum, default_value_t = DoctorFormat::Text)]
     format: DoctorFormat,
     /// Estimate only this repo-relative scope.
@@ -449,20 +584,28 @@ enum ListCommand {
 
 #[derive(Debug, Args)]
 struct ListFilterArgs {
+    /// Report path. Defaults to .slop/latest/report.json.
     #[arg(long)]
     report: Option<PathBuf>,
+    /// Match a finding path, relationship endpoint, or cluster member.
     #[arg(long)]
     path: Option<String>,
+    /// Match an analysis profile.
     #[arg(long)]
     profile: Option<String>,
+    /// Match a resolved file language.
     #[arg(long)]
     language: Option<String>,
+    /// Match a resolved file classification.
     #[arg(long, visible_alias = "class")]
     classification: Option<String>,
+    /// Match a finding severity.
     #[arg(long)]
     severity: Option<String>,
+    /// Maximum number of matched records to return.
     #[arg(long, default_value_t = 50)]
     top: usize,
+    /// Output format.
     #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
     format: DisplayFormat,
     /// Use a wider terminal layout before truncating fields.
@@ -491,6 +634,7 @@ struct PruneArgs {
 
 #[derive(Debug, Args)]
 struct CacheArgs {
+    /// Mutable state directory. Defaults to Git-private runtime storage.
     #[arg(long, value_name = "PATH")]
     state_dir: Option<PathBuf>,
     #[command(subcommand)]
@@ -500,16 +644,24 @@ struct CacheArgs {
 #[derive(Debug, Subcommand)]
 enum CacheCommand {
     Status {
+        /// Output format.
         #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
         format: DisplayFormat,
     },
     Prune {
+        /// Maximum entries to retain.
         #[arg(long, default_value_t = 10_000)]
         max_entries: usize,
+        /// Maximum logical payload bytes to retain.
         #[arg(long, default_value_t = 536_870_912)]
         max_bytes: u64,
+        /// Preview cache removals without changing the database.
         #[arg(long)]
         dry_run: bool,
+        /// Reclaim free database pages after pruning.
+        #[arg(long)]
+        compact: bool,
+        /// Output format.
         #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
         format: DisplayFormat,
     },
@@ -517,17 +669,20 @@ enum CacheCommand {
 
 #[derive(Debug, Args)]
 struct CompletionsArgs {
+    /// Shell whose completion source should be generated.
     shell: CompletionShell,
 }
 
 #[derive(Debug, Args)]
 struct ManArgs {
+    /// Destination file. Defaults to stdout.
     #[arg(long)]
     output: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
 struct ReferenceArgs {
+    /// Destination file. Defaults to stdout.
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -594,6 +749,21 @@ enum CheckFormat {
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
+enum PolicySource {
+    Base,
+    Head,
+}
+
+impl PolicySource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Base => "base",
+            Self::Head => "head",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum ErrorFormat {
     Human,
     Json,
@@ -648,10 +818,7 @@ fn print_text(value: &str) {
 }
 
 fn safe_terminal(value: &str) -> String {
-    value
-        .chars()
-        .filter(|character| *character == '\n' || *character == '\t' || !character.is_control())
-        .collect()
+    crate::text::visible_controls(value)
 }
 
 fn relative_display(path: &Path, root: &Path) -> String {
@@ -682,29 +849,27 @@ fn load_default_report(
     Ok(load_report_at(&path)?.map(|report| (report, path)))
 }
 
-fn report_or_missing(
-    repo_root: &Path,
-    explicit_report: Option<&Path>,
-) -> Result<Result<(Value, PathBuf), i32>> {
+fn report_or_missing(repo_root: &Path, explicit_report: Option<&Path>) -> Result<(Value, PathBuf)> {
     let fallback = explicit_report
         .map(Path::to_path_buf)
         .unwrap_or_else(|| default_report_path(repo_root));
-    let loaded = match load_default_report(repo_root, explicit_report) {
-        Ok(loaded) => loaded,
-        Err(error) => {
-            eprintln!("{error:#}");
-            return Ok(Err(2));
-        }
-    };
-    Ok(match loaded {
-        Some(loaded) => Ok(loaded),
-        None => {
-            eprintln!(
+    let loaded = load_default_report(repo_root, explicit_report).map_err(|error| {
+        ClassifiedError::new(ErrorKind::Contract, "report_invalid", format!("{error:#}"))
+            .at("/report")
+            .with_details(json!({"path": fallback}))
+    })?;
+    loaded.ok_or_else(|| {
+        ClassifiedError::new(
+            ErrorKind::Contract,
+            "report_not_found",
+            format!(
                 "Report not found: {}\nRun `git slop find` to generate it.",
                 fallback.display()
-            );
-            Err(2)
-        }
+            ),
+        )
+        .at("/report")
+        .with_details(json!({"path": fallback}))
+        .into()
     })
 }
 
@@ -745,16 +910,21 @@ fn selector_path(repo_root: &Path, input: &str) -> String {
 }
 
 fn usage_error(error: impl std::fmt::Display) -> Result<i32> {
-    eprintln!("{error}");
-    Ok(2)
+    Err(ClassifiedError::new(ErrorKind::Contract, "invalid_argument", error).into())
 }
 
-fn ensure_prompt_pack_target(path: &Path) -> Result<Result<(), i32>> {
+fn ensure_prompt_pack_target(path: &Path) -> Result<()> {
     if path.exists() && !path.is_dir() {
-        eprintln!("Prompt pack path is not a directory: {}", path.display());
-        Ok(Err(2))
+        Err(ClassifiedError::new(
+            ErrorKind::Contract,
+            "prompt_pack_collision",
+            format!("Prompt pack path is not a directory: {}", path.display()),
+        )
+        .at("/prompt_pack")
+        .with_details(json!({"path": path}))
+        .into())
     } else {
-        Ok(Ok(()))
+        Ok(())
     }
 }
 
@@ -797,6 +967,13 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
         print_text(&render_json(&payload)?);
         return Ok(0);
     }
+    let as_of = args
+        .as_of
+        .as_deref()
+        .map(chrono::DateTime::parse_from_rfc3339)
+        .transpose()
+        .context("--as-of must be an RFC 3339 timestamp")?
+        .map(|value| value.with_timezone(&chrono::Utc));
     let result = analyze::run_find_with_options(
         repo_root,
         &analyze::FindOptions {
@@ -808,6 +985,7 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
             output_dir: args.output_dir,
             no_cache: args.no_cache,
             allow_degraded: args.allow_degraded,
+            as_of,
             report_profile: args.report_profile.as_str().to_string(),
             compression: args.compression.as_str().to_string(),
         },
@@ -832,18 +1010,21 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
 }
 
 fn run_show(repo_root: &Path, args: ShowArgs) -> Result<i32> {
-    let (loaded, report_path) = match report_or_missing(repo_root, args.report.as_deref())? {
-        Ok(value) => value,
-        Err(code) => return Ok(code),
-    };
+    let (loaded, report_path) = report_or_missing(repo_root, args.report.as_deref())?;
     let target = selector_path(repo_root, &args.target_path);
     let Some(payload) = show_payload(&loaded, &target) else {
-        eprintln!(
-            "No record found for '{}' in {}.",
-            args.target_path,
-            report_path.display()
-        );
-        return Ok(2);
+        return Err(ClassifiedError::new(
+            ErrorKind::Contract,
+            "selector_not_found",
+            format!(
+                "No record found for '{}' in {}.",
+                args.target_path,
+                report_path.display()
+            ),
+        )
+        .at("/target_path")
+        .with_details(json!({"selector": args.target_path, "report": report_path}))
+        .into());
     };
     match args.format {
         DisplayFormat::Json => print_text(&render_json(&payload)?),
@@ -853,7 +1034,7 @@ fn run_show(repo_root: &Path, args: ShowArgs) -> Result<i32> {
     Ok(0)
 }
 
-fn explain_selector(args: &ExplainArgs, repo_root: &Path) -> Result<ExplainSelector, i32> {
+fn explain_selector(args: &ExplainArgs, repo_root: &Path) -> Result<ExplainSelector> {
     if let Some(path) = &args.path {
         Ok(ExplainSelector::Path(selector_path(repo_root, path)))
     } else if let Some(id) = &args.cluster {
@@ -864,35 +1045,29 @@ fn explain_selector(args: &ExplainArgs, repo_root: &Path) -> Result<ExplainSelec
         let count = args.top.unwrap_or(5);
         match usize::try_from(count).ok().filter(|count| *count > 0) {
             Some(count) => Ok(ExplainSelector::Top(count)),
-            None => Err(2),
+            None => Err(ClassifiedError::new(
+                ErrorKind::Contract,
+                "invalid_argument",
+                "--top must be greater than zero",
+            )
+            .at("/top")
+            .into()),
         }
     }
 }
 
 fn run_explain(repo_root: &Path, args: ExplainArgs) -> Result<i32> {
     if args.include_repository_context && !(256..=4096).contains(&args.excerpt_bytes) {
-        eprintln!("--excerpt-bytes must be between 256 and 4096.");
-        return Ok(2);
+        return usage_error("--excerpt-bytes must be between 256 and 4096");
     }
-    let (loaded, _) = match report_or_missing(repo_root, args.report.as_deref())? {
-        Ok(value) => value,
-        Err(code) => return Ok(code),
-    };
-    let selector = match explain_selector(&args, repo_root) {
-        Ok(selector) => selector,
-        Err(code) => {
-            eprintln!("--top must be greater than zero.");
-            return Ok(code);
-        }
-    };
+    let (loaded, _) = report_or_missing(repo_root, args.report.as_deref())?;
+    let selector = explain_selector(&args, repo_root)?;
     let payload = match explain_payload(&loaded, Some(selector)) {
         Ok(payload) => payload,
         Err(error) => return usage_error(error),
     };
     if let Some(output_dir) = args.prompt_pack.as_deref() {
-        if let Err(code) = ensure_prompt_pack_target(output_dir)? {
-            return Ok(code);
-        }
+        ensure_prompt_pack_target(output_dir)?;
         write_prompt_pack(
             "explain",
             &payload,
@@ -900,6 +1075,7 @@ fn run_explain(repo_root: &Path, args: ExplainArgs) -> Result<i32> {
             output_dir,
             args.include_repository_context.then_some(repo_root),
             args.excerpt_bytes,
+            args.force,
         )?;
     }
     match args.format {
@@ -922,28 +1098,21 @@ fn plan_selector(args: &PlanArgs, repo_root: &Path) -> PlanSelector {
 
 fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
     if args.include_repository_context && !(256..=4096).contains(&args.excerpt_bytes) {
-        eprintln!("--excerpt-bytes must be between 256 and 4096.");
-        return Ok(2);
+        return usage_error("--excerpt-bytes must be between 256 and 4096");
     }
-    let (loaded, _) = match report_or_missing(repo_root, args.report.as_deref())? {
-        Ok(value) => value,
-        Err(code) => return Ok(code),
-    };
+    let (loaded, _) = report_or_missing(repo_root, args.report.as_deref())?;
     let Some(max_slices) = usize::try_from(args.max_slices)
         .ok()
         .filter(|count| *count > 0)
     else {
-        eprintln!("--max-slices must be greater than zero.");
-        return Ok(2);
+        return usage_error("--max-slices must be greater than zero");
     };
     let payload = match plan_payload(&loaded, plan_selector(&args, repo_root), max_slices) {
         Ok(payload) => payload,
         Err(error) => return usage_error(error),
     };
     if let Some(output_dir) = args.prompt_pack.as_deref() {
-        if let Err(code) = ensure_prompt_pack_target(output_dir)? {
-            return Ok(code);
-        }
+        ensure_prompt_pack_target(output_dir)?;
         write_prompt_pack(
             "plan",
             &payload,
@@ -951,6 +1120,7 @@ fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
             output_dir,
             args.include_repository_context.then_some(repo_root),
             args.excerpt_bytes,
+            args.force,
         )?;
     }
     match args.format {
@@ -962,10 +1132,27 @@ fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
 }
 
 fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
-    let (loaded, _) = match report_or_missing(repo_root, args.report.as_deref())? {
-        Ok(value) => value,
-        Err(code) => return Ok(code),
-    };
+    if args.details && !(1..=10_000).contains(&args.limit) {
+        return usage_error("--limit must be between 1 and 10000");
+    }
+    let (loaded, _) = report_or_missing(repo_root, args.report.as_deref())?;
+    let incomplete_records = loaded
+        .get("files")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|record| record.get("analysis_status").and_then(Value::as_str) != Some("analyzed"))
+        .count();
+    if incomplete_records > 0 && !args.allow_incomplete_evidence {
+        return Err(ClassifiedError::new(
+            ErrorKind::Contract,
+            "incomplete_evidence",
+            format!("report contains {incomplete_records} incomplete selected inventory record(s); rerun analysis with complete inputs or pass --allow-incomplete-evidence"),
+        )
+        .at("/files")
+        .with_details(json!({"incomplete_record_count": incomplete_records}))
+        .into());
+    }
     let loaded_config = loaded
         .get("config")
         .cloned()
@@ -988,7 +1175,12 @@ fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
                 .and_then(Value::as_str)
         })
         .unwrap_or("critical");
-    let failures = failing_records(&loaded, Some(context_band), Some(slop_band));
+    let failures = failing_records_in(
+        &loaded,
+        Some(context_band),
+        Some(slop_band),
+        args.include_folders,
+    );
     if !matches!(args.format, CheckFormat::Text) {
         match args.format {
             CheckFormat::Json => {
@@ -1000,15 +1192,29 @@ fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
                     "passed": failures.is_empty(),
                     "finding_count": failures.len(),
                     "details_included": args.details,
+                    "gate_scope": if args.include_folders { "files_and_folders" } else { "files" },
                 });
                 if args.details {
-                    payload["findings"] = json!(failures);
+                    let findings = failures
+                        .iter()
+                        .skip(args.offset)
+                        .take(args.limit)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    payload["findings"] = json!(findings);
+                    payload["collection"] = json!({
+                        "total": failures.len(),
+                        "offset": args.offset,
+                        "limit": args.limit,
+                        "returned": payload["findings"].as_array().map(Vec::len).unwrap_or_default(),
+                        "truncated": args.offset.saturating_add(args.limit) < failures.len(),
+                    });
                 }
                 print_text(&render_json(&payload)?);
             }
             CheckFormat::Github => {
                 for failure in &failures {
-                    let path = safe_terminal(
+                    let path = crate::text::github_property_escape(
                         failure
                             .get("path")
                             .and_then(Value::as_str)
@@ -1016,7 +1222,7 @@ fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
                     );
                     println!(
                         "::error file={}::Git Slop context={} slop={} score={}",
-                        path.replace('%', "%25").replace(',', "%2C"),
+                        path,
                         failure
                             .get("context_band")
                             .and_then(Value::as_str)
@@ -1046,10 +1252,12 @@ fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
     for failure in failures.iter().take(10) {
         println!(
             "- {} (slop={}, context={}, slop_score={})",
-            failure
-                .get("path")
-                .and_then(Value::as_str)
-                .unwrap_or_default(),
+            safe_terminal(
+                failure
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+            ),
             failure
                 .get("slop_band")
                 .and_then(Value::as_str)
@@ -1132,6 +1340,10 @@ fn render_compare_ndjson(payload: &Value) -> Result<String> {
     let mut lines = vec![render_json(&json!({
         "record_type": "summary",
         "schema_version": payload.get("schema_version"),
+        "stream": {
+            "schema": "schemas/compare-ndjson-1.json",
+            "record_types": ["summary", "file_delta", "folder_delta", "queue_movement", "overlay_delta", "regression"]
+        },
         "summary": payload.get("summary"),
         "pagination": payload.get("pagination"),
         "baseline_status": payload.get("baseline_status")
@@ -1139,6 +1351,8 @@ fn render_compare_ndjson(payload: &Value) -> Result<String> {
     for (key, record_type) in [
         ("file_deltas", "file_delta"),
         ("folder_deltas", "folder_delta"),
+        ("queue_movement", "queue_movement"),
+        ("overlay_deltas", "overlay_delta"),
         ("regressions", "regression"),
     ] {
         for record in payload
@@ -1155,57 +1369,232 @@ fn render_compare_ndjson(payload: &Value) -> Result<String> {
     Ok(lines.join("\n"))
 }
 
+fn baseline_path(repo_root: &Path, name: &str) -> Result<PathBuf> {
+    if name.is_empty()
+        || name.len() > 64
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err(ClassifiedError::new(
+            ErrorKind::Contract,
+            "invalid_baseline_name",
+            "Baseline names must be 1-64 ASCII letters, digits, dots, dashes, or underscores.",
+        )
+        .at("/name")
+        .with_details(json!({"name": name}))
+        .into());
+    }
+    Ok(config::git_runtime_dir(repo_root)?
+        .join("baselines")
+        .join(format!("{name}.json")))
+}
+
+fn write_named_baseline(path: &Path, report: &Value, replace: bool) -> Result<()> {
+    if path.exists() && !replace {
+        return Err(ClassifiedError::new(
+            ErrorKind::Contract,
+            "baseline_exists",
+            format!("Baseline already exists: {}", path.display()),
+        )
+        .at("/name")
+        .with_details(json!({"path": path}))
+        .into());
+    }
+    let parent = path.parent().expect("baseline path has parent");
+    fs::create_dir_all(parent)?;
+    let temporary = parent.join(format!(".baseline-{}-tmp", std::process::id()));
+    fs::write(&temporary, render_json(report)?)?;
+    let backup = parent.join(format!(".baseline-{}-backup", std::process::id()));
+    let had_existing = path.exists();
+    if had_existing {
+        fs::rename(path, &backup)?;
+    }
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        if had_existing {
+            let _ = fs::rename(&backup, path);
+        }
+        return Err(error.into());
+    }
+    if had_existing {
+        fs::remove_file(backup)?;
+    }
+    Ok(())
+}
+
+fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
+    match args.command {
+        BaselineCommand::Create {
+            name,
+            report,
+            force,
+        } => {
+            let (loaded, source) = report_or_missing(repo_root, report.as_deref())?;
+            let path = baseline_path(repo_root, &name)?;
+            write_named_baseline(&path, &loaded, force)?;
+            println!(
+                "Created baseline '{name}' from {} in Git-private runtime storage.",
+                source.display()
+            );
+            Ok(0)
+        }
+        BaselineCommand::Update { name, report } => {
+            let path = baseline_path(repo_root, &name)?;
+            if !path.exists() {
+                return Err(ClassifiedError::new(
+                    ErrorKind::Contract,
+                    "baseline_not_found",
+                    format!("Baseline not found: {name}"),
+                )
+                .at("/name")
+                .with_details(json!({"name": name}))
+                .into());
+            }
+            let (loaded, source) = report_or_missing(repo_root, report.as_deref())?;
+            write_named_baseline(&path, &loaded, true)?;
+            println!("Updated baseline '{name}' from {}.", source.display());
+            Ok(0)
+        }
+        BaselineCommand::Inspect { name, format } => {
+            let path = baseline_path(repo_root, &name)?;
+            let Some(report) = load_report_at(&path)? else {
+                return Err(ClassifiedError::new(
+                    ErrorKind::Contract,
+                    "baseline_not_found",
+                    format!("Baseline not found: {name}"),
+                )
+                .at("/name")
+                .with_details(json!({"name": name}))
+                .into());
+            };
+            let payload = json!({
+                "schema_version": 1,
+                "command": "baseline inspect",
+                "name": name,
+                "storage": "git_private",
+                "report": {
+                    "schema_version": report.get("schema_version"),
+                    "generated_at": report.get("generated_at"),
+                    "head_sha": report.pointer("/repo/head_sha"),
+                    "scope": report.get("scope"),
+                    "report_profile": report.pointer("/analyzer/report_profile"),
+                    "evidence_completeness": report.get("evidence_completeness")
+                }
+            });
+            match format {
+                DisplayFormat::Json => print_text(&render_json(&payload)?),
+                DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
+                DisplayFormat::Text => println!(
+                    "baseline={} revision={} generated_at={} storage=git_private",
+                    payload["name"].as_str().unwrap_or_default(),
+                    payload
+                        .pointer("/report/head_sha")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown"),
+                    payload
+                        .pointer("/report/generated_at")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown")
+                ),
+            }
+            Ok(0)
+        }
+        BaselineCommand::Validate { name } => {
+            let path = baseline_path(repo_root, &name)?;
+            let Some(_) = load_report_at(&path)? else {
+                return Err(ClassifiedError::new(
+                    ErrorKind::Contract,
+                    "baseline_not_found",
+                    format!("Baseline not found: {name}"),
+                )
+                .at("/name")
+                .with_details(json!({"name": name}))
+                .into());
+            };
+            println!("Baseline '{name}' is valid.");
+            Ok(0)
+        }
+        BaselineCommand::Remove { name } => {
+            let path = baseline_path(repo_root, &name)?;
+            if !path.exists() {
+                return Err(ClassifiedError::new(
+                    ErrorKind::Contract,
+                    "baseline_not_found",
+                    format!("Baseline not found: {name}"),
+                )
+                .at("/name")
+                .with_details(json!({"name": name}))
+                .into());
+            }
+            fs::remove_file(path)?;
+            println!("Removed baseline '{name}'.");
+            Ok(0)
+        }
+    }
+}
+
 fn run_compare(repo_root: &Path, args: CompareArgs) -> Result<i32> {
+    let head_report = report_or_missing(Path::new(""), Some(&args.head))?.0;
+    let inferred_scope = args.scope.clone().or_else(|| {
+        head_report
+            .pointer("/scope/path")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+    });
+    let analysis_clock = head_report
+        .pointer("/analyzer/analysis_clock")
+        .or_else(|| head_report.get("generated_at"))
+        .and_then(Value::as_str)
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&chrono::Utc));
     let materialized = if let Some(reference) = args.base_ref.as_deref() {
         Some(crate::baseline::MaterializedBaseline::create(
             repo_root,
             reference,
-            args.scope.clone(),
+            inferred_scope,
             args.allow_shallow,
+            analysis_clock,
         )?)
     } else {
         None
     };
+    let named_baseline_path = args
+        .baseline
+        .as_deref()
+        .map(|name| baseline_path(repo_root, name))
+        .transpose()?;
     let base_path = args
         .base
         .as_deref()
-        .or_else(|| {
-            materialized
-                .as_ref()
-                .map(|value| value.report_path.as_path())
-        })
-        .expect("Clap requires --base or --base-ref");
-    let Some(base_report) = (match load_report_at(base_path) {
-        Ok(report) => report,
-        Err(error) => {
-            eprintln!("{error:#}");
-            return Ok(2);
-        }
-    }) else {
-        eprintln!("Report not found: {}", base_path.display());
-        return Ok(2);
-    };
-    let Some(head_report) = (match load_report_at(&args.head) {
-        Ok(report) => report,
-        Err(error) => {
-            eprintln!("{error:#}");
-            return Ok(2);
-        }
-    }) else {
-        eprintln!("Report not found: {}", args.head.display());
-        return Ok(2);
-    };
+        .map(Path::to_path_buf)
+        .or_else(|| materialized.as_ref().map(|value| value.report_path.clone()))
+        .or(named_baseline_path)
+        .expect("Clap requires --base, --base-ref, or --baseline");
+    let base_report = report_or_missing(Path::new(""), Some(&base_path))?.0;
     let Some(top) = usize::try_from(args.top).ok().filter(|count| *count > 0) else {
-        eprintln!("--top must be greater than zero.");
-        return Ok(2);
+        return usage_error("--top must be greater than zero.");
     };
-    let payload = match compare_payload_with_force(
+    let base_descriptor = if let Some(materialized) = materialized.as_ref() {
+        format!(
+            "git:{}@{}",
+            args.base_ref.as_deref().unwrap_or("unknown"),
+            materialized.revision
+        )
+    } else if let Some(name) = args.baseline.as_deref() {
+        format!("baseline:{name}")
+    } else {
+        base_path.to_string_lossy().into_owned()
+    };
+    let payload = match compare_payload_with_policy(
         &base_report,
         &head_report,
-        Some(&base_path.to_string_lossy()),
+        Some(&base_descriptor),
         Some(&args.head.to_string_lossy()),
         top,
         args.force,
+        args.allow_incomplete_evidence,
+        args.policy_from.as_str(),
     ) {
         Ok(payload) => payload,
         Err(error) => return usage_error(error),
@@ -1253,10 +1642,14 @@ fn run_report(args: ReportArgs) -> Result<i32> {
                     );
                     Ok(0)
                 }
-                Err(error) => {
-                    eprintln!("{error:#}");
-                    Ok(2)
-                }
+                Err(error) => Err(ClassifiedError::new(
+                    ErrorKind::Contract,
+                    "report_invalid",
+                    format!("{error:#}"),
+                )
+                .at("/report")
+                .with_details(json!({"path": path}))
+                .into()),
             }
         }
         ReportCommand::Migrate { path, output } => {
@@ -1281,18 +1674,12 @@ fn run_report(args: ReportArgs) -> Result<i32> {
 }
 
 fn run_sarif(repo_root: &Path, args: SarifArgs) -> Result<i32> {
-    let (loaded, report_path) = match report_or_missing(repo_root, args.report.as_deref())? {
-        Ok(value) => value,
-        Err(code) => return Ok(code),
-    };
+    let (loaded, report_path) = report_or_missing(repo_root, args.report.as_deref())?;
     let top = match args.top {
         None => None,
         Some(value) => match usize::try_from(value).ok().filter(|count| *count > 0) {
             Some(value) => Some(value),
-            None => {
-                eprintln!("--top must be greater than zero.");
-                return Ok(2);
-            }
+            None => return usage_error("--top must be greater than zero."),
         },
     };
     let payload = match sarif_payload(&loaded, Some(&report_path.to_string_lossy()), top) {
@@ -1318,10 +1705,7 @@ fn run_sarif(repo_root: &Path, args: SarifArgs) -> Result<i32> {
 }
 
 fn run_health(repo_root: &Path, args: HealthArgs) -> Result<i32> {
-    let (mut loaded, _) = match report_or_missing(repo_root, args.report.as_deref())? {
-        Ok(value) => value,
-        Err(code) => return Ok(code),
-    };
+    let (mut loaded, _) = report_or_missing(repo_root, args.report.as_deref())?;
     let rollup = match health::health_rollup_from_report(&loaded) {
         Ok(rollup) => rollup,
         Err(error) => return usage_error(error),
@@ -1383,11 +1767,23 @@ fn diff_values(current: &Value, defaults: &Value) -> Value {
     }
 }
 
+fn load_config_contract(repo_root: &Path) -> Result<Value> {
+    config::load(repo_root).map_err(|error| {
+        ClassifiedError::new(
+            ErrorKind::Contract,
+            "invalid_configuration",
+            format!("{error:#}"),
+        )
+        .at("/.slop/config.yaml")
+        .into()
+    })
+}
+
 fn run_config(repo_root: &Path, args: ConfigArgs) -> Result<i32> {
     match args.command {
         ConfigCommand::Show { effective } => {
             if effective {
-                print_text(&serde_yaml::to_string(&config::load(repo_root)?)?);
+                print_text(&serde_yaml::to_string(&load_config_contract(repo_root)?)?);
             } else {
                 let path = config::config_path(repo_root);
                 if path.exists() {
@@ -1398,7 +1794,7 @@ fn run_config(repo_root: &Path, args: ConfigArgs) -> Result<i32> {
             }
         }
         ConfigCommand::Validate => {
-            config::load(repo_root)?;
+            load_config_contract(repo_root)?;
             let path = config::config_path(repo_root);
             if path.exists() {
                 println!("Configuration is valid: {}", path.display());
@@ -1410,11 +1806,11 @@ fn run_config(repo_root: &Path, args: ConfigArgs) -> Result<i32> {
             }
         }
         ConfigCommand::DiffDefaults => {
-            let diff = diff_values(&config::load(repo_root)?, &config::default_config());
+            let diff = diff_values(&load_config_contract(repo_root)?, &config::default_config());
             print_text(&serde_yaml::to_string(&diff)?);
         }
         ConfigCommand::Migrate => {
-            let effective = config::load(repo_root)?;
+            let effective = load_config_contract(repo_root)?;
             let mut diff = diff_values(&effective, &config::default_config());
             if let Some(object) = diff.as_object_mut() {
                 object.insert("schema_version".into(), json!(2));
@@ -1447,14 +1843,44 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     } else {
         "missing"
     };
+    let normalized_scope = analyze::normalize_scope(args.scope.as_deref()).map_err(|error| {
+        ClassifiedError::new(ErrorKind::Contract, "invalid_scope", format!("{error:#}"))
+            .at("/scope")
+            .with_details(json!({"scope": args.scope}))
+    })?;
+    if let Some(scope) = normalized_scope.as_deref()
+        && fs::symlink_metadata(repo_root.join(scope)).is_err()
+    {
+        return Err(ClassifiedError::new(
+            ErrorKind::Contract,
+            "scope_not_found",
+            format!("--scope does not exist in the repository: {scope}"),
+        )
+        .at("/scope")
+        .with_details(json!({"scope": scope}))
+        .into());
+    }
     let tracked_paths = git::list_tracked_files(repo_root)?
         .into_iter()
         .filter(|path| {
-            args.scope
+            normalized_scope
                 .as_deref()
                 .is_none_or(|scope| path == scope || path.starts_with(&format!("{scope}/")))
         })
         .collect::<Vec<_>>();
+    if tracked_paths.is_empty() {
+        return Err(ClassifiedError::new(
+            ErrorKind::Contract,
+            "empty_scope",
+            normalized_scope.as_deref().map_or_else(
+                || "repository selected no tracked paths".to_string(),
+                |scope| format!("--scope {scope:?} selected no tracked paths"),
+            ),
+        )
+        .at("/scope")
+        .with_details(json!({"scope": normalized_scope}))
+        .into());
+    }
     let tracked = tracked_paths.len();
     let effective_config = config_result
         .as_ref()
@@ -1473,6 +1899,21 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             repo_root.join(output)
         }
     });
+    let mut diagnostics = Vec::new();
+    if let Err(error) = &config_result {
+        diagnostics.push(json!({"code":"invalid_configuration","severity":"error","detail": crate::text::visible_controls(&format!("{error:#}"))}));
+    }
+    if report_status == "invalid" {
+        diagnostics.push(json!({"code":"invalid_latest_report","severity":"error","detail":"The latest report does not satisfy the supported report contract."}));
+    } else if report_status == "missing" {
+        diagnostics.push(json!({"code":"latest_report_missing","severity":"notice","detail":"No latest report exists yet."}));
+    }
+    if repo.is_shallow {
+        diagnostics.push(json!({"code":"shallow_history","severity":"warning","detail":"Git history evidence is incomplete."}));
+    }
+    if resource_status == "over_memory_budget" {
+        diagnostics.push(json!({"code":"estimated_memory_budget_exceeded","severity":"error","detail":format!("Estimated peak memory is {} bytes for a {} byte budget.", estimate.estimated_peak_memory_bytes, estimate.memory_budget_bytes)}));
+    }
     let diagnostic = json!({
         "schema_version": 1,
         "command": "doctor",
@@ -1482,6 +1923,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
         "report": {"status": report_status, "path": report_path},
         "estimate": estimate,
         "resource_status": resource_status,
+        "diagnostics": diagnostics,
         "bundle_path": bundle_path,
         "recovery": {
             "config": "Run git slop config validate, then correct the reported key or run git slop config migrate.",
@@ -1568,6 +2010,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             "repository": {"name": repo.repo_name, "shallow": repo.is_shallow, "detached": repo.detached_head, "clean": repo.worktree_clean, "staged": repo.staged_change_count, "modified": repo.modified_tracked_file_count, "untracked_count": repo.untracked_file_count},
             "config_digest": config_digest,
             "report_status": report_status,
+            "diagnostics": diagnostics,
             "estimate": estimate,
             "privacy": {"source_included": false, "raw_tokens_included": false, "absolute_paths_included": false, "author_identities_included": false, "credentials_included": false}
         });
@@ -1590,24 +2033,53 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     )
 }
 
-fn matches_list_filter(item: &Value, args: &ListFilterArgs) -> bool {
-    args.path.as_ref().is_none_or(|path| {
-        item.get("path")
+fn matches_list_filter(
+    item: &Value,
+    args: &ListFilterArgs,
+    kind: &str,
+    files: &std::collections::BTreeMap<String, Value>,
+) -> bool {
+    let candidate_paths = match kind {
+        "relationships" => ["source_path", "target_path"]
+            .into_iter()
+            .filter_map(|key| item.get(key).and_then(Value::as_str))
+            .collect::<Vec<_>>(),
+        "clusters" => item
+            .get("member_paths")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect(),
+        _ => item
+            .get("path")
             .and_then(Value::as_str)
-            .is_some_and(|value| value.starts_with(path))
-    }) && args
-        .profile
+            .into_iter()
+            .collect(),
+    };
+    let field_matches = |field: &str, expected: &str| {
+        item.get(field).and_then(Value::as_str) == Some(expected)
+            || candidate_paths.iter().any(|path| {
+                files
+                    .get(*path)
+                    .and_then(|file| file.get(field))
+                    .and_then(Value::as_str)
+                    == Some(expected)
+            })
+    };
+    args.path
         .as_ref()
-        .is_none_or(|value| item.get("profile").and_then(Value::as_str) == Some(value))
+        .is_none_or(|path| candidate_paths.iter().any(|value| value.starts_with(path)))
+        && args.profile.as_ref().is_none_or(|value| {
+            field_matches("profile", value)
+                || (kind == "profiles" && item.get("name").and_then(Value::as_str) == Some(value))
+        })
         && args
             .language
             .as_ref()
-            .is_none_or(|value| item.get("language").and_then(Value::as_str) == Some(value))
+            .is_none_or(|value| field_matches("language", value))
         && args.classification.as_ref().is_none_or(|value| {
-            item.get("classification")
-                .or_else(|| item.get("class"))
-                .and_then(Value::as_str)
-                == Some(value)
+            field_matches("classification", value) || field_matches("class", value)
         })
         && args
             .severity
@@ -1633,10 +2105,20 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
         | ListCommand::Clusters(v)
         | ListCommand::Profiles(v) => v,
     };
-    let (loaded, _) = match report_or_missing(repo_root, filter.report.as_deref())? {
-        Ok(value) => value,
-        Err(code) => return Ok(code),
+    let (loaded, _) = report_or_missing(repo_root, filter.report.as_deref())?;
+    let kind = match &args.command {
+        ListCommand::Findings(_) => "findings",
+        ListCommand::Relationships(_) => "relationships",
+        ListCommand::Clusters(_) => "clusters",
+        ListCommand::Profiles(_) => "profiles",
     };
+    let files = loaded
+        .get("files")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|record| Some((record.get("path")?.as_str()?.to_string(), record.clone())))
+        .collect::<std::collections::BTreeMap<_, _>>();
     let mut values = match &args.command {
         ListCommand::Findings(_) => loaded
             .pointer("/health/findings")
@@ -1667,22 +2149,18 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
             .cloned()
             .unwrap_or_default(),
     };
-    values.retain(|item| matches_list_filter(item, filter));
-    let total = values.len();
+    let unfiltered_total = values.len();
+    values.retain(|item| matches_list_filter(item, filter, kind, &files));
+    let matched_total = values.len();
     values.truncate(filter.top);
     let returned = values.len();
     match filter.format {
         DisplayFormat::Json => print_text(&render_json(&json!({
             "schema_version": 1,
             "command": "list",
-            "kind": match &args.command {
-                ListCommand::Findings(_) => "findings",
-                ListCommand::Relationships(_) => "relationships",
-                ListCommand::Clusters(_) => "clusters",
-                ListCommand::Profiles(_) => "profiles",
-            },
+            "kind": kind,
             "items": values,
-            "collection": {"total": total, "returned": returned, "limit": filter.top, "truncated": returned < total}
+            "collection": {"total": unfiltered_total, "matched": matched_total, "returned": returned, "limit": filter.top, "truncated": returned < matched_total}
         }))?),
         DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&values)?),
         DisplayFormat::Text => {
@@ -1750,8 +2228,8 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
                 );
             }
             println!(
-                "\nReturned {returned} of {total} matching record(s).{}",
-                if returned < total {
+                "\nReturned {returned} of {matched_total} matching record(s) from {unfiltered_total} total.{}",
+                if returned < matched_total {
                     " Increase --top to see more."
                 } else {
                     ""
@@ -1894,9 +2372,10 @@ fn run_cache(repo_root: &Path, args: CacheArgs) -> Result<i32> {
             max_entries,
             max_bytes,
             dry_run,
+            compact,
             format,
         } => (
-            crate::cache::prune(&state_root, max_entries, max_bytes, dry_run)?,
+            crate::cache::prune(&state_root, max_entries, max_bytes, dry_run, compact)?,
             format,
         ),
     };
@@ -2020,10 +2499,7 @@ fn run_reference(args: ReferenceArgs) -> Result<i32> {
 
 fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
     let explicit_report = args.report.clone();
-    let (loaded, report_path) = match report_or_missing(repo_root, args.report.as_deref())? {
-        Ok(value) => value,
-        Err(code) => return Ok(code),
-    };
+    let (loaded, report_path) = report_or_missing(repo_root, args.report.as_deref())?;
     let output = args.output.unwrap_or_else(|| {
         explicit_report
             .as_ref()
@@ -2034,6 +2510,27 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
+    let bounded = |pointer: &str, limit: usize| {
+        loaded
+            .pointer(pointer)
+            .and_then(Value::as_array)
+            .map(|records| records.iter().take(limit).cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
+    let bounded_sections = |pointer: &str, limit: usize| {
+        loaded
+            .pointer(pointer)
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|sections| sections.values())
+            .filter_map(Value::as_array)
+            .flatten()
+            .take(limit)
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let embedded_limit = 5_000usize;
+    let source_report = relative_display(&report_path, repo_root);
     let payload = serde_json::to_string(&json!({
         "schema_version": loaded.get("schema_version"),
         "generated_at": loaded.get("generated_at"),
@@ -2044,54 +2541,61 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
         "config_digests": loaded.pointer("/analyzer/config_digests"),
         "collection_metadata": loaded.get("collection_metadata"),
         "evidence_completeness": loaded.get("evidence_completeness"),
-        "files": loaded.get("files"),
-        "action_queue": loaded.get("action_queue"),
+        "files": bounded("/files", embedded_limit),
+        "folders": bounded("/folders", embedded_limit),
+        "action_queue": bounded("/action_queue", embedded_limit),
         "health": {
             "summary": loaded.pointer("/health/summary"),
-            "findings": loaded.pointer("/health/findings")
+            "findings": bounded("/health/findings", embedded_limit)
         },
         "organization": {
-            "relationships": loaded.pointer("/overlays/organization_health/relationships"),
-            "clusters": loaded.pointer("/overlays/organization_health/clusters")
+            "relationships": bounded_sections("/overlays/organization_health/relationships", embedded_limit),
+            "clusters": bounded_sections("/overlays/organization_health/clusters", embedded_limit)
         },
-        "source_report": report_path
+        "embedded_evidence": {"record_limit_per_view": embedded_limit},
+        "source_report": source_report
     }))?
     .replace("</", "<\\/");
+    let csp_nonce = &hex::encode(sha2::Sha256::digest(payload.as_bytes()))[..24];
     let html = format!(
         r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Git Slop local report</title><style>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'nonce-{csp_nonce}'; script-src 'nonce-{csp_nonce}'; base-uri 'none'; form-action 'none'"><title>Git Slop local report</title><style nonce="{csp_nonce}">
 :root {{ color-scheme: light dark; font: 15px system-ui,sans-serif }} body {{ margin: 2rem; max-width: 1100px }}
 input,select {{ padding:.55rem; margin:0 .5rem .75rem 0 }} table {{ width:100%; border-collapse:collapse }}
 th,td {{ text-align:left; padding:.5rem; border-bottom:1px solid #8885 }} th button {{ all:unset;cursor:pointer;font-weight:700 }}
 code {{ overflow-wrap:anywhere }} details {{ margin:1rem 0 }} .muted {{ opacity:.7 }} .sr {{ position:absolute;left:-10000px }}
 .views button[aria-pressed="true"] {{ font-weight:700;text-decoration:underline }} tr:target {{ outline:2px solid currentColor }}
 </style></head><body><h1>Git Slop local report</h1><p id="descriptor" class="muted"></p>
-<nav class="views" aria-label="Report view"><button data-view="files" aria-pressed="true">Files</button> <button data-view="queue" aria-pressed="false">Action queue</button> <button data-view="health" aria-pressed="false">Health findings</button></nav>
+<nav class="views" aria-label="Report view"><button data-view="files" aria-pressed="true">Files</button> <button data-view="folders" aria-pressed="false">Folders</button> <button data-view="queue" aria-pressed="false">Action queue</button> <button data-view="health" aria-pressed="false">Health findings</button> <button data-view="relationships" aria-pressed="false">Relationships</button> <button data-view="clusters" aria-pressed="false">Clusters</button></nav>
 <label for="query" class="sr">Search paths</label><input id="query" type="search" placeholder="Search paths"><label for="profile" class="sr">Profile</label><select id="profile"><option value="">All profiles</option></select>
-<label for="severity" class="sr">Maintenance band</label><select id="severity"><option value="">All maintenance bands</option><option>critical</option><option>high</option><option>moderate</option><option>low</option></select>
-<p id="count" aria-live="polite"></p><button id="previous" type="button">Previous</button><button id="next" type="button">Next</button><table><caption class="sr">Git Slop records</caption><thead><tr><th scope="col"><button data-key="path">Path</button></th><th scope="col"><button data-key="profile">Profile</button></th><th scope="col"><button data-key="language">Language</button></th><th scope="col"><button data-key="slop_band">Maintenance</button></th><th scope="col"><button data-key="context_band">Context</button></th><th scope="col"><button data-key="slop_score">Score</button></th><th scope="col"><button data-key="tokens">Tokens</button></th></tr></thead><tbody id="rows"></tbody></table>
+<label id="severity-label" for="severity" class="sr">Maintenance band</label><select id="severity"><option value="">All maintenance bands</option><option>critical</option><option>high</option><option>moderate</option><option>low</option><option>error</option><option>warning</option><option>notice</option></select>
+<p id="sort-state" class="muted" aria-live="polite"></p><p id="count" aria-live="polite"></p><button id="previous" type="button">Previous</button><button id="next" type="button">Next</button><table><caption class="sr">Git Slop records</caption><thead><tr id="headers"></tr></thead><tbody id="rows"></tbody></table>
 <details id="file-detail"><summary>Selected record details</summary><pre id="detail"></pre></details>
-<details><summary>Relationships</summary><pre id="relationships"></pre></details>
-<script id="report" type="application/json">{payload}</script><script>
+<details><summary>Evidence summary</summary><pre id="evidence-summary"></pre></details>
+<script id="report" type="application/json">{payload}</script><script nonce="{csp_nonce}">
 const report=JSON.parse(document.getElementById('report').textContent), params=new URLSearchParams(location.search); let view=params.get('view')||'files', sortKey=params.get('sort')||'slop_score', ascending=params.get('dir')==='asc', page=Number(params.get('page')||0); const pageSize=100;
-const files=report.files||[], queue=report.action_queue||[], findings=report.health?.findings||[]; const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
+const files=report.files??[], folders=report.folders??[], queue=report.action_queue??[], findings=report.health?.findings??[], relationships=report.organization?.relationships??[], clusters=report.organization?.clusters??[]; const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
 document.getElementById('descriptor').textContent=`${{report.repo?.repo_name||'repository'}} · ${{report.generated_at||'unknown time'}} · schema ${{report.schema_version}}`;
 const profile=document.getElementById('profile'); [...new Set(files.map(f=>f.profile).filter(Boolean))].sort().forEach(v=>profile.insertAdjacentHTML('beforeend',`<option>${{esc(v)}}</option>`));
 document.getElementById('query').value=params.get('q')||''; profile.value=params.get('profile')||''; document.getElementById('severity').value=params.get('band')||'';
-function records() {{ return view==='queue'?queue:view==='health'?findings:files }}
+const columns={{files:[['path','Path'],['profile','Profile'],['language','Language'],['slop_band','Maintenance'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],folders:[['path','Folder'],['classification','Classification'],['health_band','Health'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],queue:[['path','Path'],['severity','Severity'],['reason_code','Reason'],['evidence_status','Evidence'],['next_action','Next action']],health:[['path','Path'],['severity','Severity'],['title','Finding'],['message','Message']],relationships:[['id','Relationship'],['kind','Kind'],['source_path','Source'],['target_path','Target'],['evidence_score','Evidence']],clusters:[['id','Cluster'],['kind','Kind'],['member_count','Members'],['evidence_score','Evidence']]}};
+function records() {{ return view==='folders'?folders:view==='queue'?queue:view==='health'?findings:view==='relationships'?relationships:view==='clusters'?clusters:files }}
 function syncUrl() {{ const p=new URLSearchParams(); for (const [k,v] of Object.entries({{view,q:document.getElementById('query').value,profile:profile.value,band:document.getElementById('severity').value,sort:sortKey,dir:ascending?'asc':'desc',page}})) if(v!==''&&v!==0)p.set(k,v); history.replaceState(null,'',`${{location.pathname}}?${{p}}${{location.hash}}`) }}
 function render() {{ const q=document.getElementById('query').value.toLowerCase(), p=profile.value, s=document.getElementById('severity').value, source=records();
  document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===view)));
- const selected=source.filter(f=>(!q||String(f.path||f.id).toLowerCase().includes(q))&&(!p||f.profile===p)&&(!s||(f.slop_band||f.severity)===s)).sort((a,b)=>{{const x=a[sortKey],y=b[sortKey]; return (typeof x==='number'?x-y:String(x??'').localeCompare(String(y??'')))*(ascending?1:-1)}});
+ const activeColumns=columns[view]??columns.files; if(!activeColumns.some(([key])=>key===sortKey))sortKey=activeColumns[0][0]; document.getElementById('headers').innerHTML=activeColumns.map(([key,label])=>`<th scope="col"><button data-key="${{esc(key)}}" aria-sort="${{key===sortKey?(ascending?'ascending':'descending'):'none'}}">${{esc(label)}}</button></th>`).join('');
+ document.getElementById('severity-label').textContent=view==='health'||view==='queue'?'Finding severity':'Maintenance band';
+ const haystack=f=>[f.path,f.id,f.source_path,f.target_path,...(f.members??[])].join(' ').toLowerCase(); const selected=source.filter(f=>(!q||haystack(f).includes(q))&&(!p||f.profile===p)&&(!s||(f.slop_band??f.severity)===s)).sort((a,b)=>{{const x=a[sortKey],y=b[sortKey]; return (typeof x==='number'?x-y:String(x??'').localeCompare(String(y??'')))*(ascending?1:-1)}});
  const pages=Math.max(1,Math.ceil(selected.length/pageSize)); page=Math.min(page,pages-1); const visible=selected.slice(page*pageSize,(page+1)*pageSize);
  document.getElementById('count').textContent=`${{selected.length}} of ${{source.length}} ${{view.replace('_',' ')}} records · page ${{page+1}} of ${{pages}}`;
  document.getElementById('previous').disabled=page===0; document.getElementById('next').disabled=page+1>=pages;
- document.getElementById('rows').innerHTML=visible.map((f,i)=>`<tr id="record-${{page*pageSize+i}}" data-index="${{page*pageSize+i}}"><td><button class="record"><code>${{esc(f.path||f.id)}}</code></button></td><td>${{esc(f.profile||f.kind)}}</td><td>${{esc(f.language)}}</td><td>${{esc(f.slop_band||f.severity)}}</td><td>${{esc(f.context_band)}}</td><td>${{esc(f.slop_score||f.evidence_score)}}</td><td>${{esc(f.tokens)}}</td></tr>`).join('');
+ document.getElementById('sort-state').textContent=`Sorted by ${{activeColumns.find(([key])=>key===sortKey)?.[1]??sortKey}}, ${{ascending?'ascending':'descending'}}`;
+ document.getElementById('rows').innerHTML=visible.map((f,i)=>`<tr tabindex="0" id="record-${{page*pageSize+i}}" data-index="${{page*pageSize+i}}">${{activeColumns.map(([key],column)=>`<td>${{column===0?`<button class="record"><code>${{esc(f[key]??f.path??f.id)}}</code></button>`:esc(f[key]??(key==='member_count'?(f.members??[]).length:''))}}</td>`).join('')}}</tr>`).join('');
  document.querySelectorAll('.record').forEach((button,i)=>button.addEventListener('click',()=>{{document.getElementById('detail').textContent=JSON.stringify(visible[i],null,2);document.getElementById('file-detail').open=true;location.hash=`record-${{page*pageSize+i}}`}})); syncUrl(); }}
-document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>{{page=0;render()}})); document.querySelectorAll('th button').forEach(el=>el.addEventListener('click',()=>{{ascending=sortKey===el.dataset.key?!ascending:true;sortKey=el.dataset.key;page=0;render()}}));
+document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>{{page=0;render()}})); document.getElementById('headers').addEventListener('click',event=>{{const el=event.target.closest('button');if(!el)return;ascending=sortKey===el.dataset.key?!ascending:true;sortKey=el.dataset.key;page=0;render()}});
 document.querySelectorAll('[data-view]').forEach(el=>el.addEventListener('click',()=>{{view=el.dataset.view;page=0;render()}})); document.getElementById('previous').addEventListener('click',()=>{{page=Math.max(0,page-1);render()}}); document.getElementById('next').addEventListener('click',()=>{{page+=1;render()}});
-document.getElementById('relationships').parentElement.addEventListener('toggle',e=>{{if(e.target.open&&!e.target.dataset.loaded){{e.target.dataset.loaded='true';document.getElementById('relationships').textContent=JSON.stringify(report.organization?.relationships||{{}},null,2)}}}}); render();
+document.addEventListener('keydown',event=>{{const rows=[...document.querySelectorAll('tbody tr')];const index=rows.indexOf(document.activeElement);if(event.key==='ArrowDown'&&index>=0){{event.preventDefault();rows[Math.min(rows.length-1,index+1)]?.focus()}}if(event.key==='ArrowUp'&&index>=0){{event.preventDefault();rows[Math.max(0,index-1)]?.focus()}}}}); document.getElementById('evidence-summary').textContent=JSON.stringify({{completeness:report.evidence_completeness,collections:report.collection_metadata,embedded:report.embedded_evidence,source_report:report.source_report}},null,2); render();
 </script></body></html>"#
     );
     fs::write(&output, html)?;
@@ -2108,6 +2612,7 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
         Command::Plan(args) => run_plan(repo_root, args),
         Command::Check(args) => run_check(repo_root, args),
         Command::Compare(args) => run_compare(repo_root, args),
+        Command::Baseline(args) => run_baseline(repo_root, args),
         Command::Report(args) => run_report(args),
         Command::Sarif(args) => run_sarif(repo_root, args),
         Command::Health(args) => run_health(repo_root, args),
@@ -2133,35 +2638,43 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
             Ok(0)
         }
         Command::Schema(args) => {
-            let source = match args.contract {
-                SchemaContract::Report => {
-                    return {
-                        print_text(&render_json(&report::schema())?);
-                        Ok(0)
+            let rendered = match args.contract {
+                SchemaContract::Report => render_json(&report::schema())?,
+                SchemaContract::Config => render_json(&config::schema())?,
+                contract => {
+                    let source = match contract {
+                        SchemaContract::Compare => include_str!("../schemas/compare-1.json"),
+                        SchemaContract::Explain => include_str!("../schemas/explain-2.json"),
+                        SchemaContract::Plan => include_str!("../schemas/plan-2.json"),
+                        SchemaContract::Sarif => include_str!("../schemas/sarif-1.json"),
+                        SchemaContract::Health => include_str!("../schemas/health-1.json"),
+                        SchemaContract::Check => include_str!("../schemas/check-1.json"),
+                        SchemaContract::Doctor => include_str!("../schemas/doctor-1.json"),
+                        SchemaContract::BuildInfo => include_str!("../schemas/build-info-1.json"),
+                        SchemaContract::List => include_str!("../schemas/list-1.json"),
+                        SchemaContract::Show => include_str!("../schemas/show-1.json"),
+                        SchemaContract::PromptManifest => {
+                            include_str!("../schemas/prompt-manifest-1.json")
+                        }
+                        SchemaContract::Error => include_str!("../schemas/error-1.json"),
+                        SchemaContract::FindEstimate => {
+                            include_str!("../schemas/find-estimate-1.json")
+                        }
+                        SchemaContract::CacheStatus => {
+                            include_str!("../schemas/cache-status-1.json")
+                        }
+                        SchemaContract::CachePrune => include_str!("../schemas/cache-prune-1.json"),
+                        SchemaContract::Prune => include_str!("../schemas/prune-1.json"),
+                        SchemaContract::CompareNdjson => {
+                            include_str!("../schemas/compare-ndjson-1.json")
+                        }
+                        SchemaContract::Report | SchemaContract::Config => unreachable!(),
                     };
-                }
-                SchemaContract::Config => {
-                    return {
-                        print_text(&render_json(&config::schema())?);
-                        Ok(0)
-                    };
-                }
-                SchemaContract::Compare => include_str!("../schemas/compare-1.json"),
-                SchemaContract::Explain => include_str!("../schemas/explain-2.json"),
-                SchemaContract::Plan => include_str!("../schemas/plan-2.json"),
-                SchemaContract::Sarif => include_str!("../schemas/sarif-1.json"),
-                SchemaContract::Health => include_str!("../schemas/health-1.json"),
-                SchemaContract::Check => include_str!("../schemas/check-1.json"),
-                SchemaContract::Doctor => include_str!("../schemas/doctor-1.json"),
-                SchemaContract::BuildInfo => include_str!("../schemas/build-info-1.json"),
-                SchemaContract::List => include_str!("../schemas/list-1.json"),
-                SchemaContract::Show => include_str!("../schemas/show-1.json"),
-                SchemaContract::PromptManifest => {
-                    include_str!("../schemas/prompt-manifest-1.json")
+                    let value: Value = serde_json::from_str(source)?;
+                    render_json(&value)?
                 }
             };
-            let value: Value = serde_json::from_str(source)?;
-            print_text(&render_json(&value)?);
+            write_generated_output(args.output.as_deref(), rendered.as_bytes())?;
             Ok(0)
         }
     }
@@ -2180,7 +2693,8 @@ fn command_requires_repository(command: &Command) -> bool {
             command: ConfigCommand::Schema,
         }) => false,
         Command::Show(args) => args.report.is_none(),
-        Command::Compare(args) => args.base_ref.is_some(),
+        Command::Compare(args) => args.base_ref.is_some() || args.baseline.is_some(),
+        Command::Baseline(_) => true,
         Command::Explain(args) => args.report.is_none() || args.include_repository_context,
         Command::Plan(args) => args.report.is_none() || args.include_repository_context,
         Command::Check(args) => args.report.is_none(),
@@ -2199,15 +2713,31 @@ fn command_requires_repository(command: &Command) -> bool {
 }
 
 pub fn run() -> i32 {
-    let cli = match Cli::try_parse() {
+    let raw_args = std::env::args_os().collect::<Vec<_>>();
+    let requested_error_format = requested_error_format(&raw_args);
+    let parser_command = parser_command_name(&raw_args);
+    let cli = match Cli::try_parse_from(&raw_args) {
         Ok(cli) => cli,
         Err(error) => {
             let code = error.exit_code();
-            let _ = error.print();
+            if code == 0 || requested_error_format == ErrorFormat::Human {
+                let _ = error.print();
+            } else {
+                let classified =
+                    ClassifiedError::new(ErrorKind::Contract, "parser_error", error.to_string())
+                        .at("/arguments")
+                        .with_details(json!({"clap_kind": format!("{:?}", error.kind())}));
+                render_runtime_error(
+                    requested_error_format,
+                    &classified,
+                    parser_command.as_deref(),
+                );
+            }
             return code;
         }
     };
     let error_format = cli.error_format;
+    let command_name = cli.command.name();
     let repo_root = if command_requires_repository(&cli.command) {
         match git::resolve_repo_root_from(cli.repo.as_deref()) {
             Ok(root) => root,
@@ -2219,6 +2749,7 @@ pub fn run() -> i32 {
                         "repository_not_found",
                         format!("{error:#}"),
                     ),
+                    Some(command_name),
                 );
                 return 3;
             }
@@ -2245,13 +2776,61 @@ pub fn run() -> i32 {
                 };
                 &fallback
             };
-            render_runtime_error(error_format, classified);
+            render_runtime_error(error_format, classified, Some(command_name));
             classified.kind.exit_code()
         }
     }
 }
 
-fn render_runtime_error(format: ErrorFormat, error: &ClassifiedError) {
+fn requested_error_format(args: &[std::ffi::OsString]) -> ErrorFormat {
+    args.iter()
+        .filter_map(|arg| arg.to_str())
+        .enumerate()
+        .find_map(|(index, arg)| {
+            if arg == "--error-format" {
+                args.get(index + 1).and_then(|value| value.to_str())
+            } else {
+                arg.strip_prefix("--error-format=")
+            }
+        })
+        .filter(|value| *value == "json")
+        .map_or(ErrorFormat::Human, |_| ErrorFormat::Json)
+}
+
+fn parser_command_name(args: &[std::ffi::OsString]) -> Option<String> {
+    const COMMANDS: &[&str] = &[
+        "init",
+        "find",
+        "show",
+        "explain",
+        "plan",
+        "check",
+        "compare",
+        "baseline",
+        "report",
+        "sarif",
+        "health",
+        "config",
+        "doctor",
+        "list",
+        "prune",
+        "cache",
+        "completions",
+        "man",
+        "reference",
+        "html",
+        "version",
+        "build-info",
+        "schema",
+    ];
+    args.iter()
+        .skip(1)
+        .filter_map(|arg| arg.to_str())
+        .find(|arg| COMMANDS.contains(arg))
+        .map(str::to_string)
+}
+
+fn render_runtime_error(format: ErrorFormat, error: &ClassifiedError, command: Option<&str>) {
     match format {
         ErrorFormat::Human => eprintln!("{}", error.message),
         ErrorFormat::Json => eprintln!(
@@ -2262,12 +2841,42 @@ fn render_runtime_error(format: ErrorFormat, error: &ClassifiedError) {
                     "kind": error.kind,
                     "code": error.code,
                     "pointer": error.pointer,
-                    "message": error.message
+                    "message": error.message,
+                    "details": error.details,
+                    "command": command,
+                    "exit_code": error.kind.exit_code()
                 }
             }))
             .unwrap_or_else(|_| {
                 "{\"schema_version\":1,\"error\":{\"code\":\"serialization_failed\"}}".to_string()
             })
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory;
+
+    use super::Cli;
+
+    fn assert_descriptions(command: &clap::Command, path: &str) {
+        for argument in command.get_arguments() {
+            assert!(
+                argument
+                    .get_help()
+                    .is_some_and(|help| !help.to_string().trim().is_empty()),
+                "{path} argument {} has no generated reference description",
+                argument.get_id()
+            );
+        }
+        for subcommand in command.get_subcommands() {
+            assert_descriptions(subcommand, &format!("{path} {}", subcommand.get_name()));
+        }
+    }
+
+    #[test]
+    fn generated_reference_has_no_blank_argument_descriptions() {
+        assert_descriptions(&Cli::command(), "git-slop");
     }
 }

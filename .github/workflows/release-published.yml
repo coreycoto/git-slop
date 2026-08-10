@@ -39,32 +39,22 @@ jobs:
           jq -e --arg tag "$TAG" --argjson release_id "$RELEASE_ID" \
             '.id == $release_id and .tag_name == $tag and .draft == false and .prerelease == false and (.published_at | type == "string")' \
             release.json >/dev/null
-          jq -r '.assets[].name' release.json | LC_ALL=C sort > actual-assets.txt
-          printf '%s\n' \
-            SHA256SUMS \
-            git-slop.rb \
-            git-slop.cdx.json \
-            git-slop.spdx.json \
-            "git-slop-${TAG}-aarch64-apple-darwin.tar.gz" \
-            "git-slop-${TAG}-aarch64-pc-windows-msvc.zip" \
-            "git-slop-${TAG}-aarch64-unknown-linux-gnu.tar.gz" \
-            "git-slop-${TAG}-x86_64-apple-darwin.tar.gz" \
-            "git-slop-${TAG}-x86_64-pc-windows-msvc.zip" \
-            "git-slop-${TAG}-x86_64-unknown-linux-gnu.tar.gz" \
-            "git-slop-${TAG}-x86_64-unknown-linux-musl.tar.gz" \
-            release-manifest.json | LC_ALL=C sort > expected-assets.txt
-          diff -u expected-assets.txt actual-assets.txt
-          revision="$(gh api "repos/${REPOSITORY}/commits/${TAG}" --jq '.sha')"
-          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
           mkdir verification
           gh release download "$TAG" --repo "$REPOSITORY" --dir verification \
             --pattern release-manifest.json --pattern SHA256SUMS
+          jq -r '.assets[].name' release.json | LC_ALL=C sort > actual-assets.txt
+          jq -r '.artifacts[].name, .supplemental_assets[].name' verification/release-manifest.json > expected-assets.txt
+          printf '%s\n' SHA256SUMS release-manifest.json >> expected-assets.txt
+          LC_ALL=C sort -o expected-assets.txt expected-assets.txt
+          diff -u expected-assets.txt actual-assets.txt
+          revision="$(gh api "repos/${REPOSITORY}/commits/${TAG}" --jq '.sha')"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
           manifest_sha256="$(sha256sum verification/release-manifest.json | awk '{print $1}')"
           jq -e \
             --arg version "$version" \
             --arg tag "$TAG" \
             --arg revision "$revision" \
-            '.schema_version == 3 and .version == $version and .tag == $tag and .revision == $revision and .crate_source.version == $version and .crate_source.revision == $revision' \
+            '.schema_version == 3 and .version == $version and .tag == $tag and .revision == $revision and .crate_source.version == $version and .crate_source.revision == $revision and (.supplemental_assets | length) == 3 and all(.supplemental_assets[]; .required == true and .contract_version == 1)' \
             verification/release-manifest.json >/dev/null
           jq -e --arg digest "sha256:${manifest_sha256}" \
             '.assets[] | select(.name == "release-manifest.json") | .digest == $digest' \
