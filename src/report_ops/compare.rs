@@ -774,9 +774,10 @@ pub fn compare_payload_with_policy(
             .get("generated_at")
             .and_then(Value::as_str)
             .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok()),
-    ) && base_time > head_time + chrono::Duration::hours(1)
-    {
-        bail!("base report timestamp is implausibly later than the head report timestamp");
+    ) {
+        if base_time > head_time + chrono::Duration::hours(1) {
+            bail!("base report timestamp is implausibly later than the head report timestamp");
+        }
     }
     let compatibility_mismatches = compatibility_mismatches(base_report, head_report);
     let blocking_mismatches = has_blocking_mismatches(&compatibility_mismatches);

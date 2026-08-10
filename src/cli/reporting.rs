@@ -216,17 +216,17 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             .at("/scope")
             .with_details(json!({"scope": args.scope}))
     })?;
-    if let Some(scope) = normalized_scope.as_deref()
-        && fs::symlink_metadata(repo_root.join(scope)).is_err()
-    {
-        return Err(ClassifiedError::new(
-            ErrorKind::Contract,
-            "scope_not_found",
-            format!("--scope does not exist in the repository: {scope}"),
-        )
-        .at("/scope")
-        .with_details(json!({"scope": scope}))
-        .into());
+    if let Some(scope) = normalized_scope.as_deref() {
+        if fs::symlink_metadata(repo_root.join(scope)).is_err() {
+            return Err(ClassifiedError::new(
+                ErrorKind::Contract,
+                "scope_not_found",
+                format!("--scope does not exist in the repository: {scope}"),
+            )
+            .at("/scope")
+            .with_details(json!({"scope": scope}))
+            .into());
+        }
     }
     let tracked_paths = git::list_tracked_files(repo_root)?
         .into_iter()
