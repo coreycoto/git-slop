@@ -130,6 +130,7 @@ mod tests {
         let queue = action_queue(&files, true, &json!({}));
 
         assert_eq!(queue[0]["path"], "src/volatile.rs");
+        assert_eq!(queue[0]["profile"], "agent_context");
         assert_eq!(queue[0]["reason_codes"][1], "high_relative_churn");
         assert_eq!(queue[0]["is_pure_context_hotspot"], false);
     }
@@ -148,6 +149,7 @@ mod tests {
         let queue = action_queue(&[agent, data], true, &config);
         assert_eq!(queue.len(), 1);
         assert_eq!(queue[0]["path"], "src/lib.rs");
+        assert_eq!(queue[0]["profile"], "agent_context");
     }
 
     #[test]

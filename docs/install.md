@@ -3,7 +3,7 @@
 Git Slop is distributed as one `git-slop` executable. When it is on `PATH`, Git
 also accepts `git slop`.
 
-The examples below pin 0.11.3. Confirm that the requested distribution surface
+The examples below pin 0.11.4. Confirm that the requested distribution surface
 publishes that exact version before installing it; documentation on `main` does
 not itself prove availability.
 
@@ -46,7 +46,7 @@ manifest lives in the separate, public
 repository and consumes the existing Windows release archives; it is not an
 additional `git-slop` release asset.
 
-After the bucket lists 0.11.3, install it from PowerShell:
+After the bucket lists 0.11.4, install it from PowerShell:
 
 ```powershell
 scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket
@@ -102,7 +102,7 @@ Download the archive plus `SHA256SUMS`, verify the exact filename, then place
 `git-slop` (`git-slop.exe` on Windows) on `PATH`. For example:
 
 ```bash
-release=v0.11.3
+release=v0.11.4
 target=x86_64-unknown-linux-gnu
 gh release download "$release" \
   --repo coreycoto/git-slop \
@@ -189,12 +189,12 @@ layers.
 Install the canonical crates.io package directly:
 
 ```bash
-cargo install git-slop --version 0.11.3 --locked
+cargo install git-slop --version 0.11.4 --locked
 git-slop build-info --format json
 ```
 
-For a verified 0.11.3 release, `source_revision` is the full commit named by
-`v0.11.3` and `source_dirty` is `false`. A local source build can report `null`
+For a verified 0.11.4 release, `source_revision` is the full commit named by
+`v0.11.4` and `source_dirty` is `false`. A local source build can report `null`
 for provenance it cannot prove; that is not equivalent to a release build.
 
 CI jobs should prefer the repository's GitHub Action or a checksummed prebuilt
