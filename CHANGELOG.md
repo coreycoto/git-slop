@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.11.1 - 2026-08-09
+
+This patch carries the complete 0.11 release onto a source tag whose Action
+installer and distribution assets share the same verified contract. The
+`v0.11.0` crate and signed tag remain immutable, but its GitHub Release and
+Marketplace Action were not published after exact-tag smoke testing exposed
+the incompatibility.
+
+### Release correctness
+
+- The Action installer requires the complete 12-asset release, independently
+  bounds both SBOM formats, and authenticates their GitHub digests through
+  `SHA256SUMS`.
+- Native archive verification now requires the five canonical shell completion
+  files and one or more safely named, versioned JSON schemas while continuing
+  to reject missing, duplicate, unexpected, or unsafe members.
+- Release recovery imports the signing key only from the protected release
+  environment, validates the configured full fingerprint, and derives the tag
+  email from the selected key UID instead of hardcoding an identity.
+- Recovery cleanly distinguishes immutable candidate source from current
+  control tooling, reconciles an existing draft without retagging, and runs the
+  final seven-platform smoke matrix from the exact release tag.
+
+There are no CLI, configuration, or report-schema changes from 0.11.0.
+
 ## 0.11.0 - 2026-08-09
 
 This release completes the post-0.10 adversarial audit across detector trust,
