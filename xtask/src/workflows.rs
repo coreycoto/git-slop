@@ -42,6 +42,7 @@ const RELEASE_TARGET_RUNNERS: [(&str, &str); 7] = [
     ("ubuntu-22.04", "x86_64-unknown-linux-musl"),
 ];
 const RELEASE_CHECKOUT_ACTION: &str = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
+const RELEASE_VALIDATION_EMAIL: &str = "git-slop-release-validation@users.noreply.github.com";
 const PUBLIC_RELEASE_WORKFLOWS: [&str; 3] = [
     "release-publish.yml",
     "release-published.yml",
@@ -486,9 +487,14 @@ fn validate_release_publish(text: &str, payload: &YamlValue, errors: &mut Vec<St
             ));
             return;
         };
+        require(
+            run,
+            &format!(r#"-c user.email="{RELEASE_VALIDATION_EMAIL}""#),
+            name,
+            errors,
+        );
         for required in [
             r#"-c user.name="git-slop release validation""#,
-            r#"-c user.email="actions@users.noreply.github.com""#,
             "cargo xtask release-manifest",
             "--crate-source candidate/crate-source.json",
             "cargo xtask homebrew-formula",
@@ -1640,6 +1646,21 @@ fn validate_release_tag_secret_scope(
             "{name} must expose the release signing secret only to the exact tag-creation step."
         ));
     }
+    let Some(run) = secret_steps[0].get("run").and_then(YamlValue::as_str) else {
+        errors.push(format!(
+            "{name} exact tag-creation step must configure the verified release signing email."
+        ));
+        return;
+    };
+    for required in [
+        r#"gpg --batch --with-colons --list-secret-keys "$signing_key""#,
+        r#"match($10, /<[^<>[:space:]]+@[^<>[:space:]]+>/)"#,
+        r#"test -n "$signing_email""#,
+        r#"git config user.email "$signing_email""#,
+    ] {
+        require(run, required, name, errors);
+    }
+    forbid(run, "actions@users.noreply.github.com", name, errors);
 }
 
 fn validate_publish_order_and_registry(job: &YamlValue, errors: &mut Vec<String>) {
@@ -2965,11 +2986,11 @@ mod tests {
             ),
             (
                 valid.replacen(
-                    r#"-c user.email="actions@users.noreply.github.com""#,
+                    &format!(r#"-c user.email="{RELEASE_VALIDATION_EMAIL}""#),
                     r#"-c user.email="""#,
                     1,
                 ),
-                "actions@users.noreply.github.com",
+                RELEASE_VALIDATION_EMAIL,
             ),
             (
                 valid.replacen(
@@ -3486,6 +3507,14 @@ mod tests {
                     1,
                 ),
                 "must reference the release signing secret exactly once",
+            ),
+            (
+                valid.replacen(
+                    "git config user.email \"$signing_email\"",
+                    "git config user.email \"actions@users.noreply.github.com\"",
+                    1,
+                ),
+                "git config user.email \"$signing_email\"",
             ),
             (
                 valid.replacen(
