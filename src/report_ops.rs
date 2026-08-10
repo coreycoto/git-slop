@@ -47,6 +47,17 @@ pub const PLAN_BOUNDARY_NOTE: &str = "Plan boundary: this is a bounded proposal 
 pub const COMPARE_BOUNDARY_NOTE: &str = "Compare boundary: this is a read-only comparison of two existing reports. It does not rerun the detector, imply causality, mutate repo state, or change detector scoring semantics.";
 pub const SARIF_BOUNDARY_NOTE: &str = "SARIF export boundary: this is a deterministic projection of existing git-slop report evidence. It does not rerun the detector, upload results, mutate code, or change detector scoring semantics.";
 
+pub(crate) fn inventory_record_has_incomplete_evidence(record: &Value) -> bool {
+    match record.get("analysis_status").and_then(Value::as_str) {
+        Some("analyzed") => false,
+        Some("skipped") => !matches!(
+            record.get("skipped_reason").and_then(Value::as_str),
+            Some("binary" | "gitlink" | "undecodable")
+        ),
+        _ => true,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum ExplainSelector {
     Path(String),

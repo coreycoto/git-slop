@@ -701,7 +701,7 @@ pub fn schema() -> Value {
     let mut schema = schema_for_value(&defaults, "");
     schema["$schema"] = json!("https://json-schema.org/draft/2020-12/schema");
     schema["$id"] =
-        json!("https://github.com/coreycoto/git-slop/blob/v0.11.4/schemas/config-2.json");
+        json!("https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/config-2.json");
     schema["title"] = json!("Git Slop configuration schema 2");
     schema["required"] = json!(["schema_version"]);
     schema["properties"]["schema_version"] = json!({
