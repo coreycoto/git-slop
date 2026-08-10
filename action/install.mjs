@@ -35,6 +35,10 @@ const supportedTargets = {
   "x86_64-unknown-linux-musl": { os: "linux", arch: "x86_64", archive: "tar.gz" },
 };
 const sbomAssetNames = ["git-slop.cdx.json", "git-slop.spdx.json"];
+const completionFileNames = ["bash", "zsh", "fish", "powershell", "nushell"].map(
+  (shell) => `git-slop.${shell}`,
+);
+const versionedSchemaName = /^[a-z0-9]+(?:-[a-z0-9]+)*-[1-9][0-9]*\.json$/u;
 
 function appendFileCommand(target, name, value) {
   if (!target) {
@@ -557,22 +561,48 @@ function materializeArchive(archivePath, installRoot, rootName, executableName) 
   const expectedFiles = ["LICENSE", "README.md", "man/git-slop.1", executableName];
   const rootMember = `${rootName}/`;
   const manMember = `${rootName}/man/`;
+  const completionsMember = `${rootName}/completions/`;
+  const schemasMember = `${rootName}/schemas/`;
   const expectedFileMembers = expectedFiles.map((name) => `${rootName}/${name}`);
-  const allowedMembers = new Set([rootMember, manMember, ...expectedFileMembers]);
+  const expectedCompletionMembers = completionFileNames.map(
+    (name) => `${completionsMember}${name}`,
+  );
+  const allowedMembers = new Set([
+    rootMember,
+    manMember,
+    completionsMember,
+    schemasMember,
+    ...expectedFileMembers,
+    ...expectedCompletionMembers,
+  ]);
   const inventoryText = runArchiveTar(archivePath, ["-t"]);
   const inventory = inventoryText.split(/\r?\n/u).filter(Boolean);
+  if (inventory.length === 0 || inventory.length > 4096) {
+    throw new Error("archive inventory does not match the exact Git Slop release layout");
+  }
   const actualMembers = new Set();
+  const schemaMembers = new Set();
   for (const member of inventory) {
     validateArchiveMember(member, rootName);
     if (actualMembers.has(member)) {
       throw new Error(`archive contains a duplicate member: ${member}`);
     }
-    if (!allowedMembers.has(member)) {
+    const schemaName = member.startsWith(schemasMember)
+      ? member.slice(schemasMember.length)
+      : "";
+    if (!allowedMembers.has(member) && !versionedSchemaName.test(schemaName)) {
       throw new Error("archive inventory does not match the exact Git Slop release layout");
+    }
+    if (schemaName) {
+      schemaMembers.add(member);
     }
     actualMembers.add(member);
   }
-  if (expectedFileMembers.some((member) => !actualMembers.has(member))) {
+  if (
+    [...expectedFileMembers, ...expectedCompletionMembers].some(
+      (member) => !actualMembers.has(member),
+    ) || schemaMembers.size === 0
+  ) {
     throw new Error("archive inventory does not match the exact Git Slop release layout");
   }
 

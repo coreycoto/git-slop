@@ -142,6 +142,16 @@ if (process.argv[2] === "version") {
     writeFileSync(join(stage, "README.md"), "# Git Slop fixture\n", "utf8");
     mkdirSync(join(stage, "man"), { recursive: true });
     writeFileSync(join(stage, "man", "git-slop.1"), ".TH GIT-SLOP 1\n", "utf8");
+    mkdirSync(join(stage, "completions"), { recursive: true });
+    for (const shell of ["bash", "zsh", "fish", "powershell", "nushell"]) {
+      writeFileSync(
+        join(stage, "completions", `git-slop.${shell}`),
+        `# ${shell} completion fixture\n`,
+        "utf8",
+      );
+    }
+    mkdirSync(join(stage, "schemas"), { recursive: true });
+    writeFileSync(join(stage, "schemas", "report-5.json"), "{}\n", "utf8");
     createArchive(archive, ["-c", "-z"], ["-C", join(root, "stage"), stageName]);
     const archiveBytes = readFileSync(archive);
     const digest = createHash("sha256").update(archiveBytes).digest("hex");
@@ -900,6 +910,50 @@ try {
       assert.equal(unsafeInventory.status, 1);
       assert.match(unsafeInventory.stderr, /exact Git Slop release layout/u);
 
+      rmSync(join(stage, "UNEXPECTED"));
+      rmSync(join(stage, "completions", "git-slop.nushell"));
+      const missingCompletionArchive = join(root, `missing-completion-${assetName}`);
+      createArchive(
+        missingCompletionArchive,
+        ["-c", "-z"],
+        ["-C", join(root, "stage"), stageName],
+      );
+      servedArchiveBytes = readFileSync(missingCompletionArchive);
+      servedArchiveDigest = createHash("sha256").update(servedArchiveBytes).digest("hex");
+      refreshMetadata();
+      const missingCompletion = await runInstaller({
+        GITHUB_API_URL: apiRoot,
+        GIT_SLOP_ACTION_VERSION: version,
+        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
+        RUNNER_TEMP: root,
+      });
+      assert.equal(missingCompletion.status, 1);
+      assert.match(missingCompletion.stderr, /exact Git Slop release layout/u);
+
+      writeFileSync(
+        join(stage, "completions", "git-slop.nushell"),
+        "# nushell completion fixture\n",
+        "utf8",
+      );
+      writeFileSync(join(stage, "schemas", "unversioned.json"), "{}\n", "utf8");
+      const unversionedSchemaArchive = join(root, `unversioned-schema-${assetName}`);
+      createArchive(
+        unversionedSchemaArchive,
+        ["-c", "-z"],
+        ["-C", join(root, "stage"), stageName],
+      );
+      servedArchiveBytes = readFileSync(unversionedSchemaArchive);
+      servedArchiveDigest = createHash("sha256").update(servedArchiveBytes).digest("hex");
+      refreshMetadata();
+      const unversionedSchema = await runInstaller({
+        GITHUB_API_URL: apiRoot,
+        GIT_SLOP_ACTION_VERSION: version,
+        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
+        RUNNER_TEMP: root,
+      });
+      assert.equal(unversionedSchema.status, 1);
+      assert.match(unversionedSchema.stderr, /exact Git Slop release layout/u);
+
       servedArchiveBytes = archiveBytes;
       servedArchiveDigest = digest;
       const invalidManifests = [
@@ -988,6 +1042,12 @@ test("Windows ZIP archives use the exact safe layout when the host tar supports 
     LICENSE: "MIT fixture\n",
     "README.md": "# Git Slop fixture\n",
     "man/git-slop.1": ".TH GIT-SLOP 1\n",
+    "completions/git-slop.bash": "# bash completion fixture\n",
+    "completions/git-slop.zsh": "# zsh completion fixture\n",
+    "completions/git-slop.fish": "# fish completion fixture\n",
+    "completions/git-slop.powershell": "# powershell completion fixture\n",
+    "completions/git-slop.nushell": "# nushell completion fixture\n",
+    "schemas/report-5.json": "{}\n",
   };
   for (const [name, contents] of Object.entries(payloads)) {
     mkdirSync(dirname(join(stage, name)), { recursive: true });
