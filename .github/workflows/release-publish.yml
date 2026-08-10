@@ -416,7 +416,7 @@ jobs:
           if ! git rev-parse --verify "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
             git \
               -c user.name="git-slop release validation" \
-              -c user.email="actions@users.noreply.github.com" \
+              -c user.email="git-slop-release-validation@users.noreply.github.com" \
               tag -a -m "Git Slop ${TAG}" "$TAG" "$REVISION"
           fi
           test "$(git rev-parse "refs/tags/${TAG}^{commit}")" = "$REVISION"
@@ -663,9 +663,17 @@ jobs:
           printf '%s' "$RELEASE_SIGNING_PRIVATE_KEY" | gpg --batch --import
           signing_key="$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == \"fpr\" {print $10; exit}')"
           test -n "$signing_key"
+          signing_email="$(
+            gpg --batch --with-colons --list-secret-keys "$signing_key" |
+              awk -F: '$1 == "uid" && match($10, /<[^<>[:space:]]+@[^<>[:space:]]+>/) {
+                print substr($10, RSTART + 1, RLENGTH - 2)
+                exit
+              }'
+          )"
+          test -n "$signing_email"
           git config user.signingkey "$signing_key"
           git config user.name "git-slop release automation"
-          git config user.email "actions@users.noreply.github.com"
+          git config user.email "$signing_email"
           if git rev-parse --verify "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
             test "$(git rev-parse "refs/tags/${TAG}^{commit}")" = "$REVISION"
             git verify-tag "$TAG"
