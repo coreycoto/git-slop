@@ -1,0 +1,132 @@
+  candidate-targets:
+    name: Candidate ${{ matrix.target }}
+    needs: candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            archive: tar.gz
+          - os: macos-15
+            target: aarch64-apple-darwin
+            archive: tar.gz
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+            archive: tar.gz
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+            archive: zip
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.candidate.outputs.version }}
+      TAG: ${{ needs.candidate.outputs.tag }}
+      REVISION: ${{ needs.candidate.outputs.revision }}
+      EXPECTED_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
+      TARGET: ${{ matrix.target }}
+      CARGO_TARGET_DIR: ${{ github.workspace }}/candidate-target
+    steps:
+      - name: Download exact candidate package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: source-package
+          path: candidate
+
+      - name: Set up Rust target
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.1
+          targets: ${{ matrix.target }}
+
+      - name: Verify and unpack candidate bytes
+        if: matrix.target != 'x86_64-unknown-linux-musl'
+        shell: bash
+        run: |
+          set -euo pipefail
+          crate="candidate/git-slop-${VERSION}.crate"
+          test "$(sha256sum "$crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
+          mkdir candidate-source
+          tar -xzf "$crate" -C candidate-source
+
+      - name: Install musl linker and unpack candidate bytes
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
+          crate="candidate/git-slop-${VERSION}.crate"
+          test "$(sha256sum "$crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
+          mkdir candidate-source
+          tar -xzf "$crate" -C candidate-source
+
+      - name: Build and smoke candidate Unix archive
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="candidate-source/git-slop-${VERSION}"
+          cargo build --manifest-path "$package/Cargo.toml" --release --locked --target "$TARGET"
+          root="git-slop-${TAG}-${TARGET}"
+          mkdir -p "stage/$root/man" "stage/$root/completions" "stage/$root/schemas" smoke candidate-dist
+          cp "$CARGO_TARGET_DIR/$TARGET/release/git-slop" "stage/$root/git-slop"
+          cp "$package/LICENSE" "$package/README.md" "stage/$root/"
+          cargo run --quiet --manifest-path "$package/Cargo.toml" --locked -- man --output "stage/$root/man/git-slop.1"
+          cp "$package"/schemas/*.json "stage/$root/schemas/"
+          for shell in bash zsh fish powershell nushell; do
+            cargo run --quiet --manifest-path "$package/Cargo.toml" --locked -- completions "$shell" > "stage/$root/completions/git-slop.$shell"
+          done
+          chmod +x "stage/$root/git-slop"
+          if tar --help 2>&1 | grep -q -- '--owner'; then
+            tar --owner=0 --group=0 --numeric-owner -C stage -czf "candidate-dist/${root}.tar.gz" "$root"
+          else
+            tar --uid 0 --gid 0 --uname root --gname root -C stage -czf "candidate-dist/${root}.tar.gz" "$root"
+          fi
+          tar -C smoke -xzf "candidate-dist/${root}.tar.gz"
+          test "$("smoke/$root/git-slop" version)" = "git-slop $VERSION"
+          "smoke/$root/git-slop" build-info --format json > build-info.json
+          jq -e --arg version "$VERSION" --arg revision "$REVISION" \
+            '.schema_version == 1 and .project == "git-slop" and .version == $version and .source_revision == $revision and .source_dirty == false' \
+            build-info.json
+
+      - name: Build and smoke candidate Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $package = "candidate-source\git-slop-$env:VERSION"
+          cargo build --manifest-path "$package\Cargo.toml" --release --locked --target $env:TARGET
+          $root = "git-slop-$env:TAG-$env:TARGET"
+          $stage = "stage\$root"
+          New-Item -ItemType Directory -Force -Path $stage, "$stage\man", "$stage\completions", "$stage\schemas", "smoke", "candidate-dist" | Out-Null
+          Copy-Item "$env:CARGO_TARGET_DIR\$env:TARGET\release\git-slop.exe" "$stage\git-slop.exe"
+          Copy-Item "$package\LICENSE", "$package\README.md" $stage
+          cargo run --quiet --manifest-path "$package\Cargo.toml" --locked -- man --output "$stage\man\git-slop.1"
+          Copy-Item "$package\schemas\*.json" "$stage\schemas"
+          foreach ($shell in @("bash", "zsh", "fish", "powershell", "nushell")) {
+            cargo run --quiet --manifest-path "$package\Cargo.toml" --locked -- completions $shell | Out-File -Encoding utf8NoBOM "$stage\completions\git-slop.$shell"
+          }
+          Compress-Archive -Path $stage -DestinationPath "candidate-dist\$root.zip"
+          Expand-Archive -Path "candidate-dist\$root.zip" -DestinationPath smoke
+          if ((& "smoke\$root\git-slop.exe" version) -ne "git-slop $env:VERSION") { throw "version mismatch" }
+          $info = (& "smoke\$root\git-slop.exe" build-info --format json | ConvertFrom-Json)
+          if ($info.schema_version -ne 1 -or $info.project -ne "git-slop" -or $info.version -ne $env:VERSION -or $info.source_revision -ne $env:REVISION -or $info.source_dirty -ne $false) { throw "build identity mismatch" }
+
+      - name: Upload candidate target archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: candidate-${{ matrix.target }}
+          path: candidate-dist/*
+          if-no-files-found: error
+          retention-days: 7

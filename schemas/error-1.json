@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.2/schemas/error-1.json",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.3/schemas/error-1.json",
   "title": "Git Slop error envelope schema 1",
   "type": "object",
   "required": ["schema_version", "error"],

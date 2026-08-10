@@ -1,3 +1,4 @@
+# @generated from .github/workflow-sources/release-publish/*.yml by cargo xtask generate-release-workflow
 name: Release Publish
 
 on:
@@ -14,7 +15,7 @@ on:
       version:
         description: Strict stable version to publish or recover.
         required: true
-        default: "0.11.2"
+        default: "0.11.3"
         type: string
       recovery_revision:
         description: Recovery only - full 40-character source revision embedded in the published crate.
@@ -237,7 +238,6 @@ jobs:
           path: candidate
           if-no-files-found: error
           retention-days: 7
-
   candidate-targets:
     name: Candidate ${{ matrix.target }}
     needs: candidate
@@ -370,7 +370,6 @@ jobs:
           path: candidate-dist/*
           if-no-files-found: error
           retention-days: 7
-
   candidate-distribution:
     name: Validate candidate manifest and Formula
     needs: [candidate, candidate-targets]
@@ -446,7 +445,6 @@ jobs:
           path: candidate-dist/git-slop.rb
           if-no-files-found: error
           retention-days: 1
-
   candidate-homebrew-audit:
     name: Audit candidate Formula with Homebrew
     needs: candidate-distribution
@@ -475,7 +473,6 @@ jobs:
           cp "$FORMULA_PATH" "$tap_root/Formula/git-slop.rb"
           brew audit --strict --formula "$tap/git-slop"
           brew style --formula "$tap/git-slop"
-
   publish-crate:
     name: Dispatch-authorized crates.io publication and exact tag
     needs: [candidate, candidate-distribution, candidate-homebrew-audit]
@@ -740,7 +737,6 @@ jobs:
           path: registry
           if-no-files-found: error
           retention-days: 1
-
   build:
     name: Build registry crate for ${{ matrix.target }}
     needs: publish-crate
@@ -856,7 +852,6 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 1
-
   draft-release:
     name: Prepare verified Marketplace draft
     needs: [publish-crate, build]
@@ -1113,7 +1108,6 @@ jobs:
           asset_sha256_by_target="$(jq -c 'reduce .artifacts[] as $artifact ({}; .[$artifact.target] = $artifact.sha256)' release-verification/release-manifest.json)"
           jq -e 'length == 7 and all(.[]; test("^[0-9a-f]{64}$"))' <<< "$asset_sha256_by_target" >/dev/null
           echo "asset-sha256-by-target=$asset_sha256_by_target" >> "$GITHUB_OUTPUT"
-
   draft-action-smoke:
     name: Draft Action smoke on ${{ matrix.target }}
     needs: [publish-crate, draft-release]
@@ -1202,7 +1196,6 @@ jobs:
           test "$ANALYSIS_EXIT_CODE" = 0
           test "$POLICY_EXIT_CODE" = 0
           test "$STATUS" = advisory
-
   marketplace-ready:
     name: Marketplace release ready
     needs: [publish-crate, draft-release, draft-action-smoke]

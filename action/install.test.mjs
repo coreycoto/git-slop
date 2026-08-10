@@ -22,6 +22,13 @@ import {
   validateArchiveFormat,
   verifyCanonicalCrate,
 } from "./install.mjs";
+import { exerciseArchiveLayout } from "./install/test-scenarios/archive-layout.mjs";
+import { exerciseCrateSource } from "./install/test-scenarios/crate-source.mjs";
+import { exerciseDraftRelease } from "./install/test-scenarios/draft-release.mjs";
+import { exerciseInstallAndCache } from "./install/test-scenarios/install-and-cache.mjs";
+import { exerciseReleaseAssets } from "./install/test-scenarios/release-assets.mjs";
+import { exerciseReleaseManifest } from "./install/test-scenarios/release-manifest.mjs";
+import { exerciseTagIdentity } from "./install/test-scenarios/tag-identity.mjs";
 
 const actionDirectory = dirname(fileURLToPath(import.meta.url));
 const installer = join(actionDirectory, "install.mjs");
@@ -488,551 +495,154 @@ try {
     }
     refreshMetadata();
 
+    const scenarioContext = {
+      apiRoot,
+      archiveBytes,
+      assetName,
+      buildCrateBytes,
+      canonicalCrateBytes,
+      canonicalCrateSha256,
+      createArchive,
+      digest,
+      draftDownloadBase,
+      draftReleaseId,
+      draftReleaseSlug,
+      formulaBytes,
+      githubPath,
+      output,
+      outputs,
+      publishedDownloadBase,
+      refreshMetadata,
+      revision,
+      root,
+      runInstaller,
+      stage,
+      stageName,
+      tag,
+      target,
+      validateArchiveFormat,
+      version,
+      get archiveDownloadRequests() {
+        return archiveDownloadRequests;
+      },
+      get assetMutator() {
+        return assetMutator;
+      },
+      set assetMutator(value) {
+        assetMutator = value;
+      },
+      get checksumBytes() {
+        return checksumBytes;
+      },
+      set checksumBytes(value) {
+        checksumBytes = value;
+      },
+      get crateAuthorizationObserved() {
+        return crateAuthorizationObserved;
+      },
+      get crateContentLengthOverride() {
+        return crateContentLengthOverride;
+      },
+      set crateContentLengthOverride(value) {
+        crateContentLengthOverride = value;
+      },
+      get crateDownloadRequests() {
+        return crateDownloadRequests;
+      },
+      get crateSha256() {
+        return crateSha256;
+      },
+      set crateSha256(value) {
+        crateSha256 = value;
+      },
+      get manifestMutator() {
+        return manifestMutator;
+      },
+      set manifestMutator(value) {
+        manifestMutator = value;
+      },
+      get releaseAssetDownloadBaseOverride() {
+        return releaseAssetDownloadBaseOverride;
+      },
+      set releaseAssetDownloadBaseOverride(value) {
+        releaseAssetDownloadBaseOverride = value;
+      },
+      get releaseDraft() {
+        return releaseDraft;
+      },
+      set releaseDraft(value) {
+        releaseDraft = value;
+      },
+      get releaseIdRequests() {
+        return releaseIdRequests;
+      },
+      get releaseTagName() {
+        return releaseTagName;
+      },
+      set releaseTagName(value) {
+        releaseTagName = value;
+      },
+      get releaseTagRequests() {
+        return releaseTagRequests;
+      },
+      get servedArchiveBytes() {
+        return servedArchiveBytes;
+      },
+      set servedArchiveBytes(value) {
+        servedArchiveBytes = value;
+      },
+      get servedArchiveDigest() {
+        return servedArchiveDigest;
+      },
+      set servedArchiveDigest(value) {
+        servedArchiveDigest = value;
+      },
+      get servedCrateBytes() {
+        return servedCrateBytes;
+      },
+      set servedCrateBytes(value) {
+        servedCrateBytes = value;
+      },
+      get servedFormulaBytes() {
+        return servedFormulaBytes;
+      },
+      set servedFormulaBytes(value) {
+        servedFormulaBytes = value;
+      },
+      get servedReleaseId() {
+        return servedReleaseId;
+      },
+      set servedReleaseId(value) {
+        servedReleaseId = value;
+      },
+      get servedTagRevision() {
+        return servedTagRevision;
+      },
+      set servedTagRevision(value) {
+        servedTagRevision = value;
+      },
+      get tagReferenceName() {
+        return tagReferenceName;
+      },
+      set tagReferenceName(value) {
+        tagReferenceName = value;
+      },
+      get tagReferenceType() {
+        return tagReferenceType;
+      },
+      set tagReferenceType(value) {
+        tagReferenceType = value;
+      },
+    };
+
     try {
-      const toolCache = join(root, "tool-cache");
-      const installed = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GITHUB_OUTPUT: output,
-        GITHUB_PATH: githubPath,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-        RUNNER_TOOL_CACHE: toolCache,
-      });
-      assert.equal(installed.status, 0, installed.stderr);
-      const actual = outputs(output);
-      assert.equal(actual.version, version);
-      assert.equal(actual.target, target);
-      assert.equal(actual.asset, assetName);
-      assert.equal(actual["asset-url"], `${publishedDownloadBase}/${assetName}`);
-      assert.equal(actual.sha256, digest);
-      assert.equal(actual["source-revision"], revision);
-      assert.equal(actual["crate-sha256"], crateSha256);
-      assert.equal(actual["cache-hit"], "false");
-      assert.match(actual["release-manifest-sha256"], /^[a-f0-9]{64}$/u);
-      assert.ok(existsSync(actual["binary-path"]));
-      assert.equal(readFileSync(githubPath, "utf8").trim(), dirname(actual["binary-path"]));
-      assert.equal(crateAuthorizationObserved, null, "GitHub token leaked to crates.io fetch");
-      assert.equal(releaseTagRequests, 1);
-      assert.equal(releaseIdRequests, 0);
-      assert.equal(archiveDownloadRequests, 1);
-      assert.equal(crateDownloadRequests, 1);
-
-      const cachedOutput = join(root, "github-cache-output.txt");
-      const cachedInstall = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GITHUB_OUTPUT: cachedOutput,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-        RUNNER_TOOL_CACHE: toolCache,
-      });
-      assert.equal(cachedInstall.status, 0, cachedInstall.stderr);
-      const cached = outputs(cachedOutput);
-      assert.equal(cached["cache-hit"], "true");
-      assert.equal(cached["binary-path"], actual["binary-path"]);
-      assert.equal(archiveDownloadRequests, 1, "cache hit downloaded the archive again");
-      assert.equal(crateDownloadRequests, 1, "cache hit downloaded the crate again");
-
-      releaseDraft = true;
-      const rejectedDraft = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedDraft.status, 1);
-      assert.match(rejectedDraft.stderr, /returned HTTP 404/u);
-
-      const rejectedDraftWithoutId = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GITHUB_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedDraftWithoutId.status, 1);
-      assert.match(rejectedDraftWithoutId.stderr, /requires an exact release ID/u);
-
-      const draftOutput = join(root, "github-draft-output.txt");
-      const acceptedDraft = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GITHUB_OUTPUT: draftOutput,
-        GITHUB_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
-        GIT_SLOP_RELEASE_ID: String(draftReleaseId),
-        RUNNER_TEMP: root,
-      });
-      assert.equal(acceptedDraft.status, 0, acceptedDraft.stderr);
-      assert.equal(outputs(draftOutput)["asset-url"], `${draftDownloadBase}/${assetName}`);
-      assert.equal(releaseIdRequests, 1);
-
-      const invalidDraftAssetDownloadBases = [
-        [
-          "slug",
-          "https://github.com/example/git-slop/releases/download/untagged-e5d4c3b2a1f0",
-        ],
-        [
-          "repository",
-          `https://github.com/example/not-git-slop/releases/download/${draftReleaseSlug}`,
-        ],
-        [
-          "path",
-          `https://github.com/example/git-slop/releases/assets/${draftReleaseSlug}`,
-        ],
-      ];
-      for (const [label, downloadBase] of invalidDraftAssetDownloadBases) {
-        releaseAssetDownloadBaseOverride = downloadBase;
-        const invalidDraftAssetUrl = await runInstaller({
-          GITHUB_API_URL: apiRoot,
-          GITHUB_REPOSITORY: "example/git-slop",
-          GIT_SLOP_ACTION_VERSION: version,
-          GIT_SLOP_GITHUB_TOKEN: "github-test-token",
-          GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-          GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
-          GIT_SLOP_RELEASE_ID: String(draftReleaseId),
-          RUNNER_TEMP: root,
-        });
-        assert.equal(invalidDraftAssetUrl.status, 1, `${label}: ${invalidDraftAssetUrl.stderr}`);
-        assert.match(invalidDraftAssetUrl.stderr, /invalid metadata for asset/u);
-      }
-      releaseAssetDownloadBaseOverride = null;
-
-      const rejectedMalformedDraftId = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GITHUB_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
-        GIT_SLOP_RELEASE_ID: "not-a-release-id",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedMalformedDraftId.status, 1);
-      assert.match(rejectedMalformedDraftId.stderr, /positive decimal integer/u);
-
-      const rejectedUnsafeDraftId = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GITHUB_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
-        GIT_SLOP_RELEASE_ID: "9007199254740992",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedUnsafeDraftId.status, 1);
-      assert.match(rejectedUnsafeDraftId.stderr, /safe integer range/u);
-
-      const rejectedUnauthenticatedDraftId = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GITHUB_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
-        GIT_SLOP_RELEASE_ID: String(draftReleaseId),
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedUnauthenticatedDraftId.status, 1);
-      assert.match(
-        rejectedUnauthenticatedDraftId.stderr,
-        /restricted to authenticated same-repository/u,
-      );
-
-      servedReleaseId = draftReleaseId + 1;
-      const rejectedMismatchedDraftId = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GITHUB_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
-        GIT_SLOP_RELEASE_ID: String(draftReleaseId),
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedMismatchedDraftId.status, 1);
-      assert.match(rejectedMismatchedDraftId.stderr, /inconsistent GitHub release metadata/u);
-      servedReleaseId = draftReleaseId;
-
-      const rejectedConsumerDraft = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GITHUB_REPOSITORY: "example/consumer",
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_GITHUB_TOKEN: "github-test-token",
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        GIT_SLOP_ALLOW_DRAFT_RELEASE: "true",
-        GIT_SLOP_RELEASE_ID: String(draftReleaseId),
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedConsumerDraft.status, 1);
-      assert.match(rejectedConsumerDraft.stderr, /restricted to authenticated same-repository/u);
-
-      releaseDraft = false;
-      releaseAssetDownloadBaseOverride = draftDownloadBase;
-      const rejectedPublishedDraftAssetUrl = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedPublishedDraftAssetUrl.status, 1);
-      assert.match(rejectedPublishedDraftAssetUrl.stderr, /invalid metadata for asset/u);
-      releaseAssetDownloadBaseOverride = null;
-
-      releaseTagName = "v0.9.1";
-      const rejectedTagMetadata = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedTagMetadata.status, 1);
-      assert.match(rejectedTagMetadata.stderr, /inconsistent GitHub release metadata/u);
-      releaseTagName = tag;
-
-      servedTagRevision = "c".repeat(40);
-      const rejectedTagRevision = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedTagRevision.status, 1);
-      assert.match(rejectedTagRevision.stderr, /release tag .* resolves to/u);
-      servedTagRevision = revision;
-
-      tagReferenceType = "tag";
-      const acceptedAnnotatedTag = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(acceptedAnnotatedTag.status, 0, acceptedAnnotatedTag.stderr);
-      tagReferenceType = "commit";
-
-      tagReferenceName = `refs/heads/${tag}`;
-      const rejectedBranchAlias = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedBranchAlias.status, 1);
-      assert.match(rejectedBranchAlias.stderr, /invalid exact-reference metadata/u);
-      tagReferenceName = `refs/tags/${tag}`;
-
-      servedCrateBytes = Buffer.concat([canonicalCrateBytes, Buffer.from("unexpected")]);
-      const rejectedCrateDigest = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedCrateDigest.status, 1);
-      assert.match(rejectedCrateDigest.stderr, /package SHA-256 mismatch/u);
-
-      servedCrateBytes = canonicalCrateBytes;
-      crateContentLengthOverride = 16 * 1024 * 1024 + 1;
-      const rejectedOversizedCrate = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedOversizedCrate.status, 1);
-      assert.match(rejectedOversizedCrate.stderr, /exceeds its download size limit/u);
-      crateContentLengthOverride = null;
-
-      servedCrateBytes = buildCrateBytes("c".repeat(40));
-      crateSha256 = createHash("sha256").update(servedCrateBytes).digest("hex");
-      refreshMetadata();
-      const rejectedCrateRevision = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedCrateRevision.status, 1);
-      assert.match(rejectedCrateRevision.stderr, /VCS metadata does not match/u);
-
-      servedCrateBytes = buildCrateBytes(revision, true);
-      crateSha256 = createHash("sha256").update(servedCrateBytes).digest("hex");
-      refreshMetadata();
-      const rejectedDirtyCrate = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedDirtyCrate.status, 1);
-      assert.match(rejectedDirtyCrate.stderr, /VCS metadata does not match/u);
-
-      servedCrateBytes = buildCrateBytes(revision, false, true);
-      crateSha256 = createHash("sha256").update(servedCrateBytes).digest("hex");
-      refreshMetadata();
-      const rejectedCrateRootEscape = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedCrateRootEscape.status, 1);
-      assert.match(rejectedCrateRootEscape.stderr, /escapes the expected root/u);
-
-      servedCrateBytes = canonicalCrateBytes;
-      crateSha256 = canonicalCrateSha256;
-      refreshMetadata();
-
-      const rejectedNoncanonicalVersion = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: "01.2.3",
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(rejectedNoncanonicalVersion.status, 1);
-      assert.match(rejectedNoncanonicalVersion.stderr, /invalid release version/u);
-
-      const zipArchive = join(root, "zip-fixture.zip");
-      const zipped = spawnSync("zip", ["-q", "-D", "-r", zipArchive, stageName], {
-        cwd: join(root, "stage"),
-        encoding: "utf8",
-      });
-      if (zipped.status === 0) {
-        servedArchiveBytes = readFileSync(zipArchive);
-        servedArchiveDigest = createHash("sha256").update(servedArchiveBytes).digest("hex");
-        refreshMetadata();
-        const wrongArchiveFormat = await runInstaller({
-          GITHUB_API_URL: apiRoot,
-          GIT_SLOP_ACTION_VERSION: version,
-          GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-          RUNNER_TEMP: root,
-        });
-        assert.equal(wrongArchiveFormat.status, 1);
-        assert.match(wrongArchiveFormat.stderr, /required tar\.gz format/u);
-
-        validateArchiveFormat(servedArchiveBytes, "zip");
-        assert.throws(() => validateArchiveFormat(servedArchiveBytes, "tar.gz"), /tar\.gz/u);
-        assert.throws(() => validateArchiveFormat(archiveBytes, "zip"), /ZIP/u);
-      }
-
-      servedArchiveBytes = archiveBytes;
-      servedArchiveDigest = digest;
-      refreshMetadata();
-      checksumBytes = Buffer.concat([
-        checksumBytes,
-        Buffer.from(`${servedArchiveDigest}  ${assetName}\n`, "utf8"),
-      ]);
-      const duplicateChecksums = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(duplicateChecksums.status, 1);
-      assert.match(duplicateChecksums.stderr, /duplicate entry/u);
-
-      refreshMetadata();
-      const invalidAssetSets = [
-        ["missing", (assets) => assets.pop(), /exactly 12/u],
-        [
-          "extra",
-          (assets) => assets.push({ ...assets[0], name: "unexpected.bin" }),
-          /exactly 12/u,
-        ],
-        [
-          "duplicate",
-          (assets) => {
-            assets[1] = { ...assets[0] };
-          },
-          /duplicate asset/u,
-        ],
-        [
-          "unselected digest",
-          (assets) => {
-            const candidate = assets.find(
-              (entry) => entry.name.endsWith(".tar.gz") && entry.name !== assetName,
-            );
-            candidate.digest = `sha256:${"9".repeat(64)}`;
-          },
-          /does not authenticate/u,
-        ],
-        [
-          "SBOM digest",
-          (assets) => {
-            assets.find((entry) => entry.name === "git-slop.cdx.json").digest =
-              `sha256:${"9".repeat(64)}`;
-          },
-          /does not authenticate git-slop\.cdx\.json/u,
-        ],
-        [
-          "unselected size",
-          (assets) => {
-            const candidate = assets.find(
-              (entry) => entry.name.endsWith(".zip") && entry.name !== assetName,
-            );
-            candidate.size += 1;
-          },
-          /does not authenticate/u,
-        ],
-        [
-          "oversized metadata",
-          (assets) => {
-            assets.find((entry) => entry.name === "git-slop.rb").size = 1024 * 1024 + 1;
-          },
-          /invalid metadata/u,
-        ],
-      ];
-      for (const [label, mutate, message] of invalidAssetSets) {
-        assetMutator = mutate;
-        const invalidAssets = await runInstaller({
-          GITHUB_API_URL: apiRoot,
-          GIT_SLOP_ACTION_VERSION: version,
-          GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-          RUNNER_TEMP: root,
-        });
-        assert.equal(invalidAssets.status, 1, `${label}: ${invalidAssets.stderr}`);
-        assert.match(invalidAssets.stderr, message);
-      }
-      assetMutator = null;
-
-      servedFormulaBytes = Buffer.concat([formulaBytes, Buffer.from("unexpected")]);
-      const oversizedFormulaResponse = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(oversizedFormulaResponse.status, 1);
-      assert.match(
-        oversizedFormulaResponse.stderr,
-        /Content-Length mismatch|exceeds its download size limit/u,
-      );
-      servedFormulaBytes = formulaBytes;
-
-      const formulaDigest = createHash("sha256").update(formulaBytes).digest("hex");
-      checksumBytes = Buffer.from(
-        checksumBytes.toString("utf8").replace(formulaDigest, "e".repeat(64)),
-        "utf8",
-      );
-      const mismatchedFormulaChecksum = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(mismatchedFormulaChecksum.status, 1);
-      assert.match(mismatchedFormulaChecksum.stderr, /does not authenticate git-slop\.rb/u);
-      refreshMetadata();
-
-      writeFileSync(join(stage, "UNEXPECTED"), "unsafe extra member\n", "utf8");
-      const unsafeArchive = join(root, `unsafe-${assetName}`);
-      createArchive(
-        unsafeArchive,
-        ["-c", "-z"],
-        ["-C", join(root, "stage"), stageName],
-      );
-      servedArchiveBytes = readFileSync(unsafeArchive);
-      servedArchiveDigest = createHash("sha256").update(servedArchiveBytes).digest("hex");
-      refreshMetadata();
-      const unsafeInventory = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(unsafeInventory.status, 1);
-      assert.match(unsafeInventory.stderr, /exact Git Slop release layout/u);
-
-      rmSync(join(stage, "UNEXPECTED"));
-      rmSync(join(stage, "completions", "git-slop.nushell"));
-      const missingCompletionArchive = join(root, `missing-completion-${assetName}`);
-      createArchive(
-        missingCompletionArchive,
-        ["-c", "-z"],
-        ["-C", join(root, "stage"), stageName],
-      );
-      servedArchiveBytes = readFileSync(missingCompletionArchive);
-      servedArchiveDigest = createHash("sha256").update(servedArchiveBytes).digest("hex");
-      refreshMetadata();
-      const missingCompletion = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(missingCompletion.status, 1);
-      assert.match(missingCompletion.stderr, /exact Git Slop release layout/u);
-
-      writeFileSync(
-        join(stage, "completions", "git-slop.nushell"),
-        "# nushell completion fixture\n",
-        "utf8",
-      );
-      writeFileSync(join(stage, "schemas", "unversioned.json"), "{}\n", "utf8");
-      const unversionedSchemaArchive = join(root, `unversioned-schema-${assetName}`);
-      createArchive(
-        unversionedSchemaArchive,
-        ["-c", "-z"],
-        ["-C", join(root, "stage"), stageName],
-      );
-      servedArchiveBytes = readFileSync(unversionedSchemaArchive);
-      servedArchiveDigest = createHash("sha256").update(servedArchiveBytes).digest("hex");
-      refreshMetadata();
-      const unversionedSchema = await runInstaller({
-        GITHUB_API_URL: apiRoot,
-        GIT_SLOP_ACTION_VERSION: version,
-        GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-        RUNNER_TEMP: root,
-      });
-      assert.equal(unversionedSchema.status, 1);
-      assert.match(unversionedSchema.stderr, /exact Git Slop release layout/u);
-
-      servedArchiveBytes = archiveBytes;
-      servedArchiveDigest = digest;
-      const invalidManifests = [
-        ["extra", (manifest) => {
-          const extra = { ...manifest.artifacts[0] };
-          extra.target = "riscv64gc-unknown-linux-gnu";
-          extra.name = `git-slop-${tag}-${extra.target}.tar.gz`;
-          extra.path = extra.name;
-          extra.url = `https://github.com/example/git-slop/releases/download/${tag}/${extra.name}`;
-          manifest.artifacts.push(extra);
-        }],
-        ["missing", (manifest) => manifest.artifacts.pop()],
-        ["duplicate", (manifest) => { manifest.artifacts[1].target = manifest.artifacts[0].target; }],
-        ["unknown", (manifest) => { manifest.artifacts[0].target = "riscv64gc-unknown-linux-gnu"; }],
-        ["wrong version", (manifest) => { manifest.version = "0.9.1"; }],
-        ["wrong tag", (manifest) => { manifest.tag = "v0.9.1"; }],
-        ["short revision", (manifest) => { manifest.revision = "abc123"; }],
-        ["missing install", (manifest) => { delete manifest.install; }],
-        ["unknown top-level field", (manifest) => { manifest.unexpected = true; }],
-        ["unknown crate field", (manifest) => { manifest.crate_source.unexpected = true; }],
-        ["unknown artifact field", (manifest) => { manifest.artifacts[0].unexpected = true; }],
-        ["unknown checksum field", (manifest) => { manifest.checksums.unexpected = true; }],
-        ["unknown install field", (manifest) => { manifest.install.unexpected = true; }],
-        ["noncanonical install", (manifest) => { manifest.install.homebrew_tap.reverse(); }],
-      ];
-      for (const [label, mutate] of invalidManifests) {
-        manifestMutator = mutate;
-        refreshMetadata();
-        const invalidManifest = await runInstaller({
-          GITHUB_API_URL: apiRoot,
-          GIT_SLOP_ACTION_VERSION: version,
-          GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
-          RUNNER_TEMP: root,
-        });
-        assert.equal(invalidManifest.status, 1, `${label}: ${invalidManifest.stderr}`);
-        assert.match(invalidManifest.stderr, /release-manifest\.json/u);
-      }
-      manifestMutator = null;
+      await exerciseInstallAndCache(scenarioContext);
+      await exerciseDraftRelease(scenarioContext);
+      await exerciseTagIdentity(scenarioContext);
+      await exerciseCrateSource(scenarioContext);
+      await exerciseReleaseAssets(scenarioContext);
+      await exerciseArchiveLayout(scenarioContext);
+      await exerciseReleaseManifest(scenarioContext);
     } finally {
       await new Promise((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),

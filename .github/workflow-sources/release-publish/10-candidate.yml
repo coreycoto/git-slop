@@ -1,0 +1,204 @@
+  candidate:
+    name: Validate exact release identity
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.identity.outputs.mode || steps.recovery-identity.outputs.mode }}
+      version: ${{ steps.identity.outputs.version || steps.recovery-identity.outputs.version }}
+      tag: ${{ steps.identity.outputs.tag || steps.recovery-identity.outputs.tag }}
+      control-revision: ${{ steps.identity.outputs.control-revision || steps.recovery-identity.outputs.control-revision }}
+      revision: ${{ steps.identity.outputs.revision || steps.recovery-identity.outputs.revision }}
+      crate-sha256: ${{ steps.package.outputs.crate-sha256 || steps.recovery-package.outputs.crate-sha256 }}
+    steps:
+      - name: Checkout dispatch revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require exact current main and release identity
+        id: identity
+        if: inputs.mode == 'publish'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          RECOVERY_REVISION: ${{ inputs.recovery_revision }}
+          RECOVERY_CRATE_SHA256: ${{ inputs.recovery_crate_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test -z "$RECOVERY_REVISION"
+          test -z "$RECOVERY_CRATE_SHA256"
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          revision="$(git rev-parse HEAD)"
+          test "$revision" = "$(git rev-parse refs/remotes/origin/main)"
+          test -z "$(git status --short)"
+          remote_tag="$(git ls-remote --refs origin "refs/tags/v${VERSION}" | awk '{print $1}')"
+          if test -n "$remote_tag"; then
+            git fetch origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
+            test "$(git rev-parse "refs/tags/v${VERSION}^{commit}")" = "$revision"
+          fi
+          {
+            echo "mode=publish"
+            echo "version=$VERSION"
+            echo "tag=v$VERSION"
+            echo "control-revision=$revision"
+            echo "revision=$revision"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Require explicit immutable recovery identity
+        id: recovery-identity
+        if: inputs.mode == 'recover'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          REVISION: ${{ inputs.recovery_revision }}
+          EXPECTED_CRATE_SHA256: ${{ inputs.recovery_crate_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_CRATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          control_revision="$(git rev-parse HEAD)"
+          test "$control_revision" = "$(git rev-parse refs/remotes/origin/main)"
+          git cat-file -e "${REVISION}^{commit}"
+          git merge-base --is-ancestor "$REVISION" refs/remotes/origin/main
+          remote_tag="$(git ls-remote --refs origin "refs/tags/v${VERSION}" | awk '{print $1}')"
+          if test -n "$remote_tag"; then
+            git fetch origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
+            test "$(git rev-parse "refs/tags/v${VERSION}^{commit}")" = "$REVISION"
+          fi
+          {
+            echo "mode=recover"
+            echo "version=$VERSION"
+            echo "tag=v$VERSION"
+            echo "control-revision=$control_revision"
+            echo "revision=$REVISION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.97.1
+          components: clippy,rustfmt
+
+      - name: Run full repository preflight
+        if: inputs.mode == 'publish'
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          cargo xtask release-prepare --version "$VERSION" --check-only
+          cargo fmt -p git-slop -- --check
+          cargo clippy -p git-slop --all-targets --all-features --locked -- -D warnings
+          cargo test -p git-slop --all-targets --all-features --locked
+          cargo fmt --manifest-path xtask/Cargo.toml --all -- --check
+          cargo clippy --manifest-path xtask/Cargo.toml --all-targets --all-features --locked -- -D warnings
+          cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
+          cargo xtask validate
+          node --test action/*.test.mjs
+          cargo publish -p git-slop --dry-run --locked
+
+      - name: Validate current recovery tooling
+        if: inputs.mode == 'recover'
+        run: |
+          cargo fmt -p git-slop -- --check
+          cargo clippy -p git-slop --all-targets --all-features --locked -- -D warnings
+          cargo test -p git-slop --all-targets --all-features --locked
+          cargo fmt --manifest-path xtask/Cargo.toml --all -- --check
+          cargo clippy --manifest-path xtask/Cargo.toml --all-targets --all-features --locked -- -D warnings
+          cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
+          cargo xtask validate
+          node --test action/*.test.mjs
+
+      - name: Package and verify candidate crate
+        id: package
+        if: inputs.mode == 'publish'
+        shell: bash
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          REVISION: ${{ steps.identity.outputs.revision }}
+        run: |
+          set -euo pipefail
+          cargo package -p git-slop --locked
+          mkdir -p candidate
+          crate="target/package/git-slop-${VERSION}.crate"
+          digest="$(sha256sum "$crate" | awk '{print $1}')"
+          cp "$crate" "candidate/git-slop-${VERSION}.crate"
+          cargo xtask verify-crate \
+            --crate-file "candidate/git-slop-${VERSION}.crate" \
+            --version "$VERSION" \
+            --revision "$REVISION" \
+            --expected-sha256 "$digest" \
+            --output candidate/crate-source.json
+          echo "crate-sha256=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify immutable recovery package
+        id: recovery-package
+        if: inputs.mode == 'recover'
+        shell: bash
+        env:
+          VERSION: ${{ steps.recovery-identity.outputs.version }}
+          REVISION: ${{ steps.recovery-identity.outputs.revision }}
+          EXPECTED_CRATE_SHA256: ${{ inputs.recovery_crate_sha256 }}
+        run: |
+          set -euo pipefail
+          status="$(curl --user-agent "git-slop-release-workflow/1 (https://github.com/coreycoto/git-slop)" -sS -o registry-version.json -w '%{http_code}' "https://crates.io/api/v1/crates/git-slop/${VERSION}")"
+          test "$status" = 200
+          jq -e --arg version "$VERSION" --arg checksum "$EXPECTED_CRATE_SHA256" \
+            '.version.num == $version and .version.yanked == false and .version.checksum == $checksum' \
+            registry-version.json >/dev/null
+          crate_url="https://static.crates.io/crates/git-slop/git-slop-${VERSION}.crate"
+          mkdir -p candidate
+          curl --fail --location --retry 5 --retry-delay 5 "$crate_url" \
+            --output "candidate/git-slop-${VERSION}.crate"
+          digest="$(sha256sum "candidate/git-slop-${VERSION}.crate" | awk '{print $1}')"
+          test "$digest" = "$EXPECTED_CRATE_SHA256"
+          cargo xtask verify-crate \
+            --crate-file "candidate/git-slop-${VERSION}.crate" \
+            --version "$VERSION" \
+            --revision "$REVISION" \
+            --expected-sha256 "$EXPECTED_CRATE_SHA256" \
+            --output candidate/crate-source.json
+          echo "crate-sha256=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Record immutable release identity
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          VERSION: ${{ inputs.version }}
+          CONTROL_REVISION: ${{ steps.identity.outputs.control-revision || steps.recovery-identity.outputs.control-revision }}
+          REVISION: ${{ steps.identity.outputs.revision || steps.recovery-identity.outputs.revision }}
+          CRATE_SHA256: ${{ steps.package.outputs.crate-sha256 || steps.recovery-package.outputs.crate-sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$CONTROL_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CRATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          # Markdown backticks below are literal format text.
+          # shellcheck disable=SC2016
+          {
+            printf '## Immutable release identity\n\n'
+            printf '| Field | Value |\n| --- | --- |\n'
+            printf '| Mode | `%s` |\n' "$MODE"
+            printf '| Version | `%s` |\n' "$VERSION"
+            printf '| Workflow control revision | `%s` |\n' "$CONTROL_REVISION"
+            printf '| Source revision | `%s` |\n' "$REVISION"
+            printf '| Crate SHA-256 | `%s` |\n' "$CRATE_SHA256"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload immutable candidate package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: source-package
+          path: candidate
+          if-no-files-found: error
+          retention-days: 7

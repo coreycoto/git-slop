@@ -184,6 +184,15 @@ fn classification_for_path(path: &str) -> &'static str {
     }
 }
 
+fn has_generated_marker(text: &str) -> bool {
+    text.lines().take(3).any(|line| {
+        let normalized = line.trim().to_ascii_lowercase();
+        normalized.starts_with("# @generated")
+            || normalized.starts_with("// @generated")
+            || normalized.starts_with("/* @generated")
+    })
+}
+
 fn line_counts(text: &str, language: &str) -> (usize, usize, usize, usize) {
     if text.is_empty() {
         return (0, 0, 0, 0);
@@ -437,8 +446,13 @@ pub fn build(
             language,
             profile: profile_override
                 .unwrap_or_else(|| profile_for(relative_path, bytes, config).to_string()),
-            classification: classification_override
-                .unwrap_or_else(|| classification_for_path(relative_path).to_string()),
+            classification: classification_override.unwrap_or_else(|| {
+                if has_generated_marker(&text) {
+                    "generated".to_string()
+                } else {
+                    classification_for_path(relative_path).to_string()
+                }
+            }),
             text,
             analysis_status: "analyzed".to_string(),
             skipped_reason: None,
@@ -549,5 +563,22 @@ mod tests {
         assert_eq!(skipped.binary, 0);
         assert_eq!(files[0].text, "fn one() {}\nfn two() {}\n");
         assert_eq!(files[0].bytes, 26);
+    }
+
+    #[test]
+    fn explicit_generated_markers_override_ordinary_source_paths() {
+        let repository = tempdir().expect("repository");
+        fs::write(
+            repository.path().join("release.yml"),
+            "# @generated from reviewed stage fragments\nname: Release\n",
+        )
+        .expect("generated workflow");
+        let (files, _) = build(
+            repository.path(),
+            &["release.yml".to_string()],
+            &config::default_config(),
+        )
+        .expect("inventory");
+        assert_eq!(files[0].classification, "generated");
     }
 }

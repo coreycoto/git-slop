@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   writeFileSync,
 } from "node:fs";
@@ -368,7 +369,15 @@ test("publication failure is reflected in final status", () => {
 
 test("metadata and installer pin bounded secure defaults and supported targets", () => {
   const metadata = readFileSync(join(repositoryRoot, "action.yml"), "utf8");
-  const installer = readFileSync(join(actionDirectory, "install.mjs"), "utf8");
+  const installer = [
+    join(actionDirectory, "install.mjs"),
+    ...readdirSync(join(actionDirectory, "install"), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".mjs"))
+      .map((entry) => join(actionDirectory, "install", entry.name))
+      .sort(),
+  ]
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
   assert.match(metadata, /default: advisory/u);
   assert.match(metadata, /default: summary/u);
   assert.match(metadata, /default: "14"/u);

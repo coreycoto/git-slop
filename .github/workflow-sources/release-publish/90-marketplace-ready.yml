@@ -1,0 +1,23 @@
+  marketplace-ready:
+    name: Marketplace release ready
+    needs: [publish-crate, draft-release, draft-action-smoke]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ needs.publish-crate.outputs.tag }}
+      RELEASE_STATE: ${{ needs.draft-release.outputs.release-state }}
+    steps:
+      - name: Publish Marketplace handoff summary
+        shell: bash
+        run: |
+          {
+            printf '## Verified Git Slop %s release assets are Marketplace-ready\n\n' "$TAG"
+            printf '%s\n\n' 'The crate, exact source tag, seven archives, checksums, release manifest, crates-backed Formula, and immutable tagged composite Action verify on all seven supported runner targets.'
+            if test "$RELEASE_STATE" != "published"; then
+              printf '%s\n\n' 'The workflow intentionally did **not** publish the GitHub Release.'
+              printf '%s\n' 'Open the draft release, select **Publish this Action to the GitHub Marketplace**, choose **Code quality** and **Continuous integration**, and publish with 2FA. This is the only manual approval for the release. The already-dispatched Homebrew receiver will then verify the exact public release before preparing the tap update.'
+            else
+              printf '%s\n' 'The existing published release was reverified without mutation, and the dispatch-authorized publication job redispatched its immutable identity to the Homebrew receiver.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

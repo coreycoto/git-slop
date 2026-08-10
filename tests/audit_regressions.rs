@@ -535,6 +535,6 @@ fn config_schema_uses_the_published_schemas_path() {
     let schema: Value = serde_json::from_slice(&output.stdout).expect("json");
     assert_eq!(
         schema["$id"],
-        "https://github.com/coreycoto/git-slop/blob/v0.11.2/schemas/config-2.json"
+        "https://github.com/coreycoto/git-slop/blob/v0.11.3/schemas/config-2.json"
     );
 }

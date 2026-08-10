@@ -1,0 +1,88 @@
+  draft-action-smoke:
+    name: Draft Action smoke on ${{ matrix.target }}
+    needs: [publish-crate, draft-release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    permissions:
+      # GitHub limits draft release visibility to tokens with push-level access.
+      contents: write
+    env:
+      VERSION: ${{ needs.publish-crate.outputs.version }}
+      TAG: ${{ needs.publish-crate.outputs.tag }}
+      REVISION: ${{ needs.publish-crate.outputs.revision }}
+    steps:
+      - name: Checkout exact release Action revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.publish-crate.outputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact immutable Action tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REVISION"
+          git fetch --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          test "$(git rev-parse "refs/tags/${TAG}^{commit}")" = "$REVISION"
+          test -z "$(git status --short)"
+
+      - name: Run exact release composite Action
+        id: git-slop
+        uses: ./
+        env:
+          GIT_SLOP_ALLOW_DRAFT_RELEASE: "true"
+          GIT_SLOP_RELEASE_ID: ${{ needs.draft-release.outputs.release-id }}
+        with:
+          version: ${{ needs.publish-crate.outputs.version }}
+          release-repository: ${{ github.repository }}
+          target: ${{ matrix.target }}
+          github-token: ${{ github.token }}
+          policy: advisory
+          annotations: "false"
+          upload-artifact: "false"
+
+      - name: Assert installed Action identity
+        shell: bash
+        env:
+          ACTUAL_VERSION: ${{ steps.git-slop.outputs.version }}
+          ACTUAL_REVISION: ${{ steps.git-slop.outputs.source-revision }}
+          ACTUAL_TARGET: ${{ steps.git-slop.outputs.target }}
+          ACTUAL_CRATE_SHA256: ${{ steps.git-slop.outputs.crate-sha256 }}
+          ACTUAL_MANIFEST_SHA256: ${{ steps.git-slop.outputs.release-manifest-sha256 }}
+          ACTUAL_ASSET_SHA256: ${{ steps.git-slop.outputs.asset-sha256 }}
+          ANALYSIS_EXIT_CODE: ${{ steps.git-slop.outputs.analysis-exit-code }}
+          POLICY_EXIT_CODE: ${{ steps.git-slop.outputs.policy-exit-code }}
+          STATUS: ${{ steps.git-slop.outputs.status }}
+          EXPECTED_TARGET: ${{ matrix.target }}
+          EXPECTED_CRATE_SHA256: ${{ needs.publish-crate.outputs.crate-sha256 }}
+          EXPECTED_MANIFEST_SHA256: ${{ needs.draft-release.outputs.release-manifest-sha256 }}
+          EXPECTED_ASSET_SHA256: ${{ fromJSON(needs.draft-release.outputs.asset-sha256-by-target)[matrix.target] }}
+        run: |
+          set -euo pipefail
+          test "$ACTUAL_VERSION" = "$VERSION"
+          test "$ACTUAL_REVISION" = "$REVISION"
+          test "$ACTUAL_TARGET" = "$EXPECTED_TARGET"
+          test "$ACTUAL_CRATE_SHA256" = "$EXPECTED_CRATE_SHA256"
+          test "$ACTUAL_MANIFEST_SHA256" = "$EXPECTED_MANIFEST_SHA256"
+          test "$ACTUAL_ASSET_SHA256" = "$EXPECTED_ASSET_SHA256"
+          test "$ANALYSIS_EXIT_CODE" = 0
+          test "$POLICY_EXIT_CODE" = 0
+          test "$STATUS" = advisory

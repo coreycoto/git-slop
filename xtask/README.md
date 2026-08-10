@@ -10,24 +10,30 @@ Run it from the repository root through the Cargo alias:
 cargo xtask validate
 cargo xtask validate-codex
 cargo xtask validate-workflows
+cargo xtask generate-release-workflow --check
 cargo xtask check-issue-forms
 cargo xtask check-distribution
-cargo xtask release-prepare --version 0.11.2 --check-only
-cargo xtask release-prepare --version 0.11.2
+cargo xtask release-prepare --version 0.11.3 --check-only
+cargo xtask release-prepare --version 0.11.3
 cargo xtask verify-crate \
-  --crate-file dist/git-slop-0.11.2.crate \
-  --version 0.11.2 \
+  --crate-file dist/git-slop-0.11.3.crate \
+  --version 0.11.3 \
   --revision <40-character-lowercase-commit> \
   --expected-sha256 <64-character-lowercase-sha256> \
   --output dist/crate-source.json
 cargo xtask release-manifest \
   --dist-dir dist \
   --crate-source dist/crate-source.json \
-  --tag v0.11.2
+  --tag v0.11.3
 cargo xtask homebrew-formula \
   --manifest dist/release-manifest.json \
   --formula ../homebrew-tap/Formula/git-slop.rb
 ```
+
+`release-publish.yml` is generated from the ordered stage fragments under
+`.github/workflow-sources/release-publish/`. Edit the smallest applicable
+fragment, run `cargo xtask generate-release-workflow`, and validate the exact
+generated workflow before review.
 
 The validation commands are read-only. `release-prepare` accepts an exact
 candidate `HEAD` before its future tag exists, runs local Rust quality,
