@@ -191,12 +191,6 @@ fn action_queue(
     files
         .into_iter()
         .filter(|file| {
-            if matches!(
-                file.classification.as_str(),
-                "generated" | "vendored" | "snapshot" | "migration_fixture"
-            ) {
-                return false;
-            }
             let profile_minimum_score = if config.pointer("/health/profile_threshold_policy").and_then(Value::as_str) == Some("per_profile") {
                 config.pointer(&format!("/health/profile_queue_minimum_score/{}", file.profile)).and_then(Value::as_f64).unwrap_or_default()
             } else { 0.0 };
@@ -208,9 +202,27 @@ fn action_queue(
             let non_context_reasons = file.reason_codes.iter().any(|reason| {
                 !matches!(reason.as_str(), "critical_token_cost" | "high_token_cost")
             });
+            let synchronization_group = (file.path.starts_with("schemas/")
+                || file.path == "Cargo.toml"
+                || file.path == "Cargo.lock"
+                || file.path == "action.yml"
+                || file.path == "CHANGELOG.md"
+                || file.path.starts_with("docs/")
+                || file.path == "README.md")
+                .then_some("release-version-sync");
+            let remediation_kind = match file.classification.as_str() {
+                "generated" => "generator_source_investigation",
+                "snapshot" | "fixture" | "migration_fixture" => "fixture_strategy_investigation",
+                "vendored" => "upstream_dependency_investigation",
+                _ => "source_intervention",
+            };
             json!({
                 "path": file.path,
                 "profile": file.profile,
+                "classification": file.classification,
+                "generated_from": file.generated_from,
+                "synchronization_group": synchronization_group,
+                "remediation_kind": remediation_kind,
                 "slop_score": file.slop_score,
                 "slop_band": file.slop_band,
                 "context_band": file.context_band,

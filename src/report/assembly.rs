@@ -127,48 +127,6 @@ fn repo_payload(analysis: &Analysis) -> Value {
     repo
 }
 
-fn action_queue_from_files(files: &[Value]) -> Vec<Value> {
-    let mut ranked = files.to_vec();
-    ranked.sort_by(|left, right| {
-        float_field(right, "slop_score")
-            .partial_cmp(&float_field(left, "slop_score"))
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| usize_field(right, "tokens").cmp(&usize_field(left, "tokens")))
-            .then_with(|| string_field(left, "path").cmp(string_field(right, "path")))
-    });
-    ranked
-        .into_iter()
-        .filter(|file| {
-            !string_array(file.get("reason_codes")).is_empty()
-                || matches!(string_field(file, "context_band"), "warning" | "critical")
-                || matches!(string_field(file, "slop_band"), "high" | "critical")
-        })
-        .map(|file| {
-            let reasons = string_array(file.get("reason_codes"));
-            let pure_context = !reasons.is_empty()
-                && reasons.iter().all(|reason| {
-                    matches!(reason.as_str(), "high_token_cost" | "critical_token_cost")
-            });
-            json!({
-                "path": string_field(&file, "path"),
-                "profile": string_field(&file, "profile"),
-                "slop_score": float_field(&file, "slop_score"),
-                "slop_band": string_field(&file, "slop_band"),
-                "context_band": string_field(&file, "context_band"),
-                "tokens": usize_field(&file, "tokens"),
-                "age_days": usize_field(&file, "age_days"),
-                "revisions_window": usize_field(&file, "revisions_window"),
-                "churn_pressure": float_field(&file, "churn_pressure"),
-                "reason_codes": reasons,
-                "is_pure_context_hotspot": pure_context,
-                "severity": if matches!(string_field(&file, "context_band"), "critical") || matches!(string_field(&file, "slop_band"), "critical") { "error" } else if matches!(string_field(&file, "context_band"), "warning") || matches!(string_field(&file, "slop_band"), "high") { "warning" } else { "notice" },
-                "evidence_status": if usize_field(&file, "revisions_window") >= 5 { "supported" } else { "low_support" },
-                "next_action": format!("git slop explain --path {}", string_field(&file, "path"))
-            })
-        })
-        .collect()
-}
-
 fn ranked_files_from_files(files: &[Value]) -> Vec<Value> {
     let mut ranked = files.to_vec();
     ranked.sort_by(|left, right| {
@@ -336,7 +294,9 @@ fn comparison_record(record: &Value) -> Value {
     json!({
         "path": record.get("path").cloned().unwrap_or(Value::Null),
         "content_fingerprint": record.get("content_fingerprint").cloned().unwrap_or(Value::Null),
+        "content_sha256": record.get("content_sha256").cloned().unwrap_or(Value::Null),
         "analysis_status": record.get("analysis_status").cloned().unwrap_or_else(|| json!("analyzed")),
+        "skipped_reason": record.get("skipped_reason").cloned().unwrap_or(Value::Null),
         "tokens": record.get("tokens").cloned().unwrap_or_else(|| json!(0)),
         "context_band": record.get("context_band").cloned().unwrap_or_else(|| json!("compact")),
         "slop_score": record.get("slop_score").cloned().unwrap_or_else(|| json!(0.0)),
@@ -370,11 +330,8 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
         "files": files.iter().map(comparison_record).collect::<Vec<_>>(),
         "folders": folders.iter().map(comparison_record).collect::<Vec<_>>()
     });
-    let action_queue = if analysis.action_queue.is_empty() {
-        action_queue_from_files(&files)
-    } else {
-        analysis.action_queue.clone()
-    };
+    let action_queue = analysis.action_queue.clone();
+    let observation_feed = analysis.observation_feed.clone();
     let ranked_files = ranked_files_from_files(&files);
     let overlays = canonical_overlays(analysis, &files, &folders);
     let critical_context_file_count = files
@@ -512,6 +469,7 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
         "folders": folders,
         "compare_index": compare_index,
         "action_queue": action_queue,
+        "observation_feed": observation_feed,
         "ranked_files": ranked_files,
         "costs": {
             "load": {"analysis_status": "stable", "analysis_version": 1},
@@ -528,35 +486,11 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
                 "folders": {"total": folders.len(), "returned": folders.len(), "limit": null, "truncated": false}
             },
             "action_queue": {"total": action_queue.len(), "returned": action_queue.len(), "limit": null, "truncated": false},
+            "observation_feed": {"total": observation_feed.len(), "returned": observation_feed.len(), "limit": null, "truncated": false},
             "ranked_files": {"total": ranked_files.len(), "returned": ranked_files.len(), "limit": null, "truncated": false},
             "health.findings": {"total": health.findings.len(), "returned": health.findings.len(), "limit": null, "truncated": false},
             "health.refactor_candidates": {"total": health.refactor_candidates.len(), "returned": health.refactor_candidates.len(), "limit": null, "truncated": false},
             "health.watchlist": {"total": health.watchlist.len(), "returned": health.watchlist.len(), "limit": null, "truncated": false}
         },
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::action_queue_from_files;
-
-    #[test]
-    fn fallback_action_queue_preserves_the_file_profile() {
-        let queue = action_queue_from_files(&[json!({
-            "path": "fixtures/data.json",
-            "profile": "data_context",
-            "slop_score": 42.0,
-            "slop_band": "moderate",
-            "context_band": "warning",
-            "tokens": 1_000,
-            "age_days": 2,
-            "revisions_window": 5,
-            "churn_pressure": 0.25,
-            "reason_codes": ["high_token_cost"]
-        })]);
-
-        assert_eq!(queue[0]["profile"], "data_context");
-    }
 }

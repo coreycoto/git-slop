@@ -365,8 +365,18 @@ export function createManifestVerifier({
     }
     exactObject(
       manifest.install,
-      ["github_release", "homebrew_tap"],
+      ["attestation", "cargo", "github_release", "homebrew_tap", "scoop"],
       "release-manifest.json install",
+    );
+    exactStringArray(
+      manifest.install.attestation,
+      [`gh attestation verify 'git-slop-${tag}-<target>.*' --repo ${releaseRepository} --signer-repo ${releaseRepository}`],
+      "release-manifest.json install.attestation",
+    );
+    exactStringArray(
+      manifest.install.cargo,
+      [`cargo install git-slop --version ${version} --locked`],
+      "release-manifest.json install.cargo",
     );
     exactStringArray(
       manifest.install.homebrew_tap,
@@ -380,6 +390,14 @@ export function createManifestVerifier({
         "sha256sum --check SHA256SUMS --ignore-missing",
       ],
       "release-manifest.json install.github_release",
+    );
+    exactStringArray(
+      manifest.install.scoop,
+      [
+        "scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket",
+        "scoop install coreycoto/git-slop",
+      ],
+      "release-manifest.json install.scoop",
     );
     const expectedChecksumNames = new Set([
       ...nameSet,

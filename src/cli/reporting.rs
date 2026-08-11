@@ -137,12 +137,20 @@ fn diff_values(current: &Value, defaults: &Value) -> Value {
 
 fn load_config_contract(repo_root: &Path) -> Result<Value> {
     config::load(repo_root).map_err(|error| {
+        let message = format!("{error:#}");
+        let pointer = message
+            .split_whitespace()
+            .map(|token| token.trim_matches(|character: char| !character.is_ascii_alphanumeric() && character != '.' && character != '_' && character != '[' && character != ']'))
+            .find(|token| token.contains('.') && !token.ends_with(".yaml"))
+            .map(|token| format!("/{}", token.replace('.', "/")))
+            .unwrap_or_else(|| "/config".to_string());
         ClassifiedError::new(
             ErrorKind::Contract,
             "invalid_configuration",
-            format!("{error:#}"),
+            message,
         )
-        .at("/.slop/config.yaml")
+        .at(pointer)
+        .with_details(json!({"config_path": config::config_path(repo_root)}))
         .into()
     })
 }
@@ -236,7 +244,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
                 .is_none_or(|scope| path == scope || path.starts_with(&format!("{scope}/")))
         })
         .collect::<Vec<_>>();
-    if tracked_paths.is_empty() {
+    if tracked_paths.is_empty() && normalized_scope.is_some() {
         return Err(ClassifiedError::new(
             ErrorKind::Contract,
             "empty_scope",
@@ -282,10 +290,19 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     if resource_status == "over_memory_budget" {
         diagnostics.push(json!({"code":"estimated_memory_budget_exceeded","severity":"error","detail":format!("Estimated peak memory is {} bytes for a {} byte budget.", estimate.estimated_peak_memory_bytes, estimate.memory_budget_bytes)}));
     }
+    if tracked_paths.is_empty() {
+        diagnostics.push(json!({"code":"no_tracked_paths","severity":"notice","detail":"The repository has no committed tracked paths yet. Create the first commit, then run git slop find."}));
+    }
+    let scan_ready = config_result.is_ok()
+        && resource_status != "over_memory_budget"
+        && !tracked_paths.is_empty();
+    let report_available = report_status == "compatible";
     let diagnostic = json!({
         "schema_version": 1,
         "command": "doctor",
-        "status": if config_result.is_err() || report_status == "invalid" || resource_status == "over_memory_budget" { "error" } else { "ready" },
+        "status": if config_result.is_err() || report_status == "invalid" || resource_status == "over_memory_budget" { "error" } else if !scan_ready || !report_available || repo.is_shallow { "not_ready" } else { "ready" },
+        "scan_ready": scan_ready,
+        "report_available": report_available,
         "repository": {"name": repo.repo_name, "branch": repo.branch, "shallow": repo.is_shallow, "detached": repo.detached_head, "clean": repo.worktree_clean},
         "config": {"status": if config_result.is_err() { "invalid" } else if config_exists { "valid" } else { "using_defaults" }, "path": config::config_path(repo_root)},
         "report": {"status": report_status, "path": report_path},
@@ -297,6 +314,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             "config": "Run git slop config validate, then correct the reported key or run git slop config migrate.",
             "report": "Run git slop find to replace a missing or incompatible latest report.",
             "shallow": "Fetch full history or rerun find with --allow-shallow to acknowledge incomplete evidence."
+            ,"unborn": "Create the first commit with tracked files, then run git slop find."
         }
     });
     if matches!(args.format, DoctorFormat::Json) {
@@ -310,7 +328,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             repo.branch.as_deref().unwrap_or(if repo.detached_head {
                 "detached HEAD"
             } else {
-                "unborn"
+                "unborn branch (no commits)"
             })
         );
         println!(

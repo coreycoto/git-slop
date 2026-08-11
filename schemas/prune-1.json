@@ -1,1 +1,45 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/prune-1.json","title":"Git Slop report prune schema 1","type":"object","required":["schema_version","command","dry_run","limits","before","selected","after"],"properties":{"schema_version":{"const":1},"command":{"const":"prune"},"dry_run":{"type":"boolean"},"limits":{"type":"object"},"before":{"type":"object"},"selected":{"type":"array","items":{"type":"object"}},"removed":{"type":"object"},"after":{"type":"object"}},"additionalProperties":false}
+{
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/prune-1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "after": {
+      "type": "object"
+    },
+    "before": {
+      "type": "object"
+    },
+    "command": {
+      "const": "prune"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "limits": {
+      "type": "object"
+    },
+    "removed": {
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "selected": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "dry_run",
+    "limits",
+    "before",
+    "selected",
+    "after"
+  ],
+  "title": "Git Slop report prune schema 1",
+  "type": "object"
+}

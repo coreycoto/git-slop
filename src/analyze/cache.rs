@@ -142,7 +142,7 @@ impl TokenCache {
 }
 
 fn quarantine_cache(path: &Path, error: &anyhow::Error) -> String {
-    let message = format!("{error:#}");
+    let message = error.root_cause().to_string();
     if message.contains("database is locked") || message.contains("database is busy") {
         return format!("packed token cache was busy; continued uncached: {message}");
     }
@@ -161,8 +161,7 @@ fn quarantine_cache(path: &Path, error: &anyhow::Error) -> String {
                 }
             }
             format!(
-                "packed token cache failed validation and was quarantined at {}; continued uncached: {message}",
-                quarantine.display()
+                "packed token cache failed validation and was quarantined; a fresh cache was opened when possible: {message}"
             )
         }
         Err(quarantine_error) => format!(

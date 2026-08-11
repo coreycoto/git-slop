@@ -1,1 +1,30 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/explain-2.json","title":"Git Slop explain schema 2","type":"object","required":["schema_version","command","selector","evidence_summary","boundary_note"],"properties":{"schema_version":{"const":2},"command":{"const":"explain"},"selector":{"type":"object"},"evidence_summary":{"type":"object"},"boundary_note":{"type":"string"}}}
+{
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/explain-2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "boundary_note": {
+      "type": "string"
+    },
+    "command": {
+      "const": "explain"
+    },
+    "evidence_summary": {
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 2
+    },
+    "selector": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "selector",
+    "evidence_summary",
+    "boundary_note"
+  ],
+  "title": "Git Slop explain schema 2",
+  "type": "object"
+}

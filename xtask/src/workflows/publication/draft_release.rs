@@ -105,11 +105,30 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
             errors,
         );
         for required in [
-            "gh release create \"$TAG\" --draft --generate-notes --title \"$TAG\" --verify-tag",
+            "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\" --verify-tag",
             "GIT_SLOP_ALLOW_DRAFT_RELEASE: \"true\"",
             "GIT_SLOP_RELEASE_ID:",
         ] {
             require(text, required, name, errors);
+        }
+        if let Some(notes) = step_run(draft, "Generate complete release notes") {
+            for required in [
+                "CHANGELOG.md release heading for ${VERSION} is still Unreleased.",
+                "cargo install git-slop --version %s --locked",
+                "brew install coreycoto/tap/git-slop",
+                "Windows bucket",
+                "sha256sum --check SHA256SUMS --ignore-missing",
+                "gh attestation verify <asset>",
+                "git-slop.cdx.json",
+                "git-slop.spdx.json",
+                "Downstream status",
+            ] {
+                require(notes, required, name, errors);
+            }
+        } else {
+            errors.push(format!(
+                "{name} must generate complete versioned release notes before draft creation."
+            ));
         }
         for forbidden in [
             "gh release edit",
@@ -149,7 +168,7 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
             }
             if let Some(run) = refresh.get("run").and_then(YamlValue::as_str) {
                 for required in [
-                    "gh release create \"$TAG\" --draft --generate-notes --title \"$TAG\" --verify-tag",
+                    "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\" --verify-tag",
                     "for attempt in $(seq 1 10); do",
                     "gh api --paginate --slurp \"repos/${GITHUB_REPOSITORY}/releases?per_page=100\"",
                     "'[.[][] | select(.tag_name == $tag)]'",
@@ -159,6 +178,7 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
                     "Multiple GitHub Releases use exact tag ${TAG}; refusing ambiguous release mutation.",
                     "sleep 2",
                     "repos/${GITHUB_REPOSITORY}/releases/${release_id}",
+                    "gh api --method PATCH \"$endpoint\" --input release-notes.json",
                     ".id == $release_id",
                     "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}",
                     "curl --fail-with-body --silent --show-error --connect-timeout 15 --max-time 300",

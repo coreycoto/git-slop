@@ -42,6 +42,21 @@ pub fn validate_project_version(project_root: &Path, expected_version: &str) -> 
     if actual_version != expected_version {
         bail!("Cargo.toml version is {actual_version}; expected {expected_version}.");
     }
+    let changelog_path = project_root.join("CHANGELOG.md");
+    let changelog = std::fs::read_to_string(&changelog_path)
+        .map_err(|error| anyhow::anyhow!("unable to read {}: {error}", changelog_path.display()))?;
+    let heading_prefix = format!("## {expected_version} - ");
+    let heading = changelog
+        .lines()
+        .find(|line| line.starts_with(&heading_prefix))
+        .ok_or_else(|| {
+            anyhow::anyhow!("CHANGELOG.md is missing release heading {expected_version}")
+        })?;
+    if heading[heading_prefix.len()..].trim() == "Unreleased" {
+        bail!(
+            "CHANGELOG.md release heading for {expected_version} is still Unreleased; date the release before publication"
+        );
+    }
     Ok(())
 }
 
@@ -261,7 +276,23 @@ mod tests {
             temp.path().join("Cargo.toml"),
             "[package]\nname = \"git-slop\"\nversion = \"0.9.0\"\n",
         )?;
+        fs::write(
+            temp.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## 0.9.0 - 2026-08-10\n\n- Release fixture.\n",
+        )?;
         Ok(temp)
+    }
+
+    #[test]
+    fn release_candidate_rejects_an_unreleased_changelog_heading() -> Result<()> {
+        let project = project()?;
+        fs::write(
+            project.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## 0.9.0 - Unreleased\n",
+        )?;
+        let error = validate_project_version(project.path(), "0.9.0").unwrap_err();
+        assert!(error.to_string().contains("still Unreleased"));
+        Ok(())
     }
 
     #[test]

@@ -309,6 +309,8 @@ fn comparison_allows_file_additions_and_detects_equal_metric_content_changes() {
     let mut changed = base.clone();
     changed["files"][0]["content_fingerprint"] = Value::String("f".repeat(64));
     changed["compare_index"]["files"][0]["content_fingerprint"] = Value::String("f".repeat(64));
+    changed["files"][0]["content_sha256"] = Value::String("f".repeat(64));
+    changed["compare_index"]["files"][0]["content_sha256"] = Value::String("f".repeat(64));
     let changed_path = repository.path().join("equal-metrics-changed-content.json");
     fs::write(&changed_path, serde_json::to_vec(&changed).unwrap()).unwrap();
     let comparison = cargo_bin_cmd!("git-slop")
@@ -582,6 +584,6 @@ fn config_schema_uses_the_published_schemas_path() {
     let schema: Value = serde_json::from_slice(&output.stdout).expect("json");
     assert_eq!(
         schema["$id"],
-        "https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/config-2.json"
+        "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/config-2.json"
     );
 }

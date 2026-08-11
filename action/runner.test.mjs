@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -40,13 +41,26 @@ if (args[0] === "find") {
   fs.writeFileSync(counter, String(Number(fs.existsSync(counter) ? fs.readFileSync(counter, "utf8") : "0") + 1));
   fs.writeFileSync(
     path.join(latest, "report.json"),
-    JSON.stringify({ health: { findings: [{}, {}, {}, {}] } }),
+    JSON.stringify({
+      files: [
+        { path: "src/one.rs", context_band: "critical", slop_band: "low" },
+        { path: "src/two.rs", context_band: "compact", slop_band: "critical" },
+      ],
+      health: { findings: [{}, {}, {}, {}] },
+    }),
   );
   fs.writeFileSync(path.join(latest, "report.yaml"), "schema_version: 4\\n");
   fs.writeFileSync(path.join(latest, "summary.md"), "# Summary\\n");
   fs.writeFileSync(path.join(latest, "health.md"), "# Repository Health\\n\\nHealthy fixture.\\n");
+  const compressionIndex = args.indexOf("--compression");
+  const compression = compressionIndex === -1 ? "none" : args[compressionIndex + 1];
+  if (compression === "gzip") fs.writeFileSync(path.join(latest, "report.json.gz"), "gzip-fixture");
+  if (compression === "zstd") fs.writeFileSync(path.join(latest, "report.json.zst"), "zstd-fixture");
   process.stdout.write("src/untrusted\\n::error title=forged::message\\n");
   process.exit(0);
+}
+if (args[0] === "report" && args[1] === "validate") {
+  process.exit(process.env.FAKE_VALIDATE_FAIL === "true" ? 2 : 0);
 }
 if (args[0] === "health") {
   const counter = path.join(process.cwd(), ".health-count");
@@ -63,6 +77,8 @@ if (args[0] === "health") {
   process.exit(0);
 }
 if (args[0] === "check") {
+  const counter = path.join(process.cwd(), ".check-count");
+  fs.writeFileSync(counter, String(Number(fs.existsSync(counter) ? fs.readFileSync(counter, "utf8") : "0") + 1));
   process.stdout.write(JSON.stringify({ schema_version: 1, command: "check", finding_count: 2, passed: false }));
   process.exit(1);
 }
@@ -138,6 +154,7 @@ test("safe defaults analyze once and select only health.md", () => {
   assert.equal(actual["health-finding-count"], "4");
   assert.equal(actual["policy-finding-count"], "2");
   assert.equal(actual["finding-count"], "2");
+  assert.equal(existsSync(join(state.repository, ".check-count")), false);
 
   writeFileSync(state.output, "");
   const artifacts = run("artifacts", {
@@ -152,6 +169,27 @@ test("safe defaults analyze once and select only health.md", () => {
   const artifactOutput = readFileSync(state.output, "utf8");
   assert.match(artifactOutput, /health\.md/u);
   assert.doesNotMatch(artifactOutput, /report\.json/u);
+});
+
+test("post-find validation failure preserves fresh diagnostics and report outputs", () => {
+  const state = fixture();
+  const analysis = run("analyze", {
+    GITHUB_OUTPUT: state.output,
+    GITHUB_STEP_SUMMARY: state.summary,
+    GITHUB_WORKSPACE: state.repository,
+    GIT_SLOP_BINARY: state.fakeBinary,
+    GIT_SLOP_WORKING_DIRECTORY: ".",
+    GIT_SLOP_COMPRESSION: "gzip",
+    FAKE_VALIDATE_FAIL: "true",
+  });
+  assert.equal(analysis.status, 0, analysis.stderr);
+  const actual = outputs(state.output);
+  assert.equal(actual["analysis-exit-code"], "2");
+  assert.equal(actual["artifact-contents"], "report");
+  assert.ok(actual["report-path"].endsWith("report.json"));
+  assert.ok(actual["compressed-report-path"].endsWith("report.json.gz"));
+  assert.ok(actual["analysis-error-path"].endsWith("analysis-error.md"));
+  assert.match(readFileSync(actual["analysis-error-path"], "utf8"), /failed immediate validation/u);
 });
 
 test("bounded annotations preserve notice, warning, and error without rerunning analysis", () => {

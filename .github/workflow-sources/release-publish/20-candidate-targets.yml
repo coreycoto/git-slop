@@ -37,6 +37,13 @@
       TARGET: ${{ matrix.target }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/candidate-target
     steps:
+      - name: Checkout exact candidate contracts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.candidate.outputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Download exact candidate package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -99,6 +106,15 @@
           jq -e --arg version "$VERSION" --arg revision "$REVISION" \
             '.schema_version == 1 and .project == "git-slop" and .version == $version and .source_revision == $revision and .source_dirty == false' \
             build-info.json
+
+      - name: Validate packaged public contracts independently
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="git-slop-${TAG}-${TARGET}"
+          bash scripts/validate-packaged-contracts.sh \
+            "smoke/$root/git-slop" "smoke/$root/schemas" "$GITHUB_WORKSPACE"
 
       - name: Build and smoke candidate Windows archive
         if: runner.os == 'Windows'

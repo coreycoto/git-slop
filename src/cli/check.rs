@@ -3,21 +3,19 @@ fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
         return usage_error("--limit must be between 1 and 10000");
     }
     let (loaded, _) = report_or_missing(repo_root, args.report.as_deref())?;
-    let incomplete_records = loaded
-        .get("files")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|record| crate::report_ops::inventory_record_has_incomplete_evidence(record))
-        .count();
-    if incomplete_records > 0 && !args.allow_incomplete_evidence {
+    let readiness = crate::report_ops::evaluate_report_readiness(
+        &loaded,
+        false,
+        args.allow_incomplete_evidence,
+    );
+    if !readiness.comparison_ready {
         return Err(ClassifiedError::new(
             ErrorKind::Contract,
             "incomplete_evidence",
-            format!("report contains {incomplete_records} incomplete selected inventory record(s); rerun analysis with complete inputs or pass --allow-incomplete-evidence"),
+            "report is not enforcement-ready; rerun analysis with complete inputs or pass --allow-incomplete-evidence only for acknowledged evidence loss",
         )
-        .at("/files")
-        .with_details(json!({"incomplete_record_count": incomplete_records}))
+        .at("/readiness")
+        .with_details(readiness.as_json())
         .into());
     }
     let loaded_config = loaded
@@ -171,11 +169,22 @@ fn bounded_compare_output(
         "overlay_deltas",
         "regressions",
     ] {
-        let values = payload
+        let all_values = payload
             .get(key)
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
+        let values = if key == "queue_movement" {
+            all_values
+                .iter()
+                .filter(|item| {
+                    item.get("status").and_then(Value::as_str) != Some("unchanged_position")
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        } else {
+            all_values.clone()
+        };
         let returned = values
             .iter()
             .skip(start)
@@ -186,6 +195,8 @@ fn bounded_compare_output(
             key.to_string(),
             json!({
                 "total": values.len(),
+                "changed_total": values.len(),
+                "all_total": all_values.len(),
                 "offset": start,
                 "limit": cap,
                 "returned": returned.len(),
@@ -204,7 +215,7 @@ fn bounded_compare_output(
 }
 
 fn render_compare_ndjson(payload: &Value) -> Result<String> {
-    let mut lines = vec![render_json(&json!({
+    let mut lines = vec![serde_json::to_string(&json!({
         "record_type": "summary",
         "schema_version": payload.get("schema_version"),
         "stream": {
@@ -228,10 +239,37 @@ fn render_compare_ndjson(payload: &Value) -> Result<String> {
             .into_iter()
             .flatten()
         {
-            lines.push(render_json(
+            lines.push(serde_json::to_string(
                 &json!({"record_type": record_type, "record": record}),
             )?);
         }
     }
-    Ok(lines.join("\n"))
+    Ok(format!("{}\n", lines.join("\n")))
+}
+
+#[cfg(test)]
+mod ndjson_tests {
+    use super::*;
+
+    #[test]
+    fn compare_ndjson_emits_one_complete_json_value_per_physical_line() {
+        let payload = json!({
+            "schema_version": 1,
+            "summary": {},
+            "pagination": {},
+            "baseline_status": "compatible",
+            "file_deltas": [{"path": "src/lib.rs", "nested": {"value": true}}],
+            "folder_deltas": [],
+            "queue_movement": [],
+            "overlay_deltas": [],
+            "regressions": []
+        });
+        let rendered = render_compare_ndjson(&payload).expect("ndjson");
+        let lines = rendered.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+        for line in lines {
+            assert!(!line.contains('\n'));
+            serde_json::from_str::<Value>(line).expect("single-line JSON record");
+        }
+    }
 }

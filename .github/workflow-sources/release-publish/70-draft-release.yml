@@ -63,6 +63,38 @@
           (cd dist && sha256sum --check SHA256SUMS)
           test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" = "11"
 
+      - name: Generate complete release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Fqx "## ${VERSION} - Unreleased" CHANGELOG.md; then
+            echo "CHANGELOG.md release heading for ${VERSION} is still Unreleased." >&2
+            exit 1
+          fi
+          awk -v prefix="## ${VERSION} - " '
+            index($0, prefix) == 1 { capture = 1 }
+            capture && /^## / && index($0, prefix) != 1 { exit }
+            capture { print }
+          ' CHANGELOG.md > release-changes.md
+          grep -Fq "## ${VERSION} - " release-changes.md
+          # shellcheck disable=SC2016
+          {
+            printf '# Git Slop %s\n\n' "$VERSION"
+            printf '## Changes\n\n'
+            sed '1d' release-changes.md
+            printf '\n## Install\n\n'
+            printf -- '- Cargo: `cargo install git-slop --version %s --locked`\n' "$VERSION"
+            printf -- '- Homebrew: `brew install coreycoto/tap/git-slop`\n'
+            printf -- '- Windows bucket: install from the downstream `coreycoto/git-slop` manifest after relay verification.\n'
+            printf -- '- GitHub archives: download the target archive and `SHA256SUMS` from this release.\n'
+            printf '\n## Verify\n\n'
+            printf -- '- Checksums: `sha256sum --check SHA256SUMS --ignore-missing`\n'
+            printf -- '- Attestations: `gh attestation verify <asset> --repo %s --signer-repo %s`\n' "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY"
+            printf -- '- SBOMs: `git-slop.cdx.json` (CycloneDX 1.5) and `git-slop.spdx.json` (SPDX 2.3).\n'
+            printf '\n## Downstream status\n\n'
+            printf '%s\n' 'Homebrew and Windows-bucket receivers verify this immutable release identity after publication; their handoff status is reported by the release workflow.'
+          } > release-notes.md
+
       - name: Inspect existing GitHub Release
         id: release
         shell: bash
@@ -119,7 +151,7 @@
           set -euo pipefail
           release_id="${{ steps.release.outputs.release-id }}"
           if test "${{ steps.release.outputs.state }}" = missing; then
-            gh release create "$TAG" --draft --generate-notes --title "$TAG" --verify-tag
+            gh release create "$TAG" --draft --notes-file release-notes.md --title "$TAG" --verify-tag
             for attempt in $(seq 1 10); do
               gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
                 | jq --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' \
@@ -144,6 +176,8 @@
           jq -e --arg tag "$TAG" --argjson release_id "$release_id" \
             '.id == $release_id and .tag_name == $tag and .draft == true and .prerelease == false and .published_at == null' \
             <<< "$release_json" >/dev/null
+          jq -n --rawfile body release-notes.md '{body: $body}' > release-notes.json
+          gh api --method PATCH "$endpoint" --input release-notes.json >/dev/null
           while IFS= read -r asset_id; do
             [[ "$asset_id" =~ ^[1-9][0-9]*$ ]]
             gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"

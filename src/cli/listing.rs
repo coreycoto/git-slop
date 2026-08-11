@@ -77,6 +77,33 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
         ListCommand::Clusters(_) => "clusters",
         ListCommand::Profiles(_) => "profiles",
     };
+    let unsupported = match kind {
+        "relationships" | "clusters" if filter.severity.is_some() => Some("--severity"),
+        "profiles" if filter.path.is_some() => Some("--path"),
+        "profiles" if filter.language.is_some() => Some("--language"),
+        "profiles" if filter.classification.is_some() => Some("--classification"),
+        "profiles" if filter.severity.is_some() => Some("--severity"),
+        _ => None,
+    };
+    if let Some(option) = unsupported {
+        return Err(ClassifiedError::new(
+            ErrorKind::Contract,
+            "unsupported_list_filter",
+            format!("{option} is not supported for `git slop list {kind}`."),
+        )
+        .at(option)
+        .with_details(json!({"kind": kind, "filter": option}))
+        .into());
+    }
+    if filter.top == 0 {
+        return Err(ClassifiedError::new(
+            ErrorKind::Contract,
+            "invalid_list_limit",
+            "--top must be greater than zero.",
+        )
+        .at("--top")
+        .into());
+    }
     let files = loaded
         .get("files")
         .and_then(Value::as_array)
@@ -246,10 +273,12 @@ fn run_prune(repo_root: &Path, args: PruneArgs) -> Result<i32> {
     let mut retained_runs = 0usize;
     let mut remove = Vec::new();
     let mut retention_prefix_exhausted = false;
-    for (entry, bytes) in runs {
+    for (index, (entry, bytes)) in runs.into_iter().enumerate() {
+        let retain_newest_even_if_oversized = index == 0 && keep > 0;
         if !retention_prefix_exhausted
-            && retained_runs < keep
-            && retained_bytes.saturating_add(bytes) <= max_bytes
+            && (retain_newest_even_if_oversized
+                || (retained_runs < keep
+                    && retained_bytes.saturating_add(bytes) <= max_bytes))
         {
             retained_runs += 1;
             retained_bytes = retained_bytes.saturating_add(bytes);

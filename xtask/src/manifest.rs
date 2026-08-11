@@ -258,8 +258,11 @@ pub struct ChecksumMetadata {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InstallInstructions {
+    pub attestation: Vec<String>,
+    pub cargo: Vec<String>,
     pub homebrew_tap: Vec<String>,
     pub github_release: Vec<String>,
+    pub scoop: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -504,7 +507,14 @@ pub fn artifact_name(tag: &str, target: ReleaseTarget) -> String {
 }
 
 fn install_instructions(tag: &str) -> InstallInstructions {
+    let version = tag.strip_prefix('v').unwrap_or(tag);
     InstallInstructions {
+        attestation: vec![format!(
+            "gh attestation verify 'git-slop-{tag}-<target>.*' --repo {REPO_FULL_NAME} --signer-repo {REPO_FULL_NAME}"
+        )],
+        cargo: vec![format!(
+            "cargo install git-slop --version {version} --locked"
+        )],
         homebrew_tap: vec![
             "brew tap coreycoto/tap".to_owned(),
             "brew install coreycoto/tap/git-slop".to_owned(),
@@ -515,6 +525,10 @@ fn install_instructions(tag: &str) -> InstallInstructions {
                  'git-slop-{tag}-<target>.*' --pattern {CHECKSUM_FILE_NAME}"
             ),
             format!("sha256sum --check {CHECKSUM_FILE_NAME} --ignore-missing"),
+        ],
+        scoop: vec![
+            "scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket".to_owned(),
+            "scoop install coreycoto/git-slop".to_owned(),
         ],
     }
 }

@@ -1,19 +1,98 @@
 {
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/cache-status-1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/cache-status-1.json",
-  "title": "Git Slop cache status schema 1",
-  "type": "object",
-  "required": ["schema_version", "command", "status", "entries", "payload_bytes", "database_bytes"],
+  "additionalProperties": false,
   "properties": {
-    "schema_version": {"const": 1}, "command": {"const": "cache status"},
-    "status": {"enum": ["absent", "ready", "corrupt"]},
-    "entries": {"type":"integer","minimum":0}, "payload_bytes": {"type":"integer","minimum":0},
-    "database_bytes": {"type":"integer","minimum":0}, "wal_bytes": {"type":"integer","minimum":0},
-    "shm_bytes": {"type":"integer","minimum":0}, "allocated_bytes": {"type":"integer","minimum":0},
-    "page_count": {"type":"integer","minimum":0}, "free_pages": {"type":"integer","minimum":0},
-    "page_size": {"type":"integer","minimum":0}, "reclaimable_bytes": {"type":"integer","minimum":0},
-    "integrity": {"type":["string","null"]}, "oldest_accessed_at_unix": {"type":["integer","null"]},
-    "newest_accessed_at_unix": {"type":["integer","null"]}
+    "allocated_bytes": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "command": {
+      "const": "cache status"
+    },
+    "database_bytes": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "diagnostic": { "type": "string" },
+    "cleanup_command": { "type": "string" },
+    "entries": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "free_pages": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "integrity": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "newest_accessed_at_unix": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "oldest_accessed_at_unix": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "page_count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "page_size": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "payload_bytes": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "persistent_bytes": { "minimum": 0, "type": "integer" },
+    "transient_bytes": { "minimum": 0, "type": "integer" },
+    "quarantined_files": { "minimum": 0, "type": "integer" },
+    "quarantined_bytes": { "minimum": 0, "type": "integer" },
+    "repair_command": { "type": "string" },
+    "reclaimable_bytes": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "shm_bytes": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "absent",
+        "ready",
+        "corrupt",
+        "quarantined_uncached",
+        "unavailable",
+        "invalid_schema"
+      ]
+    },
+    "wal_bytes": {
+      "minimum": 0,
+      "type": "integer"
+    }
   },
-  "additionalProperties": false
+  "required": [
+    "schema_version",
+    "command",
+    "status",
+    "entries",
+    "payload_bytes",
+    "database_bytes"
+  ],
+  "title": "Git Slop cache status schema 1",
+  "type": "object"
 }

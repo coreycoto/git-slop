@@ -10,7 +10,7 @@ inputs:
   version:
     description: Git Slop release version to install, with or without a leading v.
     required: false
-    default: "0.11.5"
+    default: "0.11.6"
   release-repository:
     description: GitHub repository that owns the versioned release assets.
     required: false
@@ -185,6 +185,12 @@ outputs:
   report-path:
     description: Absolute path to report.json.
     value: ${{ steps.analyze.outputs.report-path }}
+  compressed-report-path:
+    description: Absolute path to report.json.gz or report.json.zst when compression is enabled.
+    value: ${{ steps.analyze.outputs.compressed-report-path }}
+  analysis-error-path:
+    description: Diagnostic Markdown path when analysis or report consumption fails.
+    value: ${{ steps.analyze.outputs.analysis-error-path }}
   report-yaml-path:
     description: Absolute path to report.yaml when output.yaml is enabled; otherwise empty.
     value: ${{ steps.analyze.outputs.report-yaml-path }}
@@ -224,7 +230,10 @@ runs:
       uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: ${{ runner.temp }}/git-slop-action/state/cache
-        key: git-slop-token-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
+        key: git-slop-token-v4-ac2-cl100k-base-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          git-slop-token-v4-ac2-cl100k-base-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}-${{ github.sha }}-
+          git-slop-token-v4-ac2-cl100k-base-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}-
 
     - name: Analyze repository and publish job summary
       id: analyze
@@ -257,11 +266,11 @@ runs:
       run: node "${{ github.action_path }}/action/runner.mjs" analyze
 
     - name: Save optional token cache
-      if: ${{ always() && inputs.token-cache == 'true' && steps.analyze.outputs.analysis-exit-code == '0' && steps.token-cache.outputs.cache-hit != 'true' }}
+      if: ${{ always() && inputs.token-cache == 'true' && steps.analyze.outputs.analysis-exit-code == '0' }}
       uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: ${{ runner.temp }}/git-slop-action/state/cache
-        key: git-slop-token-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
+        key: git-slop-token-v4-ac2-cl100k-base-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
     - name: Emit bounded repository-health annotations
       id: annotate
@@ -284,7 +293,9 @@ runs:
       env:
         GIT_SLOP_ARTIFACT_CONTENTS: ${{ steps.analyze.outputs.artifact-contents }}
         GIT_SLOP_HEALTH_PATH: ${{ steps.analyze.outputs.health-path }}
+        GIT_SLOP_ANALYSIS_ERROR_PATH: ${{ steps.analyze.outputs.analysis-error-path }}
         GIT_SLOP_REPORT_PATH: ${{ steps.analyze.outputs.report-path }}
+        GIT_SLOP_COMPRESSED_REPORT_PATH: ${{ steps.analyze.outputs.compressed-report-path }}
         GIT_SLOP_REPORT_YAML_PATH: ${{ steps.analyze.outputs.report-yaml-path }}
         GIT_SLOP_SUMMARY_PATH: ${{ steps.analyze.outputs.summary-path }}
         GIT_SLOP_COMPARISON_PATH: ${{ steps.analyze.outputs.comparison-path }}

@@ -137,6 +137,12 @@ pub fn humanize_reason_code(reason: &str) -> String {
 }
 
 pub(super) fn finding_for_file(file: &Value, config: &Value) -> Option<Finding> {
+    if matches!(
+        string_field(file, "classification"),
+        "generated" | "vendored" | "snapshot" | "fixture" | "migration_fixture"
+    ) {
+        return None;
+    }
     let context_band = string_field(file, "context_band");
     let slop_band = string_field(file, "slop_band");
     let tokens = usize_field(file, "tokens");

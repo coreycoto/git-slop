@@ -24,6 +24,7 @@ mod tests {
             language: "Rust".to_string(),
             profile: "agent_context".to_string(),
             classification: "source".to_string(),
+            generated_from: Vec::new(),
             analysis_status: "analyzed".to_string(),
             skipped_reason: None,
             symlink_metadata: None,
@@ -32,6 +33,7 @@ mod tests {
             context_band: "compact".to_string(),
             context_pressure: 0.0,
             content_fingerprint: String::new(),
+            content_sha256: String::new(),
             structural_tokens: Vec::new(),
             structural_token_count: 0,
             top_structural_terms: Vec::new(),
@@ -153,15 +155,17 @@ mod tests {
     }
 
     #[test]
-    fn generated_and_non_product_evidence_never_enters_the_action_queue() {
-        for classification in ["generated", "vendored", "snapshot", "migration_fixture"] {
+    fn generated_and_non_product_evidence_is_marked_for_investigation() {
+        for classification in ["generated", "vendored", "snapshot", "fixture", "migration_fixture"] {
             let mut candidate = file("generated/output.yml", 2.0);
             candidate.classification = classification.to_string();
             candidate.reason_codes = vec!["critical_token_cost".to_string()];
             candidate.slop_score = 100.0;
             candidate.slop_band = "critical".to_string();
             candidate.context_band = "critical".to_string();
-            assert!(action_queue(&[candidate], true, &json!({})).is_empty());
+            let candidates = action_queue(&[candidate], true, &json!({}));
+            assert_eq!(candidates.len(), 1);
+            assert_ne!(candidates[0]["remediation_kind"], "source_intervention");
         }
     }
 
@@ -175,7 +179,7 @@ mod tests {
             Err(error) => error,
         };
         let warning = quarantine_cache(&path, &error);
-        assert!(warning.contains("continued uncached"));
+        assert!(warning.contains("fresh cache was opened when possible"));
         assert!(!path.exists());
         assert!(
             std::fs::read_dir(root.path())

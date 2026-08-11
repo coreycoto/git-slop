@@ -249,8 +249,6 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     let out_of_scope_paths = string_array(slice.get("out_of_scope_paths"));
     let relationship_ids = string_array(slice.get("supporting_relationship_ids"));
     let cluster_ids = string_array(slice.get("supporting_cluster_ids"));
-    let baseline_command = "git-slop baseline create --name plan";
-    let rerun_command = "git-slop find && git-slop compare --baseline plan --head .slop/latest/report.json --detail summary --fail-on-regression";
     let top_score = string_array(slice.get("scope_paths"))
         .iter()
         .map(|path| record_slop_score(report, path))
@@ -262,8 +260,29 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     } else {
         "Later"
     };
-    let target_score = (top_score - (top_score * 0.05).max(1.0)).max(0.0);
-    let plan_type = if top_score >= 40.0 || !relationship_ids.is_empty() {
+    let round3 = |value: f64| (value * 1_000.0).round() / 1_000.0;
+    let top_score = round3(top_score);
+    let target_score = round3((top_score - 1.0).max(0.0));
+    let non_actionable_scope = scope_paths.iter().any(|path| {
+        resolved_record(report, path).is_some_and(|record| {
+            matches!(
+                string(record.get("classification")).as_str(),
+                "generated" | "vendored" | "snapshot" | "fixture" | "migration_fixture"
+            )
+        })
+    });
+    let low_support_relationship = relationship_ids.iter().any(|id| {
+        relationship_by_id(report, id).is_some_and(|relationship| {
+            !matches!(
+                string(relationship.get("confidence")).as_str(),
+                "supported" | "limited"
+            )
+        })
+    });
+    let plan_type = if !non_actionable_scope
+        && !low_support_relationship
+        && (top_score >= 40.0 || !relationship_ids.is_empty())
+    {
         "intervention"
     } else {
         "investigation"
@@ -279,6 +298,10 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
                     relationship.get("source_path").cloned().unwrap_or(Value::Null),
                     relationship.get("target_path").cloned().unwrap_or(Value::Null),
                 ],
+                "confidence": relationship.get("confidence").cloned().unwrap_or_else(|| json!("unknown")),
+                "confidence_lower_bound": relationship.get("confidence_lower_bound").cloned().unwrap_or(Value::Null),
+                "support_count": relationship.get("support_count").cloned().unwrap_or_else(|| json!(0)),
+                "evidence_score": relationship.get("evidence_score").cloned().unwrap_or_else(|| json!(0.0)),
             })
         })
         .collect::<Vec<_>>();
@@ -319,7 +342,7 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         "evidence_summary": evidence_summary,
         "acceptance_criteria": [
             format!("Change no more than {scope_path_count} scoped paths unless the plan is regenerated."),
-            format!("Reduce the highest scoped slop score from {top_score:.3} to at most {target_score:.3}."),
+            format!("Remove or materially reduce the cited source reason codes while preserving raw-content identity evidence (baseline score {top_score:.3})."),
             "Produce zero native compare regressions and pass every discovered verification command.",
         ],
         "source": {
@@ -333,7 +356,7 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     object.insert(
         "objective".to_string(),
         json!(format!(
-            "Reduce the highest scoped slop score from {top_score:.3} to at most {target_score:.3} across {}, introduce zero native compare regressions, and pass every discovered verification command without expanding the reviewed scope.",
+            "Resolve the cited detector reason codes across {}, improve at least one source-derived metric without worsening relationship support, introduce zero native compare regressions, and pass every discovered verification command without unreviewed scope expansion.",
             render_limited(&scope_paths, 5)
         )),
     );
@@ -358,7 +381,14 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     );
     object.insert(
         "boundaries".to_string(),
-        json!({"in_scope": scope_paths, "out_of_scope": out_of_scope_paths}),
+        json!({
+            "in_scope": scope_paths,
+            "out_of_scope": out_of_scope_paths,
+            "allowed_new_paths": {
+                "maximum": 2,
+                "constraint": "Only focused tests or one extracted module directly attributable to an in-scope path; regenerate the plan for any other new file."
+            }
+        }),
     );
     object.insert(
         "verification".to_string(),
@@ -369,7 +399,15 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
                 "Run focused tests for every changed path.",
                 "Rerun git-slop and compare the new report with the saved baseline.",
                 "Confirm no unrelated finding or public contract regressed.",
-            ]
+            ],
+            "concrete_targets": scope_paths.iter().map(|path| {
+                let record = resolved_record(report, path).unwrap_or(Value::Null);
+                json!({
+                    "path": path,
+                    "symbols_or_terms": string_array(record.get("top_structural_terms")).into_iter().take(5).collect::<Vec<_>>(),
+                    "nearby_tests": record.pointer("/overlays/verification/nearby_tests").cloned().unwrap_or_else(|| json!([]))
+                })
+            }).collect::<Vec<_>>()
         }),
     );
     object.insert(
@@ -380,13 +418,11 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
             "target_top_slop_score": target_score,
             "required": [
                 "No new native compare regression.",
-                format!("Highest scoped slop score is at most {target_score:.3}."),
+                "At least one cited source-derived reason code or metric improves without a relationship-confidence regression.",
                 "All reviewed verification commands pass."
             ]
         }),
     );
-    object.insert("baseline_command".to_string(), json!(baseline_command));
-    object.insert("rerun_command".to_string(), json!(rerun_command));
     object.insert(
         "abandonment_condition".to_string(),
         json!("Stop and abandon or re-scope this slice if preserving behavior requires an out-of-scope change, verification cannot be identified, or the native comparison reports a regression."),
@@ -503,9 +539,13 @@ pub fn render_plan_text(payload: &Value) -> String {
                 array_at(slice, &["evidence", "relationships"])
                     .iter()
                     .map(|relationship| format!(
-                        "{}({})",
+                        "{}({}; confidence={}; lower={}; support={}; evidence={})",
                         safe(relationship.get("id")),
-                        render_limited(&safe_array(relationship.get("paths")), 2)
+                        render_limited(&safe_array(relationship.get("paths")), 2),
+                        safe(relationship.get("confidence")),
+                        json_scalar_text(relationship.get("confidence_lower_bound")),
+                        json_scalar_text(relationship.get("support_count")),
+                        json_scalar_text(relationship.get("evidence_score")),
                     ))
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -520,6 +560,11 @@ pub fn render_plan_text(payload: &Value) -> String {
                     &safe_array(value_at(slice, &["verification", "discovered_commands"])),
                     5
                 )
+            ),
+            format!("   baseline: {}", safe(slice.get("baseline_command"))),
+            format!(
+                "   baseline_update_if_intentional: {}",
+                safe(slice.get("baseline_update_command"))
             ),
             format!("   rerun: {}", safe(slice.get("rerun_command"))),
             format!(

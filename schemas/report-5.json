@@ -12,6 +12,13 @@
             "null"
           ]
         },
+        "content_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "context_band": {
           "type": "string"
         },
@@ -23,6 +30,12 @@
         },
         "path": {
           "type": "string"
+        },
+        "skipped_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "slop_band": {
           "type": "string"
@@ -38,7 +51,9 @@
       "required": [
         "path",
         "content_fingerprint",
+        "content_sha256",
         "analysis_status",
+        "skipped_reason",
         "tokens",
         "context_band",
         "slop_score",
@@ -54,6 +69,12 @@
         "coordination": {
           "additionalProperties": false,
           "properties": {
+            "analysis_status": {
+              "type": "string"
+            },
+            "analysis_version": {
+              "type": "integer"
+            },
             "change_diffusion": {
               "type": "number"
             },
@@ -87,6 +108,12 @@
         "load": {
           "additionalProperties": false,
           "properties": {
+            "analysis_status": {
+              "type": "string"
+            },
+            "analysis_version": {
+              "type": "integer"
+            },
             "context_band": {
               "type": "string"
             },
@@ -114,6 +141,12 @@
         "volatility": {
           "additionalProperties": false,
           "properties": {
+            "analysis_status": {
+              "type": "string"
+            },
+            "analysis_version": {
+              "type": "integer"
+            },
             "churn_measurement": {
               "type": "string"
             },
@@ -189,6 +222,10 @@
         "content_fingerprint": {
           "type": "string"
         },
+        "content_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
         "context_band": {
           "type": "string"
         },
@@ -206,6 +243,12 @@
         },
         "deleted_window": {
           "type": "integer"
+        },
+        "generated_from": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "has_inline_tests": {
           "type": "boolean"
@@ -299,6 +342,7 @@
         "language",
         "profile",
         "classification",
+        "generated_from",
         "analysis_status",
         "skipped_reason",
         "symlink_metadata",
@@ -307,6 +351,7 @@
         "context_band",
         "context_pressure",
         "content_fingerprint",
+        "content_sha256",
         "structural_token_count",
         "top_structural_terms",
         "structural_categories",
@@ -413,6 +458,102 @@
       ],
       "type": "object"
     },
+    "queue_item": {
+      "additionalProperties": false,
+      "properties": {
+        "age_days": {
+          "type": "integer"
+        },
+        "churn_pressure": {
+          "type": "number"
+        },
+        "classification": {
+          "type": "string"
+        },
+        "context_band": {
+          "type": "string"
+        },
+        "evidence_status": {
+          "type": "string"
+        },
+        "generated_from": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "is_pure_context_hotspot": {
+          "type": "boolean"
+        },
+        "next_action": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "profile": {
+          "enum": [
+            "agent_context",
+            "data_context"
+          ]
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "remediation_kind": {
+          "type": "string"
+        },
+        "revisions_window": {
+          "type": "integer"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "notice"
+          ]
+        },
+        "slop_band": {
+          "type": "string"
+        },
+        "slop_score": {
+          "type": "number"
+        },
+        "synchronization_group": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tokens": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "profile",
+        "classification",
+        "generated_from",
+        "synchronization_group",
+        "remediation_kind",
+        "slop_score",
+        "slop_band",
+        "context_band",
+        "tokens",
+        "age_days",
+        "revisions_window",
+        "churn_pressure",
+        "reason_codes",
+        "is_pure_context_hotspot",
+        "severity",
+        "evidence_status",
+        "next_action"
+      ],
+      "type": "object"
+    },
     "ranked_file": {
       "additionalProperties": false,
       "properties": {
@@ -449,84 +590,13 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/report-5.json",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/report-5.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
     "action_queue": {
       "items": {
-        "additionalProperties": false,
-        "properties": {
-          "age_days": {
-            "type": "integer"
-          },
-          "churn_pressure": {
-            "type": "number"
-          },
-          "context_band": {
-            "type": "string"
-          },
-          "evidence_status": {
-            "type": "string"
-          },
-          "is_pure_context_hotspot": {
-            "type": "boolean"
-          },
-          "next_action": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          },
-          "profile": {
-            "enum": [
-              "agent_context",
-              "data_context"
-            ]
-          },
-          "reason_codes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "revisions_window": {
-            "type": "integer"
-          },
-          "severity": {
-            "enum": [
-              "error",
-              "warning",
-              "notice"
-            ]
-          },
-          "slop_band": {
-            "type": "string"
-          },
-          "slop_score": {
-            "type": "number"
-          },
-          "tokens": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "path",
-          "profile",
-          "slop_score",
-          "slop_band",
-          "context_band",
-          "tokens",
-          "age_days",
-          "revisions_window",
-          "churn_pressure",
-          "reason_codes",
-          "is_pure_context_hotspot",
-          "severity",
-          "evidence_status",
-          "next_action"
-        ],
-        "type": "object"
+        "$ref": "#/$defs/queue_item"
       },
       "type": "array"
     },
@@ -654,6 +724,12 @@
     },
     "health": {
       "type": "object"
+    },
+    "observation_feed": {
+      "items": {
+        "$ref": "#/$defs/queue_item"
+      },
+      "type": "array"
     },
     "overlays": {
       "type": "object"
@@ -824,6 +900,7 @@
     "folders",
     "ranked_files",
     "action_queue",
+    "observation_feed",
     "costs",
     "overlays",
     "health",

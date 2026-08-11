@@ -223,8 +223,8 @@ mod tests {
             ),
             (
                 valid.replacen(
-                    "gh release create \"$TAG\" --draft --generate-notes --title \"$TAG\" --verify-tag",
-                    "gh release create \"$TAG\" --draft --generate-notes --title \"$TAG\"",
+                    "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\" --verify-tag",
+                    "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\"",
                     1,
                 ),
                 "--verify-tag",

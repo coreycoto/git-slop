@@ -75,6 +75,9 @@ function reportPaths(root) {
 function reportPathsFromOutput(outputRoot) {
   const latest = join(outputRoot, "latest");
   return {
+    analysisErrorPath: join(latest, "analysis-error.md"),
+    compressedGzipPath: join(latest, "report.json.gz"),
+    compressedZstdPath: join(latest, "report.json.zst"),
     healthPath: join(latest, "health.md"),
     reportPath: join(latest, "report.json"),
     reportYamlPath: join(latest, "report.yaml"),
@@ -138,19 +141,19 @@ function reportFindingCount(reportPath) {
   return 0;
 }
 
-function reportPolicyFindingCount(binary, cwd, reportPath, inputs) {
-  const args = ["check", "--report", reportPath, "--format", "json"];
-  if (inputs.failOnContextBand) args.push("--fail-on-context-band", inputs.failOnContextBand);
-  if (inputs.failOnSlopBand) args.push("--fail-on-slop-band", inputs.failOnSlopBand);
-  const result = run(binary, args, cwd, "pipe");
-  if (result.status !== 0 && result.status !== 1) {
-    throw new Error(`git-slop check exited with status ${result.status}: ${result.stderr.trim()}`);
+function reportPolicyFindingCount(reportPath, inputs) {
+  const report = JSON.parse(readFileSync(reportPath, "utf8"));
+  const contextThreshold = inputs.failOnContextBand || report.config?.check?.fail_on_context_band || "critical";
+  const slopThreshold = inputs.failOnSlopBand || report.config?.check?.fail_on_slop_band || "critical";
+  const contextRanks = { compact: 0, healthy: 1, warning: 2, critical: 3, refactor_required: 4, budget_exceeded: 5 };
+  const slopRanks = { low: 0, moderate: 1, high: 2, critical: 3 };
+  if (!(contextThreshold in contextRanks) || !(slopThreshold in slopRanks)) {
+    throw new Error("report contains incompatible policy thresholds");
   }
-  const payload = JSON.parse(result.stdout);
-  if (!Number.isSafeInteger(payload.finding_count)) {
-    throw new Error("git-slop check returned an incompatible policy payload");
-  }
-  return payload.finding_count;
+  return (Array.isArray(report.files) ? report.files : []).filter((record) =>
+    (contextRanks[record.context_band] ?? -1) >= contextRanks[contextThreshold]
+      || (slopRanks[record.slop_band] ?? -1) >= slopRanks[slopThreshold]
+  ).length;
 }
 
 function shellQuote(value) {
@@ -280,7 +283,17 @@ function analyze() {
     existsSync(fallbackCwd) && statSync(fallbackCwd).isDirectory()
       ? fallbackCwd
       : resolve(process.env.RUNNER_TEMP || workspace, "git-slop-action-fallback");
-  let { healthPath, reportPath, reportYamlPath, summaryPath } = reportPaths(fallbackRoot);
+  let {
+    analysisErrorPath,
+    compressedGzipPath,
+    compressedZstdPath,
+    healthPath,
+    reportPath,
+    reportYamlPath,
+    summaryPath,
+  } = reportPaths(fallbackRoot);
+  let compressedReportPath = "";
+  let reportGenerated = false;
   let comparisonPath = "";
   let comparisonErrorPath = "";
 
@@ -299,7 +312,15 @@ function analyze() {
     const runnerTemp = (process.env.RUNNER_TEMP || "").trim();
     const outputRoot = runnerTemp ? resolve(runnerTemp, "git-slop-action", "reports") : join(cwd, ".slop");
     const stateRoot = runnerTemp ? resolve(runnerTemp, "git-slop-action", "state") : join(cwd, ".slop");
-    ({ healthPath, reportPath, reportYamlPath, summaryPath } = reportPathsFromOutput(outputRoot));
+    ({
+      analysisErrorPath,
+      compressedGzipPath,
+      compressedZstdPath,
+      healthPath,
+      reportPath,
+      reportYamlPath,
+      summaryPath,
+    } = reportPathsFromOutput(outputRoot));
     const shallow = run("git", ["rev-parse", "--is-shallow-repository"], cwd, "pipe");
     if (shallow.status !== 0) {
       throw new Error(`could not inspect Git history: ${shallow.stderr.trim()}`);
@@ -335,10 +356,33 @@ function analyze() {
       analysisExitCode = 2;
       throw new Error("git-slop find did not write .slop/latest/report.json and health.md");
     }
+    reportGenerated = true;
+    compressedReportPath = inputs.compression === "gzip"
+      ? compressedGzipPath
+      : inputs.compression === "zstd"
+        ? compressedZstdPath
+        : "";
+    if (compressedReportPath && !existsSync(compressedReportPath)) {
+      analysisExitCode = 2;
+      throw new Error(`git-slop find did not write requested ${inputs.compression} report`);
+    }
+    const validation = run(binary, ["report", "validate", reportPath], cwd, "pipe");
+    if (validation.status !== 0) {
+      analysisExitCode = 2;
+      throw new Error(
+        `generated report failed immediate validation with status ${validation.status}: ${validation.stderr.trim()}`,
+      );
+    }
   } catch (error) {
     failureMessage = error instanceof Error ? error.message : String(error);
     console.error(`git-slop Action analysis failed: ${safeLogText(failureMessage)}`);
-    writeFallbackHealth(healthPath, failureMessage);
+    mkdirSync(dirname(analysisErrorPath), { recursive: true });
+    writeFileSync(
+      analysisErrorPath,
+      `# Git Slop analysis error\n\n${failureMessage.replace(/\r?\n/gu, " ")}\n`,
+      "utf8",
+    );
+    if (!reportGenerated || !existsSync(healthPath)) writeFallbackHealth(healthPath, failureMessage);
   }
 
   if (!existsSync(healthPath)) {
@@ -366,9 +410,21 @@ function analyze() {
   const healthFindingCount = analysisExitCode === 0 ? reportFindingCount(reportPath) : 0;
   let absolutePolicyFindingCount = healthFindingCount;
   if (analysisExitCode === 0) {
-    absolutePolicyFindingCount = reportPolicyFindingCount(
-      (process.env.GIT_SLOP_BINARY || "").trim(), cwd, reportPath, safeInputs,
-    );
+    try {
+      // Advisory mode never invokes the enforcement command. This deterministic
+      // projection exists only to populate informational outputs; finalize runs
+      // `check` exactly once when absolute enforcement is requested.
+      absolutePolicyFindingCount = reportPolicyFindingCount(reportPath, safeInputs);
+    } catch (error) {
+      analysisExitCode = 2;
+      failureMessage = error instanceof Error ? error.message : String(error);
+      console.error(`git-slop Action report consumption failed: ${safeLogText(failureMessage)}`);
+      writeFileSync(
+        analysisErrorPath,
+        `# Git Slop report consumption error\n\n${failureMessage.replace(/\r?\n/gu, " ")}\n`,
+        "utf8",
+      );
+    }
   }
   let selectedPolicyFindingCount = absolutePolicyFindingCount;
   let regressionCount = 0;
@@ -464,7 +520,11 @@ function analyze() {
   }
   appendHealthSummary(healthPath, safeInputs);
   appendComparisonSummary(comparisonPath);
-  const artifactContents = analysisExitCode === 0 ? safeInputs.artifactContents : "summary";
+  const artifactContents = analysisExitCode === 0
+    ? safeInputs.artifactContents
+    : reportGenerated && existsSync(reportPath)
+      ? "report"
+      : "summary";
   setOutput("analysis-exit-code", analysisExitCode);
   setOutput("finding-count", selectedPolicyFindingCount);
   setOutput("health-finding-count", healthFindingCount);
@@ -476,10 +536,12 @@ function analyze() {
   setOutput("baseline-compatible", baselineStatus === "compatible");
   setOutput("comparison-path", comparisonPath);
   setOutput("comparison-error-path", comparisonErrorPath);
+  setOutput("analysis-error-path", existsSync(analysisErrorPath) ? analysisErrorPath : "");
   setOutput("health-path", healthPath);
-  setOutput("report-path", analysisExitCode === 0 ? reportPath : "");
-  setOutput("report-yaml-path", analysisExitCode === 0 && existsSync(reportYamlPath) ? reportYamlPath : "");
-  setOutput("summary-path", analysisExitCode === 0 ? summaryPath : "");
+  setOutput("report-path", reportGenerated && existsSync(reportPath) ? reportPath : "");
+  setOutput("compressed-report-path", reportGenerated && compressedReportPath && existsSync(compressedReportPath) ? compressedReportPath : "");
+  setOutput("report-yaml-path", reportGenerated && existsSync(reportYamlPath) ? reportYamlPath : "");
+  setOutput("summary-path", reportGenerated && existsSync(summaryPath) ? summaryPath : "");
   setOutput("working-directory", cwd || fallbackCwd);
   setOutput("policy", safeInputs.policy);
   setOutput("enforcement", safeInputs.enforcement);
@@ -533,15 +595,17 @@ function artifacts() {
     "full",
   ]);
   const healthPath = (process.env.GIT_SLOP_HEALTH_PATH || "").trim();
+  const analysisErrorPath = (process.env.GIT_SLOP_ANALYSIS_ERROR_PATH || "").trim();
+  const compressedReportPath = (process.env.GIT_SLOP_COMPRESSED_REPORT_PATH || "").trim();
   const reportPath = (process.env.GIT_SLOP_REPORT_PATH || "").trim();
   const reportYamlPath = (process.env.GIT_SLOP_REPORT_YAML_PATH || "").trim();
   const summaryPath = (process.env.GIT_SLOP_SUMMARY_PATH || "").trim();
   const comparisonPath = (process.env.GIT_SLOP_COMPARISON_PATH || "").trim();
   const comparisonErrorPath = (process.env.GIT_SLOP_COMPARISON_ERROR_PATH || "").trim();
   const allowed = {
-    summary: [healthPath, comparisonErrorPath],
-    report: [healthPath, reportPath, comparisonPath, comparisonErrorPath],
-    full: [healthPath, summaryPath, reportPath, reportYamlPath, comparisonPath, comparisonErrorPath],
+    summary: [healthPath, analysisErrorPath, comparisonErrorPath],
+    report: [healthPath, reportPath, compressedReportPath, analysisErrorPath, comparisonPath, comparisonErrorPath],
+    full: [healthPath, summaryPath, reportPath, compressedReportPath, reportYamlPath, analysisErrorPath, comparisonPath, comparisonErrorPath],
   };
   const paths = allowed[mode].filter((candidate) => candidate && existsSync(candidate));
   if (!paths.includes(healthPath)) {

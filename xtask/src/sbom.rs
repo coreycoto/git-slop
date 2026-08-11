@@ -65,6 +65,90 @@ fn dependency_scopes(nodes: &[Value]) -> BTreeMap<String, BTreeSet<String>> {
     scopes
 }
 
+fn package_key(package: &Value) -> String {
+    format!(
+        "{}\0{}\0{}",
+        package["name"].as_str().unwrap_or_default(),
+        package["version"].as_str().unwrap_or_default(),
+        package["source"].as_str().unwrap_or_default()
+    )
+}
+
+fn cargo_lock_checksums(repo_root: &Path) -> Result<BTreeMap<String, String>> {
+    let source = fs::read_to_string(repo_root.join("Cargo.lock"))
+        .context("unable to read Cargo.lock for SBOM checksums")?;
+    let lock: toml::Value = toml::from_str(&source).context("Cargo.lock is not valid TOML")?;
+    let mut checksums = BTreeMap::new();
+    for package in lock
+        .get("package")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(name) = package.get("name").and_then(toml::Value::as_str) else {
+            continue;
+        };
+        let Some(version) = package.get("version").and_then(toml::Value::as_str) else {
+            continue;
+        };
+        let source = package
+            .get("source")
+            .and_then(toml::Value::as_str)
+            .unwrap_or_default();
+        let Some(checksum) = package.get("checksum").and_then(toml::Value::as_str) else {
+            continue;
+        };
+        if checksum.len() == 64
+            && checksum
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
+        {
+            checksums.insert(
+                format!("{name}\0{version}\0{source}"),
+                checksum.to_ascii_lowercase(),
+            );
+        }
+    }
+    Ok(checksums)
+}
+
+fn normalized_spdx_expression(license: &str) -> String {
+    license
+        .split('/')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" OR ")
+}
+
+fn cyclonedx_license(license: &str) -> Value {
+    let normalized = normalized_spdx_expression(license);
+    let compound = normalized.contains(" AND ")
+        || normalized.contains(" OR ")
+        || normalized.contains(" WITH ")
+        || normalized.contains('(')
+        || normalized.contains(')');
+    if compound {
+        json!({"expression": normalized})
+    } else {
+        json!({"license": {"id": normalized}})
+    }
+}
+
+fn cyclonedx_scope(scopes: &[String], root: bool) -> &'static str {
+    if root
+        || scopes
+            .iter()
+            .any(|scope| scope == "runtime" || scope == "normal")
+    {
+        "required"
+    } else if scopes.iter().any(|scope| scope == "build") {
+        "optional"
+    } else {
+        "excluded"
+    }
+}
+
 fn validate_graphs(cyclonedx: &Value, spdx: &Value) -> Result<()> {
     let component_refs = cyclonedx["components"]
         .as_array()
@@ -148,6 +232,7 @@ pub fn generate(repo_root: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
     }
     let metadata: Value =
         serde_json::from_slice(&output.stdout).context("cargo metadata returned invalid JSON")?;
+    let lock_checksums = cargo_lock_checksums(repo_root)?;
     let mut packages = metadata["packages"]
         .as_array()
         .cloned()
@@ -201,7 +286,7 @@ pub fn generate(repo_root: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
                 "purl": package_purl(package),
             });
             if let Some(license) = package["license"].as_str() {
-                component["licenses"] = json!([{"license": {"id": license}}]);
+                component["licenses"] = json!([cyclonedx_license(license)]);
             }
             let package_scopes = package["id"]
                 .as_str()
@@ -210,6 +295,13 @@ pub fn generate(repo_root: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
                 .unwrap_or_default()
                 .into_iter()
                 .collect::<Vec<_>>();
+            component["scope"] = json!(cyclonedx_scope(
+                &package_scopes,
+                package["name"] == "git-slop"
+            ));
+            if let Some(checksum) = lock_checksums.get(&package_key(package)) {
+                component["hashes"] = json!([{"alg": "SHA-256", "content": checksum}]);
+            }
             component["properties"] = json!([{
                 "name": "git-slop:dependency:scopes",
                 "value": if package_scopes.is_empty() { "root".to_string() } else { package_scopes.join(",") }
@@ -249,7 +341,13 @@ pub fn generate(repo_root: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
         "specVersion": "1.5",
         "serialNumber": format!("urn:uuid:{}", deterministic_uuid(seed.as_bytes())),
         "version": 1,
-        "metadata": {"component": project_component},
+        "metadata": {
+            "component": project_component,
+            "properties": [
+                {"name": "git-slop:sbom:kind", "value": "source"},
+                {"name": "git-slop:sbom:target", "value": "all-cargo-targets"}
+            ]
+        },
         "components": components,
         "dependencies": dependencies,
     });
@@ -257,8 +355,11 @@ pub fn generate(repo_root: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
         .iter()
         .enumerate()
         .map(|(index, package)| {
-            let license = package["license"].as_str().unwrap_or("NOASSERTION");
-            json!({
+            let license = package["license"]
+                .as_str()
+                .map(normalized_spdx_expression)
+                .unwrap_or_else(|| "NOASSERTION".to_string());
+            let mut value = json!({
                 "SPDXID": format!("SPDXRef-Package-{}", index + 1),
                 "name": package["name"],
                 "versionInfo": package["version"],
@@ -267,7 +368,11 @@ pub fn generate(repo_root: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
                 "licenseConcluded": license,
                 "licenseDeclared": license,
                 "externalRefs": [{"referenceCategory":"PACKAGE-MANAGER","referenceType":"purl","referenceLocator":package_purl(package)}]
-            })
+            });
+            if let Some(checksum) = lock_checksums.get(&package_key(package)) {
+                value["checksums"] = json!([{"algorithm": "SHA256", "checksumValue": checksum}]);
+            }
+            value
         })
         .collect::<Vec<_>>();
     let mut relationships = Vec::new();
@@ -314,7 +419,7 @@ pub fn generate(repo_root: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
         "SPDXID": "SPDXRef-DOCUMENT",
         "name": "git-slop",
         "documentNamespace": format!("https://github.com/coreycoto/git-slop/sbom/v{}", project["version"].as_str().unwrap_or_default()),
-        "creationInfo": {"created":release_timestamp(repo_root),"creators":["Tool: cargo-xtask-sbom"]},
+        "creationInfo": {"created":release_timestamp(repo_root),"creators":["Tool: cargo-xtask-sbom"],"comment":"source SBOM covering all Cargo targets; dependency scope is recorded per relationship"},
         "packages": spdx_packages,
         "relationships": relationships,
     });
@@ -339,7 +444,27 @@ pub fn generate(repo_root: &Path, output_dir: &Path) -> Result<Vec<PathBuf>> {
 mod tests {
     use tempfile::tempdir;
 
-    use super::{generate, validate_graphs};
+    use super::{cyclonedx_license, generate, normalized_spdx_expression, validate_graphs};
+
+    #[test]
+    fn compound_and_legacy_slash_licenses_use_cyclonedx_expressions() {
+        assert_eq!(
+            cyclonedx_license("MIT OR Apache-2.0"),
+            serde_json::json!({"expression": "MIT OR Apache-2.0"})
+        );
+        assert_eq!(
+            cyclonedx_license("MIT/Apache-2.0"),
+            serde_json::json!({"expression": "MIT OR Apache-2.0"})
+        );
+        assert_eq!(
+            cyclonedx_license("MIT"),
+            serde_json::json!({"license": {"id": "MIT"}})
+        );
+        assert_eq!(
+            normalized_spdx_expression("BSD-3-Clause/MIT"),
+            "BSD-3-Clause OR MIT"
+        );
+    }
 
     #[test]
     fn generates_deterministic_cyclonedx_and_spdx_documents() {

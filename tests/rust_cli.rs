@@ -106,7 +106,15 @@ fn health_report() -> Value {
             "repo_name": "example",
             "branch": "main",
             "head_commit": "0123456789abcdef",
-            "git_remote_url": "https://github.com/example/example.git"
+            "git_remote_url": "https://github.com/example/example.git",
+            "worktree_clean": true
+        },
+        "diagnostics": {
+            "analysis": {"analysis_status": "complete"}
+        },
+        "collection_metadata": {
+            "files": {"total": 3, "returned": 3, "limit": null, "truncated": false},
+            "folders": {"total": 0, "returned": 0, "limit": null, "truncated": false}
         },
         "config": {
             "tokenization": {
@@ -140,6 +148,7 @@ fn health_report() -> Value {
             "comment_lines": 10,
             "blank_lines": 10,
             "tokens": 12000,
+            "analysis_status": "analyzed",
             "context_band": "critical",
             "slop_band": "critical",
             "slop_score": 88.0,
@@ -154,6 +163,7 @@ fn health_report() -> Value {
             "comment_lines": 5,
             "blank_lines": 5,
             "tokens": 9000,
+            "analysis_status": "analyzed",
             "context_band": "warning",
             "slop_band": "high",
             "slop_score": 70.0,
@@ -168,6 +178,7 @@ fn health_report() -> Value {
             "comment_lines": 3,
             "blank_lines": 3,
             "tokens": 6000,
+            "analysis_status": "analyzed",
             "context_band": "healthy",
             "slop_band": "moderate",
             "slop_score": 60.0,

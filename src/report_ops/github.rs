@@ -70,11 +70,7 @@ fn bounded_repository_text(root: &Path, relative: &str, byte_limit: usize) -> Op
 }
 
 fn applicable_guidance_paths(candidate_paths: &[String]) -> Vec<String> {
-    let mut paths = vec![
-        "AGENTS.md".to_string(),
-        "CONTRIBUTING.md".to_string(),
-        "README.md".to_string(),
-    ];
+    let mut paths = Vec::new();
     for candidate in candidate_paths {
         let mut parent = Path::new(candidate).parent();
         while let Some(directory) = parent {
@@ -89,6 +85,11 @@ fn applicable_guidance_paths(candidate_paths: &[String]) -> Vec<String> {
                 paths.push(path);
             }
             parent = directory.parent();
+        }
+    }
+    for path in ["AGENTS.md", "CONTRIBUTING.md", "README.md"] {
+        if !paths.iter().any(|existing| existing == path) {
+            paths.push(path.to_string());
         }
     }
     paths
@@ -113,6 +114,8 @@ fn complete_repository_text(root: &Path, relative: &str, remaining: usize) -> Op
         "path": relative,
         "included": true,
         "bytes": bytes.len(),
+        "sha256": hex::encode(Sha256::digest(&bytes)),
+        "line_range": if bytes.is_empty() { Value::Null } else { json!({"start": 1, "end": String::from_utf8_lossy(&bytes).lines().count().max(1)}) },
         "text": String::from_utf8_lossy(&bytes)
     }))
 }
@@ -232,14 +235,19 @@ pub fn render_github_annotations(report: &Value, max_annotations: usize) -> Stri
     }
 }
 
+pub struct PromptPackOptions<'a> {
+    pub repository_root: Option<&'a Path>,
+    pub excerpt_bytes: usize,
+    pub force: bool,
+}
+
 pub fn write_prompt_pack(
     command: &str,
     payload: &Value,
     report: &Value,
+    report_path: &Path,
     output_dir: &Path,
-    repository_root: Option<&Path>,
-    excerpt_bytes: usize,
-    force: bool,
+    options: PromptPackOptions<'_>,
 ) -> Result<()> {
     if output_dir.exists() {
         if !output_dir.is_dir() {
@@ -249,7 +257,7 @@ pub fn write_prompt_pack(
             );
         }
         let empty = fs::read_dir(output_dir)?.next().is_none();
-        if !empty && !force {
+        if !empty && !options.force {
             bail!(
                 "Prompt pack path already exists and is not empty; pass --force to replace it: {}",
                 output_dir.display()
@@ -267,12 +275,26 @@ pub fn write_prompt_pack(
         fs::remove_dir_all(&temporary)?;
     }
     fs::create_dir(&temporary)?;
-    let report_digest = serde_json::to_vec(report)
+    let source_report_bytes = fs::read(report_path).map_err(|error| {
+        anyhow!(
+            "failed to read source report {}: {error}",
+            report_path.display()
+        )
+    })?;
+    let report_digest = hex::encode(Sha256::digest(&source_report_bytes));
+    let canonical_report_digest = serde_json::to_vec(report)
         .map(|bytes| hex::encode(Sha256::digest(bytes)))
         .unwrap_or_default();
     let mut selected_paths = Vec::new();
     collect_prompt_paths(payload, &mut selected_paths);
-    let mut report_files = array_at(report, &["files"]).iter().collect::<Vec<_>>();
+    let mut report_files = array_at(report, &["files"])
+        .iter()
+        .filter(|file| {
+            file.get("path")
+                .and_then(Value::as_str)
+                .is_some_and(|path| selected_paths.iter().any(|selected| selected == path))
+        })
+        .collect::<Vec<_>>();
     report_files.sort_by_key(|file| {
         let path = file.get("path").and_then(Value::as_str).unwrap_or_default();
         selected_paths
@@ -290,11 +312,12 @@ pub fn write_prompt_pack(
                 "slop_band": file.get("slop_band"),
                 "context_band": file.get("context_band"),
                 "reason_codes": file.get("reason_codes"),
-                "content_fingerprint": file.get("content_fingerprint")
+                "content_fingerprint": file.get("content_fingerprint"),
+                "content_sha256": file.get("content_sha256")
             })
         })
         .collect::<Vec<_>>();
-    let repository_context = repository_root.map_or_else(
+    let repository_context = options.repository_root.map_or_else(
         || {
             json!({
                 "included": false,
@@ -305,8 +328,9 @@ pub fn write_prompt_pack(
                 "truncation": {"per_file_byte_limit": 0, "file_limit": 0}
             })
         },
-        |root| repository_context(payload, report, root, excerpt_bytes),
+        |root| repository_context(payload, report, root, options.excerpt_bytes),
     );
+    let readiness = evaluate_report_readiness(report, false, false);
     let context = json!({
         "prompt_pack_version": 1,
         "command": command,
@@ -325,7 +349,10 @@ pub fn write_prompt_pack(
             "analyzed_content_digest": report.pointer("/repo/analyzed_content_digest").cloned().unwrap_or(Value::Null),
             "evidence_completeness": report.get("evidence_completeness").cloned().unwrap_or(Value::Null),
             "report_sha256": report_digest.clone(),
+            "canonical_report_sha256": canonical_report_digest.clone(),
+            "canonicalization": "serde_json_compact_preserve_order_v1",
         },
+        "readiness": readiness.as_json(),
         "report_excerpt": {
             "schema_version": report.get("schema_version").cloned().unwrap_or(Value::Null),
             "repo": report.get("repo").cloned().unwrap_or_else(|| json!({})),
@@ -334,26 +361,17 @@ pub fn write_prompt_pack(
             "analyzer": report.get("analyzer").cloned().unwrap_or_else(|| json!({})),
             "evidence_excerpts": evidence_excerpts,
             "collection_metadata": report.get("collection_metadata").cloned().unwrap_or(Value::Null),
-            "truncation": {"evidence_excerpt_limit": 20, "evidence_excerpt_total": report.get("files").and_then(Value::as_array).map(Vec::len).unwrap_or_default()},
+            "truncation": {"evidence_excerpt_limit": 20, "evidence_excerpt_candidate_count": selected_paths.len(), "evidence_excerpt_returned": evidence_excerpts.len()},
         },
         "repository_context": repository_context,
         "boundary": "Local model output is advisory only and must not rescore detector truth or mutate code, GitHub, or report data.",
     });
     let context_json = render_json(&context)?;
-    let prompt = format!(
-        "# git-slop {command} prompt pack\n\n\
-             Use only the facts in context.json.\n\n\
-             Summarize the selected detector evidence for a maintainer. Keep hotspot\n\
-             costs separate from overlay evidence. Treat model output as advisory:\n\
-             do not rescore detector truth, claim correctness, or imply a refactor is\n\
-             mandatory. If the supplied facts are insufficient, say what is missing\n\
-             instead of inventing context.\n\n\
-             Preferred output:\n\n\
-             1. Brief maintainer summary\n\
-             2. Strongest evidence\n\
-             3. Suggested next review step\n\
-             4. Boundaries and non-claims\n"
-    );
+    let prompt = if command == "plan" {
+        "# git-slop plan prompt pack\n\nUse only the facts in context.json. Produce a bounded, ordered implementation proposal tied to the selected paths, detector reason codes, and supplied verification commands. Name concrete files and tests. Cite missing evidence instead of inventing context. Do not invent symbols or evidence, mutate the repository, or claim the proposal is mandatory; do not rescore detector truth. Mark missing evidence explicitly.\n\nPreferred output:\n\n1. Scope and acceptance criteria\n2. Ordered implementation slices\n3. File-specific changes\n4. Verification commands\n5. Risks, rollback, and non-claims\n".to_string()
+    } else {
+        "# git-slop explain prompt pack\n\nUse only the facts in context.json. Explain the selected detector evidence for a maintainer. Cite missing evidence instead of inventing context. Keep hotspot costs separate from overlay evidence; do not rescore detector truth, claim correctness, or prescribe a refactor as mandatory. Mark missing evidence explicitly.\n\nPreferred output:\n\n1. Brief maintainer summary\n2. Strongest evidence\n3. Plausible interpretations\n4. Suggested next inspection\n5. Boundaries and non-claims\n".to_string()
+    };
     let readme = format!(
         "# git-slop {command} Prompt Pack\n\n\
              This directory was generated by git-slop for local model use.\n\n\
@@ -372,9 +390,32 @@ pub fn write_prompt_pack(
              - Keep hotspot cost separate from overlay evidence.\n\
              - `manifest.json` binds every payload file to its SHA-256 digest.\n"
     );
-    let response_template = "# Maintainer response\n\n## Summary\n\n## Evidence cited\n\n- Path, metric, and content fingerprint:\n\n## Proposed next step\n\n## Verification\n\n## Missing evidence and non-claims\n".to_string();
+    let response_template = if command == "plan" {
+        "# Maintainer plan\n\n## Scope and acceptance criteria\n\n## Ordered slices\n\n## Files and symbols\n\n## Verification commands\n\n## Risks and rollback\n\n## Missing evidence and non-claims\n".to_string()
+    } else {
+        "# Maintainer explanation\n\n## Summary\n\n## Evidence cited\n\n- Path, metric, raw SHA-256, and semantic fingerprint:\n\n## Interpretation\n\n## Next inspection\n\n## Missing evidence and non-claims\n".to_string()
+    };
+    let report_argument = format!(
+        "'{}'",
+        report_path.display().to_string().replace('\'', "'\\''")
+    );
+    let selector_kind = payload
+        .pointer("/selector/kind")
+        .and_then(Value::as_str)
+        .unwrap_or("top");
+    let selector_value = payload
+        .pointer("/selector/value")
+        .and_then(Value::as_str)
+        .unwrap_or("5");
+    let selector_flag = match selector_kind {
+        "path" => "--path",
+        "cluster" => "--cluster",
+        "relationship" => "--relationship",
+        _ => "--top",
+    };
+    let selector_argument = format!("'{}'", selector_value.replace('\'', "'\\''"));
     let verification = format!(
-        "# Verification\n\n- Validate the source report: `git-slop report validate --allow-legacy <report.json>`\n- Reproduce the selected payload with `git-slop {command} --format json` and the selector in context.json.\n- Confirm context.json and prompt.md digests against manifest.json.\n- Do not treat model prose as detector evidence.\n"
+        "# Verification\n\n- Validate the exact source report: `git-slop report validate {report_argument}`\n- Reproduce the selected payload: `git-slop {command} --report {report_argument} {selector_flag} {selector_argument} --format json`\n- Confirm the source bytes have SHA-256 `{report_digest}`.\n- Confirm context.json and prompt.md digests against manifest.json.\n- Do not treat model prose as detector evidence.\n"
     );
     let files = [
         ("context.json", context_json),
@@ -406,6 +447,9 @@ pub fn write_prompt_pack(
             "scope": report.get("scope").cloned().unwrap_or(Value::Null),
             "head_sha": report.pointer("/repo/head_sha").cloned().unwrap_or(Value::Null),
             "report_sha256": report_digest,
+            "canonical_report_sha256": canonical_report_digest,
+            "canonicalization": "serde_json_compact_preserve_order_v1",
+            "source_path": report_path,
             "generated_at": report.get("generated_at").cloned().unwrap_or(Value::Null)
         }
     });

@@ -28,6 +28,7 @@ fn collect_prioritized_paths(report: &Value) -> Vec<String> {
         "/health/refactor_candidates",
         "/health/watchlist",
         "/action_queue",
+        "/observation_feed",
         "/ranked_files",
     ] {
         for record in report
@@ -217,6 +218,7 @@ fn apply_report_profile(report: &mut Value, profile: &str) {
         ),
         ("/health/watchlist", "health.watchlist", None),
         ("/action_queue", "action_queue", Some(100)),
+        ("/observation_feed", "observation_feed", Some(250)),
         ("/ranked_files", "ranked_files", Some(250)),
     ] {
         retain_path_collection(report, pointer, metadata_key, &retained, limit);

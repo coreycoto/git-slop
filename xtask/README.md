@@ -13,18 +13,18 @@ cargo xtask validate-workflows
 cargo xtask generate-release-workflow --check
 cargo xtask check-issue-forms
 cargo xtask check-distribution
-cargo xtask release-prepare --version 0.11.5 --check-only
-cargo xtask release-prepare --version 0.11.5
+cargo xtask release-prepare --version 0.11.6 --check-only
+cargo xtask release-prepare --version 0.11.6
 cargo xtask verify-crate \
-  --crate-file dist/git-slop-0.11.5.crate \
-  --version 0.11.5 \
+  --crate-file dist/git-slop-0.11.6.crate \
+  --version 0.11.6 \
   --revision <40-character-lowercase-commit> \
   --expected-sha256 <64-character-lowercase-sha256> \
   --output dist/crate-source.json
 cargo xtask release-manifest \
   --dist-dir dist \
   --crate-source dist/crate-source.json \
-  --tag v0.11.5
+  --tag v0.11.6
 cargo xtask homebrew-formula \
   --manifest dist/release-manifest.json \
   --formula ../homebrew-tap/Formula/git-slop.rb

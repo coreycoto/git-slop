@@ -1,1 +1,50 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/doctor-1.json","title":"Git Slop doctor schema 1","type":"object","required":["schema_version","command","status","repository","config","report","estimate"],"properties":{"schema_version":{"const":1},"command":{"const":"doctor"},"status":{"enum":["ready","error"]},"repository":{"type":"object"},"config":{"type":"object"},"report":{"type":"object"},"estimate":{"type":"object"}}}
+{
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/doctor-1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "command": {
+      "const": "doctor"
+    },
+    "config": {
+      "type": "object"
+    },
+    "estimate": {
+      "type": "object"
+    },
+    "report": {
+      "type": "object"
+    },
+    "report_available": {
+      "type": "boolean"
+    },
+    "repository": {
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "scan_ready": {
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "not_ready",
+        "error"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "status",
+    "scan_ready",
+    "report_available",
+    "repository",
+    "config",
+    "report",
+    "estimate"
+  ],
+  "title": "Git Slop doctor schema 1",
+  "type": "object"
+}

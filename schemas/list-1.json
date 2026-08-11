@@ -1,1 +1,68 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://github.com/coreycoto/git-slop/blob/v0.11.5/schemas/list-1.json","title":"Git Slop list schema 1","type":"object","additionalProperties":false,"required":["schema_version","command","kind","items","collection"],"properties":{"schema_version":{"const":1},"command":{"const":"list"},"kind":{"enum":["findings","relationships","clusters","profiles"]},"items":{"type":"array","items":{"type":"object"}},"collection":{"type":"object","additionalProperties":false,"required":["total","returned","limit","truncated"],"properties":{"total":{"type":"integer","minimum":0},"returned":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}}}}}
+{
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/list-1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "collection": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "matched": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "returned": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "total",
+        "matched",
+        "returned",
+        "limit",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "command": {
+      "const": "list"
+    },
+    "items": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "kind": {
+      "enum": [
+        "findings",
+        "relationships",
+        "clusters",
+        "profiles"
+      ]
+    },
+    "schema_version": {
+      "const": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "kind",
+    "items",
+    "collection"
+  ],
+  "title": "Git Slop list schema 1",
+  "type": "object"
+}

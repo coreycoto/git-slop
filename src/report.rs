@@ -61,6 +61,7 @@ mod tests {
             folders: vec![],
             organization: OrganizationAnalysis::default(),
             action_queue: vec![],
+            observation_feed: vec![],
             diagnostics: json!({}),
         }
     }

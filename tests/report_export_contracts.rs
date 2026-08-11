@@ -19,8 +19,45 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 fn load_fixture(name: &str) -> Value {
-    serde_json::from_slice(&fs::read(fixture(name)).expect("read report fixture"))
-        .expect("parse report fixture")
+    let mut report: Value =
+        serde_json::from_slice(&fs::read(fixture(name)).expect("read report fixture"))
+            .expect("parse report fixture");
+    let content_sha256 = if name == "compare_head_report.json" {
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    } else {
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    };
+    let files = report["files"].as_array_mut().expect("fixture files");
+    for file in files.iter_mut() {
+        file["analysis_status"] = json!("analyzed");
+        file["content_fingerprint"] = json!(content_sha256);
+        file["content_sha256"] = json!(content_sha256);
+    }
+    let file_count = files.len();
+    let folder_count = report["folders"].as_array().map_or(0, std::vec::Vec::len);
+    report["diagnostics"] = json!({
+        "analysis": {"analysis_status": "complete"}
+    });
+    report["repo"]["worktree_clean"] = json!(true);
+    report["collection_metadata"] = json!({
+        "files": {
+            "total": file_count,
+            "returned": file_count,
+            "limit": null,
+            "truncated": false
+        },
+        "folders": {
+            "total": folder_count,
+            "returned": folder_count,
+            "limit": null,
+            "truncated": false
+        }
+    });
+    report
+}
+
+fn complete_fixture(directory: &TempDir, name: &str) -> PathBuf {
+    write_report(directory, name, &load_fixture(name))
 }
 
 fn write_report(directory: &TempDir, name: &str, report: &Value) -> PathBuf {
@@ -80,7 +117,8 @@ fn item_by_path<'a>(items: &'a Value, path: &str) -> &'a Value {
 
 #[test]
 fn check_folder_gate_and_detail_pagination_are_explicit() {
-    let report = fixture("local_repo_folder_report.json");
+    let directory = TempDir::new().expect("temporary report directory");
+    let report = complete_fixture(&directory, "local_repo_folder_report.json");
     let file_only = command()
         .args(["check", "--report"])
         .arg(&report)
@@ -131,8 +169,9 @@ fn check_folder_gate_and_detail_pagination_are_explicit() {
 
 #[test]
 fn compare_json_preserves_status_deltas_and_queue_movement() {
-    let base = fixture("compare_base_report.json");
-    let head = fixture("compare_head_report.json");
+    let directory = TempDir::new().expect("temporary report directory");
+    let base = complete_fixture(&directory, "compare_base_report.json");
+    let head = complete_fixture(&directory, "compare_head_report.json");
     let output = command()
         .args(["compare", "--base"])
         .arg(&base)
@@ -242,11 +281,14 @@ fn compare_handles_sparse_and_null_overlay_evidence_without_inventing_deltas() {
 
 #[test]
 fn compare_text_surface_honors_top_and_explains_its_boundary() {
+    let directory = TempDir::new().expect("temporary report directory");
+    let base = complete_fixture(&directory, "compare_base_report.json");
+    let head = complete_fixture(&directory, "compare_head_report.json");
     let output = command()
         .args(["compare", "--base"])
-        .arg(fixture("compare_base_report.json"))
+        .arg(base)
         .arg("--head")
-        .arg(fixture("compare_head_report.json"))
+        .arg(head)
         .args(["--top", "2"])
         .output()
         .expect("run compare text command");
@@ -273,8 +315,8 @@ fn compare_reports_missing_invalid_and_incomplete_inputs_as_usage_errors() {
     let mut invalid_report = load_fixture("compare_base_report.json");
     invalid_report["schema_version"] = json!(3);
     let invalid = write_report(&directory, "invalid-schema.json", &invalid_report);
-    let valid_base = fixture("compare_base_report.json");
-    let valid_head = fixture("compare_head_report.json");
+    let valid_base = complete_fixture(&directory, "compare_base_report.json");
+    let valid_head = complete_fixture(&directory, "compare_head_report.json");
 
     let missing_output = command()
         .args(["compare", "--base"])
@@ -349,7 +391,7 @@ fn compare_rejects_truncated_compact_and_degraded_inputs_even_with_force() {
     assert_exit_code(&compact_output, 2);
     assert!(
         String::from_utf8_lossy(&compact_output.stderr)
-            .contains("incomplete canonical files index")
+            .contains("canonical files collection is incomplete")
     );
 
     let mut degraded = load_fixture("compare_base_report.json");
@@ -368,7 +410,7 @@ fn compare_rejects_truncated_compact_and_degraded_inputs_even_with_force() {
     assert_exit_code(&degraded_output, 2);
     assert!(
         String::from_utf8_lossy(&degraded_output.stderr)
-            .contains("degraded_resource_budget and is not comparison-ready")
+            .contains("analysis status is degraded_resource_budget")
     );
 
     let mut shallow = load_fixture("compare_base_report.json");
@@ -385,7 +427,7 @@ fn compare_rejects_truncated_compact_and_degraded_inputs_even_with_force() {
     assert_exit_code(&shallow_output, 2);
     assert!(
         String::from_utf8_lossy(&shallow_output.stderr)
-            .contains("evidence `history` is incomplete_shallow")
+            .contains("evidence status is incomplete_shallow")
     );
 }
 

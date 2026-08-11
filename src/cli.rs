@@ -14,7 +14,7 @@ use crate::error::{ClassifiedError, ErrorKind};
 use crate::health;
 use crate::report;
 use crate::report_ops::{
-    ExplainSelector, PlanSelector, compare_payload_with_policy, explain_payload,
+    ExplainSelector, PlanSelector, PromptPackOptions, compare_payload_with_policy, explain_payload,
     failing_records_in, health_json_payload, plan_payload, render_compare_text,
     render_explain_text, render_github_annotations, render_json, render_plan_text,
     render_show_text, sarif_payload, show_payload, write_prompt_pack,
@@ -409,6 +409,9 @@ struct CompareArgs {
     /// Compare reports with incompatible identity or analyzer metadata.
     #[arg(long)]
     force: bool,
+    /// Include local filesystem report paths in output descriptors.
+    #[arg(long)]
+    include_local_paths: bool,
     /// Select which report supplies regression thresholds and evidence-drift policy.
     #[arg(long, value_enum, default_value_t = PolicySource::Base)]
     policy_from: PolicySource,
@@ -436,6 +439,15 @@ enum BaselineCommand {
         /// Replace an existing named baseline.
         #[arg(long)]
         force: bool,
+        /// Permit a report produced from a dirty worktree.
+        #[arg(long)]
+        allow_dirty: bool,
+        /// Permit incomplete inventory or history evidence.
+        #[arg(long)]
+        allow_incomplete_evidence: bool,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
+        format: DisplayFormat,
     },
     /// Replace an existing named baseline from a validated report.
     Update {
@@ -445,6 +457,21 @@ enum BaselineCommand {
         /// Report path. Defaults to .slop/latest/report.json.
         #[arg(long)]
         report: Option<PathBuf>,
+        /// Permit a report produced from a dirty worktree.
+        #[arg(long)]
+        allow_dirty: bool,
+        /// Permit incomplete inventory or history evidence.
+        #[arg(long)]
+        allow_incomplete_evidence: bool,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
+        format: DisplayFormat,
+    },
+    /// List named baselines with identity and readiness metadata.
+    List {
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
+        format: DisplayFormat,
     },
     /// Inspect baseline identity and evidence status.
     Inspect {
@@ -460,12 +487,18 @@ enum BaselineCommand {
         /// Stable baseline name.
         #[arg(long, default_value = "default")]
         name: String,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
+        format: DisplayFormat,
     },
     /// Remove a named baseline.
     Remove {
         /// Stable baseline name.
         #[arg(long, default_value = "default")]
         name: String,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
+        format: DisplayFormat,
     },
 }
 
