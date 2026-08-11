@@ -115,6 +115,14 @@ mod tests {
             ),
             (
                 valid.replacen(
+                    "$candidateSourceDir = Join-Path $env:RUNNER_TEMP \"candidate-source\"",
+                    "$candidateSourceDir = \"candidate-source\"",
+                    1,
+                ),
+                "unpack candidate source outside the repository workspace",
+            ),
+            (
+                valid.replacen(
                     r#"-c user.name="git-slop release validation""#,
                     r#"-c user.name="""#,
                     1,
