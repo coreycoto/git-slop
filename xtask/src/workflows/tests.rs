@@ -107,6 +107,14 @@ mod tests {
             ),
             (
                 valid.replacen(
+                    "CANDIDATE_SOURCE_DIR: ${{ runner.temp }}/candidate-source",
+                    "CANDIDATE_SOURCE_DIR: candidate-source",
+                    1,
+                ),
+                "unpack candidate source outside the repository workspace",
+            ),
+            (
+                valid.replacen(
                     r#"-c user.name="git-slop release validation""#,
                     r#"-c user.name="""#,
                     1,
