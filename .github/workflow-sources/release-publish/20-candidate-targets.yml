@@ -63,8 +63,9 @@
           set -euo pipefail
           crate="candidate/git-slop-${VERSION}.crate"
           test "$(sha256sum "$crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
-          mkdir candidate-source
-          tar -xzf "$crate" -C candidate-source
+          candidate_source_dir="${RUNNER_TEMP}/candidate-source"
+          mkdir -p "$candidate_source_dir"
+          tar -xzf "$crate" -C "$candidate_source_dir"
 
       - name: Install musl linker and unpack candidate bytes
         if: matrix.target == 'x86_64-unknown-linux-musl'
@@ -75,15 +76,17 @@
           sudo apt-get install --yes musl-tools
           crate="candidate/git-slop-${VERSION}.crate"
           test "$(sha256sum "$crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
-          mkdir candidate-source
-          tar -xzf "$crate" -C candidate-source
+          candidate_source_dir="${RUNNER_TEMP}/candidate-source"
+          mkdir -p "$candidate_source_dir"
+          tar -xzf "$crate" -C "$candidate_source_dir"
 
       - name: Build and smoke candidate Unix archive
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          package="candidate-source/git-slop-${VERSION}"
+          candidate_source_dir="${RUNNER_TEMP}/candidate-source"
+          package="${candidate_source_dir}/git-slop-${VERSION}"
           cargo build --manifest-path "$package/Cargo.toml" --release --locked --target "$TARGET"
           root="git-slop-${TAG}-${TARGET}"
           mkdir -p "stage/$root/man" "stage/$root/completions" "stage/$root/schemas" smoke candidate-dist
@@ -121,7 +124,7 @@
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $package = "candidate-source\git-slop-$env:VERSION"
+          $package = Join-Path $env:RUNNER_TEMP "candidate-source\git-slop-$env:VERSION"
           cargo build --manifest-path "$package\Cargo.toml" --release --locked --target $env:TARGET
           $root = "git-slop-$env:TAG-$env:TARGET"
           $stage = "stage\$root"

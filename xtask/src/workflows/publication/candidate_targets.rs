@@ -9,9 +9,21 @@ fn validate_candidate_targets_job(candidate_targets: Option<&YamlValue>, text: &
             errors,
         );
         validate_target_matrix(candidate_targets, name, "candidate-targets", true, errors);
+        if text
+            .matches("candidate_source_dir=\"${RUNNER_TEMP}/candidate-source\"")
+            .count()
+            != 3
+        {
+            errors.push(format!(
+                "{name} candidate-targets must unpack candidate source outside the repository workspace."
+            ));
+        }
         for required in [
             "Download exact candidate package",
             "Verify and unpack candidate bytes",
+            "tar -xzf \"$crate\" -C \"$candidate_source_dir\"",
+            "package=\"${candidate_source_dir}/git-slop-${VERSION}\"",
+            "Join-Path $env:RUNNER_TEMP \"candidate-source\\git-slop-$env:VERSION\"",
             "build-info --format json",
             ".source_dirty == false",
         ] {
