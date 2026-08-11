@@ -732,6 +732,10 @@ mod tests {
                 "derive the required release-asset inventory",
             ),
             (
+                relay.replacen(".immutable == true", ".immutable == false", 1),
+                ".immutable == true",
+            ),
+            (
                 format!("{relay}\n# gh workflow run homebrew-handoff.yml\n"),
                 "must remain verification-only",
             ),
@@ -786,6 +790,10 @@ mod tests {
                     1,
                 ),
                 "derive the required release-asset inventory",
+            ),
+            (
+                homebrew.replacen(".immutable == true", ".immutable == false", 1),
+                ".immutable == true",
             ),
             (
                 homebrew.replacen(

@@ -66,7 +66,7 @@ jobs:
           tag="v${VERSION}"
           gh api "repos/${REPOSITORY}/releases/tags/${tag}" > release.json
           jq -e --arg tag "$tag" \
-            '.tag_name == $tag and .draft == false and .prerelease == false' \
+            '.tag_name == $tag and .draft == false and .prerelease == false and .immutable == true' \
             release.json >/dev/null
           git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
           test "$(git rev-parse "refs/tags/${tag}^{commit}")" = "$REVISION"
@@ -179,5 +179,6 @@ jobs:
           - crate SHA-256: \`${CRATE_SHA256}\`
           - release manifest SHA-256: \`${MANIFEST_SHA256}\`
           - Formula SHA-256: \`${FORMULA_SHA256}\`
+          - GitHub release immutability: enforced before recovery dispatch
           - note: this manual recovery workflow reverified the complete public release, then redispatched only the immutable version, revision, crate URL, and crate digest; the tap derives and reverifies the Formula and manifest digests independently
           EOF

@@ -15,7 +15,7 @@ on:
       version:
         description: Strict stable version to publish or recover.
         required: true
-        default: "0.11.6"
+        default: "0.11.7"
         type: string
       recovery_revision:
         description: Recovery only - full 40-character source revision embedded in the published crate.
@@ -1034,7 +1034,7 @@ jobs:
               [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
               jq -e --arg tag "$TAG" --arg revision "$REVISION" --argjson release_id "$release_id" \
                 '.id == $release_id and .prerelease == false and (
-                  (.tag_name == $tag and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))) or
+                  (.tag_name == $tag and ((.draft == true and .published_at == null) or (.draft == false and .immutable == true and (.published_at | type == "string")))) or
                   (.draft == true and .published_at == null and .name == $tag and .target_commitish == $revision and (.tag_name | startswith("untagged-")))
                 )' \
                 release.json >/dev/null
@@ -1152,7 +1152,7 @@ jobs:
           [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]]
           gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > release.json
           jq -e --arg tag "$TAG" --argjson release_id "$RELEASE_ID" \
-            '.id == $release_id and .tag_name == $tag and .prerelease == false and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))' \
+            '.id == $release_id and .tag_name == $tag and .prerelease == false and ((.draft == true and .published_at == null) or (.draft == false and .immutable == true and (.published_at | type == "string")))' \
             release.json >/dev/null
           manifest_asset_id="$(jq -er '.assets[] | select(.name == "release-manifest.json") | .id' release.json)"
           gh api -H "Accept: application/octet-stream" \

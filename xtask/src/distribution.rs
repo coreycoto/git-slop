@@ -392,6 +392,7 @@ fn validate_scoop_boundary(repo_root: &Path, errors: &mut Vec<String>) {
                 "secrets.SCOOP_BUCKET_DISPATCH_TOKEN",
                 "--repo coreycoto/scoop-bucket",
                 "--field release_manifest_sha256=",
+                ".immutable == true",
             ] {
                 require(&text, marker, relay_relative, errors);
             }
@@ -694,7 +695,8 @@ mod tests {
              Dispatch immutable release identity to Scoop bucket\n\
              secrets.SCOOP_BUCKET_DISPATCH_TOKEN\n\
              --repo coreycoto/scoop-bucket\n\
-             --field release_manifest_sha256=\n",
+             --field release_manifest_sha256=\n\
+             .immutable == true\n",
         )
         .unwrap();
 

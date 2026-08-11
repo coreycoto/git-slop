@@ -37,7 +37,7 @@ jobs:
           version="${TAG#v}"
           gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}" > release.json
           jq -e --arg tag "$TAG" --argjson release_id "$RELEASE_ID" \
-            '.id == $release_id and .tag_name == $tag and .draft == false and .prerelease == false and (.published_at | type == "string")' \
+            '.id == $release_id and .tag_name == $tag and .draft == false and .prerelease == false and .immutable == true and (.published_at | type == "string")' \
             release.json >/dev/null
           mkdir verification
           gh release download "$TAG" --repo "$REPOSITORY" --dir verification \
@@ -77,6 +77,7 @@ jobs:
 
           - version: \`${VERSION}\`
           - source revision: \`${REVISION}\`
+          - GitHub release immutability: enforced; the exact tag and assets are locked and GitHub generated the release attestation
           - Homebrew: the dispatch-authorized publication job already dispatched this immutable version, revision, crate URL, and crate digest; the tap receiver can now complete its exact-release verification without any Actions environment approval
           - Scoop: the verified public version, release ID, revision, and manifest digest are handed to the external bucket receiver, which independently reverifies the release before creating and governed-merging a manifest-only pull request
           - recovery: \`homebrew-handoff.yml\` remains available for an explicit branch-restricted redispatch if the receiver run must be recovered

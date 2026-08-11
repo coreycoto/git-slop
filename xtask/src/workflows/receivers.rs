@@ -97,7 +97,7 @@ fn validate_release_relay(text: &str, payload: &YamlValue, errors: &mut Vec<Stri
         return;
     };
     for required in [
-        ".tag_name == $tag and .draft == false and .prerelease == false",
+        ".tag_name == $tag and .draft == false and .prerelease == false and .immutable == true",
         "release-manifest.json",
         ".schema_version == 3",
         ".crate_source.revision == $revision",
@@ -291,7 +291,7 @@ fn validate_homebrew_handoff(payload: &YamlValue, errors: &mut Vec<String>) {
         return;
     };
     for required in [
-        ".tag_name == $tag and .draft == false and .prerelease == false",
+        ".tag_name == $tag and .draft == false and .prerelease == false and .immutable == true",
         "test \"$(wc -l < release-assets/SHA256SUMS | tr -d ' ')\" = \"11\"",
         "sha256sum --check SHA256SUMS",
         ".crate_source.registry == \"crates.io\"",

@@ -15,6 +15,9 @@
 ## Publication Rules
 
 - Prefer standard `git push`, `gh release`, and `gh pr merge`.
+- Assemble and verify every release asset on a draft. Every future stable public
+  release must be GitHub-immutable before any post-publication package-manager
+  dispatch; recovery must fail closed when `.immutable` is not `true`.
 - If direct publication is blocked by runtime policy, stop and report it.
 - Do not publish commits, branches, tags, or releases through the GitHub Git Data API unless the user explicitly asks for that fallback.
 
