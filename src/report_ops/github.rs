@@ -12,7 +12,10 @@ fn collect_prompt_paths(value: &Value, paths: &mut Vec<String>) {
                             paths.push(path.to_string());
                         }
                     }
-                } else if matches!(key.as_str(), "scope_paths" | "in_scope") {
+                } else if matches!(
+                    key.as_str(),
+                    "scope_paths" | "in_scope" | "nearby_tests" | "nearby_test_paths"
+                ) {
                     if let Some(values) = value.as_array() {
                         for path in values.iter().filter_map(Value::as_str) {
                             if !paths.iter().any(|existing| existing == path) {
@@ -124,10 +127,35 @@ fn repository_context(payload: &Value, report: &Value, root: &Path, excerpt_byte
     let byte_limit = excerpt_bytes.clamp(256, 4096);
     let mut candidate_paths = Vec::new();
     collect_prompt_paths(payload, &mut candidate_paths);
+    let source_budget = 131_072usize;
+    let mut source_bytes = 0usize;
     let source_excerpts = candidate_paths
         .iter()
-        .filter_map(|path| bounded_repository_text(root, path, byte_limit))
         .take(10)
+        .filter_map(|path| {
+            let absolute = root.join(path);
+            let metadata = fs::symlink_metadata(&absolute).ok()?;
+            if !metadata.is_file() || metadata.file_type().is_symlink() {
+                return None;
+            }
+            let bytes = fs::read(absolute).ok()?;
+            if bytes.len() > source_budget.saturating_sub(source_bytes) {
+                return bounded_repository_text(root, path, byte_limit).map(|mut value| {
+                    value["included_complete"] = json!(false);
+                    value["reason"] = json!("source_budget_exceeded");
+                    value
+                });
+            }
+            source_bytes += bytes.len();
+            Some(json!({
+                "path": path,
+                "excerpt": String::from_utf8_lossy(&bytes),
+                "bytes_returned": bytes.len(),
+                "truncated": false,
+                "included_complete": true,
+                "sha256": hex::encode(Sha256::digest(&bytes))
+            }))
+        })
         .collect::<Vec<_>>();
     let guidance_budget = 65_536usize;
     let mut guidance_bytes = 0usize;
@@ -151,12 +179,19 @@ fn repository_context(payload: &Value, report: &Value, root: &Path, excerpt_byte
     let guidance_complete = guidance
         .iter()
         .all(|item| item.get("included").and_then(Value::as_bool) == Some(true));
+    let source_complete = source_excerpts.len() == candidate_paths.len().min(10)
+        && source_excerpts
+            .iter()
+            .all(|item| item.get("included_complete").and_then(Value::as_bool) == Some(true))
+        && candidate_paths.len() <= 10;
     let configured_commands = string_array(report.pointer("/config/verification/commands"));
     let verification_commands =
         super::verification::from_worktree(root, &candidate_paths, &configured_commands);
     json!({
         "included": true,
-        "execution_usable": guidance_complete,
+        "planning_usable": guidance_complete,
+        "execution_ready": guidance_complete && source_complete && !candidate_paths.is_empty(),
+        "execution_usable": guidance_complete && source_complete && !candidate_paths.is_empty(),
         "reason": "explicit_opt_in",
         "source_excerpts": source_excerpts,
         "guidance": guidance,
@@ -166,6 +201,9 @@ fn repository_context(payload: &Value, report: &Value, root: &Path, excerpt_byte
             "source_file_limit": 10,
             "source_candidate_count": candidate_paths.len(),
             "source_returned_count": source_excerpts.len(),
+            "source_total_byte_budget": source_budget,
+            "source_bytes_returned": source_bytes,
+            "source_complete": source_complete,
             "guidance_total_byte_budget": guidance_budget,
             "guidance_bytes_returned": guidance_bytes,
             "guidance_complete": guidance_complete,
@@ -239,6 +277,7 @@ pub struct PromptPackOptions<'a> {
     pub repository_root: Option<&'a Path>,
     pub excerpt_bytes: usize,
     pub force: bool,
+    pub include_local_paths: bool,
 }
 
 pub fn write_prompt_pack(
@@ -321,6 +360,9 @@ pub fn write_prompt_pack(
         || {
             json!({
                 "included": false,
+                "planning_usable": false,
+                "execution_ready": false,
+                "execution_usable": false,
                 "reason": "not_requested",
                 "source_excerpts": [],
                 "guidance": [],
@@ -395,9 +437,12 @@ pub fn write_prompt_pack(
     } else {
         "# Maintainer explanation\n\n## Summary\n\n## Evidence cited\n\n- Path, metric, raw SHA-256, and semantic fingerprint:\n\n## Interpretation\n\n## Next inspection\n\n## Missing evidence and non-claims\n".to_string()
     };
-    let report_argument = format!(
-        "'{}'",
-        report_path.display().to_string().replace('\'', "'\\''")
+    let report_descriptor = options
+        .include_local_paths
+        .then(|| report_path.to_path_buf());
+    let report_argument = report_descriptor.as_ref().map_or_else(
+        || "'<SOURCE_REPORT>'".to_string(),
+        |path| format!("'{}'", path.display().to_string().replace('\'', "'\\''")),
     );
     let selector_kind = payload
         .pointer("/selector/kind")
@@ -415,7 +460,7 @@ pub fn write_prompt_pack(
     };
     let selector_argument = format!("'{}'", selector_value.replace('\'', "'\\''"));
     let verification = format!(
-        "# Verification\n\n- Validate the exact source report: `git-slop report validate {report_argument}`\n- Reproduce the selected payload: `git-slop {command} --report {report_argument} {selector_flag} {selector_argument} --format json`\n- Confirm the source bytes have SHA-256 `{report_digest}`.\n- Confirm context.json and prompt.md digests against manifest.json.\n- Do not treat model prose as detector evidence.\n"
+        "# Verification\n\n- Validate the exact source report: `git slop report validate {report_argument}`\n- Reproduce the selected payload: `git slop {command} --report {report_argument} {selector_flag} {selector_argument} --format json`\n- Confirm the source bytes have SHA-256 `{report_digest}`.\n- Confirm context.json and prompt.md digests against manifest.json.\n- Do not treat model prose as detector evidence.\n"
     );
     let files = [
         ("context.json", context_json),
@@ -449,7 +494,8 @@ pub fn write_prompt_pack(
             "report_sha256": report_digest,
             "canonical_report_sha256": canonical_report_digest,
             "canonicalization": "serde_json_compact_preserve_order_v1",
-            "source_path": report_path,
+            "source_path": report_descriptor,
+            "source_descriptor": if options.include_local_paths { "local_path" } else { "logical_source_report" },
             "generated_at": report.get("generated_at").cloned().unwrap_or(Value::Null)
         }
     });

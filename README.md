@@ -113,7 +113,7 @@ Routine generated output stays untracked. Commit `.slop/config.yaml` and
 
 ## Install
 
-The examples below pin the 0.11.7 release identity. Use each command only after
+The examples below pin the 0.11.8 release identity. Use each command only after
 that exact version is published on the requested distribution surface;
 documentation or a source tag is not proof that every surface is available.
 
@@ -129,7 +129,7 @@ brew install coreycoto/tap/git-slop
 ### Cargo (Crates.io)
 
 ```bash
-cargo install git-slop --version 0.11.7 --locked
+cargo install git-slop --version 0.11.8 --locked
 ```
 
 ### Scoop (Windows)
@@ -161,7 +161,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.11.7
+  - uses: coreycoto/git-slop@v0.11.8
 ```
 
 The Action is advisory by default. It verifies the native release, writes the
@@ -205,7 +205,7 @@ planning, and adoption workflows.
 
 Start with `git slop doctor`; see [Troubleshooting](docs/troubleshooting.md),
 [Configuration Recipes](docs/config-recipes.md), the neutral [Worked
-Example](docs/worked-example.md), and the [0.11.7 release notes](CHANGELOG.md).
+Example](docs/worked-example.md), and the [0.11.8 release notes](CHANGELOG.md).
 
 ## Trust Boundaries
 
@@ -221,7 +221,8 @@ The local Git Slop CLI does not:
 
 These constraints are product architecture, not disclaimers. Read the
 [Vision](docs/vision.md) for the deeper thesis and planned policy-guided advice
-layer.
+layer. Distribution verification begins from the independent roots documented
+in the [release trust graph](docs/release-trust.md).
 
 ## Documentation
 
@@ -237,6 +238,7 @@ layer.
 - [Architecture](docs/architecture.md)
 - [GitHub Action](docs/github-action.md)
 - [Release Checklist](docs/release-checklist.md)
+- [Release Trust Graph](docs/release-trust.md)
 - [Changelog](CHANGELOG.md)
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)

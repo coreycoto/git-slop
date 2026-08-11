@@ -587,3 +587,64 @@ fn config_schema_uses_the_published_schemas_path() {
         "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/config-2.json"
     );
 }
+
+#[test]
+fn baseline_ensure_is_idempotent_and_fails_closed_on_drift() {
+    let repository = fixture_repository();
+    let output = tempdir().expect("report output");
+    let report_path = write_report(repository.path(), output.path());
+    let ensure = || {
+        cargo_bin_cmd!("git-slop")
+            .current_dir(repository.path())
+            .args([
+                "--error-format",
+                "json",
+                "baseline",
+                "ensure",
+                "--name",
+                "audit",
+                "--report",
+                report_path.to_str().unwrap(),
+                "--format",
+                "json",
+            ])
+            .output()
+            .expect("ensure baseline")
+    };
+    let created = ensure();
+    assert!(created.status.success());
+    let created: Value = serde_json::from_slice(&created.stdout).expect("created JSON");
+    assert_eq!(created["status"], "created");
+    assert_eq!(created["report_digest"].as_str().map(str::len), Some(64));
+
+    let unchanged = ensure();
+    assert!(unchanged.status.success());
+    let unchanged: Value = serde_json::from_slice(&unchanged.stdout).expect("unchanged JSON");
+    assert_eq!(unchanged["status"], "unchanged");
+    assert_eq!(unchanged["report_digest"], created["report_digest"]);
+
+    let mut drifted: Value =
+        serde_json::from_str(&fs::read_to_string(&report_path).unwrap()).unwrap();
+    drifted["generated_at"] = Value::String("2026-01-01T00:00:00Z".to_string());
+    fs::write(&report_path, serde_json::to_vec_pretty(&drifted).unwrap()).unwrap();
+    let drift = ensure();
+    assert_eq!(drift.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&drift.stderr).contains("baseline_drift"));
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args([
+            "baseline",
+            "ensure",
+            "--name",
+            "audit",
+            "--report",
+            report_path.to_str().unwrap(),
+            "--replace",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"status\": \"replaced\""));
+}

@@ -127,11 +127,22 @@ pub(crate) fn evaluate_report_readiness(
         .pointer("/compare_index/files")
         .and_then(Value::as_array)
         .is_some();
+    let has_policy_index = report
+        .pointer("/policy_index/files")
+        .and_then(Value::as_array)
+        .is_some();
     if profile == Some("compact") && !has_compare_index {
         blockers.push(readiness_blocker(
             "comparison_index_missing",
             "/compare_index/files",
             "compact report is missing its exhaustive comparison index",
+        ));
+    }
+    if profile == Some("compact") && !has_policy_index {
+        blockers.push(readiness_blocker(
+            "policy_index_missing",
+            "/policy_index/files",
+            "compact report is not enforcement-complete without its exhaustive policy index",
         ));
     }
     for collection in ["files", "folders"] {
@@ -161,6 +172,33 @@ pub(crate) fn evaluate_report_readiness(
                 &pointer,
                 format!("canonical {collection} collection metadata is missing"),
             )),
+        }
+    }
+    if has_policy_index {
+        for collection in ["files", "folders"] {
+            let pointer = format!("/collection_metadata/policy_index/{collection}");
+            match report.pointer(&pointer) {
+                Some(metadata) => {
+                    let total = metadata.get("total").and_then(Value::as_u64);
+                    let returned = metadata.get("returned").and_then(Value::as_u64);
+                    let truncated = metadata
+                        .get("truncated")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    if truncated || total.is_none() || returned.is_none() || total != returned {
+                        blockers.push(readiness_blocker(
+                            "policy_index_incomplete",
+                            &pointer,
+                            format!("canonical {collection} policy index is incomplete"),
+                        ));
+                    }
+                }
+                None => blockers.push(readiness_blocker(
+                    "collection_metadata_missing",
+                    &pointer,
+                    format!("canonical {collection} policy index metadata is missing"),
+                )),
+            }
         }
     }
 
@@ -595,7 +633,10 @@ pub fn render_show_text(payload: &Value) -> String {
                 visible_controls(&string(item.get("target_path"))),
                 string(item.get("kind")),
                 string_or(item.get("confidence"), "unknown"),
-                number(item.get("confidence_lower_bound")),
+                number(
+                    item.get("evidence_lower_bound")
+                        .or_else(|| item.get("confidence_lower_bound")),
+                ),
                 integer(item.get("support_count")),
                 number(item.get("evidence_score")),
                 visible_controls(&string(item.get("id"))),
@@ -635,12 +676,16 @@ pub fn failing_records_in(
     } else {
         &["files"]
     };
+    let indexed = report.get("policy_index").and_then(Value::as_object);
     let mut failures: Vec<Value> = collections
         .iter()
         .flat_map(|collection| {
-            array_at(report, &[*collection])
-                .iter()
-                .map(move |record| (*collection, record))
+            let records: &[Value] = indexed
+                .and_then(|index| index.get(*collection))
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or_else(|| array_at(report, &[*collection]));
+            records.iter().map(move |record| (*collection, record))
         })
         .filter(|record| {
             let record = record.1;

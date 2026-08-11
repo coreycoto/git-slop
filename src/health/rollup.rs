@@ -210,7 +210,7 @@ pub(super) fn finding_for_file(file: &Value, config: &Value) -> Option<Finding> 
             float_field(file, "slop_score"),
             reasons.join("; ")
         ),
-        next_command: format!("git-slop explain --path {}", shell_quote(&path)),
+        next_command: format!("git slop explain --path {}", shell_quote(&path)),
         slop_band: slop_band.to_string(),
         context_band: context_band.to_string(),
         slop_score: float_field(file, "slop_score"),

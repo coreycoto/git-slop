@@ -80,7 +80,7 @@ if (args[0] === "check") {
   const counter = path.join(process.cwd(), ".check-count");
   fs.writeFileSync(counter, String(Number(fs.existsSync(counter) ? fs.readFileSync(counter, "utf8") : "0") + 1));
   process.stdout.write(JSON.stringify({ schema_version: 1, command: "check", finding_count: 2, passed: false }));
-  process.exit(1);
+  process.exit(args.includes("--evaluate-only") ? 0 : 1);
 }
 if (args[0] === "compare") {
   if (process.env.FAKE_COMPARE_FAIL === "true") {
@@ -154,7 +154,7 @@ test("safe defaults analyze once and select only health.md", () => {
   assert.equal(actual["health-finding-count"], "4");
   assert.equal(actual["policy-finding-count"], "2");
   assert.equal(actual["finding-count"], "2");
-  assert.equal(existsSync(join(state.repository, ".check-count")), false);
+  assert.equal(readFileSync(join(state.repository, ".check-count"), "utf8"), "1");
 
   writeFileSync(state.output, "");
   const artifacts = run("artifacts", {
@@ -207,7 +207,6 @@ test("bounded annotations preserve notice, warning, and error without rerunning 
     GITHUB_OUTPUT: state.output,
     GIT_SLOP_BINARY: state.fakeBinary,
     GIT_SLOP_REPORT_PATH: join(state.repository, ".slop", "latest", "report.json"),
-    GIT_SLOP_FINDING_COUNT: "4",
     GIT_SLOP_MAX_ANNOTATIONS: "3",
     GIT_SLOP_WORKING_DIRECTORY_RESOLVED: state.repository,
   });
@@ -356,7 +355,6 @@ test("analysis failure cannot publish stale report-sized artifacts", () => {
 
 test("advisory passes and enforce preserves the policy result", () => {
   const state = fixture();
-  const report = join(state.repository, ".slop", "latest", "report.json");
   const analysis = run("analyze", {
     GITHUB_OUTPUT: state.output,
     GITHUB_STEP_SUMMARY: state.summary,
@@ -380,9 +378,7 @@ test("advisory passes and enforce preserves the policy result", () => {
     GITHUB_OUTPUT: state.output,
     GIT_SLOP_ANALYSIS_EXIT_CODE: "0",
     GIT_SLOP_POLICY: "enforce",
-    GIT_SLOP_BINARY: state.fakeBinary,
-    GIT_SLOP_REPORT_PATH: report,
-    GIT_SLOP_WORKING_DIRECTORY_RESOLVED: state.repository,
+    GIT_SLOP_ABSOLUTE_FINDING_COUNT: "2",
   });
   assert.equal(enforce.status, 1);
   assert.match(readFileSync(state.output, "utf8"), /policy-exit-code<<[\s\S]*\n1\n/u);

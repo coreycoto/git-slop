@@ -106,6 +106,17 @@ fn verification_override<'a>(path: &str, config: &'a Value) -> Option<&'a str> {
         .next_back()
 }
 
+fn structural_ranking_eligible(
+    tokens: usize,
+    revisions: usize,
+    retained_relationships: usize,
+    classification: &str,
+) -> bool {
+    tokens >= 512
+        && (revisions >= 10 || (revisions >= 5 && retained_relationships >= 1))
+        && matches!(classification, "source" | "tool")
+}
+
 pub fn analyze(
     files: &mut [FileAnalysis],
     commits: &[CommitRecord],
@@ -178,6 +189,20 @@ pub fn analyze(
         .filter(|file| configured_test_path(&file.path))
         .map(|file| file.path.clone())
         .collect();
+    let test_terms = files
+        .iter()
+        .filter(|file| configured_test_path(&file.path))
+        .map(|file| {
+            (
+                file.path.clone(),
+                file.top_structural_terms
+                    .iter()
+                    .filter(|term| !language_common_term(term))
+                    .cloned()
+                    .collect::<BTreeSet<_>>(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     let source_test_mappings = config
         .pointer("/verification/source_test_mappings")
         .and_then(Value::as_array)
@@ -224,10 +249,12 @@ pub fn analyze(
             .filter(|item| item.commit_count > 0)
             .map(|item| item.line_hunks_total as f64 / item.commit_count as f64)
             .unwrap_or(1.0);
-        let change_diffusion = facts
+        let raw_change_diffusion = facts
             .filter(|item| item.commit_count > 0)
             .map(|item| item.diffusion_total / item.commit_count as f64)
             .unwrap_or_default();
+        let evidence_support = commit_count as f64 / (commit_count as f64 + 5.0);
+        let change_diffusion = raw_change_diffusion * evidence_support;
         let neighbors = facts.map(|item| &item.neighbors);
         let degree = neighbors.map(BTreeMap::len).unwrap_or_default();
         let centrality = degree as f64 / file_count.saturating_sub(1).max(1) as f64;
@@ -240,11 +267,12 @@ pub fn analyze(
                     .count()
             })
             .unwrap_or_default();
-        let cross_ratio = if degree == 0 {
+        let raw_cross_ratio = if degree == 0 {
             0.0
         } else {
             cross_edges as f64 / degree as f64
         };
+        let cross_ratio = raw_cross_ratio * evidence_support;
         let related_duplicates: Vec<&Value> = duplicate_relationships
             .iter()
             .filter(|item| {
@@ -280,8 +308,37 @@ pub fn analyze(
             })
             .cloned()
             .collect();
+        let mut strong_test_mapping = !nearby_tests.is_empty();
+        let module_prefix = stem
+            .split('_')
+            .find(|part| part.len() >= 5)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if nearby_tests.is_empty() && !module_prefix.is_empty() {
+            nearby_tests.extend(
+                test_paths
+                    .iter()
+                    .filter(|path| path.to_ascii_lowercase().contains(&module_prefix))
+                    .cloned(),
+            );
+        }
+        let source_terms = file
+            .top_structural_terms
+            .iter()
+            .filter(|term| !language_common_term(term))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if !source_terms.is_empty() {
+            nearby_tests.extend(
+                test_terms
+                    .iter()
+                    .filter(|(_, terms)| source_terms.intersection(terms).take(2).count() >= 2)
+                    .map(|(path, _)| path.clone()),
+            );
+        }
         for (source, test) in &source_test_mappings {
             if source.is_match(&file.path) {
+                strong_test_mapping = true;
                 nearby_tests.extend(
                     test_paths
                         .iter()
@@ -293,11 +350,19 @@ pub fn analyze(
         nearby_tests.sort();
         nearby_tests.dedup();
         nearby_tests.truncate(5);
-        let test_adjacency = if configured_test_path(&file.path)
-            || file.has_inline_tests
-            || !nearby_tests.is_empty()
-        {
+        let mapping_confidence = if file.has_inline_tests || strong_test_mapping {
+            "high"
+        } else if !nearby_tests.is_empty() {
+            "low"
+        } else if test_paths.is_empty() {
+            "unavailable"
+        } else {
+            "none"
+        };
+        let test_adjacency = if configured_test_path(&file.path) || mapping_confidence == "high" {
             1.0
+        } else if mapping_confidence == "low" {
+            0.5
         } else {
             0.0
         };
@@ -528,6 +593,8 @@ pub fn analyze(
                     "not_applicable"
                 } else if file.analysis_status != "analyzed" {
                     "evidence_unavailable"
+                } else if mapping_confidence == "low" {
+                    "mapping_confidence_low"
                 } else if file.has_inline_tests || !nearby_tests.is_empty() || test_cochange_ratio > 0.0 {
                     "evidence_found"
                 } else if test_paths.is_empty() {
@@ -536,6 +603,7 @@ pub fn analyze(
                     "no_evidence"
                 },
                 "test_adjacency_score": round6(test_adjacency),
+                "mapping_confidence": mapping_confidence,
                 "inline_tests_detected": file.has_inline_tests,
                 "nearby_test_paths": nearby_tests,
                 "test_cochange_ratio": round6(test_cochange_ratio),
@@ -593,12 +661,27 @@ pub fn analyze(
             .get("organization_health")
             .cloned()
             .unwrap_or_else(|| json!({}));
+        let ranking_confidence = ((file.revisions_window as f64 / 10.0).min(1.0)
+            * if retained_relationship_count > 0 {
+                1.0
+            } else {
+                0.6
+            })
+        .clamp(0.0, 1.0);
         if let Some(item) = structural.as_object_mut() {
             item.insert("path".into(), json!(file.path));
+            item.insert("classification".into(), json!(file.classification));
+            item.insert(
+                "ranking_confidence".into(),
+                json!(round6(ranking_confidence)),
+            );
         }
-        let structural_supported = file.tokens >= 128
-            && (file.revisions_window >= 2 || retained_relationship_count >= 2)
-            && matches!(file.classification.as_str(), "source" | "tool");
+        let structural_supported = structural_ranking_eligible(
+            file.tokens,
+            file.revisions_window,
+            retained_relationship_count,
+            &file.classification,
+        );
         if structural_supported {
             top_structural_files.push(structural.clone());
         }
@@ -606,10 +689,11 @@ pub fn analyze(
     }
     top_structural_files.sort_by(|left, right| {
         let pressure = |item: &Value| {
-            item["duplication_pressure"].as_f64().unwrap_or_default()
+            (item["duplication_pressure"].as_f64().unwrap_or_default()
                 + item["diffusion_pressure"].as_f64().unwrap_or_default()
                 + item["coupling_pressure"].as_f64().unwrap_or_default()
-                + item["boundary_pressure"].as_f64().unwrap_or_default()
+                + item["boundary_pressure"].as_f64().unwrap_or_default())
+                * item["ranking_confidence"].as_f64().unwrap_or_default()
         };
         pressure(right)
             .total_cmp(&pressure(left))
@@ -635,4 +719,29 @@ pub fn analyze(
         folder_overlays,
         top_structural_files,
     })
+}
+
+#[cfg(test)]
+mod eligibility_tests {
+    use super::structural_ranking_eligible;
+
+    #[test]
+    fn tiny_unsupported_files_cannot_top_structural_rankings() {
+        assert!(!structural_ranking_eligible(505, 2, 0, "tool"));
+        assert!(!structural_ranking_eligible(2_000, 4, 1, "source"));
+        assert!(structural_ranking_eligible(512, 10, 0, "source"));
+        assert!(structural_ranking_eligible(512, 5, 1, "tool"));
+        assert!(!structural_ranking_eligible(2_000, 20, 5, "generated"));
+    }
+}
+
+#[cfg(test)]
+mod verification_mapping_tests {
+    use super::common::is_test_path;
+
+    #[test]
+    fn rust_module_test_files_are_verification_surfaces() {
+        assert!(is_test_path("src/analyze/tests.rs"));
+        assert!(is_test_path("xtask/src/workflows/tests.rs"));
+    }
 }

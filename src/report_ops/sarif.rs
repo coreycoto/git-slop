@@ -24,7 +24,14 @@ fn sarif_record(report: &Value, queue_item: &Value) -> Value {
         .map(|(record, _)| record)
         .unwrap_or_else(|| queue_item.clone());
     let record_object = record.as_object_mut().expect("record object");
-    for key in ["slop_score", "slop_band", "context_band", "reason_codes"] {
+    for key in [
+        "classification",
+        "remediation_kind",
+        "slop_score",
+        "slop_band",
+        "context_band",
+        "reason_codes",
+    ] {
         if !record_object.contains_key(key) {
             record_object.insert(
                 key.to_string(),
@@ -87,6 +94,8 @@ fn sarif_result(record: &Value, rank: usize) -> Value {
                 "slop_score": record.get("slop_score").cloned().unwrap_or(Value::Null),
                 "slop_band": record.get("slop_band").cloned().unwrap_or(Value::Null),
                 "context_band": record.get("context_band").cloned().unwrap_or(Value::Null),
+                "classification": record.get("classification").cloned().unwrap_or(Value::Null),
+                "remediation_kind": record.get("remediation_kind").cloned().unwrap_or(Value::Null),
                 "reason_codes": record.get("reason_codes").cloned().unwrap_or_else(|| json!([])),
                 "costs": record.get("costs").cloned().unwrap_or_else(|| json!({})),
                 "strongest_overlays": Value::Object(overlays),

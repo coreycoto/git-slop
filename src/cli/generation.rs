@@ -77,14 +77,29 @@ fn markdown_command(command: &clap::Command, path: &str, output: &mut String) {
     }
 }
 
-fn run_reference(args: ReferenceArgs) -> Result<i32> {
+fn reference_markdown() -> String {
     let command = Cli::command();
     let mut markdown =
         "# Git Slop CLI Reference\n\nGenerated from the live Clap command tree.\n\n".to_string();
     markdown_command(&command, "git-slop", &mut markdown);
-    let normalized = format!("{}\n", markdown.trim_end());
+    format!("{}\n", markdown.trim_end())
+}
+
+fn run_reference(args: ReferenceArgs) -> Result<i32> {
+    let normalized = reference_markdown();
     write_generated_output(args.output.as_deref(), normalized.as_bytes())?;
     Ok(0)
+}
+
+#[cfg(test)]
+mod generated_reference_tests {
+    #[test]
+    fn committed_cli_reference_matches_the_live_command_tree() {
+        assert_eq!(
+            include_str!("../../docs/cli-reference.md"),
+            super::reference_markdown()
+        );
+    }
 }
 
 fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
@@ -120,7 +135,19 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
             .collect::<Vec<_>>()
     };
     let embedded_limit = 5_000usize;
-    let source_report = relative_display(&report_path, repo_root);
+    let source_report = args
+        .include_local_paths
+        .then(|| relative_display(&report_path, repo_root));
+    let section_total = |pointer: &str| {
+        loaded
+            .pointer(pointer)
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|sections| sections.values())
+            .filter_map(Value::as_array)
+            .map(Vec::len)
+            .sum::<usize>()
+    };
     let payload = serde_json::to_string(&json!({
         "schema_version": loaded.get("schema_version"),
         "generated_at": loaded.get("generated_at"),
@@ -154,7 +181,9 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
                 "files": loaded.pointer("/files").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit),
                 "folders": loaded.pointer("/folders").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit),
                 "action_queue": loaded.pointer("/action_queue").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit),
-                "health": loaded.pointer("/health/findings").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit)
+                "health": loaded.pointer("/health/findings").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit),
+                "relationships": section_total("/overlays/organization_health/relationships") > embedded_limit,
+                "clusters": section_total("/overlays/organization_health/clusters") > embedded_limit
             }
         },
         "source_report": source_report
@@ -167,13 +196,13 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'nonce-{csp_nonce}'; script-src 'nonce-{csp_nonce}'; base-uri 'none'; form-action 'none'"><title>Git Slop local report</title><style nonce="{csp_nonce}">
 :root {{ color-scheme: light dark; font: 15px system-ui,sans-serif }} body {{ margin: 2rem; max-width: 1100px }}
 input,select {{ padding:.55rem; margin:0 .5rem .75rem 0 }} table {{ width:100%; border-collapse:collapse }}
-th,td {{ text-align:left; padding:.5rem; border-bottom:1px solid #8885 }} th button {{ all:unset;cursor:pointer;font-weight:700 }}
+th,td {{ text-align:left; padding:.5rem; border-bottom:1px solid #8885 }} th button {{ all:unset;cursor:pointer;font-weight:700 }} .file-link {{ all:unset;cursor:pointer;text-decoration:underline }}
 code {{ overflow-wrap:anywhere }} details {{ margin:1rem 0 }} .muted {{ opacity:.7 }} .sr {{ position:absolute;left:-10000px }}
 .views button[aria-pressed="true"] {{ font-weight:700;text-decoration:underline }} tr:target {{ outline:2px solid currentColor }}
 </style></head><body><h1>Git Slop local report</h1><p id="descriptor" class="muted"></p>
 <p id="truncation" role="status"></p>
 <nav class="views" aria-label="Report view"><button data-view="files" aria-pressed="true">Files</button> <button data-view="folders" aria-pressed="false">Folders</button> <button data-view="queue" aria-pressed="false">Action queue</button> <button data-view="health" aria-pressed="false">Health findings</button> <button data-view="relationships" aria-pressed="false">Relationships</button> <button data-view="clusters" aria-pressed="false">Clusters</button></nav>
-<label for="query" class="sr">Search paths</label><input id="query" type="search" placeholder="Search paths"><label for="profile" class="sr">Profile</label><select id="profile"><option value="">All profiles</option></select>
+<label for="query" class="sr">Search paths</label><input id="query" type="search" placeholder="Search paths"><label for="profile" class="sr">Profile</label><select id="profile"><option value="">All profiles</option></select><label for="classification" class="sr">Classification</label><select id="classification"><option value="">All classifications</option></select>
 <label id="severity-label" for="severity" class="sr">Maintenance band</label><select id="severity"><option value="">All maintenance bands</option><option>critical</option><option>high</option><option>moderate</option><option>low</option><option>error</option><option>warning</option><option>notice</option></select>
 <p id="sort-state" class="muted" aria-live="polite"></p><p id="count" aria-live="polite"></p><button id="previous" type="button">Previous</button><button id="next" type="button">Next</button><table><caption class="sr">Git Slop records</caption><thead><tr id="headers"></tr></thead><tbody id="rows"></tbody></table>
 <details id="file-detail"><summary>Selected record details</summary><pre id="detail"></pre></details>
@@ -182,26 +211,31 @@ code {{ overflow-wrap:anywhere }} details {{ margin:1rem 0 }} .muted {{ opacity:
 const report=JSON.parse(document.getElementById('report').textContent), params=new URLSearchParams(location.search); let view=params.get('view')||'files', sortKey=params.get('sort')||'slop_score', ascending=params.get('dir')==='asc', page=Number(params.get('page')||0); const pageSize=100;
 const files=report.files??[], folders=report.folders??[], queue=report.action_queue??[], findings=report.health?.findings??[], relationships=report.organization?.relationships??[], clusters=report.organization?.clusters??[]; const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
 document.getElementById('descriptor').textContent=`${{report.repo?.repo_name||'repository'}} · ${{report.generated_at||'unknown time'}} · schema ${{report.schema_version}}`;
-const profile=document.getElementById('profile'); [...new Set(files.map(f=>f.profile).filter(Boolean))].sort().forEach(v=>profile.insertAdjacentHTML('beforeend',`<option>${{esc(v)}}</option>`));
-document.getElementById('query').value=params.get('q')||''; profile.value=params.get('profile')||''; document.getElementById('severity').value=params.get('band')||'';
-const columns={{files:[['path','Path'],['profile','Profile'],['language','Language'],['slop_band','Maintenance'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],folders:[['path','Folder'],['classification','Classification'],['health_band','Health'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],queue:[['path','Path'],['severity','Severity'],['reason_codes','Reasons'],['evidence_status','Evidence'],['next_action','Next action']],health:[['path','Path'],['severity','Severity'],['title','Finding'],['message','Message']],relationships:[['id','Relationship'],['kind','Kind'],['source_path','Source'],['target_path','Target'],['evidence_score','Evidence']],clusters:[['id','Cluster'],['kind','Kind'],['member_count','Members'],['evidence_score','Evidence']]}};
+const profile=document.getElementById('profile'), classification=document.getElementById('classification'), band=document.getElementById('severity');
+document.getElementById('query').value=params.get('q')||''; profile.value=params.get('profile')||''; classification.value=params.get('classification')||''; band.value=params.get('band')||'';
+const columns={{files:[['path','Path'],['profile','Profile'],['classification','Classification'],['language','Language'],['slop_band','Maintenance'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],folders:[['path','Folder'],['classification','Classification'],['health_band','Health'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],queue:[['path','Path'],['profile','Profile'],['classification','Classification'],['severity','Severity'],['reason_codes','Reasons'],['evidence_status','Evidence'],['next_action','Next action']],health:[['path','Path'],['severity','Severity'],['title','Finding'],['message','Message']],relationships:[['id','Relationship'],['kind','Kind'],['source_path','Source'],['target_path','Target'],['confidence','Confidence'],['support_count','Support'],['evidence_lower_bound','Lower bound'],['evidence_score','Evidence']],clusters:[['id','Cluster'],['kind','Kind'],['member_count','Count'],['member_paths','Members'],['evidence_score','Evidence']]}};
 function records() {{ return view==='folders'?folders:view==='queue'?queue:view==='health'?findings:view==='relationships'?relationships:view==='clusters'?clusters:files }}
-function syncUrl() {{ const p=new URLSearchParams(); for (const [k,v] of Object.entries({{view,q:document.getElementById('query').value,profile:profile.value,band:document.getElementById('severity').value,sort:sortKey,dir:ascending?'asc':'desc',page}})) if(v!==''&&v!==0)p.set(k,v); history.replaceState(null,'',`${{location.pathname}}?${{p}}${{location.hash}}`) }}
-function render() {{ const q=document.getElementById('query').value.toLowerCase(), p=profile.value, s=document.getElementById('severity').value, source=records();
+function rebuildFilter(select,values,label) {{ const previous=select.value; select.replaceChildren(new Option(label,''),...([...new Set(values.filter(Boolean))].sort().map(value=>new Option(value,value)))); if([...select.options].some(option=>option.value===previous))select.value=previous }}
+function pathButton(path) {{ return `<button type="button" class="file-link" data-path="${{esc(path)}}"><code>${{esc(path)}}</code></button>` }}
+function renderCell(record,key,column) {{ const value=record[key]??(key==='member_count'?(record.member_paths??[]).length:''); if(view==='relationships'&&(key==='source_path'||key==='target_path'))return pathButton(value); if(view==='clusters'&&key==='member_paths')return (record.member_paths??[]).map(pathButton).join(', '); return column===0?`<button class="record"><code>${{esc(value??record.path??record.id)}}</code></button>`:esc(Array.isArray(value)?value.join(', '):value) }}
+function syncUrl() {{ const p=new URLSearchParams(); for (const [k,v] of Object.entries({{view,q:document.getElementById('query').value,profile:profile.value,classification:classification.value,band:band.value,sort:sortKey,dir:ascending?'asc':'desc',page}})) if(v!==''&&v!==0)p.set(k,v); history.replaceState(null,'',`${{location.pathname}}?${{p}}${{location.hash}}`) }}
+function render() {{ const q=document.getElementById('query').value.toLowerCase(), p=profile.value, c=classification.value, s=band.value, source=records();
  document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===view)));
+ rebuildFilter(profile,source.map(record=>record.profile),'All profiles'); rebuildFilter(classification,source.map(record=>record.classification),'All classifications'); rebuildFilter(band,source.map(record=>record.slop_band??record.severity??record.health_band),'All bands');
  const activeColumns=columns[view]??columns.files; if(!activeColumns.some(([key])=>key===sortKey))sortKey=activeColumns[0][0]; document.getElementById('headers').innerHTML=activeColumns.map(([key,label])=>`<th scope="col"><button data-key="${{esc(key)}}" aria-sort="${{key===sortKey?(ascending?'ascending':'descending'):'none'}}">${{esc(label)}}</button></th>`).join('');
  document.getElementById('severity-label').textContent=view==='health'||view==='queue'?'Finding severity':'Maintenance band';
- const profileApplies=view==='files'||view==='queue', bandApplies=view==='files'||view==='folders'||view==='queue'||view==='health'; profile.disabled=!profileApplies; document.getElementById('severity').disabled=!bandApplies;
- const haystack=f=>[f.path,f.id,f.source_path,f.target_path,...(f.members??[])].join(' ').toLowerCase(); const selected=source.filter(f=>(!q||haystack(f).includes(q))&&(!profileApplies||!p||f.profile===p)&&(!bandApplies||!s||(f.slop_band??f.severity)===s)).sort((a,b)=>{{const x=a[sortKey],y=b[sortKey]; return (typeof x==='number'?x-y:String(x??'').localeCompare(String(y??'')))*(ascending?1:-1)}});
+ const profileApplies=source.some(record=>record.profile), classApplies=source.some(record=>record.classification), bandApplies=source.some(record=>record.slop_band??record.severity??record.health_band); profile.disabled=!profileApplies; classification.disabled=!classApplies; band.disabled=!bandApplies;
+ const haystack=f=>[f.path,f.id,f.source_path,f.target_path,...(f.member_paths??[])].join(' ').toLowerCase(); const selected=source.filter(f=>(!q||haystack(f).includes(q))&&(!profileApplies||!p||f.profile===p)&&(!classApplies||!c||f.classification===c)&&(!bandApplies||!s||(f.slop_band??f.severity)===s)).sort((a,b)=>{{const x=a[sortKey],y=b[sortKey]; return (typeof x==='number'?x-y:String(x??'').localeCompare(String(y??'')))*(ascending?1:-1)}});
  const pages=Math.max(1,Math.ceil(selected.length/pageSize)); page=Math.min(page,pages-1); const visible=selected.slice(page*pageSize,(page+1)*pageSize);
  document.getElementById('count').textContent=`${{selected.length}} of ${{source.length}} ${{view.replace('_',' ')}} records · page ${{page+1}} of ${{pages}}`;
  document.getElementById('previous').disabled=page===0; document.getElementById('next').disabled=page+1>=pages;
  document.getElementById('sort-state').textContent=`Sorted by ${{activeColumns.find(([key])=>key===sortKey)?.[1]??sortKey}}, ${{ascending?'ascending':'descending'}}`;
- document.getElementById('rows').innerHTML=visible.map((f,i)=>`<tr tabindex="0" id="record-${{page*pageSize+i}}" data-index="${{page*pageSize+i}}">${{activeColumns.map(([key],column)=>`<td>${{column===0?`<button class="record"><code>${{esc(f[key]??f.path??f.id)}}</code></button>`:esc(Array.isArray(f[key])?f[key].join(', '):(f[key]??(key==='member_count'?(f.members??[]).length:'')))}}</td>`).join('')}}</tr>`).join('');
+ document.getElementById('rows').innerHTML=visible.map((f,i)=>`<tr tabindex="0" id="record-${{page*pageSize+i}}" data-index="${{i}}">${{activeColumns.map(([key],column)=>`<td>${{renderCell(f,key,column)}}</td>`).join('')}}</tr>`).join('');
  document.querySelectorAll('.record').forEach((button,i)=>button.addEventListener('click',()=>{{document.getElementById('detail').textContent=JSON.stringify(visible[i],null,2);document.getElementById('file-detail').open=true;location.hash=`record-${{page*pageSize+i}}`}})); syncUrl(); }}
+document.getElementById('rows').addEventListener('click',event=>{{const link=event.target.closest('.file-link');if(!link)return;const target=files.find(file=>file.path===link.dataset.path);view='files';document.getElementById('query').value=link.dataset.path;page=0;render();if(target){{document.getElementById('detail').textContent=JSON.stringify(target,null,2);document.getElementById('file-detail').open=true}}}});
 document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>{{page=0;render()}})); document.getElementById('headers').addEventListener('click',event=>{{const el=event.target.closest('button');if(!el)return;ascending=sortKey===el.dataset.key?!ascending:true;sortKey=el.dataset.key;page=0;render()}});
-document.querySelectorAll('[data-view]').forEach(el=>el.addEventListener('click',()=>{{view=el.dataset.view;page=0;render()}})); document.getElementById('previous').addEventListener('click',()=>{{page=Math.max(0,page-1);render()}}); document.getElementById('next').addEventListener('click',()=>{{page+=1;render()}});
-document.addEventListener('keydown',event=>{{const rows=[...document.querySelectorAll('tbody tr')];const index=rows.indexOf(document.activeElement);if(event.key==='ArrowDown'&&index>=0){{event.preventDefault();rows[Math.min(rows.length-1,index+1)]?.focus()}}if(event.key==='ArrowUp'&&index>=0){{event.preventDefault();rows[Math.max(0,index-1)]?.focus()}}}}); const truncated=Object.entries(report.embedded_evidence?.truncated_views??{{}}).filter(([,value])=>value).map(([key])=>key); document.getElementById('truncation').textContent=truncated.length?`Embedded view limit reached for: ${{truncated.join(', ')}}. Open ${{report.source_report}} for complete evidence.`:''; document.getElementById('evidence-summary').textContent=JSON.stringify({{config_digests:report.config_digests,completeness:report.evidence_completeness,collections:report.collection_metadata,embedded:report.embedded_evidence,source_report:report.source_report}},null,2); render();
+document.querySelectorAll('[data-view]').forEach(el=>el.addEventListener('click',()=>{{view=el.dataset.view;page=0;if(!['files','queue'].includes(view))profile.value='';if(!['files','folders','queue'].includes(view))classification.value='';if(!['files','folders','queue','health'].includes(view))band.value='';render()}})); document.getElementById('previous').addEventListener('click',()=>{{page=Math.max(0,page-1);render()}}); document.getElementById('next').addEventListener('click',()=>{{page+=1;render()}});
+document.addEventListener('keydown',event=>{{const rows=[...document.querySelectorAll('tbody tr')],index=rows.indexOf(document.activeElement);if(event.key==='ArrowDown'&&index>=0){{event.preventDefault();rows[Math.min(rows.length-1,index+1)]?.focus()}}if(event.key==='ArrowUp'&&index>=0){{event.preventDefault();rows[Math.max(0,index-1)]?.focus()}}if((event.key==='Enter'||event.key===' ')&&index>=0){{event.preventDefault();rows[index].querySelector('.record')?.click()}}}}); const truncated=Object.entries(report.embedded_evidence?.truncated_views??{{}}).filter(([,value])=>value).map(([key])=>key); document.getElementById('truncation').textContent=truncated.length?`Embedded view limit reached for: ${{truncated.join(', ')}}.${{report.source_report?` Open ${{report.source_report}} for complete evidence.`:''}}`:''; document.getElementById('evidence-summary').textContent=JSON.stringify({{config_digests:report.config_digests,completeness:report.evidence_completeness,collections:report.collection_metadata,embedded:report.embedded_evidence,source_report:report.source_report}},null,2); render();
 </script></body></html>"#
     );
     fs::write(&output, html)?;

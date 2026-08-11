@@ -262,25 +262,35 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     };
     let round3 = |value: f64| (value * 1_000.0).round() / 1_000.0;
     let top_score = round3(top_score);
-    let target_score = round3((top_score - 1.0).max(0.0));
-    let non_actionable_scope = scope_paths.iter().any(|path| {
-        resolved_record(report, path).is_some_and(|record| {
-            matches!(
-                string(record.get("classification")).as_str(),
-                "generated" | "vendored" | "snapshot" | "fixture" | "migration_fixture"
-            )
-        })
-    });
-    let low_support_relationship = relationship_ids.iter().any(|id| {
-        relationship_by_id(report, id).is_some_and(|relationship| {
-            !matches!(
-                string(relationship.get("confidence")).as_str(),
-                "supported" | "limited"
-            )
-        })
+    let target_classification = string(value_at(context, &["target", "classification"]));
+    let target_non_actionable = matches!(
+        target_classification.as_str(),
+        "generated" | "vendored" | "snapshot" | "fixture" | "migration_fixture"
+    );
+    let target_score = if target_non_actionable {
+        None
+    } else if top_score >= 75.0 {
+        Some(74.999)
+    } else if top_score >= 40.0 {
+        Some(39.999)
+    } else {
+        None
+    };
+    let non_actionable_scope = target_non_actionable
+        || scope_paths.iter().any(|path| {
+            resolved_record(report, path).is_some_and(|record| {
+                matches!(
+                    string(record.get("classification")).as_str(),
+                    "generated" | "vendored" | "snapshot" | "fixture" | "migration_fixture"
+                )
+            })
+        });
+    let unsupported_relationship = relationship_ids.iter().any(|id| {
+        relationship_by_id(report, id)
+            .is_some_and(|relationship| string(relationship.get("confidence")) != "supported")
     });
     let plan_type = if !non_actionable_scope
-        && !low_support_relationship
+        && !unsupported_relationship
         && (top_score >= 40.0 || !relationship_ids.is_empty())
     {
         "intervention"
@@ -299,7 +309,7 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
                     relationship.get("target_path").cloned().unwrap_or(Value::Null),
                 ],
                 "confidence": relationship.get("confidence").cloned().unwrap_or_else(|| json!("unknown")),
-                "confidence_lower_bound": relationship.get("confidence_lower_bound").cloned().unwrap_or(Value::Null),
+                "evidence_lower_bound": relationship.get("evidence_lower_bound").or_else(|| relationship.get("confidence_lower_bound")).cloned().unwrap_or(Value::Null),
                 "support_count": relationship.get("support_count").cloned().unwrap_or_else(|| json!(0)),
                 "evidence_score": relationship.get("evidence_score").cloned().unwrap_or_else(|| json!(0.0)),
             })
@@ -333,6 +343,25 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
             _ => "source",
         })
         .collect::<BTreeSet<_>>();
+    let acceptance_criteria = if non_actionable_scope {
+        json!([
+            format!(
+                "Change no more than {scope_path_count} existing scoped paths unless the plan is regenerated."
+            ),
+            "Identify and verify the generator, upstream dependency, or fixture/test strategy without requiring a score reduction in derived content.",
+            "Produce zero native compare regressions and pass every discovered verification command."
+        ])
+    } else {
+        json!([
+            format!(
+                "Change no more than {scope_path_count} existing scoped paths unless the plan is regenerated."
+            ),
+            format!(
+                "Remove or materially reduce the cited source reason codes while preserving raw-content identity evidence (baseline score {top_score:.3})."
+            ),
+            "Produce zero native compare regressions and pass every discovered verification command."
+        ])
+    };
     let backlog = json!({
         "mutation_policy": "preview_only",
         "proposed_issue_title": format!("Maintenance: {}", string(slice.get("title"))),
@@ -340,11 +369,7 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         "suggested_labels": ["maintenance"],
         "priority_hint": priority,
         "evidence_summary": evidence_summary,
-        "acceptance_criteria": [
-            format!("Change no more than {scope_path_count} scoped paths unless the plan is regenerated."),
-            format!("Remove or materially reduce the cited source reason codes while preserving raw-content identity evidence (baseline score {top_score:.3})."),
-            "Produce zero native compare regressions and pass every discovered verification command.",
-        ],
+        "acceptance_criteria": acceptance_criteria,
         "source": {
             "command": "git slop plan",
             "selector": context.get("selector").cloned().unwrap_or(Value::Null),
@@ -355,10 +380,17 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
     object.remove("why_this_slice");
     object.insert(
         "objective".to_string(),
-        json!(format!(
-            "Resolve the cited detector reason codes across {}, improve at least one source-derived metric without worsening relationship support, introduce zero native compare regressions, and pass every discovered verification command without unreviewed scope expansion.",
-            render_limited(&scope_paths, 5)
-        )),
+        if non_actionable_scope {
+            json!(format!(
+                "Investigate the generator, upstream source, or fixture/test strategy associated with {}; do not require a direct score reduction in derived content, and pass every discovered verification command without unreviewed scope expansion.",
+                render_limited(&scope_paths, 5)
+            ))
+        } else {
+            json!(format!(
+                "Resolve the cited detector reason codes across {}, improve at least one source-derived metric without worsening supported relationship evidence, introduce zero native compare regressions, and pass every discovered verification command without unreviewed scope expansion.",
+                render_limited(&scope_paths, 5)
+            ))
+        },
     );
     object.insert("plan_type".to_string(), json!(plan_type));
     object.insert("rationale".to_string(), json!(rationale));
@@ -384,7 +416,11 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         json!({
             "in_scope": scope_paths,
             "out_of_scope": out_of_scope_paths,
-            "allowed_new_paths": {
+            "existing_path_cap": {
+                "maximum": scope_path_count,
+                "constraint": "Only the named in-scope existing paths may change; regenerate the plan to expand this set."
+            },
+            "new_path_cap": {
                 "maximum": 2,
                 "constraint": "Only focused tests or one extracted module directly attributable to an in-scope path; regenerate the plan for any other new file."
             }
@@ -405,7 +441,7 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
                 json!({
                     "path": path,
                     "symbols_or_terms": string_array(record.get("top_structural_terms")).into_iter().take(5).collect::<Vec<_>>(),
-                    "nearby_tests": record.pointer("/overlays/verification/nearby_tests").cloned().unwrap_or_else(|| json!([]))
+                    "nearby_tests": record.pointer("/overlays/verification/nearby_test_paths").cloned().unwrap_or_else(|| json!([]))
                 })
             }).collect::<Vec<_>>()
         }),
@@ -416,11 +452,20 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
             "maximum_scope_paths": scope_path_count,
             "baseline_top_slop_score": top_score,
             "target_top_slop_score": target_score,
-            "required": [
-                "No new native compare regression.",
-                "At least one cited source-derived reason code or metric improves without a relationship-confidence regression.",
-                "All reviewed verification commands pass."
-            ]
+            "required": if non_actionable_scope {
+                json!([
+                    "No new native compare regression.",
+                    "The generator, upstream source, or fixture/test strategy is identified and verified; derived-content score reduction is not required.",
+                    "All reviewed verification commands pass."
+                ])
+            } else {
+                json!([
+                    "No new native compare regression.",
+                    "At least one cited source-derived reason code is removed, or the scoped score crosses the documented 40 or 75 threshold.",
+                    "Supported relationship evidence remains explainable; limited and low-support edges are investigation context only.",
+                    "All reviewed verification commands pass."
+                ])
+            }
         }),
     );
     object.insert(
@@ -543,17 +588,22 @@ pub fn render_plan_text(payload: &Value) -> String {
                         safe(relationship.get("id")),
                         render_limited(&safe_array(relationship.get("paths")), 2),
                         safe(relationship.get("confidence")),
-                        json_scalar_text(relationship.get("confidence_lower_bound")),
+                        json_scalar_text(relationship.get("evidence_lower_bound")),
                         json_scalar_text(relationship.get("support_count")),
                         json_scalar_text(relationship.get("evidence_score")),
                     ))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            format!(
-                "   expected_outcome: highest scoped score is at most {}; no native compare regression; verification passes",
-                json_scalar_text(value_at(slice, &["expected_outcome", "target_top_slop_score"]))
-            ),
+            value_at(slice, &["expected_outcome", "target_top_slop_score"])
+                .filter(|value| !value.is_null())
+                .map_or_else(
+                    || "   expected_outcome: remove a cited reason code; no native compare regression; verification passes".to_string(),
+                    |target| format!(
+                        "   expected_outcome: cross the documented threshold to at most {}; no native compare regression; verification passes",
+                        json_scalar_text(Some(target))
+                    ),
+                ),
             format!(
                 "   verification: {}",
                 render_limited(
@@ -588,4 +638,74 @@ pub fn render_plan_text(payload: &Value) -> String {
     }
     lines.extend([String::new(), safe(payload.get("boundary_note"))]);
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_plan_preserves_known_nearby_tests() {
+        let legacy: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/reports/relationship_focused_report.json"
+        ))
+        .expect("fixture report");
+        let mut report = crate::report::migrate_legacy_report(legacy).expect("migrated report");
+        let path = report
+            .pointer("/files/0/path")
+            .and_then(Value::as_str)
+            .expect("fixture path")
+            .to_string();
+        let file = report["files"]
+            .as_array_mut()
+            .expect("files")
+            .iter_mut()
+            .find(|file| file.get("path").and_then(Value::as_str) == Some(path.as_str()))
+            .expect("selected file");
+        file["overlays"]["verification"]["nearby_test_paths"] =
+            json!(["tests/report_planning_contracts.rs"]);
+
+        let payload = plan_payload(&report, PlanSelector::Path(path), 1).expect("plan");
+        assert_eq!(
+            payload.pointer("/proposed_slices/0/plan_type"),
+            Some(&json!("investigation"))
+        );
+        assert_eq!(
+            payload.pointer("/proposed_slices/0/verification/concrete_targets/0/nearby_tests"),
+            Some(&json!(["tests/report_planning_contracts.rs"]))
+        );
+    }
+
+    #[test]
+    fn generated_targets_redirect_to_the_generator_without_score_reduction() {
+        let legacy: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/reports/relationship_focused_report.json"
+        ))
+        .expect("fixture report");
+        let mut report = crate::report::migrate_legacy_report(legacy).expect("migrated report");
+        let generated_path = report["files"][0]["path"]
+            .as_str()
+            .expect("generated path")
+            .to_string();
+        let generator_path = report["files"][1]["path"]
+            .as_str()
+            .expect("generator path")
+            .to_string();
+        report["files"][0]["classification"] = json!("generated");
+        report["files"][0]["generated_from"] = json!([generator_path]);
+
+        let payload = plan_payload(&report, PlanSelector::Path(generated_path), 1).expect("plan");
+        let slice = &payload["proposed_slices"][0];
+        assert_eq!(slice["plan_type"], "investigation");
+        assert_eq!(slice["scope_paths"], report["files"][0]["generated_from"]);
+        assert_eq!(
+            slice["expected_outcome"]["target_top_slop_score"],
+            Value::Null
+        );
+        assert!(
+            slice["objective"]
+                .as_str()
+                .is_some_and(|value| value.contains("do not require a direct score reduction"))
+        );
+    }
 }

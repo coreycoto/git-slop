@@ -10,14 +10,21 @@ fn run_report(args: ReportArgs) -> Result<i32> {
                     );
                     Ok(0)
                 }
-                Err(error) => Err(ClassifiedError::new(
-                    ErrorKind::Contract,
-                    "report_invalid",
-                    format!("{error:#}"),
-                )
-                .at("/report")
-                .with_details(json!({"path": path}))
-                .into()),
+                Err(error) => {
+                    let violations = fs::read_to_string(&path)
+                        .ok()
+                        .and_then(|source| serde_json::from_str::<Value>(&source).ok())
+                        .map(|report| report::validation_violations(&report))
+                        .unwrap_or_default();
+                    Err(ClassifiedError::new(
+                        ErrorKind::Contract,
+                        "report_invalid",
+                        format!("{error:#}"),
+                    )
+                    .at("/report")
+                    .with_details(json!({"path": path, "violations": violations}))
+                    .into())
+                }
             }
         }
         ReportCommand::Migrate { path, output } => {
@@ -47,10 +54,13 @@ fn run_sarif(repo_root: &Path, args: SarifArgs) -> Result<i32> {
         None => None,
         Some(value) => match usize::try_from(value).ok().filter(|count| *count > 0) {
             Some(value) => Some(value),
-            None => return usage_error("--top must be greater than zero."),
+            None => return argument_error("/top", "--top", "--top must be greater than zero.", value),
         },
     };
-    let payload = match sarif_payload(&loaded, Some(&report_path.to_string_lossy()), top) {
+    let report_descriptor = args
+        .include_local_paths
+        .then(|| report_path.to_string_lossy().to_string());
+    let payload = match sarif_payload(&loaded, report_descriptor.as_deref(), top) {
         Ok(payload) => payload,
         Err(error) => return usage_error(error),
     };

@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.11.8 - 2026-08-11
+
+This patch makes every published count, gate, schema, and maintenance plan use
+the canonical detector contract, then turns the release audit into executable
+regression coverage.
+
+### Canonical policy and machine contracts
+
+- Make the Action consume non-failing canonical `git slop check` JSON, report
+  the annotations actually emitted, and keep compact reports enforcement-safe
+  through exhaustive file and folder policy indexes.
+- Repair and immutably pin the Codex dependency workflow, contain upstream
+  failures, validate Action inputs in `xtask`, and keep repository mutation
+  credentials off acquisition and diagnostic steps.
+- Finish strict report-schema definitions, format-aware external validation,
+  negative runtime/schema parity fixtures, a typed baseline schema, generated
+  CLI-reference drift checks, and read-only packaged-validator isolation.
+- Correct unchanged comparison pagination, publish classification-aware SARIF,
+  structured report violations, exact CLI pointers, private-by-default report
+  descriptors, and strict cache-quarantine discovery.
+
+### Evidence, plans, and presentation
+
+- Calibrate structural eligibility, symbol extraction, relationship support and
+  lower bounds, diffusion evidence, Rust test mapping, verification totals,
+  classifications, synchronization groups, and intervention versus
+  investigation rankings.
+- Preserve nearby tests and focused verification commands in plans; replace
+  arbitrary score reductions with threshold or reason-code outcomes; redirect
+  generated, fixture, and vendored work to controllable sources; and add
+  idempotent baseline ensure semantics.
+- Separate prompt planning usability from execution readiness, prioritize
+  complete target sources and tests, remove local paths by default, and repair
+  HTML search, filters, keyboard navigation, truncation, relationship evidence,
+  and cross-view file links.
+
+### Release and maintainability
+
+- Publish an explicit non-circular release trust graph, direct PowerShell
+  verification, downstream workflow status links, correct signed-tag guidance,
+  trusted-publishing requirements, and a fail-closed Homebrew bottle
+  immutability contract.
+- Split Action runtime and publication behavior from orchestration, add bounded
+  performance gates for 1k, 30k, and 100k path scales, and codify self-dogfood
+  expectations for policy parity, verification mapping, generated-document
+  drift, relationship plans, and structural rankings.
+
 ## 0.11.7 - 2026-08-10
 
 This patch makes GitHub's platform-enforced release immutability part of the

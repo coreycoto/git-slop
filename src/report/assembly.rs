@@ -139,8 +139,18 @@ fn ranked_files_from_files(files: &[Value]) -> Vec<Value> {
     ranked
         .into_iter()
         .map(|file| {
+            let classification = string_field(&file, "classification");
+            let remediation_kind = match classification {
+                "generated" => "generator_source_investigation",
+                "snapshot" | "fixture" | "migration_fixture" => "fixture_strategy_investigation",
+                "vendored" => "upstream_dependency_investigation",
+                _ => "source_intervention",
+            };
             json!({
                 "path": string_field(&file, "path"),
+                "classification": classification,
+                "profile": string_field(&file, "profile"),
+                "remediation_kind": remediation_kind,
                 "slop_score": float_field(&file, "slop_score"),
                 "slop_band": string_field(&file, "slop_band"),
                 "context_band": string_field(&file, "context_band"),
@@ -322,6 +332,20 @@ fn comparison_record(record: &Value) -> Value {
     })
 }
 
+fn policy_record(record: &Value) -> Value {
+    json!({
+        "path": record.get("path").cloned().unwrap_or(Value::Null),
+        "classification": record.get("classification").cloned().unwrap_or_else(|| json!("other")),
+        "profile": record.get("profile").cloned().unwrap_or(Value::Null),
+        "generated_from": record.get("generated_from").cloned().unwrap_or_else(|| json!([])),
+        "tokens": record.get("tokens").cloned().unwrap_or_else(|| json!(0)),
+        "context_band": record.get("context_band").cloned().unwrap_or_else(|| json!("compact")),
+        "slop_score": record.get("slop_score").cloned().unwrap_or_else(|| json!(0.0)),
+        "slop_band": record.get("slop_band").cloned().unwrap_or_else(|| json!("low")),
+        "reason_codes": record.get("reason_codes").cloned().unwrap_or_else(|| json!([])),
+    })
+}
+
 pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
     let mut files = serialize_values(&analysis.files);
     let suppressed_saturated_overlays = suppress_saturated_overlays(&mut files);
@@ -329,6 +353,10 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
     let compare_index = json!({
         "files": files.iter().map(comparison_record).collect::<Vec<_>>(),
         "folders": folders.iter().map(comparison_record).collect::<Vec<_>>()
+    });
+    let policy_index = json!({
+        "files": files.iter().map(policy_record).collect::<Vec<_>>(),
+        "folders": folders.iter().map(policy_record).collect::<Vec<_>>()
     });
     let action_queue = analysis.action_queue.clone();
     let observation_feed = analysis.observation_feed.clone();
@@ -449,7 +477,18 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
             "relationship_evidence": if history_complete { "complete" } else { "bounded" },
             "missing_test_evidence_count": overlays.pointer("/verification/files")
                 .and_then(Value::as_array)
-                .map(|records| records.iter().filter(|record| record.get("verification_gap").and_then(Value::as_f64).unwrap_or_default() >= 0.8).count())
+                .map(|records| records.iter().filter(|record| record.get("evidence_status").and_then(Value::as_str) == Some("no_evidence")).count())
+                .unwrap_or_default(),
+            "weak_test_mapping_count": overlays.pointer("/verification/files")
+                .and_then(Value::as_array)
+                .map(|records| records.iter().filter(|record| record.get("evidence_status").and_then(Value::as_str) == Some("mapping_confidence_low")).count())
+                .unwrap_or_default(),
+            "low_test_cochange_evidence_count": overlays.pointer("/verification/files")
+                .and_then(Value::as_array)
+                .map(|records| records.iter().filter(|record| {
+                    record.get("evidence_status").and_then(Value::as_str) == Some("evidence_found")
+                        && record.get("test_cochange_ratio").and_then(Value::as_f64).unwrap_or_default() < 0.2
+                }).count())
                 .unwrap_or_default(),
             "relationship_support": if analysis.organization.relationships.pointer("/temporal_coupling_edges").and_then(Value::as_array).is_some_and(Vec::is_empty) { "low_support" } else { "available" }
         },
@@ -468,6 +507,7 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
         "files": files,
         "folders": folders,
         "compare_index": compare_index,
+        "policy_index": policy_index,
         "action_queue": action_queue,
         "observation_feed": observation_feed,
         "ranked_files": ranked_files,
@@ -482,6 +522,10 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
             "files": {"total": files.len(), "returned": files.len(), "limit": null, "truncated": false},
             "folders": {"total": folders.len(), "returned": folders.len(), "limit": null, "truncated": false},
             "compare_index": {
+                "files": {"total": files.len(), "returned": files.len(), "limit": null, "truncated": false},
+                "folders": {"total": folders.len(), "returned": folders.len(), "limit": null, "truncated": false}
+            },
+            "policy_index": {
                 "files": {"total": files.len(), "returned": files.len(), "limit": null, "truncated": false},
                 "folders": {"total": folders.len(), "returned": folders.len(), "limit": null, "truncated": false}
             },

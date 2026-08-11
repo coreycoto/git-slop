@@ -318,7 +318,7 @@ pub fn render_compatibility_summary(report: &Value) -> String {
                 string_field(item, "context_band"),
                 float_field(item, "slop_score"),
                 format_int(usize_field(item, "tokens")),
-                inline_code(&format!("git-slop explain --path {}", shell_quote(path))),
+                inline_code(&format!("git slop explain --path {}", shell_quote(path))),
             ));
         }
     }
@@ -431,7 +431,7 @@ pub fn render_terminal(report: &Value) -> String {
     }
     lines.extend([
         String::new(),
-        "Use `git-slop explain --path <path>` for evidence and `git-slop plan --path <path>` for a bounded maintenance proposal.".to_string(),
+        "Use `git slop explain --path <path>` for evidence and `git slop plan --path <path>` for a bounded maintenance proposal.".to_string(),
     ]);
     format!("{}\n", lines.join("\n"))
 }

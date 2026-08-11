@@ -25,7 +25,7 @@
       ],
       "backlog_handoff": {
         "acceptance_criteria": [
-          "Change no more than 2 scoped paths unless the plan is regenerated.",
+          "Change no more than 2 existing scoped paths unless the plan is regenerated.",
           "Remove or materially reduce the cited source reason codes while preserving raw-content identity evidence (baseline score 12.600).",
           "Produce zero native compare regressions and pass every discovered verification command."
         ],
@@ -46,17 +46,21 @@
           "maintenance"
         ]
       },
-      "baseline_command": "git-slop baseline create --name plan-137d1c0ba746 --report 'tests/fixtures/reports/relationship_focused_report.json'",
-      "baseline_update_command": "git-slop baseline update --name plan-137d1c0ba746 --report 'tests/fixtures/reports/relationship_focused_report.json'",
+      "baseline_command": "git slop baseline ensure --name plan-54a618ace6ff --report 'tests/fixtures/reports/relationship_focused_report.json'",
+      "baseline_update_command": "git slop baseline ensure --name plan-54a618ace6ff --report 'tests/fixtures/reports/relationship_focused_report.json' --replace",
       "boundaries": {
-        "allowed_new_paths": {
-          "constraint": "Only focused tests or one extracted module directly attributable to an in-scope path; regenerate the plan for any other new file.",
+        "existing_path_cap": {
+          "constraint": "Only the named in-scope existing paths may change; regenerate the plan to expand this set.",
           "maximum": 2
         },
         "in_scope": [
           "src/consumer_toolkit/github/current_repo.py",
           "src/consumer_toolkit/github/shared/current_repo.py"
         ],
+        "new_path_cap": {
+          "constraint": "Only focused tests or one extracted module directly attributable to an in-scope path; regenerate the plan for any other new file.",
+          "maximum": 2
+        },
         "out_of_scope": []
       },
       "evidence": {
@@ -69,7 +73,7 @@
         "relationships": [
           {
             "confidence": "unknown",
-            "confidence_lower_bound": null,
+            "evidence_lower_bound": null,
             "evidence_score": 1140.594,
             "id": "near_duplicate_neighborhood-35e7fad1c4e0",
             "kind": "near_duplicate_neighborhood",
@@ -87,18 +91,19 @@
         "maximum_scope_paths": 2,
         "required": [
           "No new native compare regression.",
-          "At least one cited source-derived reason code or metric improves without a relationship-confidence regression.",
+          "At least one cited source-derived reason code is removed, or the scoped score crosses the documented 40 or 75 threshold.",
+          "Supported relationship evidence remains explainable; limited and low-support edges are investigation context only.",
           "All reviewed verification commands pass."
         ],
-        "target_top_slop_score": 11.6
+        "target_top_slop_score": null
       },
       "id": "anchor-relationship-near_duplicate_neighborhood-35e7fad1c4e0",
-      "objective": "Resolve the cited detector reason codes across src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py, improve at least one source-derived metric without worsening relationship support, introduce zero native compare regressions, and pass every discovered verification command without unreviewed scope expansion.",
+      "objective": "Resolve the cited detector reason codes across src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py, improve at least one source-derived metric without worsening supported relationship evidence, introduce zero native compare regressions, and pass every discovered verification command without unreviewed scope expansion.",
       "out_of_scope_paths": [],
       "plan_type": "investigation",
       "ranking_reason": "Anchor slice always ranks first.",
       "rationale": "Start with the selected coupled pair before considering any surrounding cluster evidence.",
-      "rerun_command": "git-slop find && git-slop compare --baseline plan-137d1c0ba746 --head .slop/latest/report.json --detail summary --fail-on-regression",
+      "rerun_command": "git slop find && git slop compare --baseline plan-54a618ace6ff --head .slop/latest/report.json --detail summary --fail-on-regression",
       "rollback": "Revert only the explicitly reviewed code changes; report and prompt artifacts are advisory and can be regenerated.",
       "scope_paths": [
         "src/consumer_toolkit/github/current_repo.py",
@@ -149,9 +154,9 @@
     "value": "near_duplicate_neighborhood-35e7fad1c4e0"
   },
   "source_report": {
-    "baseline_name": "plan-137d1c0ba746",
+    "baseline_name": "plan-54a618ace6ff",
     "path": "tests/fixtures/reports/relationship_focused_report.json",
-    "sha256": "137d1c0ba746bbb693f669f0d10a777de5a4b4089225768507bd3dd7ee4a8a1a"
+    "sha256": "54a618ace6fff2dc86d5cac3bb74f103ce387982347bc82fbabd3ad3273d1147"
   },
   "target": {
     "evidence_score": 1140.594,

@@ -910,6 +910,22 @@ mod tests {
 
     fn report(profile: &str, records: Vec<Value>) -> Value {
         let returned = records.len();
+        let policy_records = records
+            .iter()
+            .map(|record| {
+                json!({
+                    "path": record.get("path"),
+                    "classification": "source",
+                    "profile": "agent_context",
+                    "generated_from": [],
+                    "tokens": record.get("tokens"),
+                    "context_band": record.get("context_band"),
+                    "slop_score": record.get("slop_score"),
+                    "slop_band": record.get("slop_band"),
+                    "reason_codes": []
+                })
+            })
+            .collect::<Vec<_>>();
         json!({
             "schema_version": 5,
             "analyzer": {
@@ -924,9 +940,14 @@ mod tests {
             "files": records.iter().take(250).cloned().collect::<Vec<_>>(),
             "folders": [],
             "compare_index": {"files": records, "folders": []},
+            "policy_index": {"files": policy_records, "folders": []},
             "action_queue": [],
             "collection_metadata": {
                 "compare_index": {
+                    "files": {"total": returned, "returned": returned, "limit": null, "truncated": false},
+                    "folders": {"total": 0, "returned": 0, "limit": null, "truncated": false}
+                },
+                "policy_index": {
                     "files": {"total": returned, "returned": returned, "limit": null, "truncated": false},
                     "folders": {"total": 0, "returned": 0, "limit": null, "truncated": false}
                 }

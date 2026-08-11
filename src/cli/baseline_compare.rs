@@ -63,6 +63,62 @@ fn emit_baseline_result(format: DisplayFormat, payload: &Value, text: &str) -> R
 
 fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
     match args.command {
+        BaselineCommand::Ensure {
+            name,
+            report,
+            replace,
+            allow_dirty,
+            allow_incomplete_evidence,
+            format,
+        } => {
+            let (loaded, source) = report_or_missing(repo_root, report.as_deref())?;
+            let readiness = crate::report_ops::evaluate_report_readiness(
+                &loaded,
+                !allow_dirty,
+                allow_incomplete_evidence,
+            );
+            if !readiness.comparison_ready {
+                return Err(ClassifiedError::new(
+                    ErrorKind::Contract,
+                    "baseline_not_comparison_ready",
+                    "Baseline source is not comparison-ready.",
+                )
+                .with_details(readiness.as_json())
+                .into());
+            }
+            let path = baseline_path(repo_root, &name)?;
+            let existing = load_report_at(&path)?;
+            let requested_digest =
+                hex::encode(sha2::Sha256::digest(serde_json::to_vec(&loaded)?));
+            let status = match existing {
+                Some(existing) if existing == loaded => "unchanged",
+                Some(existing) if !replace => {
+                    let stored_digest = hex::encode(sha2::Sha256::digest(serde_json::to_vec(&existing)?));
+                    return Err(ClassifiedError::new(
+                        ErrorKind::Contract,
+                        "baseline_drift",
+                        "Stored baseline differs from the requested report; pass --replace to update it explicitly.",
+                    )
+                    .at("/name")
+                    .with_details(json!({"name": name, "stored_digest": stored_digest, "requested_digest": requested_digest, "flag": "--replace"}))
+                    .into());
+                }
+                Some(_) => {
+                    write_named_baseline(&path, &loaded, true)?;
+                    "replaced"
+                }
+                None => {
+                    write_named_baseline(&path, &loaded, false)?;
+                    "created"
+                }
+            };
+            emit_baseline_result(
+                format,
+                &json!({"schema_version":1,"command":"baseline ensure","name":name,"status":status,"report_digest":requested_digest,"source_report":source,"storage":"git_private","readiness":readiness.as_json()}),
+                &format!("Baseline '{name}' is {status} for {}.", source.display()),
+            )?;
+            Ok(0)
+        }
         BaselineCommand::Create {
             name,
             report,
@@ -313,8 +369,16 @@ fn run_compare(repo_root: &Path, args: CompareArgs) -> Result<i32> {
         .expect("Clap requires --base, --base-ref, or --baseline");
     let base_report = report_or_missing(Path::new(""), Some(&base_path))?.0;
     let Some(top) = usize::try_from(args.top).ok().filter(|count| *count > 0) else {
-        return usage_error("--top must be greater than zero.");
+        return argument_error("/top", "--top", "--top must be greater than zero.", args.top);
     };
+    if args.limit == 0 {
+        return argument_error(
+            "/limit",
+            "--limit",
+            "--limit must be greater than zero.",
+            args.limit,
+        );
+    }
     let local_descriptor = |path: &Path| {
         if args.include_local_paths {
             path.to_string_lossy().into_owned()
@@ -352,7 +416,14 @@ fn run_compare(repo_root: &Path, args: CompareArgs) -> Result<i32> {
         Ok(payload) => payload,
         Err(error) => return usage_error(error),
     };
-    let output = match bounded_compare_output(&payload, args.detail, top, args.offset, args.limit) {
+    let output = match bounded_compare_output(
+        &payload,
+        args.detail,
+        top,
+        args.offset,
+        args.limit,
+        args.include_unchanged,
+    ) {
         Ok(output) => output,
         Err(error) => return usage_error(error),
     };

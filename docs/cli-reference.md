@@ -65,6 +65,7 @@ Explain why selected hotspots or structural findings are expensive
 | `--force` | Atomically replace an existing prompt-pack directory |
 | `--include-repository-context` | Include bounded local source/test excerpts, guidance, and verification hints |
 | `--excerpt-bytes` | Maximum bytes read from each included repository file |
+| `--include-local-paths` | Include local filesystem paths in prompt-pack provenance and commands |
 
 ## `git-slop plan`
 
@@ -82,6 +83,7 @@ Propose bounded maintenance slices from the current detector report
 | `--force` | Atomically replace an existing prompt-pack directory |
 | `--include-repository-context` | Include bounded local source/test excerpts, guidance, and verification hints |
 | `--excerpt-bytes` | Maximum bytes read from each included repository file |
+| `--include-local-paths` | Include local filesystem paths in prompt-pack provenance and commands |
 
 ## `git-slop check`
 
@@ -98,6 +100,7 @@ Evaluate an existing report against CI thresholds
 | `--offset` | Zero-based finding offset used with --details |
 | `--limit` | Maximum finding records returned with --details |
 | `--allow-incomplete-evidence` | Permit policy evaluation when selected inventory records are incomplete |
+| `--evaluate-only` | Evaluate and report the canonical policy result without returning exit 1 for findings |
 
 ## `git-slop compare`
 
@@ -118,12 +121,27 @@ Compare two existing schema-5 reports without rerunning the detector
 | `--offset` | Zero-based record offset for --detail full |
 | `--limit` | Maximum records per collection for --detail full |
 | `--force` | Compare reports with incompatible identity or analyzer metadata |
+| `--include-local-paths` | Include local filesystem report paths in output descriptors |
+| `--include-unchanged` | Include unchanged file and folder records in bounded compare collections |
 | `--policy-from` | Select which report supplies regression thresholds and evidence-drift policy |
 | `--fail-on-regression` | Exit 1 when an existing file worsens or a newly added file is a finding |
 
 ## `git-slop baseline`
 
 Manage named comparison baselines in Git-private runtime storage
+
+## `git-slop baseline ensure`
+
+Idempotently save a named baseline, failing closed when stored content differs
+
+| Argument | Description |
+| --- | --- |
+| `--name` | Stable baseline name |
+| `--report` | Report path. Defaults to .slop/latest/report.json |
+| `--replace` | Explicitly replace a differing stored baseline |
+| `--allow-dirty` | Permit a report produced from a dirty worktree |
+| `--allow-incomplete-evidence` | Permit incomplete inventory or history evidence |
+| `--format` | Output format |
 
 ## `git-slop baseline create`
 
@@ -134,6 +152,9 @@ Create a named baseline from a validated report
 | `--name` | Stable baseline name |
 | `--report` | Report path. Defaults to .slop/latest/report.json |
 | `--force` | Replace an existing named baseline |
+| `--allow-dirty` | Permit a report produced from a dirty worktree |
+| `--allow-incomplete-evidence` | Permit incomplete inventory or history evidence |
+| `--format` | Output format |
 
 ## `git-slop baseline update`
 
@@ -143,6 +164,17 @@ Replace an existing named baseline from a validated report
 | --- | --- |
 | `--name` | Stable baseline name |
 | `--report` | Report path. Defaults to .slop/latest/report.json |
+| `--allow-dirty` | Permit a report produced from a dirty worktree |
+| `--allow-incomplete-evidence` | Permit incomplete inventory or history evidence |
+| `--format` | Output format |
+
+## `git-slop baseline list`
+
+List named baselines with identity and readiness metadata
+
+| Argument | Description |
+| --- | --- |
+| `--format` | Output format |
 
 ## `git-slop baseline inspect`
 
@@ -160,6 +192,7 @@ Validate a named baseline against the current report contract
 | Argument | Description |
 | --- | --- |
 | `--name` | Stable baseline name |
+| `--format` | Output format |
 
 ## `git-slop baseline remove`
 
@@ -168,6 +201,7 @@ Remove a named baseline
 | Argument | Description |
 | --- | --- |
 | `--name` | Stable baseline name |
+| `--format` | Output format |
 
 ## `git-slop report`
 
@@ -204,6 +238,7 @@ Export action-queue findings from an existing schema-5 report as SARIF
 | `--report` | Report path. Defaults to .slop/latest/report.json |
 | `--top` | Maximum number of action-queue findings to export |
 | `--output` | Optional SARIF output path. Defaults to stdout |
+| `--include-local-paths` | Include the local source report path in SARIF invocation properties |
 
 ## `git-slop health`
 
@@ -384,6 +419,7 @@ Write a self-contained, local, searchable HTML report
 | --- | --- |
 | `--report` | Report path. Defaults to .slop/latest/report.json |
 | `--output` | Destination. Defaults to .slop/latest/report.html |
+| `--include-local-paths` | Embed the local source report path in the otherwise portable HTML file |
 
 ## `git-slop version`
 

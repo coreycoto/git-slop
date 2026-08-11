@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::config::{pointer_strings, pointer_u64};
-use crate::model::{InventoryFile, SkippedCounts};
+use crate::model::{Classification, InventoryFile, SkippedCounts};
 
 const NULL_BYTE_WINDOW: usize = 4096;
 
@@ -112,7 +112,7 @@ fn language_for_path(path: &str) -> &'static str {
     }
 }
 
-fn classification_for_path(path: &str) -> &'static str {
+fn classification_for_path(path: &str) -> Classification {
     let lower = path.to_ascii_lowercase();
     let name = lower.rsplit('/').next().unwrap_or(&lower);
     if lower.starts_with("vendor/")
@@ -121,7 +121,7 @@ fn classification_for_path(path: &str) -> &'static str {
         || lower.contains("/third_party/")
         || lower.starts_with("node_modules/")
     {
-        "vendored"
+        Classification::Vendored
     } else if lower.starts_with("generated/")
         || lower.contains("/generated/")
         || lower.starts_with("dist/")
@@ -129,7 +129,7 @@ fn classification_for_path(path: &str) -> &'static str {
         || name.ends_with(".generated.ts")
         || name.ends_with(".generated.js")
     {
-        "generated"
+        Classification::Generated
     } else if lower.contains("/snapshots/")
         || lower.contains("/__snapshots__/")
         || lower.contains("/golden/")
@@ -137,18 +137,18 @@ fn classification_for_path(path: &str) -> &'static str {
         || lower.starts_with("golden/")
         || name.ends_with(".snap")
     {
-        "snapshot"
+        Classification::Snapshot
     } else if lower.starts_with("fixtures/")
         || lower.contains("/fixtures/")
         || lower.starts_with("testdata/")
         || lower.contains("/testdata/")
         || name.contains("fixture")
     {
-        "fixture"
+        Classification::Fixture
     } else if (lower.contains("/migrations/") || lower.starts_with("migrations/"))
         && (lower.contains("fixture") || lower.contains("test"))
     {
-        "migration_fixture"
+        Classification::MigrationFixture
     } else if lower.starts_with("tests/")
         || lower.starts_with("test/")
         || lower.contains("/tests/")
@@ -156,31 +156,44 @@ fn classification_for_path(path: &str) -> &'static str {
         || name.contains(".test.")
         || name.contains("_test.")
         || name.starts_with("test_")
+        || name == "tests.rs"
         || lower.contains("__tests__")
     {
-        "test"
-    } else if lower.starts_with(".github/workflows/") {
-        "workflow"
+        Classification::Test
+    } else if lower.starts_with(".github/workflows/")
+        || lower == "action.yml"
+        || lower == "action.yaml"
+    {
+        Classification::Workflow
     } else if lower.starts_with(".github/issue_template/")
         || lower == ".github/funding.yml"
         || lower.starts_with("schemas/")
+        || (lower.starts_with("plugins/")
+            && matches!(
+                name,
+                "plugin.json" | "marketplace.json" | "marketplace-source.json"
+            ))
+        || lower.starts_with(".agents/plugins/")
+        || lower.starts_with(".codex-plugin/")
     {
-        "config"
+        Classification::Config
+    } else if lower.starts_with("man/") || name.ends_with(".1") {
+        Classification::Generated
     } else if lower.starts_with("docs/") || lower.ends_with(".md") || lower.ends_with(".mdx") {
-        "docs"
+        Classification::Docs
     } else if lower.starts_with("action/")
         || lower.starts_with("scripts/")
         || lower.starts_with("tools/")
         || lower.starts_with(".github/actions/")
     {
-        "tool"
+        Classification::Tool
     } else if lower.starts_with("config/")
         || matches!(
             name,
             "cargo.toml" | "pyproject.toml" | "package.json" | "tsconfig.json" | "wrangler.toml"
         )
     {
-        "config"
+        Classification::Config
     } else if lower.starts_with("src/")
         || lower.starts_with("xtask/src/")
         || lower.starts_with("app/")
@@ -188,9 +201,9 @@ fn classification_for_path(path: &str) -> &'static str {
         || lower.starts_with("crates/")
         || lower.starts_with("packages/")
     {
-        "source"
+        Classification::Source
     } else {
-        "other"
+        Classification::Other
     }
 }
 
@@ -400,7 +413,7 @@ fn skipped_record(
         language: language_override.unwrap_or_else(|| language_for_path(path).into()),
         profile: profile_override.unwrap_or_else(|| profile_for(path, bytes, config).to_string()),
         classification: classification_override
-            .unwrap_or_else(|| classification_for_path(path).to_string()),
+            .unwrap_or_else(|| classification_for_path(path).as_str().to_string()),
         generated_from: Vec::new(),
         content_sha256,
         text: String::new(),
@@ -534,7 +547,7 @@ pub fn build(
                 if has_generated_marker(&text) {
                     "generated".to_string()
                 } else {
-                    classification_for_path(relative_path).to_string()
+                    classification_for_path(relative_path).as_str().to_string()
                 }
             }),
             generated_from: generated_sources(&text),

@@ -377,10 +377,19 @@ fn validate_scoop_boundary(repo_root: &Path, errors: &mut Vec<String>) {
 
     let publish_relative = ".github/workflows/release-publish.yml";
     match fs::read_to_string(repo_root.join(publish_relative)) {
-        Ok(text) if text.to_ascii_lowercase().contains("scoop") => errors.push(format!(
-            "{publish_relative} must remain independent of the external Scoop bucket."
-        )),
-        Ok(_) => {}
+        Ok(text) => {
+            for forbidden in [
+                "secrets.SCOOP_BUCKET_DISPATCH_TOKEN",
+                "Dispatch immutable release identity to Scoop bucket",
+                "--repo coreycoto/scoop-bucket",
+            ] {
+                if text.contains(forbidden) {
+                    errors.push(format!(
+                        "{publish_relative} must remain independent of the external Scoop bucket; found privileged marker {forbidden:?}."
+                    ));
+                }
+            }
+        }
         Err(error) => errors.push(format!("Unable to read {publish_relative}: {error}")),
     }
 
@@ -706,7 +715,7 @@ mod tests {
 
         fs::write(
             root.join(".github/workflows/release-publish.yml"),
-            "name: Dispatch Scoop update\n",
+            "name: Dispatch Scoop update\nsecrets.SCOOP_BUCKET_DISPATCH_TOKEN\n",
         )
         .unwrap();
         fs::write(

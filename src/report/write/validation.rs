@@ -1,5 +1,5 @@
 #[derive(Debug, Serialize)]
-struct ValidationIssue {
+pub(crate) struct ValidationIssue {
     code: &'static str,
     pointer: String,
     message: String,
@@ -26,7 +26,25 @@ fn collect_unknown_fields(
     }
 }
 
-fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
+fn collect_classification_issue(
+    issues: &mut Vec<ValidationIssue>,
+    record: &Value,
+    pointer: String,
+    allow_mixed: bool,
+) {
+    let classification = record.get("classification").and_then(Value::as_str);
+    if !classification.is_some_and(|value| {
+        crate::model::Classification::is_valid(value) || (allow_mixed && value == "mixed")
+    }) {
+        issues.push(ValidationIssue {
+            code: "invalid_classification",
+            pointer,
+            message: "classification must use the canonical classification enum".to_string(),
+        });
+    }
+}
+
+pub(crate) fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
     let mut issues = Vec::new();
     let Some(root) = report.as_object() else {
         return vec![ValidationIssue {
@@ -72,6 +90,7 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
         "files",
         "folders",
         "compare_index",
+        "policy_index",
         "ranked_files",
         "action_queue",
         "observation_feed",
@@ -293,6 +312,7 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
         "jaccard",
         "calibrated_jaccard",
         "lift_score",
+        "evidence_lower_bound",
         "confidence_lower_bound",
         "confidence",
         "similarity_ratio",
@@ -663,6 +683,52 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
             }
         }
     }
+    if let Some(policy_index) = root.get("policy_index") {
+        let Some(policy_index) = policy_index.as_object() else {
+            issues.push(ValidationIssue {
+                code: "type_mismatch",
+                pointer: "/policy_index".to_string(),
+                message: "policy_index must be an object".to_string(),
+            });
+            return issues;
+        };
+        for collection in ["files", "folders"] {
+            match policy_index.get(collection).and_then(Value::as_array) {
+                Some(records) => {
+                    for (index, record) in records.iter().enumerate() {
+                        for field in [
+                            "path",
+                            "classification",
+                            "tokens",
+                            "context_band",
+                            "slop_score",
+                            "slop_band",
+                            "reason_codes",
+                        ] {
+                            if record.get(field).is_none() {
+                                issues.push(ValidationIssue {
+                                    code: "required_field_missing",
+                                    pointer: format!("/policy_index/{collection}/{index}/{field}"),
+                                    message: format!("{field} is required in policy records"),
+                                });
+                            }
+                        }
+                        collect_classification_issue(
+                            &mut issues,
+                            record,
+                            format!("/policy_index/{collection}/{index}/classification"),
+                            collection == "folders",
+                        );
+                    }
+                }
+                None => issues.push(ValidationIssue {
+                    code: "type_mismatch",
+                    pointer: format!("/policy_index/{collection}"),
+                    message: format!("policy_index.{collection} must be an array"),
+                }),
+            }
+        }
+    }
     let file_fields = [
         "path",
         "bytes",
@@ -763,6 +829,12 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
                     message: format!("unknown {collection} field {field:?}"),
                 });
             }
+            collect_classification_issue(
+                &mut issues,
+                record,
+                format!("/{collection}/{index}/classification"),
+                collection == "folders",
+            );
         }
     }
     let queue_fields = [
@@ -772,6 +844,7 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
         "generated_from",
         "synchronization_group",
         "remediation_kind",
+        "remediation_target_paths",
         "slop_score",
         "slop_band",
         "context_band",
@@ -787,6 +860,9 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
     ];
     let ranked_fields = [
         "path",
+        "classification",
+        "profile",
+        "remediation_kind",
         "slop_score",
         "slop_band",
         "context_band",
@@ -827,6 +903,12 @@ fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
                     message: format!("unknown {collection} field {field:?}"),
                 });
             }
+            collect_classification_issue(
+                &mut issues,
+                record,
+                format!("/{collection}/{index}/classification"),
+                false,
+            );
         }
     }
     if let Some(relationships) = root
@@ -1017,4 +1099,11 @@ pub fn validate_report_shape(report: &Value) -> Result<()> {
             .context("health does not match the canonical schema-5 contract")?;
     }
     Ok(())
+}
+
+pub fn validation_violations(report: &Value) -> Vec<Value> {
+    validation_issues(report)
+        .into_iter()
+        .filter_map(|issue| serde_json::to_value(issue).ok())
+        .collect()
 }

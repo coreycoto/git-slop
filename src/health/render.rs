@@ -302,7 +302,7 @@ pub(super) fn folder_next_command(path: &str) -> String {
         format!("{normalized}/")
     };
     format!(
-        "git-slop explain --path {}",
+        "git slop explain --path {}",
         shell_quote(&visible_controls(&selector))
     )
 }

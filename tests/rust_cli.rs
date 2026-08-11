@@ -312,10 +312,14 @@ fn find_writes_schema_five_and_all_human_and_machine_surfaces() {
         .iter()
         .map(|line_delta| (*line_delta).max(1).div_ceil(20))
         .sum();
-    let expected_diffusion = 0.35 * (3_f64.ln_1p() / 25_f64.ln()).min(1.0)
+    let raw_expected_diffusion = 0.35 * (3_f64.ln_1p() / 25_f64.ln()).min(1.0)
         + 0.25 * ((total_hunks as f64).ln_1p() / 50_f64.ln()).min(1.0)
         + 0.20 * (2_f64.ln_1p() / 10_f64.ln()).min(1.0)
         + 0.20 * (entropy / 3.0).min(1.0);
+    let evidence_support = 1.0 / 6.0;
+    let change_set_calibration = 1.0 / 2_f64.sqrt();
+    let expected_diffusion = raw_expected_diffusion * change_set_calibration * evidence_support;
+    let expected_diffusion_rounded = round6(expected_diffusion);
 
     for file in files {
         let tokens = file["tokens"].as_u64().expect("tokens");
@@ -345,28 +349,36 @@ fn find_writes_schema_five_and_all_human_and_machine_surfaces() {
         );
 
         let coordination = &file["costs"]["coordination"];
-        let expected_cross_folder_ratio = if path == "README.md" { 1.0 } else { 0.5 };
+        let expected_cross_folder_ratio =
+            (if path == "README.md" { 1.0 } else { 0.5 }) * evidence_support;
         assert_eq!(coordination["files_touched_per_change"], 3.0);
         assert_eq!(coordination["folders_touched_per_change"], 2.0);
         assert_eq!(coordination["edit_hunks_per_change"], 1.0);
         assert_eq!(coordination["cochange_degree"], 2);
         assert_eq!(coordination["cochange_centrality"], 1.0);
-        assert_eq!(
-            coordination["cross_folder_cochange_ratio"],
-            expected_cross_folder_ratio
+        assert_close(
+            coordination["cross_folder_cochange_ratio"]
+                .as_f64()
+                .expect("cross-folder ratio"),
+            round6(expected_cross_folder_ratio),
         );
         assert_eq!(coordination["cochange_pagerank"], 0.333333);
         assert_close(
             coordination["change_diffusion"]
                 .as_f64()
                 .expect("change diffusion"),
-            round6(expected_diffusion),
+            expected_diffusion_rounded,
         );
         assert_close(
             coordination["coordination_pressure"]
                 .as_f64()
                 .expect("coordination pressure"),
-            round6((0.5 * expected_diffusion + 0.3 + 0.2 * expected_cross_folder_ratio).min(1.0)),
+            round6(
+                (0.5 * expected_diffusion_rounded
+                    + 0.3
+                    + 0.2 * round6(expected_cross_folder_ratio))
+                .min(1.0),
+            ),
         );
     }
     assert!(
@@ -634,7 +646,7 @@ fn health_github_is_advisory_capped_actionable_and_escaped() {
             "::error file=src/a%2Cb%25file.rs,title=Context budget exceeded::",
         ))
         .stdout(predicate::str::contains(
-            "Next: git-slop explain --path 'src/a,b%25file.rs'",
+            "Next: git slop explain --path 'src/a,b%25file.rs'",
         ))
         .stdout(predicate::str::contains("src/second.rs").not());
 }

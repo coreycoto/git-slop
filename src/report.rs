@@ -5,8 +5,8 @@ mod write;
 
 pub use render::render_terminal;
 pub use write::{
-    load_report, load_report_with_legacy, migrate_legacy_report, schema, write_json_atomically,
-    write_report_bundle,
+    load_report, load_report_with_legacy, migrate_legacy_report, schema, validation_violations,
+    write_json_atomically, write_report_bundle,
 };
 
 #[cfg(test)]
@@ -136,7 +136,7 @@ mod tests {
             summary.matches("| [src/file_").count(),
             super::render::DEFAULT_SUMMARY_LIMIT
         );
-        assert!(summary.contains("git-slop explain --path"));
+        assert!(summary.contains("git slop explain --path"));
         assert!(summary.contains("changes frequently"));
     }
 

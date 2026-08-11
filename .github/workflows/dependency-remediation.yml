@@ -93,7 +93,7 @@ jobs:
       - name: Run Codex dependency remediation
         if: steps.codex_preflight.outputs.enabled == 'true'
         id: run_codex
-        uses: openai/codex-action@v1
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1
         env:
           GH_TOKEN: ${{ github.token }}
         with:
@@ -106,7 +106,20 @@ jobs:
             ["--profile","ci_mutation"]
           safety-strategy: drop-sudo
           sandbox: workspace-write
-          allow-bots: dependabot[bot]
+          allow-bot-users: dependabot[bot]
+
+      - name: Preserve Codex failure diagnostic
+        if: steps.codex_preflight.outputs.enabled == 'true' && always()
+        env:
+          CODEX_OUTCOME: ${{ steps.run_codex.outcome }}
+        run: |
+          if [ ! -s .artifacts/codex/dependency-remediation.json ]; then
+            jq -n \
+              --arg outcome "${CODEX_OUTCOME:-not-run}" \
+              --arg run_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              '{status: "codex_output_unavailable", outcome: $outcome, run_url: $run_url}' \
+              > .artifacts/dependency-remediation/codex-failure.json
+          fi
 
       - name: Publish structured summary
         if: steps.codex_preflight.outputs.enabled == 'true' && always()
@@ -128,5 +141,5 @@ jobs:
             .artifacts/codex/dependency-remediation.json
             .artifacts/dependency-remediation/
           include-hidden-files: true
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14

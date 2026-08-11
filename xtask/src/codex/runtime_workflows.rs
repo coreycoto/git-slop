@@ -18,6 +18,7 @@ const CODEX_CONFIG_COPY_COMMAND: &str =
 const CODEX_PROFILE_COPY_COMMAND: &str =
     "cp .codex/*.config.toml \"$RUNNER_TEMP/codex-runtime/.codex/\"";
 const CODEX_HOME_INPUT: &str = "codex-home: ${{ runner.temp }}/codex-runtime/.codex";
+const CODEX_ACTION: &str = "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AgentPluginWorkflowKind {
@@ -52,7 +53,7 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
         );
         for (required, description) in [
             (VALIDATE_COMMAND, "run the Rust Codex surface validator"),
-            ("openai/codex-action@v1", "invoke the Codex action"),
+            (CODEX_ACTION, "invoke the immutable Codex action"),
             (
                 CODEX_HOME_INPUT,
                 "pass the isolated Codex home to codex-action",
@@ -509,7 +510,7 @@ fn validate_dependency_remediation_trust(
         .collect::<Vec<_>>();
     let codex_steps = steps
         .iter()
-        .filter(|step| step.uses == "openai/codex-action@v1")
+        .filter(|step| step.uses == CODEX_ACTION)
         .collect::<Vec<_>>();
     if rust_setups.len() != 1
         || validations.len() != 1
@@ -646,6 +647,26 @@ fn validate_dependency_remediation_trust(
         ));
         return;
     };
+    let allowed_inputs = [
+        "allow-bot-users",
+        "codex-args",
+        "codex-home",
+        "openai-api-key",
+        "output-file",
+        "output-schema-file",
+        "prompt-file",
+        "safety-strategy",
+        "sandbox",
+    ];
+    if let Some(mapping) = inputs.as_mapping() {
+        for key in mapping.keys().filter_map(YamlValue::as_str) {
+            if !allowed_inputs.contains(&key) {
+                errors.push(format!(
+                    "{name} Codex mutation step uses unsupported pinned action input {key}."
+                ));
+            }
+        }
+    }
     for (key, expected) in [
         (
             "prompt-file",
@@ -670,6 +691,13 @@ fn validate_dependency_remediation_trust(
     {
         errors.push(format!(
             "{name} Codex args must select only the trusted ci_mutation profile."
+        ));
+    }
+    if inputs.get("allow-bots").is_some()
+        || inputs.get("allow-bot-users").and_then(YamlValue::as_str) != Some("dependabot[bot]")
+    {
+        errors.push(format!(
+            "{name} must trust Dependabot through allow-bot-users, never Boolean allow-bots."
         ));
     }
 }

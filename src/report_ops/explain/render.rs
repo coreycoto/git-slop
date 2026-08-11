@@ -27,11 +27,18 @@ fn format_reasons(value: Option<&Value>) -> String {
 
 fn render_relationship_brief(value: &Value) -> String {
     format!(
-        "- {} ↔ {} [{}; id={}; score={:.3}]",
+        "- {} ↔ {} [{}; id={}; confidence={}; support={}; lower={:.3}; score={:.3}]",
         string(value.get("source_path")),
         string(value.get("target_path")),
         string(value.get("kind")),
         string(value.get("id")),
+        string_or(value.get("confidence"), "unknown"),
+        usize_value(value.get("support_count")),
+        number(
+            value
+                .get("evidence_lower_bound")
+                .or_else(|| value.get("confidence_lower_bound")),
+        ),
         number(value.get("evidence_score"))
     )
 }
@@ -416,7 +423,17 @@ pub fn render_explain_text(payload: &Value) -> String {
         lines.push("Overlay Evidence".to_string());
         let organization = value_at(payload, &["overlay_summary", "organization_health"]);
         lines.push(format!(
-            "- organization_health: evidence_score={:.3}, crosses_top_level_boundary={}",
+            "- organization_health: confidence={}, support={}, evidence_lower_bound={:.3}, evidence_score={:.3}, crosses_top_level_boundary={}",
+            string_or(
+                organization.and_then(|value| value.get("confidence")),
+                "unknown"
+            ),
+            usize_value(organization.and_then(|value| value.get("support_count"))),
+            number(organization.and_then(|value| {
+                value
+                    .get("evidence_lower_bound")
+                    .or_else(|| value.get("confidence_lower_bound"))
+            })),
             number(organization.and_then(|value| value.get("evidence_score"))),
             title_case_bool(
                 organization
@@ -626,7 +643,7 @@ pub fn render_explain_text(payload: &Value) -> String {
             shell_quote(&string(target.get("target_path")))
         ));
         lines.push(format!(
-            "- Draft a bounded plan: git-slop plan --relationship {}",
+            "- Draft a bounded plan: git slop plan --relationship {}",
             shell_quote(&string(target.get("id")))
         ));
     } else if target_kind == "cluster" {
@@ -642,7 +659,7 @@ pub fn render_explain_text(payload: &Value) -> String {
             ));
         }
         lines.push(format!(
-            "- Draft a bounded plan: git-slop plan --cluster {}",
+            "- Draft a bounded plan: git slop plan --cluster {}",
             shell_quote(&string(target.get("id")))
         ));
     }

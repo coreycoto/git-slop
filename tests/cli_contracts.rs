@@ -52,6 +52,8 @@ fn assert_prompt_pack_safety(pack: &Path) -> Value {
         Some(64)
     );
     assert_eq!(context["repository_context"]["included"], false);
+    assert_eq!(context["repository_context"]["planning_usable"], false);
+    assert_eq!(context["repository_context"]["execution_ready"], false);
 
     let boundary = context["boundary"].as_str().expect("prompt-pack boundary");
     assert!(boundary.contains("advisory only"));
@@ -190,6 +192,9 @@ fn html_export_is_self_contained_and_searchable() {
     assert!(html.contains("type=\"application/json\""));
     assert!(html.contains("placeholder=\"Search paths\""));
     assert!(html.contains("near_duplicate_neighborhood"));
+    assert!(html.contains("class=\"file-link\""));
+    assert!(html.contains("f.member_paths"));
+    assert!(html.contains("\"source_report\":null"));
     assert!(!html.contains("https://cdn"));
 }
 
@@ -369,6 +374,8 @@ fn prompt_pack_repository_context_is_explicit_bounded_and_repo_relative() {
     let repository_context = &context["repository_context"];
     assert_eq!(repository_context["included"], true);
     assert_eq!(repository_context["reason"], "explicit_opt_in");
+    assert_eq!(repository_context["planning_usable"], true);
+    assert_eq!(repository_context["execution_ready"], true);
     assert_eq!(
         repository_context["source_excerpts"]
             .as_array()
@@ -392,6 +399,51 @@ fn prompt_pack_repository_context_is_explicit_bounded_and_repo_relative() {
         assert!(!Path::new(path).is_absolute());
         assert!(excerpt["bytes_returned"].as_u64().unwrap_or_default() <= 256);
     }
+}
+
+#[test]
+fn prompt_pack_is_not_execution_ready_when_target_source_is_truncated() {
+    let repository = TempDir::new().expect("temporary repository");
+    git(repository.path(), &["init", "-b", "main"]);
+    let first = repository
+        .path()
+        .join("src/consumer_toolkit/github/current_repo.py");
+    let second = repository
+        .path()
+        .join("src/consumer_toolkit/github/shared/current_repo.py");
+    fs::create_dir_all(first.parent().expect("first parent")).expect("create first parent");
+    fs::create_dir_all(second.parent().expect("second parent")).expect("create second parent");
+    fs::write(&first, "x".repeat(140_000)).expect("write oversized source");
+    fs::write(&second, "def current_repo():\n    return 'shared'\n").expect("write source");
+    fs::write(repository.path().join("AGENTS.md"), "# Guidance\n").expect("guidance");
+    let pack = repository.path().join("prompt-pack");
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args([
+            "explain",
+            "--report",
+            fixture("relationship_focused_report.json")
+                .to_str()
+                .expect("fixture path"),
+            "--relationship",
+            "duplicate_neighborhood-b534129a62cb",
+            "--prompt-pack",
+            pack.to_str().expect("prompt pack path"),
+            "--include-repository-context",
+            "--excerpt-bytes",
+            "256",
+        ])
+        .assert()
+        .success();
+
+    let context = read_json(&pack.join("context.json"));
+    let repository_context = &context["repository_context"];
+    assert_eq!(repository_context["planning_usable"], true);
+    assert_eq!(repository_context["execution_ready"], false);
+    assert_eq!(repository_context["execution_usable"], false);
+    assert_eq!(repository_context["truncation"]["source_complete"], false);
+    assert_eq!(repository_context["source_excerpts"][0]["truncated"], true);
 }
 
 #[test]

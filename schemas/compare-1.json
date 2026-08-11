@@ -582,6 +582,9 @@
     "head_report": {
       "$ref": "#/$defs/reportDescriptor"
     },
+    "include_unchanged": {
+      "type": "boolean"
+    },
     "overlay_deltas": {
       "items": {
         "$ref": "#/$defs/overlayDelta"
@@ -640,6 +643,7 @@
     "baseline_status",
     "baseline_compatible",
     "compatibility_mismatches"
+    ,"include_unchanged"
   ],
   "title": "Git Slop comparison schema 1",
   "type": "object"
