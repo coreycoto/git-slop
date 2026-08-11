@@ -276,7 +276,6 @@ jobs:
       EXPECTED_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
       TARGET: ${{ matrix.target }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/candidate-target
-      CANDIDATE_SOURCE_DIR: ${{ runner.temp }}/candidate-source
     steps:
       - name: Checkout exact candidate contracts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -304,8 +303,9 @@ jobs:
           set -euo pipefail
           crate="candidate/git-slop-${VERSION}.crate"
           test "$(sha256sum "$crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
-          mkdir -p "$CANDIDATE_SOURCE_DIR"
-          tar -xzf "$crate" -C "$CANDIDATE_SOURCE_DIR"
+          candidate_source_dir="${RUNNER_TEMP}/candidate-source"
+          mkdir -p "$candidate_source_dir"
+          tar -xzf "$crate" -C "$candidate_source_dir"
 
       - name: Install musl linker and unpack candidate bytes
         if: matrix.target == 'x86_64-unknown-linux-musl'
@@ -316,15 +316,17 @@ jobs:
           sudo apt-get install --yes musl-tools
           crate="candidate/git-slop-${VERSION}.crate"
           test "$(sha256sum "$crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
-          mkdir -p "$CANDIDATE_SOURCE_DIR"
-          tar -xzf "$crate" -C "$CANDIDATE_SOURCE_DIR"
+          candidate_source_dir="${RUNNER_TEMP}/candidate-source"
+          mkdir -p "$candidate_source_dir"
+          tar -xzf "$crate" -C "$candidate_source_dir"
 
       - name: Build and smoke candidate Unix archive
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          package="${CANDIDATE_SOURCE_DIR}/git-slop-${VERSION}"
+          candidate_source_dir="${RUNNER_TEMP}/candidate-source"
+          package="${candidate_source_dir}/git-slop-${VERSION}"
           cargo build --manifest-path "$package/Cargo.toml" --release --locked --target "$TARGET"
           root="git-slop-${TAG}-${TARGET}"
           mkdir -p "stage/$root/man" "stage/$root/completions" "stage/$root/schemas" smoke candidate-dist
@@ -362,7 +364,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $package = Join-Path $env:CANDIDATE_SOURCE_DIR "git-slop-$env:VERSION"
+          $package = Join-Path $env:RUNNER_TEMP "candidate-source\git-slop-$env:VERSION"
           cargo build --manifest-path "$package\Cargo.toml" --release --locked --target $env:TARGET
           $root = "git-slop-$env:TAG-$env:TARGET"
           $stage = "stage\$root"

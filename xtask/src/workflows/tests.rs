@@ -107,8 +107,8 @@ mod tests {
             ),
             (
                 valid.replacen(
-                    "CANDIDATE_SOURCE_DIR: ${{ runner.temp }}/candidate-source",
-                    "CANDIDATE_SOURCE_DIR: candidate-source",
+                    "candidate_source_dir=\"${RUNNER_TEMP}/candidate-source\"",
+                    "candidate_source_dir=\"candidate-source\"",
                     1,
                 ),
                 "unpack candidate source outside the repository workspace",
