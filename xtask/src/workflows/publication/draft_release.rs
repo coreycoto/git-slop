@@ -105,7 +105,7 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
             errors,
         );
         for required in [
-            "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\" --verify-tag",
+            "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\" --target \"$REVISION\" --verify-tag",
             "GIT_SLOP_ALLOW_DRAFT_RELEASE: \"true\"",
             "GIT_SLOP_RELEASE_ID:",
         ] {
@@ -143,11 +143,12 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
         if let Some(inspect) = step_run(draft, "Inspect existing GitHub Release") {
             for required in [
                 "gh api --paginate --slurp \"repos/${GITHUB_REPOSITORY}/releases?per_page=100\"",
-                "'[.[][] | select(.tag_name == $tag)]'",
+                ".target_commitish == $revision",
+                "(.tag_name | startswith(\"untagged-\"))",
                 "match_count=\"$(jq -r 'length' release-matches.json)\"",
                 "case \"$match_count\" in",
                 "release_id=\"$(jq -er '.id | select(type == \"number\" and . > 0)' release.json)\"",
-                "Multiple GitHub Releases use exact tag ${TAG}; refusing ambiguous release mutation.",
+                "Multiple GitHub Releases match exact or safely detached identity ${TAG}; refusing ambiguous release mutation.",
                 "exit 1",
                 "echo \"release-id=$release_id\" >> \"$GITHUB_OUTPUT\"",
             ] {
@@ -168,17 +169,19 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
             }
             if let Some(run) = refresh.get("run").and_then(YamlValue::as_str) {
                 for required in [
-                    "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\" --verify-tag",
+                    "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\" --target \"$REVISION\" --verify-tag",
                     "for attempt in $(seq 1 10); do",
                     "gh api --paginate --slurp \"repos/${GITHUB_REPOSITORY}/releases?per_page=100\"",
-                    "'[.[][] | select(.tag_name == $tag)]'",
+                    ".target_commitish == $revision",
+                    "(.tag_name | startswith(\"untagged-\"))",
                     "match_count=\"$(jq -r 'length' release-matches.json)\"",
                     "if test \"$match_count\" -gt 1; then",
                     "release_id=\"$(jq -er '.[0].id | select(type == \"number\" and . > 0)' release-matches.json)\"",
-                    "Multiple GitHub Releases use exact tag ${TAG}; refusing ambiguous release mutation.",
+                    "Multiple GitHub Releases match exact or safely detached identity ${TAG}; refusing ambiguous release mutation.",
                     "sleep 2",
                     "repos/${GITHUB_REPOSITORY}/releases/${release_id}",
-                    "gh api --method PATCH \"$endpoint\" --input release-notes.json",
+                    "{tag_name: $tag, target_commitish: $revision, name: $tag, body: $body, draft: true, prerelease: false}",
+                    "gh api --method PATCH \"$endpoint\" --input release-update.json",
                     ".id == $release_id",
                     "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}",
                     "curl --fail-with-body --silent --show-error --connect-timeout 15 --max-time 300",
@@ -193,6 +196,15 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
                 ] {
                     require(run, required, name, errors);
                 }
+                if run
+                    .matches("gh api --method PATCH \"$endpoint\" --input release-update.json")
+                    .count()
+                    != 2
+                {
+                    errors.push(format!(
+                        "{name} draft refresh must reassert the exact signed tag after all asset uploads."
+                    ));
+                }
                 forbid(run, "releases/tags/${TAG}", name, errors);
                 forbid(run, "gh release upload", name, errors);
                 forbid(run, "gh release delete-asset", name, errors);
@@ -206,15 +218,8 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
         if let Some(verify) = step_run(draft, "Verify published no-op or refreshed draft assets") {
             validate_exact_release_assets(verify, name, "${TAG}", errors);
             for required in [
-                "gh api --paginate --slurp \"repos/${GITHUB_REPOSITORY}/releases?per_page=100\"",
-                "'[.[][] | select(.tag_name == $tag)]'",
-                "for attempt in $(seq 1 10); do",
-                "match_count=\"$(jq -r 'length' release-matches.json)\"",
-                "if test \"$match_count\" -gt 1; then",
-                "Multiple GitHub Releases use exact tag ${TAG}; refusing ambiguous release verification.",
-                "sleep 2",
-                "test \"$(jq -r 'length' release-matches.json)\" = 1",
-                "test \"$(jq -r '.[0].id' release-matches.json)\" = \"$RELEASE_ID\"",
+                "[[ \"$RELEASE_ID\" =~ ^[1-9][0-9]*$ ]]",
+                "gh api \"repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}\" > release.json",
                 "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}",
                 ".id == $release_id",
             ] {

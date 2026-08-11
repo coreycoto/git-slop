@@ -253,19 +253,19 @@ mod tests {
             ),
             (
                 valid.replacen(
-                    "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\" --verify-tag",
-                    "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\"",
+                    "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\" --target \"$REVISION\" --verify-tag",
+                    "gh release create \"$TAG\" --draft --notes-file release-notes.md --title \"$TAG\" --target \"$REVISION\"",
                     1,
                 ),
                 "--verify-tag",
             ),
             (
                 valid.replacen(
-                    "Multiple GitHub Releases use exact tag ${TAG}; refusing ambiguous release mutation.",
-                    "Ignoring duplicate exact-tag releases.",
+                    "Multiple GitHub Releases match exact or safely detached identity ${TAG}; refusing ambiguous release mutation.",
+                    "Ignoring duplicate or detached releases.",
                     1,
                 ),
-                "Multiple GitHub Releases use exact tag",
+                "Multiple GitHub Releases match exact or safely detached identity",
             ),
             (
                 valid.replacen(
@@ -277,11 +277,19 @@ mod tests {
             ),
             (
                 valid.replacen(
-                    "test \"$(jq -r '.[0].id' release-matches.json)\" = \"$RELEASE_ID\"",
+                    "gh api \"repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}\" > release.json",
                     "true",
                     1,
                 ),
-                "release-matches.json)\" = \"$RELEASE_ID",
+                "releases/${RELEASE_ID}",
+            ),
+            (
+                valid.replacen(
+                    "gh api --method PATCH \"$endpoint\" --input release-update.json > release.json",
+                    "gh api \"$endpoint\" > release.json",
+                    1,
+                ),
+                "reassert the exact signed tag after all asset uploads",
             ),
             (
                 valid.replacen(
