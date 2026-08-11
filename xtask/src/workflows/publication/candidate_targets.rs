@@ -13,6 +13,12 @@ fn validate_candidate_targets_job(candidate_targets: Option<&YamlValue>, text: &
             .matches("candidate_source_dir=\"${RUNNER_TEMP}/candidate-source\"")
             .count()
             != 3
+            || text
+                .matches(
+                    "$candidateSourceDir = Join-Path $env:RUNNER_TEMP \"candidate-source\"",
+                )
+                .count()
+                != 2
         {
             errors.push(format!(
                 "{name} candidate-targets must unpack candidate source outside the repository workspace."
@@ -21,9 +27,11 @@ fn validate_candidate_targets_job(candidate_targets: Option<&YamlValue>, text: &
         for required in [
             "Download exact candidate package",
             "Verify and unpack candidate bytes",
+            "Verify and unpack candidate bytes on Windows",
+            "Get-FileHash -Algorithm SHA256 $crate",
             "tar -xzf \"$crate\" -C \"$candidate_source_dir\"",
             "package=\"${candidate_source_dir}/git-slop-${VERSION}\"",
-            "Join-Path $env:RUNNER_TEMP \"candidate-source\\git-slop-$env:VERSION\"",
+            "Join-Path $candidateSourceDir \"git-slop-$env:VERSION\"",
             "build-info --format json",
             ".source_dirty == false",
         ] {
