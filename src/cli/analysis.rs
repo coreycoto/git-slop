@@ -222,8 +222,8 @@ fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
         Ok(payload) => payload,
         Err(error) => return usage_error(error),
     };
-    let report_bytes = fs::read(&report_path)?;
-    let report_digest = hex::encode(sha2::Sha256::digest(&report_bytes));
+    let canonical_report = serde_json::to_vec(&loaded)?;
+    let report_digest = hex::encode(sha2::Sha256::digest(&canonical_report));
     let baseline_name = format!("plan-{}", &report_digest[..12]);
     let presentation_root = if repo_root.as_os_str().is_empty() {
         std::env::current_dir().unwrap_or_default()
@@ -233,17 +233,15 @@ fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
     let canonical_repo_root = presentation_root
         .canonicalize()
         .unwrap_or(presentation_root);
-    let report_command_path = report_path
+    let canonical_report_path = report_path
+        .canonicalize()
+        .unwrap_or_else(|_| report_path.clone());
+    let report_command_path = canonical_report_path
         .strip_prefix(&canonical_repo_root)
-        .unwrap_or(report_path.as_path())
-        .to_path_buf();
-    let quoted_report = format!(
-        "'{}'",
-        report_command_path
-            .display()
-            .to_string()
-            .replace('\'', "'\\''")
-    );
+        .unwrap_or(canonical_report_path.as_path())
+        .to_string_lossy()
+        .replace('\\', "/");
+    let quoted_report = format!("'{}'", report_command_path.replace('\'', "'\\''"));
     payload["source_report"] = json!({
         "path": report_command_path,
         "sha256": report_digest,

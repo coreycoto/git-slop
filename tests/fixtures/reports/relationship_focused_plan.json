@@ -46,8 +46,8 @@
           "maintenance"
         ]
       },
-      "baseline_command": "git-slop baseline create --name plan-740a9b31f26d --report 'tests/fixtures/reports/relationship_focused_report.json'",
-      "baseline_update_command": "git-slop baseline update --name plan-740a9b31f26d --report 'tests/fixtures/reports/relationship_focused_report.json'",
+      "baseline_command": "git-slop baseline create --name plan-137d1c0ba746 --report 'tests/fixtures/reports/relationship_focused_report.json'",
+      "baseline_update_command": "git-slop baseline update --name plan-137d1c0ba746 --report 'tests/fixtures/reports/relationship_focused_report.json'",
       "boundaries": {
         "allowed_new_paths": {
           "constraint": "Only focused tests or one extracted module directly attributable to an in-scope path; regenerate the plan for any other new file.",
@@ -98,7 +98,7 @@
       "plan_type": "investigation",
       "ranking_reason": "Anchor slice always ranks first.",
       "rationale": "Start with the selected coupled pair before considering any surrounding cluster evidence.",
-      "rerun_command": "git-slop find && git-slop compare --baseline plan-740a9b31f26d --head .slop/latest/report.json --detail summary --fail-on-regression",
+      "rerun_command": "git-slop find && git-slop compare --baseline plan-137d1c0ba746 --head .slop/latest/report.json --detail summary --fail-on-regression",
       "rollback": "Revert only the explicitly reviewed code changes; report and prompt artifacts are advisory and can be regenerated.",
       "scope_paths": [
         "src/consumer_toolkit/github/current_repo.py",
@@ -149,9 +149,9 @@
     "value": "near_duplicate_neighborhood-35e7fad1c4e0"
   },
   "source_report": {
-    "baseline_name": "plan-740a9b31f26d",
+    "baseline_name": "plan-137d1c0ba746",
     "path": "tests/fixtures/reports/relationship_focused_report.json",
-    "sha256": "740a9b31f26d544ff010acc07e703f22cc74ad4f53529f5e76c9c41d52591d22"
+    "sha256": "137d1c0ba746bbb693f669f0d10a777de5a4b4089225768507bd3dd7ee4a8a1a"
   },
   "target": {
     "evidence_score": 1140.594,
