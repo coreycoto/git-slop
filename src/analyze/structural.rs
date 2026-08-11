@@ -160,10 +160,10 @@ fn stem_structural_term(term: &str) -> String {
             base.to_string()
         };
     }
-    if !["ss", "us", "is"].iter().any(|suffix| term.ends_with(suffix))
-        && let Some(base) = term.strip_suffix('s').filter(|base| base.len() >= 4)
-    {
-        return stem_structural_term(base);
+    if !["ss", "us", "is"].iter().any(|suffix| term.ends_with(suffix)) {
+        if let Some(base) = term.strip_suffix('s').filter(|base| base.len() >= 4) {
+            return stem_structural_term(base);
+        }
     }
     term.to_string()
 }

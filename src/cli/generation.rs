@@ -96,7 +96,7 @@ mod generated_reference_tests {
     #[test]
     fn committed_cli_reference_matches_the_live_command_tree() {
         assert_eq!(
-            include_str!("../../docs/cli-reference.md"),
+            include_str!("../../docs/cli-reference.md").replace("\r\n", "\n"),
             super::reference_markdown()
         );
     }
