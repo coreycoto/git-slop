@@ -3,10 +3,17 @@ set -euo pipefail
 
 binary=$(realpath "${1:?usage: validate-packaged-contracts.sh BINARY SCHEMA_DIR WORKTREE}")
 schema_dir=$(realpath "${2:?usage: validate-packaged-contracts.sh BINARY SCHEMA_DIR WORKTREE}")
-worktree=$(realpath "${3:?usage: validate-packaged-contracts.sh BINARY SCHEMA_DIR WORKTREE}")
+source_worktree=$(realpath "${3:?usage: validate-packaged-contracts.sh BINARY SCHEMA_DIR WORKTREE}")
 contract_root=$(mktemp -d)
 trap 'rm -rf "$contract_root"' EXIT
 export npm_config_cache="$contract_root/npm-cache"
+
+# Candidate assembly deliberately creates staging files in the workflow checkout.
+# Analyze a clean clone of the exact checked-out revision so those release-owned
+# artifacts cannot contaminate report completeness or comparison semantics.
+worktree="$contract_root/worktree"
+git clone --quiet --no-hardlinks --no-tags "$source_worktree" "$worktree"
+test -z "$(git -C "$worktree" status --short --untracked-files=all)"
 
 for schema in report config compare explain plan sarif health check doctor build-info list show prompt-manifest error find-estimate cache-status cache-prune prune compare-ndjson; do
   "$binary" schema "$schema" > "$contract_root/$schema.schema.json"

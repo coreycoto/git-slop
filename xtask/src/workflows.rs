@@ -140,6 +140,7 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
 
     validate_agent_plugin_runtime(&workflows, &mut errors);
     validate_public_release_workflows(repo_root, &mut errors);
+    validate_packaged_contracts_script(repo_root, &mut errors);
 
     for name in ["docs-taxonomy.yml", "merge-on-green.yml"] {
         if let Some(text) = read(&workflows.join(name), &mut errors) {
@@ -154,6 +155,26 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
     validate_ci(repo_root, &workflows, &mut errors);
 
     errors
+}
+
+fn validate_packaged_contracts_script(repo_root: &Path, errors: &mut Vec<String>) {
+    let name = "scripts/validate-packaged-contracts.sh";
+    let Some(text) = read(&repo_root.join(name), errors) else {
+        return;
+    };
+    validate_packaged_contracts_text(&text, errors);
+}
+
+fn validate_packaged_contracts_text(text: &str, errors: &mut Vec<String>) {
+    let name = "scripts/validate-packaged-contracts.sh";
+    for required in [
+        "source_worktree=$(realpath",
+        "worktree=\"$contract_root/worktree\"",
+        "git clone --quiet --no-hardlinks --no-tags \"$source_worktree\" \"$worktree\"",
+        "git -C \"$worktree\" status --short --untracked-files=all",
+    ] {
+        require(text, required, name, errors);
+    }
 }
 
 fn render_release_workflow(repo_root: &Path) -> Result<String> {
