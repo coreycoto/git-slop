@@ -55,7 +55,7 @@ Use this skill when a repository should start consuming `git-slop`.
 - Keep `git-slop` observational until the repository explicitly promotes checks
   into required gates with `policy: enforce`.
 
-Minimal CI adoption after `0.11.6` and its matching release assets are published:
+Minimal CI adoption after `0.11.7` and its matching release assets are published:
 
 ```yaml
 permissions:
@@ -65,5 +65,5 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.11.6
+  - uses: coreycoto/git-slop@v0.11.7
 ```

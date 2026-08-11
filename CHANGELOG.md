@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.11.7 - 2026-08-10
+
+This patch makes GitHub's platform-enforced release immutability part of the
+public distribution contract rather than relying on provenance checks alone.
+
+### Release immutability
+
+- Require every stable public release to report `immutable: true` before the
+  post-publication verifier can dispatch the Scoop update.
+- Require the same locked release identity for Homebrew recovery and for any
+  rerun that encounters an already-published GitHub Release.
+- Preserve draft-first assembly so all archives, checksums, manifests, SBOMs,
+  and the Formula are complete before GitHub locks the exact tag and assets.
+- Validate these invariants structurally with `cargo xtask`, document
+  patch-forward recovery, and surface the GitHub release attestation in the
+  publication summary.
+
 ## 0.11.6 - 2026-08-10
 
 This patch makes the published machine contracts independently valid and

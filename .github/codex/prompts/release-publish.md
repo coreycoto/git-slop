@@ -64,6 +64,9 @@ normal release path's only manual approval.
   static `.crate` to have one exact SHA-256. Crates.io publication precedes tag
   creation; the final archives and Formula derive from those registry bytes.
 - Never move or delete an existing tag.
+- Require every existing published release accepted by recovery to report
+  `.immutable == true`. A mutable published release is not a resumable release
+  identity and must not reach a downstream package-manager dispatch.
 - Never publish a draft release, select Marketplace categories, or dispatch a
   Homebrew or Scoop update from this Codex job. The dispatch-authorized
   publication workflow owns the early Homebrew handoff, and the public-release
@@ -103,9 +106,9 @@ normal release path's only manual approval.
    normal path. `homebrew-handoff.yml` is explicit branch-restricted manual
    recovery only and adds no reviewer gate.
 6. Report rerun state explicitly. A matching package/tag/draft is resumable; a
-   digest or revision mismatch fails closed; a published release is
-   verification-only. `artifact_paths` may be empty when this job does not
-   upload files.
+   digest, revision, or published-release immutability mismatch fails closed; a
+   platform-immutable published release is verification-only. `artifact_paths`
+   may be empty when this job does not upload files.
 7. In recovery mode, state the supplied version, full revision, crate SHA-256,
    containment proof, and whether the missing exact tag was created or already
    matched. Never describe recovery as rebuilding from current `main`.

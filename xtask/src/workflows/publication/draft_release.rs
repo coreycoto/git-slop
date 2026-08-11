@@ -148,6 +148,7 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
                 "match_count=\"$(jq -r 'length' release-matches.json)\"",
                 "case \"$match_count\" in",
                 "release_id=\"$(jq -er '.id | select(type == \"number\" and . > 0)' release.json)\"",
+                ".draft == false and .immutable == true",
                 "Multiple GitHub Releases match exact or safely detached identity ${TAG}; refusing ambiguous release mutation.",
                 "exit 1",
                 "echo \"release-id=$release_id\" >> \"$GITHUB_OUTPUT\"",
@@ -222,6 +223,7 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
                 "gh api \"repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}\" > release.json",
                 "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}",
                 ".id == $release_id",
+                ".draft == false and .immutable == true",
             ] {
                 require(verify, required, name, errors);
             }

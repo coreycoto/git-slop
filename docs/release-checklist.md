@@ -306,6 +306,15 @@ Open the verified draft release in GitHub's web interface:
 4. review the Marketplace terms and complete the 2FA prompt; and
 5. publish the release.
 
+Before publishing, confirm repository release immutability remains enabled
+under **Settings -> General -> Releases**. The draft is the only mutable staging
+surface: attach and verify every artifact there. Publication must lock the exact
+tag and assets and create GitHub's release attestation. If publication produces
+a release whose API record does not report `immutable: true`, the verification
+workflow fails closed and neither the Scoop relay nor Homebrew recovery may
+dispatch. Correct published artifacts with a new patch release; never replace
+an asset or move a published version tag.
+
 This UI approval is intentional: GitHub does not expose a supported workflow
 or REST API switch for a new Action listing's Marketplace checkbox and
 categories. It is the normal release path's only manual approval. Publishing
@@ -327,7 +336,8 @@ public assets before creating the tap PR.
 
 The `release.published` event runs
 `.github/workflows/release-published.yml`. Its first job remains read-only and
-verifies the immutable public release; a dependency-ordered job then exposes
+verifies that the public release reports platform-enforced immutability and
+reverifies its exact identity and assets; a dependency-ordered job then exposes
 `SCOOP_BUCKET_DISPATCH_TOKEN` to exactly one `gh workflow run` command and sends
 only the verified version, release ID, revision, and release-manifest digest to
 the Scoop receiver. It never redispatches Homebrew and introduces no second

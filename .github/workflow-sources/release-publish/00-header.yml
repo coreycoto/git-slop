@@ -15,7 +15,7 @@ on:
       version:
         description: Strict stable version to publish or recover.
         required: true
-        default: "0.11.6"
+        default: "0.11.7"
         type: string
       recovery_revision:
         description: Recovery only - full 40-character source revision embedded in the published crate.
