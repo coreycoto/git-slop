@@ -36,6 +36,20 @@ mod tests {
     }
 
     #[test]
+    fn packaged_contract_validation_requires_a_clean_fixture() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let valid = fs::read_to_string(root.join("scripts/validate-packaged-contracts.sh")).unwrap();
+        let invalid = valid.replacen(
+            "git clone --quiet --no-hardlinks --no-tags \"$source_worktree\" \"$worktree\"",
+            "cp -R \"$source_worktree\" \"$worktree\"",
+            1,
+        );
+        let mut errors = Vec::new();
+        validate_packaged_contracts_text(&invalid, &mut errors);
+        assert!(errors.iter().any(|error| error.contains("git clone")));
+    }
+
+    #[test]
     fn release_publish_contract_rejects_boundary_regressions() {
         let valid = workflow_text("release-publish.yml");
         assert_eq!(publish_errors(&valid), Vec::<String>::new());
