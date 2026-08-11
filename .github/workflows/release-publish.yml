@@ -1010,7 +1010,18 @@ jobs:
         run: |
           set -euo pipefail
           gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-            | jq --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' \
+            | jq --arg tag "$TAG" --arg revision "$REVISION" \
+                '[.[][] | select(
+                  .tag_name == $tag or
+                  (
+                    .draft == true and
+                    .published_at == null and
+                    .prerelease == false and
+                    .name == $tag and
+                    .target_commitish == $revision and
+                    (.tag_name | startswith("untagged-"))
+                  )
+                )]' \
             > release-matches.json
           match_count="$(jq -r 'length' release-matches.json)"
           case "$match_count" in
@@ -1021,14 +1032,17 @@ jobs:
               jq '.[0]' release-matches.json > release.json
               release_id="$(jq -er '.id | select(type == "number" and . > 0)' release.json)"
               [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
-              jq -e --arg tag "$TAG" --argjson release_id "$release_id" \
-                '.id == $release_id and .tag_name == $tag and .prerelease == false and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))' \
+              jq -e --arg tag "$TAG" --arg revision "$REVISION" --argjson release_id "$release_id" \
+                '.id == $release_id and .prerelease == false and (
+                  (.tag_name == $tag and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))) or
+                  (.draft == true and .published_at == null and .name == $tag and .target_commitish == $revision and (.tag_name | startswith("untagged-")))
+                )' \
                 release.json >/dev/null
               state="$(jq -r 'if .draft then "draft" else "published" end' release.json)"
               echo "release-id=$release_id" >> "$GITHUB_OUTPUT"
               ;;
             *)
-              echo "Multiple GitHub Releases use exact tag ${TAG}; refusing ambiguous release mutation." >&2
+              echo "Multiple GitHub Releases match exact or safely detached identity ${TAG}; refusing ambiguous release mutation." >&2
               jq -r '.[] | "id=\(.id) state=\(if .draft then "draft" else "published" end) assets=\(.assets | length) url=\(.html_url)"' release-matches.json >&2
               exit 1
               ;;
@@ -1058,10 +1072,21 @@ jobs:
           set -euo pipefail
           release_id="${{ steps.release.outputs.release-id }}"
           if test "${{ steps.release.outputs.state }}" = missing; then
-            gh release create "$TAG" --draft --notes-file release-notes.md --title "$TAG" --verify-tag
+            gh release create "$TAG" --draft --notes-file release-notes.md --title "$TAG" --target "$REVISION" --verify-tag
             for attempt in $(seq 1 10); do
               gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-                | jq --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' \
+                | jq --arg tag "$TAG" --arg revision "$REVISION" \
+                    '[.[][] | select(
+                      .tag_name == $tag or
+                      (
+                        .draft == true and
+                        .published_at == null and
+                        .prerelease == false and
+                        .name == $tag and
+                        .target_commitish == $revision and
+                        (.tag_name | startswith("untagged-"))
+                      )
+                    )]' \
                 > release-matches.json
               match_count="$(jq -r 'length' release-matches.json)"
               if test "$match_count" = 1; then
@@ -1069,7 +1094,7 @@ jobs:
                 break
               fi
               if test "$match_count" -gt 1; then
-                echo "Multiple GitHub Releases use exact tag ${TAG}; refusing ambiguous release mutation." >&2
+                echo "Multiple GitHub Releases match exact or safely detached identity ${TAG}; refusing ambiguous release mutation." >&2
                 jq -r '.[] | "id=\(.id) state=\(if .draft then "draft" else "published" end) assets=\(.assets | length) url=\(.html_url)"' release-matches.json >&2
                 exit 1
               fi
@@ -1080,11 +1105,16 @@ jobs:
           [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
           endpoint="repos/${GITHUB_REPOSITORY}/releases/${release_id}"
           release_json="$(gh api "$endpoint")"
-          jq -e --arg tag "$TAG" --argjson release_id "$release_id" \
-            '.id == $release_id and .tag_name == $tag and .draft == true and .prerelease == false and .published_at == null' \
+          jq -e --arg tag "$TAG" --arg revision "$REVISION" --argjson release_id "$release_id" \
+            '.id == $release_id and .draft == true and .prerelease == false and .published_at == null and (
+              .tag_name == $tag or
+              (.name == $tag and .target_commitish == $revision and (.tag_name | startswith("untagged-")))
+            )' \
             <<< "$release_json" >/dev/null
-          jq -n --rawfile body release-notes.md '{body: $body}' > release-notes.json
-          gh api --method PATCH "$endpoint" --input release-notes.json >/dev/null
+          jq -n --arg tag "$TAG" --arg revision "$REVISION" --rawfile body release-notes.md \
+            '{tag_name: $tag, target_commitish: $revision, name: $tag, body: $body, draft: true, prerelease: false}' \
+            > release-update.json
+          gh api --method PATCH "$endpoint" --input release-update.json >/dev/null
           while IFS= read -r asset_id; do
             [[ "$asset_id" =~ ^[1-9][0-9]*$ ]]
             gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
@@ -1101,7 +1131,13 @@ jobs:
               "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?name=${asset_name}" \
               >/dev/null
           done
-          gh api "$endpoint" > release.json
+          # GitHub can detach a draft to a synthetic untagged-* identity while
+          # assets are uploaded. Reassert the exact signed tag after the final
+          # upload, then bind every later check to this numeric release ID.
+          gh api --method PATCH "$endpoint" --input release-update.json > release.json
+          jq -e --arg tag "$TAG" --arg revision "$REVISION" --argjson release_id "$release_id" \
+            '.id == $release_id and .tag_name == $tag and .target_commitish == $revision and .name == $tag and .draft == true and .prerelease == false and .published_at == null' \
+            release.json >/dev/null
           echo "release-id=$release_id" >> "$GITHUB_OUTPUT"
 
       - name: Verify published no-op or refreshed draft assets
@@ -1113,25 +1149,11 @@ jobs:
           set -euo pipefail
           rm -rf release-verification
           mkdir release-verification
-          for attempt in $(seq 1 10); do
-            gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-              | jq --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)]' \
-              > release-matches.json
-            match_count="$(jq -r 'length' release-matches.json)"
-            if test "$match_count" = 1; then
-              break
-            fi
-            if test "$match_count" -gt 1; then
-              echo "Multiple GitHub Releases use exact tag ${TAG}; refusing ambiguous release verification." >&2
-              jq -r '.[] | "id=\(.id) state=\(if .draft then "draft" else "published" end) assets=\(.assets | length) url=\(.html_url)"' release-matches.json >&2
-              exit 1
-            fi
-            test "$attempt" != 10
-            sleep 2
-          done
-          test "$(jq -r 'length' release-matches.json)" = 1
-          test "$(jq -r '.[0].id' release-matches.json)" = "$RELEASE_ID"
-          jq '.[0]' release-matches.json > release.json
+          [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > release.json
+          jq -e --arg tag "$TAG" --argjson release_id "$RELEASE_ID" \
+            '.id == $release_id and .tag_name == $tag and .prerelease == false and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))' \
+            release.json >/dev/null
           manifest_asset_id="$(jq -er '.assets[] | select(.name == "release-manifest.json") | .id' release.json)"
           gh api -H "Accept: application/octet-stream" \
             "repos/${GITHUB_REPOSITORY}/releases/assets/${manifest_asset_id}" \
@@ -1149,10 +1171,6 @@ jobs:
           done < <(jq -r '.assets[] | [.id, .name] | @tsv' release.json)
           (cd release-verification && sha256sum --check SHA256SUMS)
           jq -e --arg version "$VERSION" --arg tag "$TAG" --arg revision "$REVISION" '.schema_version == 3 and .version == $version and .tag == $tag and .revision == $revision and .crate_source.revision == $revision and (.supplemental_assets | length) == 3 and all(.supplemental_assets[]; .required == true and .contract_version == 1)' release-verification/release-manifest.json
-          [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]]
-          jq -e --arg tag "$TAG" --argjson release_id "$RELEASE_ID" \
-            '.id == $release_id and .tag_name == $tag and .prerelease == false and ((.draft == true and .published_at == null) or (.draft == false and (.published_at | type == "string")))' \
-            release.json >/dev/null
           while IFS= read -r asset_name; do
             digest="$(sha256sum "release-verification/${asset_name}" | awk '{print $1}')"
             jq -e --arg name "$asset_name" --arg digest "sha256:${digest}" \
