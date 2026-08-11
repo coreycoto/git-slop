@@ -235,15 +235,19 @@ pub fn render_github_annotations(report: &Value, max_annotations: usize) -> Stri
     }
 }
 
+pub struct PromptPackOptions<'a> {
+    pub repository_root: Option<&'a Path>,
+    pub excerpt_bytes: usize,
+    pub force: bool,
+}
+
 pub fn write_prompt_pack(
     command: &str,
     payload: &Value,
     report: &Value,
     report_path: &Path,
     output_dir: &Path,
-    repository_root: Option<&Path>,
-    excerpt_bytes: usize,
-    force: bool,
+    options: PromptPackOptions<'_>,
 ) -> Result<()> {
     if output_dir.exists() {
         if !output_dir.is_dir() {
@@ -253,7 +257,7 @@ pub fn write_prompt_pack(
             );
         }
         let empty = fs::read_dir(output_dir)?.next().is_none();
-        if !empty && !force {
+        if !empty && !options.force {
             bail!(
                 "Prompt pack path already exists and is not empty; pass --force to replace it: {}",
                 output_dir.display()
@@ -313,7 +317,7 @@ pub fn write_prompt_pack(
             })
         })
         .collect::<Vec<_>>();
-    let repository_context = repository_root.map_or_else(
+    let repository_context = options.repository_root.map_or_else(
         || {
             json!({
                 "included": false,
@@ -324,7 +328,7 @@ pub fn write_prompt_pack(
                 "truncation": {"per_file_byte_limit": 0, "file_limit": 0}
             })
         },
-        |root| repository_context(payload, report, root, excerpt_bytes),
+        |root| repository_context(payload, report, root, options.excerpt_bytes),
     );
     let readiness = evaluate_report_readiness(report, false, false);
     let context = json!({

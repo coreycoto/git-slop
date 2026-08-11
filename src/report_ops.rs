@@ -17,7 +17,9 @@ mod verification;
 
 pub use compare::{compare_payload_with_policy, render_compare_text};
 pub use explain::{explain_payload, render_explain_text};
-pub use github::{health_json_payload, render_github_annotations, write_prompt_pack};
+pub use github::{
+    PromptPackOptions, health_json_payload, render_github_annotations, write_prompt_pack,
+};
 pub use plan::{plan_payload, render_plan_text};
 pub use sarif::{render_json, sarif_payload};
 

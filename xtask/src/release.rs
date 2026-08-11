@@ -49,7 +49,9 @@ pub fn validate_project_version(project_root: &Path, expected_version: &str) -> 
     let heading = changelog
         .lines()
         .find(|line| line.starts_with(&heading_prefix))
-        .ok_or_else(|| anyhow::anyhow!("CHANGELOG.md is missing release heading {expected_version}"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("CHANGELOG.md is missing release heading {expected_version}")
+        })?;
     if heading[heading_prefix.len()..].trim() == "Unreleased" {
         bail!(
             "CHANGELOG.md release heading for {expected_version} is still Unreleased; date the release before publication"

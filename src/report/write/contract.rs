@@ -504,6 +504,7 @@ pub fn migrate_legacy_report(mut report: Value) -> Result<Value> {
             "content_fingerprint": record.get("content_fingerprint").cloned().unwrap_or(Value::Null),
             "content_sha256": record.get("content_sha256").cloned().unwrap_or(Value::Null),
             "analysis_status": record.get("analysis_status").cloned().unwrap_or_else(|| json!("legacy_unknown")),
+            "skipped_reason": record.get("skipped_reason").cloned().unwrap_or(Value::Null),
             "tokens": record.get("tokens").cloned().unwrap_or_else(|| json!(0)),
             "context_band": record.get("context_band").cloned().unwrap_or_else(|| json!("compact")),
             "slop_score": record.get("slop_score").cloned().unwrap_or_else(|| json!(0.0)),

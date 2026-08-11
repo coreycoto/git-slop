@@ -26,7 +26,7 @@
       "backlog_handoff": {
         "acceptance_criteria": [
           "Change no more than 2 scoped paths unless the plan is regenerated.",
-          "Reduce the highest scoped slop score from 12.600 to at most 11.600.",
+          "Remove or materially reduce the cited source reason codes while preserving raw-content identity evidence (baseline score 12.600).",
           "Produce zero native compare regressions and pass every discovered verification command."
         ],
         "evidence_summary": "Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py.",
@@ -46,8 +46,13 @@
           "maintenance"
         ]
       },
-      "baseline_command": "git-slop baseline create --name plan",
+      "baseline_command": "git-slop baseline create --name plan-740a9b31f26d --report 'tests/fixtures/reports/relationship_focused_report.json'",
+      "baseline_update_command": "git-slop baseline update --name plan-740a9b31f26d --report 'tests/fixtures/reports/relationship_focused_report.json'",
       "boundaries": {
+        "allowed_new_paths": {
+          "constraint": "Only focused tests or one extracted module directly attributable to an in-scope path; regenerate the plan for any other new file.",
+          "maximum": 2
+        },
         "in_scope": [
           "src/consumer_toolkit/github/current_repo.py",
           "src/consumer_toolkit/github/shared/current_repo.py"
@@ -63,12 +68,16 @@
         ],
         "relationships": [
           {
+            "confidence": "unknown",
+            "confidence_lower_bound": null,
+            "evidence_score": 1140.594,
             "id": "near_duplicate_neighborhood-35e7fad1c4e0",
             "kind": "near_duplicate_neighborhood",
             "paths": [
               "src/consumer_toolkit/github/current_repo.py",
               "src/consumer_toolkit/github/shared/current_repo.py"
-            ]
+            ],
+            "support_count": 0
           }
         ],
         "summary": "Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py."
@@ -78,18 +87,18 @@
         "maximum_scope_paths": 2,
         "required": [
           "No new native compare regression.",
-          "Highest scoped slop score is at most 11.600.",
+          "At least one cited source-derived reason code or metric improves without a relationship-confidence regression.",
           "All reviewed verification commands pass."
         ],
         "target_top_slop_score": 11.6
       },
       "id": "anchor-relationship-near_duplicate_neighborhood-35e7fad1c4e0",
-      "objective": "Reduce the highest scoped slop score from 12.600 to at most 11.600 across src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py, introduce zero native compare regressions, and pass every discovered verification command without expanding the reviewed scope.",
+      "objective": "Resolve the cited detector reason codes across src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py, improve at least one source-derived metric without worsening relationship support, introduce zero native compare regressions, and pass every discovered verification command without unreviewed scope expansion.",
       "out_of_scope_paths": [],
-      "plan_type": "intervention",
+      "plan_type": "investigation",
       "ranking_reason": "Anchor slice always ranks first.",
       "rationale": "Start with the selected coupled pair before considering any surrounding cluster evidence.",
-      "rerun_command": "git-slop find && git-slop compare --baseline plan --head .slop/latest/report.json --detail summary --fail-on-regression",
+      "rerun_command": "git-slop find && git-slop compare --baseline plan-740a9b31f26d --head .slop/latest/report.json --detail summary --fail-on-regression",
       "rollback": "Revert only the explicitly reviewed code changes; report and prompt artifacts are advisory and can be regenerated.",
       "scope_paths": [
         "src/consumer_toolkit/github/current_repo.py",
@@ -105,6 +114,18 @@
       "verification": {
         "classes": [
           "source"
+        ],
+        "concrete_targets": [
+          {
+            "nearby_tests": [],
+            "path": "src/consumer_toolkit/github/current_repo.py",
+            "symbols_or_terms": []
+          },
+          {
+            "nearby_tests": [],
+            "path": "src/consumer_toolkit/github/shared/current_repo.py",
+            "symbols_or_terms": []
+          }
         ],
         "discovered_commands": [],
         "required_checks": [
@@ -126,6 +147,11 @@
   "selector": {
     "kind": "relationship",
     "value": "near_duplicate_neighborhood-35e7fad1c4e0"
+  },
+  "source_report": {
+    "baseline_name": "plan-740a9b31f26d",
+    "path": "tests/fixtures/reports/relationship_focused_report.json",
+    "sha256": "740a9b31f26d544ff010acc07e703f22cc74ad4f53529f5e76c9c41d52591d22"
   },
   "target": {
     "evidence_score": 1140.594,

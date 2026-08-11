@@ -2,13 +2,15 @@ Plan: relationship near_duplicate_neighborhood-35e7fad1c4e0 [near_duplicate_neig
 
 1. Inspect src/consumer_toolkit/github/current_repo.py ↔ src/consumer_toolkit/github/shared/current_repo.py
    scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py
-   objective: Reduce the highest scoped slop score from 12.600 to at most 11.600 across src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py, introduce zero native compare regressions, and pass every discovered verification command without expanding the reviewed scope.
-   plan_type: intervention
+   objective: Resolve the cited detector reason codes across src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py, improve at least one source-derived metric without worsening relationship support, introduce zero native compare regressions, and pass every discovered verification command without unreviewed scope expansion.
+   plan_type: investigation
    rationale: Start with the selected coupled pair before considering any surrounding cluster evidence.
-   evidence: Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py.; relationships=near_duplicate_neighborhood-35e7fad1c4e0(src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py)
+   evidence: Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py.; relationships=near_duplicate_neighborhood-35e7fad1c4e0(src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py; confidence=unknown; lower=None; support=0; evidence=1140.594)
    expected_outcome: highest scoped score is at most 11.6; no native compare regression; verification passes
    verification: none
-   rerun: git-slop find && git-slop compare --baseline plan --head .slop/latest/report.json --detail summary --fail-on-regression
+   baseline: git-slop baseline create --name plan-740a9b31f26d --report 'tests/fixtures/reports/relationship_focused_report.json'
+   baseline_update_if_intentional: git-slop baseline update --name plan-740a9b31f26d --report 'tests/fixtures/reports/relationship_focused_report.json'
+   rerun: git-slop find && git-slop compare --baseline plan-740a9b31f26d --head .slop/latest/report.json --detail summary --fail-on-regression
    abandon_if: Stop and abandon or re-scope this slice if preserving behavior requires an out-of-scope change, verification cannot be identified, or the native comparison reports a regression.
    rollback: Revert only the explicitly reviewed code changes; report and prompt artifacts are advisory and can be regenerated.
    backlog: Maintenance: Inspect src/consumer_toolkit/github/current_repo.py ↔ src/consumer_toolkit/github/shared/current_repo.py priority=Later policy=preview_only

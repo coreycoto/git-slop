@@ -14,7 +14,7 @@ use crate::error::{ClassifiedError, ErrorKind};
 use crate::health;
 use crate::report;
 use crate::report_ops::{
-    ExplainSelector, PlanSelector, compare_payload_with_policy, explain_payload,
+    ExplainSelector, PlanSelector, PromptPackOptions, compare_payload_with_policy, explain_payload,
     failing_records_in, health_json_payload, plan_payload, render_compare_text,
     render_explain_text, render_github_annotations, render_json, render_plan_text,
     render_show_text, sarif_payload, show_payload, write_prompt_pack,

@@ -968,6 +968,7 @@ jobs:
             capture { print }
           ' CHANGELOG.md > release-changes.md
           grep -Fq "## ${VERSION} - " release-changes.md
+          # shellcheck disable=SC2016
           {
             printf '# Git Slop %s\n\n' "$VERSION"
             printf '## Changes\n\n'

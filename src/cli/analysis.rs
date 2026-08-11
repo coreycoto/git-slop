@@ -182,9 +182,11 @@ fn run_explain(repo_root: &Path, args: ExplainArgs) -> Result<i32> {
             &loaded,
             &report_path,
             output_dir,
-            args.include_repository_context.then_some(repo_root),
-            args.excerpt_bytes,
-            args.force,
+            PromptPackOptions {
+                repository_root: args.include_repository_context.then_some(repo_root),
+                excerpt_bytes: args.excerpt_bytes,
+                force: args.force,
+            },
         )?;
     }
     match args.format {
@@ -223,12 +225,27 @@ fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
     let report_bytes = fs::read(&report_path)?;
     let report_digest = hex::encode(sha2::Sha256::digest(&report_bytes));
     let baseline_name = format!("plan-{}", &report_digest[..12]);
+    let presentation_root = if repo_root.as_os_str().is_empty() {
+        std::env::current_dir().unwrap_or_default()
+    } else {
+        repo_root.to_path_buf()
+    };
+    let canonical_repo_root = presentation_root
+        .canonicalize()
+        .unwrap_or(presentation_root);
+    let report_command_path = report_path
+        .strip_prefix(&canonical_repo_root)
+        .unwrap_or(report_path.as_path())
+        .to_path_buf();
     let quoted_report = format!(
         "'{}'",
-        report_path.display().to_string().replace('\'', "'\\''")
+        report_command_path
+            .display()
+            .to_string()
+            .replace('\'', "'\\''")
     );
     payload["source_report"] = json!({
-        "path": report_path,
+        "path": report_command_path,
         "sha256": report_digest,
         "baseline_name": baseline_name,
     });
@@ -251,9 +268,11 @@ fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
             &loaded,
             &report_path,
             output_dir,
-            args.include_repository_context.then_some(repo_root),
-            args.excerpt_bytes,
-            args.force,
+            PromptPackOptions {
+                repository_root: args.include_repository_context.then_some(repo_root),
+                excerpt_bytes: args.excerpt_bytes,
+                force: args.force,
+            },
         )?;
     }
     match args.format {
