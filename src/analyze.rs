@@ -35,6 +35,25 @@ static ACRONYM_BOUNDARY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"([A-Z]+)([A-Z][a-z])").expect("valid acronym regex"));
 static NUMBER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b\d+(?:\.\d+)?\b").expect("valid number regex"));
+static RUST_SYMBOL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?(?:(?:async|unsafe)\s+)?(?:fn|struct|enum|trait|mod|const|static)\s+([A-Za-z_][A-Za-z0-9_]*)")
+        .expect("valid Rust symbol regex")
+});
+static PYTHON_SYMBOL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_][A-Za-z0-9_]*)")
+        .expect("valid Python symbol regex")
+});
+static GO_SYMBOL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*(?:func(?:\s+\([^)]*\))?|type)\s+([A-Za-z_][A-Za-z0-9_]*)")
+        .expect("valid Go symbol regex")
+});
+static JS_SYMBOL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function|class|interface|type)\s+([A-Za-z_$][A-Za-z0-9_$]*)")
+        .expect("valid JavaScript symbol regex")
+});
+static MARKDOWN_HEADING_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s{0,3}#{1,6}\s+([^#\r\n]+?)\s*#*\s*$").expect("valid Markdown heading regex")
+});
 include!("analyze/cache.rs");
 include!("analyze/structural.rs");
 pub fn run_find() -> Result<FindResult> {
@@ -496,7 +515,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             file.path.clone(),
             (
                 structural.len(),
-                top_terms(&structural, top_term_limit),
+                top_terms(&structural, &file.language, &file.text, top_term_limit),
                 structural,
                 fingerprint,
             ),

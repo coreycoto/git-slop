@@ -4,6 +4,70 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Classification {
+    Source,
+    Test,
+    Docs,
+    Tool,
+    Workflow,
+    Config,
+    Data,
+    Generated,
+    Snapshot,
+    Fixture,
+    Vendored,
+    MigrationFixture,
+    Other,
+}
+
+impl Classification {
+    pub(crate) const ALL: [Self; 13] = [
+        Self::Source,
+        Self::Test,
+        Self::Docs,
+        Self::Tool,
+        Self::Workflow,
+        Self::Config,
+        Self::Data,
+        Self::Generated,
+        Self::Snapshot,
+        Self::Fixture,
+        Self::Vendored,
+        Self::MigrationFixture,
+        Self::Other,
+    ];
+
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Source => "source",
+            Self::Test => "test",
+            Self::Docs => "docs",
+            Self::Tool => "tool",
+            Self::Workflow => "workflow",
+            Self::Config => "config",
+            Self::Data => "data",
+            Self::Generated => "generated",
+            Self::Snapshot => "snapshot",
+            Self::Fixture => "fixture",
+            Self::Vendored => "vendored",
+            Self::MigrationFixture => "migration_fixture",
+            Self::Other => "other",
+        }
+    }
+
+    pub(crate) fn is_valid(value: &str) -> bool {
+        Self::ALL
+            .iter()
+            .any(|candidate| candidate.as_str() == value)
+    }
+
+    pub(crate) fn values() -> Vec<&'static str> {
+        Self::ALL.iter().map(|value| value.as_str()).collect()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepoMetadata {
     pub repo_name: String,

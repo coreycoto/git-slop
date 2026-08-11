@@ -147,6 +147,7 @@ enum SchemaContract {
     FindEstimate,
     CacheStatus,
     CachePrune,
+    Baseline,
     Prune,
     CompareNdjson,
 }
@@ -291,6 +292,9 @@ struct ExplainArgs {
     /// Maximum bytes read from each included repository file.
     #[arg(long, default_value_t = 2048, requires = "include_repository_context")]
     excerpt_bytes: usize,
+    /// Include local filesystem paths in prompt-pack provenance and commands.
+    #[arg(long, requires = "prompt_pack")]
+    include_local_paths: bool,
 }
 
 #[derive(Debug, Args)]
@@ -331,6 +335,9 @@ struct PlanArgs {
     /// Maximum bytes read from each included repository file.
     #[arg(long, default_value_t = 2048, requires = "include_repository_context")]
     excerpt_bytes: usize,
+    /// Include local filesystem paths in prompt-pack provenance and commands.
+    #[arg(long, requires = "prompt_pack")]
+    include_local_paths: bool,
 }
 
 #[derive(Debug, Args)]
@@ -362,6 +369,9 @@ struct CheckArgs {
     /// Permit policy evaluation when selected inventory records are incomplete.
     #[arg(long)]
     allow_incomplete_evidence: bool,
+    /// Evaluate and report the canonical policy result without returning exit 1 for findings.
+    #[arg(long)]
+    evaluate_only: bool,
 }
 
 #[derive(Debug, Args)]
@@ -412,6 +422,9 @@ struct CompareArgs {
     /// Include local filesystem report paths in output descriptors.
     #[arg(long)]
     include_local_paths: bool,
+    /// Include unchanged file and folder records in bounded compare collections.
+    #[arg(long)]
+    include_unchanged: bool,
     /// Select which report supplies regression thresholds and evidence-drift policy.
     #[arg(long, value_enum, default_value_t = PolicySource::Base)]
     policy_from: PolicySource,
@@ -428,6 +441,27 @@ struct BaselineArgs {
 
 #[derive(Debug, Subcommand)]
 enum BaselineCommand {
+    /// Idempotently save a named baseline, failing closed when stored content differs.
+    Ensure {
+        /// Stable baseline name.
+        #[arg(long, default_value = "default")]
+        name: String,
+        /// Report path. Defaults to .slop/latest/report.json.
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// Explicitly replace a differing stored baseline.
+        #[arg(long)]
+        replace: bool,
+        /// Permit a report produced from a dirty worktree.
+        #[arg(long)]
+        allow_dirty: bool,
+        /// Permit incomplete inventory or history evidence.
+        #[arg(long)]
+        allow_incomplete_evidence: bool,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
+        format: DisplayFormat,
+    },
     /// Create a named baseline from a validated report.
     Create {
         /// Stable baseline name.
@@ -543,6 +577,9 @@ struct SarifArgs {
     /// Optional SARIF output path. Defaults to stdout.
     #[arg(long)]
     output: Option<PathBuf>,
+    /// Include the local source report path in SARIF invocation properties.
+    #[arg(long)]
+    include_local_paths: bool,
 }
 
 #[derive(Debug, Args)]
@@ -668,7 +705,7 @@ struct PruneArgs {
 #[derive(Debug, Args)]
 struct CacheArgs {
     /// Mutable state directory. Defaults to Git-private runtime storage.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, value_name = "PATH", global = true)]
     state_dir: Option<PathBuf>,
     #[command(subcommand)]
     command: CacheCommand,
@@ -728,6 +765,9 @@ struct HtmlArgs {
     /// Destination. Defaults to .slop/latest/report.html.
     #[arg(long)]
     output: Option<PathBuf>,
+    /// Embed the local source report path in the otherwise portable HTML file.
+    #[arg(long)]
+    include_local_paths: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -908,6 +948,7 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
                             include_str!("../schemas/cache-status-1.json")
                         }
                         SchemaContract::CachePrune => include_str!("../schemas/cache-prune-1.json"),
+                        SchemaContract::Baseline => include_str!("../schemas/baseline-1.json"),
                         SchemaContract::Prune => include_str!("../schemas/prune-1.json"),
                         SchemaContract::CompareNdjson => {
                             include_str!("../schemas/compare-ndjson-1.json")

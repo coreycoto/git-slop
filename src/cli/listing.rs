@@ -91,7 +91,7 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
             "unsupported_list_filter",
             format!("{option} is not supported for `git slop list {kind}`."),
         )
-        .at(option)
+        .at(format!("/{}", option.trim_start_matches("--").replace('-', "_")))
         .with_details(json!({"kind": kind, "filter": option}))
         .into());
     }
@@ -101,7 +101,8 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
             "invalid_list_limit",
             "--top must be greater than zero.",
         )
-        .at("--top")
+        .at("/top")
+        .with_details(json!({"flag": "--top", "actual": filter.top}))
         .into());
     }
     let files = loaded

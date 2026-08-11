@@ -1,26 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   baselineReportFromRef as materializeBaselineReport,
   baselineRevisionStatus,
   regressionComparison as compareBaselineReports,
 } from "./baseline.mjs";
-
-function appendFileCommand(target, name, value) {
-  if (!target) {
-    return;
-  }
-  const digest = createHash("sha256").update(`${name}\0${value}`).digest("hex").slice(0, 24);
-  let delimiter = `git_slop_${name}_${digest}`;
-  while (String(value).split(/\r?\n/u).includes(delimiter)) delimiter += "_x";
-  writeFileSync(target, `${name}<<${delimiter}\n${value}\n${delimiter}\n`, { flag: "a" });
-}
-
-function setOutput(name, value) {
-  appendFileCommand(process.env.GITHUB_OUTPUT, name, String(value));
-}
+import { evaluateAbsolutePolicy } from "./policy.mjs";
+import { annotate, artifacts, finalize } from "./publication.mjs";
+import { boundedInteger, enumValue, run, safeLogText, setOutput } from "./runtime.mjs";
 
 function normalizedBoolean(name, fallback) {
   const raw = (process.env[name] || fallback).trim().toLowerCase();
@@ -28,26 +15,6 @@ function normalizedBoolean(name, fallback) {
     throw new Error(`${name} must be true or false, received ${JSON.stringify(raw)}`);
   }
   return raw === "true";
-}
-
-function boundedInteger(name, fallback, minimum, maximum) {
-  const raw = (process.env[name] || String(fallback)).trim();
-  if (!/^\d+$/u.test(raw)) {
-    throw new Error(`${name} must be an integer, received ${JSON.stringify(raw)}`);
-  }
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
-    throw new Error(`${name} must be from ${minimum} through ${maximum}, received ${raw}`);
-  }
-  return value;
-}
-
-function enumValue(name, fallback, allowed) {
-  const raw = (process.env[name] || fallback).trim().toLowerCase();
-  if (!allowed.includes(raw)) {
-    throw new Error(`${name} must be one of ${allowed.join(", ")}, received ${JSON.stringify(raw)}`);
-  }
-  return raw;
 }
 
 function optionalBand(name, allowed) {
@@ -85,44 +52,6 @@ function reportPathsFromOutput(outputRoot) {
   };
 }
 
-function run(command, args, cwd, stdio = "inherit") {
-  const result = spawnSync(command, args, {
-    cwd,
-    encoding: "utf8",
-    stdio,
-  });
-  if (result.error) {
-    return {
-      status: 2,
-      stderr: result.error.message,
-      stdout: "",
-    };
-  }
-  return {
-    status: result.status ?? 2,
-    stderr: result.stderr || "",
-    stdout: result.stdout || "",
-  };
-}
-
-function safeLogText(value) {
-  return String(value).replace(/[\r\n\t\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/gu, (character) => {
-    if (character === "\r") return "\\r";
-    if (character === "\n") return "\\n";
-    if (character === "\t") return "\\t";
-    return `\\u{${character.codePointAt(0).toString(16)}}`;
-  });
-}
-
-function githubPropertyEscape(value) {
-  return String(value)
-    .replace(/%/gu, "%25")
-    .replace(/\r/gu, "%0D")
-    .replace(/\n/gu, "%0A")
-    .replace(/:/gu, "%3A")
-    .replace(/,/gu, "%2C");
-}
-
 function reportFindingCount(reportPath) {
   if (!existsSync(reportPath)) {
     return 0;
@@ -139,21 +68,6 @@ function reportFindingCount(reportPath) {
     console.warn(`Unable to read finding count from report.json: ${error.message}`);
   }
   return 0;
-}
-
-function reportPolicyFindingCount(reportPath, inputs) {
-  const report = JSON.parse(readFileSync(reportPath, "utf8"));
-  const contextThreshold = inputs.failOnContextBand || report.config?.check?.fail_on_context_band || "critical";
-  const slopThreshold = inputs.failOnSlopBand || report.config?.check?.fail_on_slop_band || "critical";
-  const contextRanks = { compact: 0, healthy: 1, warning: 2, critical: 3, refactor_required: 4, budget_exceeded: 5 };
-  const slopRanks = { low: 0, moderate: 1, high: 2, critical: 3 };
-  if (!(contextThreshold in contextRanks) || !(slopThreshold in slopRanks)) {
-    throw new Error("report contains incompatible policy thresholds");
-  }
-  return (Array.isArray(report.files) ? report.files : []).filter((record) =>
-    (contextRanks[record.context_band] ?? -1) >= contextRanks[contextThreshold]
-      || (slopRanks[record.slop_band] ?? -1) >= slopRanks[slopThreshold]
-  ).length;
 }
 
 function shellQuote(value) {
@@ -181,16 +95,6 @@ function appendHealthSummary(healthPath, inputs = {}) {
     "```",
   ].join("\n");
   writeFileSync(summaryTarget, `${health.trimEnd()}\n${reproduce}\n`, { flag: "a" });
-}
-
-function appendArtifactLink() {
-  const summaryTarget = process.env.GITHUB_STEP_SUMMARY;
-  const artifactUrl = (process.env.GIT_SLOP_ARTIFACT_URL || "").trim();
-  if (summaryTarget && artifactUrl) {
-    writeFileSync(summaryTarget, `\n[Download the bounded Git Slop artifact](${artifactUrl})\n`, {
-      flag: "a",
-    });
-  }
 }
 
 function appendComparisonSummary(comparisonPath) {
@@ -411,10 +315,13 @@ function analyze() {
   let absolutePolicyFindingCount = healthFindingCount;
   if (analysisExitCode === 0) {
     try {
-      // Advisory mode never invokes the enforcement command. This deterministic
-      // projection exists only to populate informational outputs; finalize runs
-      // `check` exactly once when absolute enforcement is requested.
-      absolutePolicyFindingCount = reportPolicyFindingCount(reportPath, safeInputs);
+      absolutePolicyFindingCount = evaluateAbsolutePolicy(
+        run,
+        (process.env.GIT_SLOP_BINARY || "").trim(),
+        cwd,
+        reportPath,
+        safeInputs,
+      ).finding_count;
     } catch (error) {
       analysisExitCode = 2;
       failureMessage = error instanceof Error ? error.message : String(error);
@@ -553,157 +460,6 @@ function analyze() {
   setOutput("comment-enabled", safeInputs.prComment);
   setOutput("fail-on-context-band", safeInputs.failOnContextBand);
   setOutput("fail-on-slop-band", safeInputs.failOnSlopBand);
-}
-
-function annotate() {
-  const binary = (process.env.GIT_SLOP_BINARY || "").trim();
-  const reportPath = (process.env.GIT_SLOP_REPORT_PATH || "").trim();
-  const cwd = (process.env.GIT_SLOP_WORKING_DIRECTORY_RESOLVED || "").trim();
-  const findingCount = boundedInteger("GIT_SLOP_FINDING_COUNT", 0, 0, Number.MAX_SAFE_INTEGER);
-  const maximum = boundedInteger("GIT_SLOP_MAX_ANNOTATIONS", 10, 0, 50);
-  const annotationCount = Math.min(findingCount, maximum);
-  setOutput("annotation-count", annotationCount);
-  if (maximum === 0 || findingCount === 0) {
-    console.log("No Git Slop annotations requested.");
-    return;
-  }
-  const comparisonPath = (process.env.GIT_SLOP_COMPARISON_PATH || "").trim();
-  const comparisonErrorPath = (process.env.GIT_SLOP_COMPARISON_ERROR_PATH || "").trim();
-  if (comparisonPath && existsSync(comparisonPath)) {
-    const comparison = JSON.parse(readFileSync(comparisonPath, "utf8"));
-    for (const finding of comparison.regressions.slice(0, maximum)) {
-      const safePath = githubPropertyEscape(finding.path);
-      const level = ["error", "warning", "notice"].includes(finding.severity) ? finding.severity : "warning";
-      console.log(`::${level} file=${safePath}::Git Slop ${finding.status}: score ${finding.base_slop_score ?? "new"} -> ${finding.head_slop_score}`);
-    }
-    return;
-  }
-  const result = run(
-    binary,
-    ["health", "--report", reportPath, "--format", "github", "--max-annotations", String(maximum)],
-    cwd,
-  );
-  if (result.status !== 0) {
-    throw new Error(`git-slop health annotation rendering exited with status ${result.status}`);
-  }
-}
-
-function artifacts() {
-  const mode = enumValue("GIT_SLOP_ARTIFACT_CONTENTS", "summary", [
-    "summary",
-    "report",
-    "full",
-  ]);
-  const healthPath = (process.env.GIT_SLOP_HEALTH_PATH || "").trim();
-  const analysisErrorPath = (process.env.GIT_SLOP_ANALYSIS_ERROR_PATH || "").trim();
-  const compressedReportPath = (process.env.GIT_SLOP_COMPRESSED_REPORT_PATH || "").trim();
-  const reportPath = (process.env.GIT_SLOP_REPORT_PATH || "").trim();
-  const reportYamlPath = (process.env.GIT_SLOP_REPORT_YAML_PATH || "").trim();
-  const summaryPath = (process.env.GIT_SLOP_SUMMARY_PATH || "").trim();
-  const comparisonPath = (process.env.GIT_SLOP_COMPARISON_PATH || "").trim();
-  const comparisonErrorPath = (process.env.GIT_SLOP_COMPARISON_ERROR_PATH || "").trim();
-  const allowed = {
-    summary: [healthPath, analysisErrorPath, comparisonErrorPath],
-    report: [healthPath, reportPath, compressedReportPath, analysisErrorPath, comparisonPath, comparisonErrorPath],
-    full: [healthPath, summaryPath, reportPath, compressedReportPath, reportYamlPath, analysisErrorPath, comparisonPath, comparisonErrorPath],
-  };
-  const paths = allowed[mode].filter((candidate) => candidate && existsSync(candidate));
-  if (!paths.includes(healthPath)) {
-    throw new Error("bounded artifact selection requires health.md");
-  }
-  setOutput("paths", paths.join("\n"));
-  console.log(`Artifact mode ${mode} selected ${paths.length} explicit file(s).`);
-}
-
-function finalize() {
-  const analysisExitCode = boundedInteger("GIT_SLOP_ANALYSIS_EXIT_CODE", 2, 0, 255);
-  if (analysisExitCode !== 0) {
-    setOutput("status", "error");
-    setOutput("policy-exit-code", 2);
-    throw new Error(`git-slop analysis failed with status ${analysisExitCode}`);
-  }
-  const baselineStatus = (process.env.GIT_SLOP_BASELINE_STATUS || "not_evaluated").trim();
-  if (baselineStatus === "error") {
-    setOutput("status", "error");
-    setOutput("policy-exit-code", 2);
-    throw new Error("Git Slop head analysis succeeded, but baseline comparison failed; head artifacts were preserved.");
-  }
-
-  const publicationOutcomes = {
-    annotations: (process.env.GIT_SLOP_ANNOTATE_OUTCOME || "").trim(),
-    "artifact selection": (process.env.GIT_SLOP_ARTIFACT_SELECTION_OUTCOME || "").trim(),
-    "artifact upload": (process.env.GIT_SLOP_UPLOAD_OUTCOME || "").trim(),
-    "pull request comment": (process.env.GIT_SLOP_COMMENT_OUTCOME || "").trim(),
-  };
-  const failedPublications = Object.entries(publicationOutcomes)
-    .filter(([, outcome]) => outcome === "failure" || outcome === "cancelled")
-    .map(([name]) => name);
-  if (failedPublications.length > 0) {
-    setOutput("status", "error");
-    setOutput("policy-exit-code", 2);
-    throw new Error(`Git Slop publication failed: ${failedPublications.join(", ")}`);
-  }
-  appendArtifactLink();
-
-  const policy = enumValue("GIT_SLOP_POLICY", "advisory", ["advisory", "enforce"]);
-  if (policy === "advisory") {
-    setOutput("status", "advisory");
-    setOutput("policy-exit-code", 0);
-    console.log("Git Slop policy is advisory; findings do not fail the job.");
-    return;
-  }
-
-  const enforcement = enumValue("GIT_SLOP_ENFORCEMENT", "absolute", ["absolute", "regression"]);
-  if (enforcement === "regression") {
-    const regressionCount = boundedInteger(
-      "GIT_SLOP_REGRESSION_COUNT",
-      0,
-      0,
-      Number.MAX_SAFE_INTEGER,
-    );
-    const status = regressionCount === 0 ? "pass" : "findings";
-    setOutput("status", status);
-    setOutput("policy-exit-code", regressionCount === 0 ? 0 : 1);
-    if (regressionCount > 0) {
-      throw new Error(`Git Slop policy found ${regressionCount} repository-health regression(s).`);
-    }
-    console.log("Git Slop regression policy found no new or worsened findings.");
-    return;
-  }
-
-  const binary = (process.env.GIT_SLOP_BINARY || "").trim();
-  const reportPath = (process.env.GIT_SLOP_REPORT_PATH || "").trim();
-  const cwd = (process.env.GIT_SLOP_WORKING_DIRECTORY_RESOLVED || "").trim();
-  const contextBand = optionalBand("GIT_SLOP_FAIL_ON_CONTEXT_BAND", [
-    "compact",
-    "healthy",
-    "warning",
-    "critical",
-  ]);
-  const slopBand = optionalBand("GIT_SLOP_FAIL_ON_SLOP_BAND", [
-    "low",
-    "moderate",
-    "high",
-    "critical",
-  ]);
-  const args = ["check", "--report", reportPath];
-  if (contextBand) {
-    args.push("--fail-on-context-band", contextBand);
-  }
-  if (slopBand) {
-    args.push("--fail-on-slop-band", slopBand);
-  }
-  const result = run(binary, args, cwd, "pipe");
-  const status = result.status === 0 ? "pass" : result.status === 1 ? "findings" : "error";
-  setOutput("status", status);
-  setOutput("policy-exit-code", result.status);
-  if (result.status !== 0) {
-    throw new Error(
-      result.status === 1
-        ? "Git Slop policy found repository health violations."
-        : `git-slop check failed with status ${result.status}`,
-    );
-  }
 }
 
 const command = process.argv[2];

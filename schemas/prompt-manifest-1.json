@@ -64,7 +64,16 @@
           "type": "integer"
         },
         "source_path": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_descriptor": {
+          "enum": [
+            "local_path",
+            "logical_source_report"
+          ]
         },
         "scope": {
           "type": [
@@ -82,6 +91,7 @@
         "canonical_report_sha256",
         "canonicalization",
         "source_path",
+        "source_descriptor",
         "generated_at"
       ],
       "type": "object"

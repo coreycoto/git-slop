@@ -8,7 +8,8 @@ mod tests {
 
     use super::{
         CachedTokenData, TokenCache, action_queue, configured_context_encoder, quarantine_cache,
-        replace_quoted_strings, structural_tokens,
+        replace_quoted_strings, structural_content_tokens, structural_symbols, structural_tokens,
+        top_terms,
     };
     use crate::model::FileAnalysis;
     use crate::scoring;
@@ -90,6 +91,19 @@ mod tests {
         assert!(tokens.contains(&"server".to_string()));
         assert!(tokens.contains(&"value".to_string()));
         assert!(tokens.iter().any(|token| token.contains("café")));
+    }
+
+    #[test]
+    fn structural_terms_prioritize_real_symbols_and_stem_supported_terms() {
+        let text = "pub(crate) fn reconcile_reports() {}\n// mappings mapping mapped\n";
+        let tokens = structural_content_tokens("code", text);
+        let terms = top_terms(&tokens, "Rust", text, 5);
+        assert_eq!(structural_symbols("Rust", text)[0], "reconcile_reports");
+        assert_eq!(terms[0], "reconcile_reports");
+        assert!(terms.contains(&"map".to_string()));
+        for generic in ["all", "base", "std", "buf", "unwrap", "root", "repo", "str"] {
+            assert!(!terms.iter().any(|term| term == generic));
+        }
     }
 
     #[test]

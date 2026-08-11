@@ -10,6 +10,8 @@ use globset::Glob;
 use serde_json::Map;
 use serde_json::{Value, json};
 
+use crate::model::Classification;
+
 pub const DEFAULT_SLOP_GITIGNORE: &str = "/latest/\n/runs/\n/cache/\n/scan.lock\n";
 pub const MINIMAL_CONFIG: &str = r#"# Git Slop configuration overrides.
 # Run `git slop config show --effective` to inspect every default.
@@ -282,21 +284,7 @@ fn validate_override_shape(value: &Value, defaults: &Value, path: &str) -> Resul
                         if let Some(classification) =
                             mapping.get("classification").and_then(Value::as_str)
                         {
-                            if ![
-                                "source",
-                                "test",
-                                "docs",
-                                "tool",
-                                "config",
-                                "data",
-                                "generated",
-                                "snapshot",
-                                "vendored",
-                                "migration_fixture",
-                                "other",
-                            ]
-                            .contains(&classification)
-                            {
+                            if !Classification::is_valid(classification) {
                                 bail!("{path}[{index}].classification has an unsupported value");
                             }
                         }
@@ -605,7 +593,9 @@ fn schema_for_value(value: &Value, path: &str) -> Value {
             })
         }
         Value::Array(values) => {
-            let items = if path == "verification.source_test_mappings" {
+            let items = if path == "verification.commands" {
+                json!({"type": "string", "minLength": 1})
+            } else if path == "verification.source_test_mappings" {
                 json!({
                     "type": "object",
                     "additionalProperties": false,
@@ -622,7 +612,7 @@ fn schema_for_value(value: &Value, path: &str) -> Value {
                     "required": ["glob"],
                     "properties": {
                         "glob": {"type": "string", "minLength": 1},
-                        "classification": {"type": "string", "enum": ["source", "test", "docs", "tool", "config", "data", "generated", "snapshot", "fixture", "vendored", "migration_fixture", "other"]},
+                        "classification": {"type": "string", "enum": Classification::values()},
                         "profile": {"type": "string", "enum": ["agent_context", "data_context"]},
                         "language": {"type": "string", "minLength": 1},
                         "verification_applicability": {"type": "string", "enum": ["auto", "applicable", "not_applicable"]}

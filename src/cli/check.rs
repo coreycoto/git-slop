@@ -1,6 +1,13 @@
 fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
     if args.details && !(1..=10_000).contains(&args.limit) {
-        return usage_error("--limit must be between 1 and 10000");
+        return Err(ClassifiedError::new(
+            ErrorKind::Contract,
+            "invalid_argument",
+            "--limit must be between 1 and 10000",
+        )
+        .at("/limit")
+        .with_details(json!({"flag": "--limit", "minimum": 1, "maximum": 10_000, "actual": args.limit}))
+        .into());
     }
     let (loaded, _) = report_or_missing(repo_root, args.report.as_deref())?;
     let readiness = crate::report_ops::evaluate_report_readiness(
@@ -102,7 +109,7 @@ fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
             }
             CheckFormat::Text => {}
         }
-        return Ok(if failures.is_empty() { 0 } else { 1 });
+        return Ok(if failures.is_empty() || args.evaluate_only { 0 } else { 1 });
     }
     if failures.is_empty() {
         println!(
@@ -137,7 +144,7 @@ fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
                 .unwrap_or_else(|| "null".to_string()),
         );
     }
-    Ok(1)
+    Ok(if args.evaluate_only { 0 } else { 1 })
 }
 
 fn bounded_compare_output(
@@ -146,6 +153,7 @@ fn bounded_compare_output(
     top: usize,
     offset: usize,
     limit: usize,
+    include_unchanged: bool,
 ) -> Result<Value> {
     if limit == 0 {
         anyhow::bail!("--limit must be greater than zero");
@@ -174,7 +182,7 @@ fn bounded_compare_output(
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        let values = if key == "queue_movement" {
+        let changed_values = if key == "queue_movement" {
             all_values
                 .iter()
                 .filter(|item| {
@@ -182,8 +190,19 @@ fn bounded_compare_output(
                 })
                 .cloned()
                 .collect::<Vec<_>>()
+        } else if matches!(key, "file_deltas" | "folder_deltas") {
+            all_values
+                .iter()
+                .filter(|item| item.get("status").and_then(Value::as_str) != Some("unchanged"))
+                .cloned()
+                .collect::<Vec<_>>()
         } else {
             all_values.clone()
+        };
+        let values = if include_unchanged && matches!(key, "file_deltas" | "folder_deltas") {
+            all_values.clone()
+        } else {
+            changed_values.clone()
         };
         let returned = values
             .iter()
@@ -195,7 +214,7 @@ fn bounded_compare_output(
             key.to_string(),
             json!({
                 "total": values.len(),
-                "changed_total": values.len(),
+                "changed_total": changed_values.len(),
                 "all_total": all_values.len(),
                 "offset": start,
                 "limit": cap,
@@ -211,6 +230,7 @@ fn bounded_compare_output(
         CompareDetail::Full => "full",
     });
     bounded["pagination"] = Value::Object(pagination);
+    bounded["include_unchanged"] = json!(include_unchanged);
     Ok(bounded)
 }
 
@@ -245,6 +265,35 @@ fn render_compare_ndjson(payload: &Value) -> Result<String> {
         }
     }
     Ok(format!("{}\n", lines.join("\n")))
+}
+
+#[cfg(test)]
+mod compare_pagination_tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_records_are_opt_in_and_do_not_create_phantom_pages() {
+        let payload = json!({
+            "file_deltas": [
+                {"path":"same.rs","status":"unchanged"},
+                {"path":"changed.rs","status":"changed"}
+            ],
+            "folder_deltas": [{"path":".","status":"unchanged"}],
+            "queue_movement": [], "overlay_deltas": [], "regressions": []
+        });
+        let bounded = bounded_compare_output(&payload, CompareDetail::Top, 10, 0, 1000, false)
+            .expect("bounded compare");
+        assert_eq!(bounded["file_deltas"].as_array().map(Vec::len), Some(1));
+        assert_eq!(bounded["folder_deltas"].as_array().map(Vec::len), Some(0));
+        assert_eq!(bounded["pagination"]["file_deltas"]["all_total"], 2);
+        assert_eq!(bounded["pagination"]["file_deltas"]["changed_total"], 1);
+        assert_eq!(bounded["pagination"]["folder_deltas"]["has_more"], false);
+
+        let complete = bounded_compare_output(&payload, CompareDetail::Top, 10, 0, 1000, true)
+            .expect("complete compare");
+        assert_eq!(complete["file_deltas"].as_array().map(Vec::len), Some(2));
+        assert_eq!(complete["pagination"]["file_deltas"]["changed_total"], 1);
+    }
 }
 
 #[cfg(test)]

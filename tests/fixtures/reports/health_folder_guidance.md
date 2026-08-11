@@ -50,8 +50,8 @@
 
 | Path | Class | Direct load | Direct-load band and trigger | Maintenance pressure | Highest-ranked descendant | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
-| `src/files-only` | source | 4 files · 100,299 tokens · 93.3% of parent | `budget_exceeded` — tokens: 100,299 direct tokens \> 4,000 warning ceiling | `high` · score 1,234.5 | `src/files-only/nested/winner.rs` — maintenance `moderate` · score 50.0; context/load `compact` · 150 tokens | `git-slop explain --path src/files-only/` |
-| `src/both` | source | 5 files · 4,500 tokens · 4.2% of parent | `budget_exceeded` — both: 5 direct files \> 4 warning ceiling; 4,500 direct tokens \> 4,000 warning ceiling | `critical` · score 90.0 | `src/both/0.rs` — maintenance `high` · score 80.0; context/load `compact` · 900 tokens | `git-slop explain --path src/both/` |
+| `src/files-only` | source | 4 files · 100,299 tokens · 93.3% of parent | `budget_exceeded` — tokens: 100,299 direct tokens \> 4,000 warning ceiling | `high` · score 1,234.5 | `src/files-only/nested/winner.rs` — maintenance `moderate` · score 50.0; context/load `compact` · 150 tokens | `git slop explain --path src/files-only/` |
+| `src/both` | source | 5 files · 4,500 tokens · 4.2% of parent | `budget_exceeded` — both: 5 direct files \> 4 warning ceiling; 4,500 direct tokens \> 4,000 warning ceiling | `critical` · score 90.0 | `src/both/0.rs` — maintenance `high` · score 80.0; context/load `compact` · 900 tokens | `git slop explain --path src/both/` |
 
 
 ### Review Candidates
@@ -60,19 +60,19 @@
 
 | Path | Class | Direct load | Direct-load band and trigger | Maintenance pressure | Highest-ranked descendant | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
-| `src/tokens-only` | source | 1 files · 2,500 tokens · 2.3% of parent | `warning` — tokens: 2,500 direct tokens \> 2,000 healthy ceiling | `moderate` · score 61.2 | `src/tokens-only/a.rs` — maintenance `moderate` · score 60.0; context/load `compact` · 2,500 tokens | `git-slop explain --path src/tokens-only/` |
+| `src/tokens-only` | source | 1 files · 2,500 tokens · 2.3% of parent | `warning` — tokens: 2,500 direct tokens \> 2,000 healthy ceiling | `moderate` · score 61.2 | `src/tokens-only/a.rs` — maintenance `moderate` · score 60.0; context/load `compact` · 2,500 tokens | `git slop explain --path src/tokens-only/` |
 
 
 ## Actionable Findings
 
 | Review severity | Path | Context/load band | Maintenance pressure | Why it surfaced | Next step |
 | --- | --- | --- | --- | --- | --- |
-| `error` | `src/files-only/generated.json` | `refactor_required` | `critical` · score 99.0 | 99,999 tokens exceed the configured fail threshold | `git-slop explain --path src/files-only/generated.json` |
-| `warning` | `src/both/0.rs` | `compact` | `high` · score 80.0 | 900 tokens leave limited context headroom | `git-slop explain --path src/both/0.rs` |
-| `warning` | `src/both/1.rs` | `compact` | `high` · score 79.0 | 900 tokens leave limited context headroom | `git-slop explain --path src/both/1.rs` |
-| `warning` | `src/both/2.rs` | `compact` | `high` · score 78.0 | 900 tokens leave limited context headroom | `git-slop explain --path src/both/2.rs` |
-| `warning` | `src/both/3.rs` | `compact` | `high` · score 77.0 | 900 tokens leave limited context headroom | `git-slop explain --path src/both/3.rs` |
-| `warning` | `src/both/4.rs` | `compact` | `high` · score 76.0 | 900 tokens leave limited context headroom | `git-slop explain --path src/both/4.rs` |
+| `error` | `src/files-only/generated.json` | `refactor_required` | `critical` · score 99.0 | 99,999 tokens exceed the configured fail threshold | `git slop explain --path src/files-only/generated.json` |
+| `warning` | `src/both/0.rs` | `compact` | `high` · score 80.0 | 900 tokens leave limited context headroom | `git slop explain --path src/both/0.rs` |
+| `warning` | `src/both/1.rs` | `compact` | `high` · score 79.0 | 900 tokens leave limited context headroom | `git slop explain --path src/both/1.rs` |
+| `warning` | `src/both/2.rs` | `compact` | `high` · score 78.0 | 900 tokens leave limited context headroom | `git slop explain --path src/both/2.rs` |
+| `warning` | `src/both/3.rs` | `compact` | `high` · score 77.0 | 900 tokens leave limited context headroom | `git slop explain --path src/both/3.rs` |
+| `warning` | `src/both/4.rs` | `compact` | `high` · score 76.0 | 900 tokens leave limited context headroom | `git slop explain --path src/both/4.rs` |
 
 ## Rollups
 

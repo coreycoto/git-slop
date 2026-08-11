@@ -681,7 +681,7 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Run Codex remediation
-        uses: openai/codex-action@v1
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56
         env:
           GH_TOKEN: ${{ github.token }}
         with:
@@ -690,6 +690,7 @@ jobs:
           codex-home: ${{ runner.temp }}/codex-runtime/.codex
           codex-args: >-
             ["--profile","ci_mutation"]
+          allow-bot-users: dependabot[bot]
 "#
 }
 

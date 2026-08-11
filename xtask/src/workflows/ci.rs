@@ -113,11 +113,20 @@ fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
             "steps.codex_preflight.outputs.enabled == 'true'",
             "always()",
             "include-hidden-files: true",
-            "if-no-files-found: error",
             "retention-days: 14",
         ] {
             require(upload, expected, name, errors);
         }
+        require(
+            upload,
+            if name == "dependency-remediation.yml" {
+                "if-no-files-found: warn"
+            } else {
+                "if-no-files-found: error"
+            },
+            name,
+            errors,
+        );
         forbid(upload, "          path: .artifacts\n", name, errors);
         for path in expected_paths {
             require(upload, path, name, errors);
@@ -129,6 +138,15 @@ fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
                 name,
                 errors,
             );
+        }
+        if name == "dependency-remediation.yml" {
+            for marker in [
+                "Preserve Codex failure diagnostic",
+                "codex_output_unavailable",
+                "steps.run_codex.outcome",
+            ] {
+                require(&text, marker, name, errors);
+            }
         }
     }
 

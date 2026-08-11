@@ -177,7 +177,7 @@ pub(super) fn coordination_facts(
                     .copied()
                     .unwrap_or_default(),
             );
-            facts.diffusion_total += diffusion;
+            facts.diffusion_total += diffusion * commit.calibration_weight.clamp(0.0, 1.0);
             for target in &touched {
                 if source != target {
                     *facts.neighbors.entry((*target).to_string()).or_default() += 1;

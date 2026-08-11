@@ -28,7 +28,7 @@ fn quarantined_stats(path: &Path) -> (usize, u64) {
         return (0, 0);
     };
     let prefix = format!(
-        "{}.",
+        "{}.corrupt-",
         path.file_name()
             .and_then(|value| value.to_str())
             .unwrap_or("token-v4.sqlite3")
@@ -37,7 +37,17 @@ fn quarantined_stats(path: &Path) -> (usize, u64) {
         .into_iter()
         .flatten()
         .filter_map(Result::ok)
-        .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let Some(suffix) = name.strip_prefix(&prefix) else {
+                return false;
+            };
+            let timestamp = suffix
+                .strip_suffix("-wal")
+                .or_else(|| suffix.strip_suffix("-shm"))
+                .unwrap_or(suffix);
+            !timestamp.is_empty() && timestamp.bytes().all(|byte| byte.is_ascii_digit())
+        })
         .filter_map(|entry| fs::metadata(entry.path()).ok())
         .fold((0usize, 0u64), |(count, bytes), metadata| {
             (count + 1, bytes.saturating_add(metadata.len()))

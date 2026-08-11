@@ -153,7 +153,7 @@ pub(super) fn build_relationships(
                 "evidence_score": round6(relationship_similarity),
                 "similarity": round6(relationship_similarity),
                 "support_count": 1,
-                "confidence_lower_bound": round6(if exact { 1.0 } else { relationship_similarity * 0.5 }),
+                "evidence_lower_bound": round6(if exact { 1.0 } else { relationship_similarity * 0.5 }),
                 "confidence": if exact { "supported" } else { "limited" },
                 "crosses_top_level_boundary": top_level_root(source) != top_level_root(target)
             });
@@ -217,8 +217,10 @@ pub(super) fn build_relationships(
             let id = stable_id("temporal_coupling_edge", &[pair.0, pair.1]);
             let support_confidence =
                 observation_commits as f64 / (observation_commits as f64 + 20.0);
-            let confidence_lower_bound = wilson_lower_bound(*support as f64, union as f64);
+            let jaccard_lower_bound = wilson_lower_bound(*support as f64, union as f64);
             let evidence_score = calibrated_coupling * support_confidence;
+            let evidence_lower_bound =
+                jaccard_lower_bound.min(calibrated_coupling) * support_confidence;
             let item = json!({
                 "id": id,
                 "kind": "temporal_coupling_edge",
@@ -236,10 +238,10 @@ pub(super) fn build_relationships(
                 "jaccard": round6(coupling),
                 "calibrated_jaccard": round6(calibrated_coupling),
                 "lift_score": round6(lift),
-                "confidence_lower_bound": round6(confidence_lower_bound),
-                "confidence": if *support >= 5 && confidence_lower_bound >= 0.10 && evidence_score >= 0.10 {
+                "evidence_lower_bound": round6(evidence_lower_bound),
+                "confidence": if *support >= 5 && evidence_lower_bound >= 0.10 && evidence_score >= 0.10 {
                     "supported"
-                } else if *support >= 2 && confidence_lower_bound >= 0.01 && evidence_score >= 0.02 {
+                } else if *support >= 2 && evidence_lower_bound >= 0.01 && evidence_score >= 0.02 {
                     "limited"
                 } else {
                     "low_support"
@@ -309,7 +311,7 @@ pub(super) fn build_relationships(
                 "target_path": target,
                 "evidence_score": round6(similarity),
                 "support_count": left_terms.iter().filter(|term| right_terms.contains(term)).count(),
-                "confidence_lower_bound": round6(similarity * 0.5),
+                "evidence_lower_bound": round6(similarity * 0.5),
                 "confidence": if similarity >= 0.6 { "limited" } else { "low_support" },
                 "crosses_top_level_boundary": true
             }));

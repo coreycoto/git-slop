@@ -1,0 +1,101 @@
+{
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.8/schemas/baseline-1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Git Slop baseline command schema 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "command"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "command": {
+      "enum": [
+        "baseline create",
+        "baseline ensure",
+        "baseline inspect",
+        "baseline list",
+        "baseline remove",
+        "baseline update",
+        "baseline validate"
+      ]
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._-]+$" },
+    "report_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "status": { "enum": ["created", "replaced", "unchanged"] },
+    "source_report": { "type": "string", "minLength": 1 },
+    "storage": { "const": "git_private" },
+    "readiness": { "$ref": "#/$defs/readiness" },
+    "baselines": { "type": "array", "items": { "$ref": "#/$defs/baseline_summary" } },
+    "storage_bytes": { "type": "integer", "minimum": 0 },
+    "updated_at": { "type": ["string", "null"], "format": "date-time" },
+    "report": { "$ref": "#/$defs/report_summary" },
+    "valid": { "const": true },
+    "removed": { "const": true }
+  },
+  "allOf": [
+    { "if": { "properties": { "command": { "const": "baseline ensure" } } }, "then": { "required": ["name", "status", "report_digest", "source_report", "storage", "readiness"] } },
+    { "if": { "properties": { "command": { "enum": ["baseline create", "baseline update"] } } }, "then": { "required": ["name", "source_report", "storage", "readiness"] } },
+    { "if": { "properties": { "command": { "const": "baseline list" } } }, "then": { "required": ["storage", "baselines"] } },
+    { "if": { "properties": { "command": { "const": "baseline inspect" } } }, "then": { "required": ["name", "storage", "readiness", "storage_bytes", "updated_at", "report"] } },
+    { "if": { "properties": { "command": { "const": "baseline validate" } } }, "then": { "required": ["name", "valid"] } },
+    { "if": { "properties": { "command": { "const": "baseline remove" } } }, "then": { "required": ["name", "removed"] } }
+  ],
+  "$defs": {
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "pointer", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "pointer": { "type": "string", "pattern": "^/" },
+        "message": { "type": "string" }
+      }
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["analysis_complete", "inventory_complete", "evidence_complete", "comparison_ready", "blockers"],
+      "properties": {
+        "analysis_complete": { "type": "boolean" },
+        "inventory_complete": { "type": "boolean" },
+        "evidence_complete": { "type": "boolean" },
+        "comparison_ready": { "type": "boolean" },
+        "blockers": { "type": "array", "items": { "$ref": "#/$defs/blocker" } }
+      }
+    },
+    "baseline_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "head_sha", "generated_at", "repository_id", "scope", "readiness"],
+      "properties": {
+        "name": { "type": "string" },
+        "head_sha": { "type": ["string", "null"] },
+        "generated_at": { "type": ["string", "null"], "format": "date-time" },
+        "repository_id": { "type": ["string", "null"] },
+        "scope": { "type": ["object", "null"] },
+        "readiness": { "$ref": "#/$defs/readiness" }
+      }
+    },
+    "report_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "generated_at", "head_sha", "scope", "report_profile", "evidence_completeness", "worktree_clean", "analysis_status", "collection_metadata", "analysis_config_digest", "evidence_config_digest", "policy_config_digest", "presentation_config_digest", "worktree_state_digest", "analyzed_content_digest"],
+      "properties": {
+        "schema_version": { "const": 5 },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "head_sha": { "type": ["string", "null"] },
+        "scope": { "type": "object" },
+        "report_profile": { "enum": ["compact", "standard", "full_evidence"] },
+        "evidence_completeness": { "type": "object" },
+        "worktree_clean": { "type": "boolean" },
+        "analysis_status": { "type": "string" },
+        "collection_metadata": { "type": "object" },
+        "analysis_config_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "evidence_config_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "policy_config_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "presentation_config_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "worktree_state_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "analyzed_content_digest": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

@@ -46,7 +46,7 @@ fn health_numbers_use_stable_human_formatting() {
     );
     assert_eq!(
         super::render::folder_next_command("."),
-        "git-slop explain --path ."
+        "git slop explain --path ."
     );
 }
 
@@ -66,7 +66,7 @@ fn folder_risks_explain_direct_triggers_and_rank_one_agent_descendant() {
     assert!(rendered.contains("direct tokens"));
     for path in ["src/files-only/", "src/tokens-only/", "src/both/"] {
         assert!(
-            rendered.contains(&format!("git-slop explain --path {path}")),
+            rendered.contains(&format!("git slop explain --path {path}")),
             "missing next command for {path}"
         );
     }

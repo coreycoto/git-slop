@@ -89,6 +89,8 @@ fn plan_path_target(record: &Value) -> Value {
         "slop_score": record.get("slop_score").cloned().unwrap_or(Value::Null),
         "slop_band": record.get("slop_band").cloned().unwrap_or(Value::Null),
         "context_band": record.get("context_band").cloned().unwrap_or(Value::Null),
+        "classification": record.get("classification").cloned().unwrap_or(Value::Null),
+        "generated_from": record.get("generated_from").cloned().unwrap_or_else(|| json!([])),
         "reason_codes": record.get("reason_codes").cloned().unwrap_or_else(|| json!([])),
     })
 }
@@ -124,6 +126,16 @@ fn plan_context_for_path(report: &Value, requested: &str) -> Result<Value> {
     let is_folder = string(record.get("record_type")) == "folder";
     let anchors = if is_folder {
         folder_anchor_paths(report, &path)
+    } else if string(record.get("classification")) == "generated" {
+        let generated_from = string_array(record.get("generated_from"))
+            .into_iter()
+            .filter(|candidate| resolved_record(report, candidate).is_some())
+            .collect::<Vec<_>>();
+        if generated_from.is_empty() {
+            vec![path.clone()]
+        } else {
+            generated_from
+        }
     } else {
         vec![path.clone()]
     };
@@ -317,6 +329,24 @@ fn anchor_plan_slice(report: &Value, context: &Value) -> Value {
             ),
             "Start with the highest-ranked descendant hotspots already driving this folder's context cost.",
         ),
+        "path" if string(target.get("classification")) == "generated" => (
+            format!("Inspect generator for {}", string(target.get("path"))),
+            "Review the generator source and synchronization contract; the generated output is evidence, not the intervention target.",
+        ),
+        "path"
+            if matches!(
+                string(target.get("classification")).as_str(),
+                "snapshot" | "fixture" | "migration_fixture"
+            ) =>
+        {
+            (
+                format!(
+                    "Inspect fixture strategy for {}",
+                    string(target.get("path"))
+                ),
+                "Review the fixture generator or test strategy; score reduction in the fixture itself is not an acceptance criterion.",
+            )
+        }
         "path" => (
             format!("Anchor hotspot {}", string(target.get("path"))),
             "Start with the selected hotspot before expanding to adjacent structural evidence.",

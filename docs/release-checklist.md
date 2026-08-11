@@ -6,7 +6,8 @@ and external Scoop manifest.
 The canonical release identity is one strict `X.Y.Z` version and one full Git
 commit. The crates.io package, `vX.Y.Z` tag, seven native archives, release
 manifest, installed binary, Action outputs, and Homebrew Formula must all agree
-on that identity.
+on that identity. The non-circular roots and verification order are defined in
+the [release trust graph](release-trust.md).
 
 ## One-Time Publisher Setup
 
@@ -25,14 +26,11 @@ on that identity.
   - workflow filename: `release-publish.yml`; and
   - environment: `release`.
 
-- Leave **Require trusted publishing for all new versions** disabled until the
-  first complete OIDC-backed patch release has been proven. Both credential
-  methods remain accepted by crates.io during this migration window.
-- Keep the existing crate-scoped API token and the GitHub `release` environment
-  secret `CARGO_REGISTRY_TOKEN` available only as an inert rollback resource
-  during that proof. `release-publish.yml` must not reference the secret or
-  silently fall back to it; restoring token publication would require a
-  separately reviewed exact-`main` workflow change.
+- Require trusted publishing for all new crate versions now that the OIDC-backed
+  release path has terminal proof. Verify the crates.io setting before each
+  release and keep `CARGO_REGISTRY_TOKEN` absent from the repository and release
+  environment; rollback requires a separately reviewed workflow and credential
+  change, never an inert standing token.
 - Store a fine-grained GitHub token that can dispatch the receiver workflow in
   `coreycoto/homebrew-tap` as the environment secret
   `HOMEBREW_TAP_DISPATCH_TOKEN`.
@@ -180,7 +178,7 @@ all of these values equal the candidate SHA-256:
 - the locally verified candidate checksum.
 
 A yanked version is rejected. Only after this verification does the workflow
-create the immutable lightweight `v<version>` tag at the exact source revision.
+create the annotated OpenPGP-signed `v<version>` tag at the exact source revision.
 An existing version/tag is a valid rerun only when version, revision, and crate
 digest all agree; the workflow never moves or deletes a tag.
 
@@ -370,6 +368,12 @@ The resulting Formula must retain `coreycoto/tap/git-slop`, build from the exact
 the version from the crates.io URL, so the Formula must not declare a redundant
 `version` stanza; its embedded-provenance assertions must also pass Homebrew's
 strict Ruby style.
+
+The tap publisher must also make the `git-slop-<version>` bottle release
+GitHub-immutable and query its API record for `immutable: true` before reporting
+success. A bottle block with pinned digests is necessary but is not sufficient:
+if platform immutability cannot be enabled or verified, the tap workflow must
+fail closed and leave the Formula PR unmerged.
 
 The v0.9.3 closeout proved a crates.io-backed source Formula only. The Actions
 incident and manual tap merge bypassed the exact-PR, two-bottle trusted-main

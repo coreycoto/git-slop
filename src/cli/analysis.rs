@@ -166,7 +166,12 @@ fn explain_selector(args: &ExplainArgs, repo_root: &Path) -> Result<ExplainSelec
 
 fn run_explain(repo_root: &Path, args: ExplainArgs) -> Result<i32> {
     if args.include_repository_context && !(256..=4096).contains(&args.excerpt_bytes) {
-        return usage_error("--excerpt-bytes must be between 256 and 4096");
+        return argument_error(
+            "/excerpt_bytes",
+            "--excerpt-bytes",
+            "--excerpt-bytes must be between 256 and 4096",
+            args.excerpt_bytes,
+        );
     }
     let (loaded, report_path) = report_or_missing(repo_root, args.report.as_deref())?;
     let selector = explain_selector(&args, repo_root)?;
@@ -186,6 +191,7 @@ fn run_explain(repo_root: &Path, args: ExplainArgs) -> Result<i32> {
                 repository_root: args.include_repository_context.then_some(repo_root),
                 excerpt_bytes: args.excerpt_bytes,
                 force: args.force,
+                include_local_paths: args.include_local_paths,
             },
         )?;
     }
@@ -209,14 +215,24 @@ fn plan_selector(args: &PlanArgs, repo_root: &Path) -> PlanSelector {
 
 fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
     if args.include_repository_context && !(256..=4096).contains(&args.excerpt_bytes) {
-        return usage_error("--excerpt-bytes must be between 256 and 4096");
+        return argument_error(
+            "/excerpt_bytes",
+            "--excerpt-bytes",
+            "--excerpt-bytes must be between 256 and 4096",
+            args.excerpt_bytes,
+        );
     }
     let (loaded, report_path) = report_or_missing(repo_root, args.report.as_deref())?;
     let Some(max_slices) = usize::try_from(args.max_slices)
         .ok()
         .filter(|count| *count > 0)
     else {
-        return usage_error("--max-slices must be greater than zero");
+        return argument_error(
+            "/max_slices",
+            "--max-slices",
+            "--max-slices must be greater than zero",
+            args.max_slices,
+        );
     };
     let mut payload = match plan_payload(&loaded, plan_selector(&args, repo_root), max_slices) {
         Ok(payload) => payload,
@@ -249,13 +265,13 @@ fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
     });
     for slice in payload["proposed_slices"].as_array_mut().into_iter().flatten() {
         slice["baseline_command"] = json!(format!(
-            "git-slop baseline create --name {baseline_name} --report {quoted_report}"
+            "git slop baseline ensure --name {baseline_name} --report {quoted_report}"
         ));
         slice["baseline_update_command"] = json!(format!(
-            "git-slop baseline update --name {baseline_name} --report {quoted_report}"
+            "git slop baseline ensure --name {baseline_name} --report {quoted_report} --replace"
         ));
         slice["rerun_command"] = json!(format!(
-            "git-slop find && git-slop compare --baseline {baseline_name} --head .slop/latest/report.json --detail summary --fail-on-regression"
+            "git slop find && git slop compare --baseline {baseline_name} --head .slop/latest/report.json --detail summary --fail-on-regression"
         ));
     }
     if let Some(output_dir) = args.prompt_pack.as_deref() {
@@ -270,6 +286,7 @@ fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
                 repository_root: args.include_repository_context.then_some(repo_root),
                 excerpt_bytes: args.excerpt_bytes,
                 force: args.force,
+                include_local_paths: args.include_local_paths,
             },
         )?;
     }

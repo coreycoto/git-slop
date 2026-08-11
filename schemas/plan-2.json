@@ -9,10 +9,56 @@
       "const": "plan"
     },
     "proposed_slices": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "title": { "type": "string" },
+          "scope_paths": { "items": { "type": "string" }, "type": "array" },
+          "out_of_scope_paths": { "items": { "type": "string" }, "type": "array" },
+          "objective": { "type": "string" },
+          "plan_type": { "enum": ["intervention", "investigation"] },
+          "rationale": { "type": "string" },
+          "boundaries": {
+            "additionalProperties": true,
+            "properties": {
+              "in_scope": { "items": { "type": "string" }, "type": "array" },
+              "out_of_scope": { "items": { "type": "string" }, "type": "array" },
+              "existing_path_cap": { "$ref": "#/$defs/path_cap" },
+              "new_path_cap": { "$ref": "#/$defs/path_cap" }
+            },
+            "required": ["in_scope", "out_of_scope", "existing_path_cap", "new_path_cap"],
+            "type": "object"
+          },
+          "expected_outcome": {
+            "additionalProperties": true,
+            "properties": {
+              "maximum_scope_paths": { "minimum": 0, "type": "integer" },
+              "baseline_top_slop_score": { "type": "number" },
+              "target_top_slop_score": { "type": ["number", "null"] },
+              "required": { "items": { "type": "string" }, "type": "array" }
+            },
+            "required": ["maximum_scope_paths", "baseline_top_slop_score", "target_top_slop_score", "required"],
+            "type": "object"
+          }
+        },
+        "required": ["title", "scope_paths", "out_of_scope_paths", "objective", "plan_type", "rationale", "boundaries", "expected_outcome"],
+        "type": "object"
+      },
       "type": "array"
     },
     "schema_version": {
       "const": 2
+    }
+  },
+  "$defs": {
+    "path_cap": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum": { "minimum": 0, "type": "integer" },
+        "constraint": { "type": "string" }
+      },
+      "required": ["maximum", "constraint"],
+      "type": "object"
     }
   },
   "required": [

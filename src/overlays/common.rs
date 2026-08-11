@@ -34,6 +34,7 @@ pub(super) fn is_test_path(path: &str) -> bool {
         || lower.contains("/tests/")
         || lower.contains("/test/")
         || lower.contains("__tests__")
+        || name == "tests.rs"
         || name.starts_with("test_")
         || name.contains("_test.")
         || name.contains(".test.")

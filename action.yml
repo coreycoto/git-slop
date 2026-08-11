@@ -10,7 +10,7 @@ inputs:
   version:
     description: Git Slop release version to install, with or without a leading v.
     required: false
-    default: "0.11.7"
+    default: "0.11.8"
   release-repository:
     description: GitHub repository that owns the versioned release assets.
     required: false
@@ -177,7 +177,7 @@ outputs:
     description: Diagnostic path when head analysis succeeds but baseline comparison fails.
     value: ${{ steps.analyze.outputs.comparison-error-path }}
   annotation-count:
-    description: Number of requested GitHub annotations, bounded by max-annotations.
+    description: Number of GitHub annotations actually emitted, bounded by max-annotations.
     value: ${{ steps.annotate.outputs.annotation-count || '0' }}
   health-path:
     description: Absolute path to health.md.
@@ -279,7 +279,6 @@ runs:
       env:
         GIT_SLOP_BINARY: ${{ steps.install.outputs.binary-path }}
         GIT_SLOP_REPORT_PATH: ${{ steps.analyze.outputs.report-path }}
-        GIT_SLOP_FINDING_COUNT: ${{ steps.analyze.outputs.finding-count }}
         GIT_SLOP_MAX_ANNOTATIONS: ${{ steps.analyze.outputs.max-annotations }}
         GIT_SLOP_WORKING_DIRECTORY_RESOLVED: ${{ steps.analyze.outputs.working-directory }}
         GIT_SLOP_COMPARISON_PATH: ${{ steps.analyze.outputs.comparison-path }}
@@ -387,6 +386,7 @@ runs:
         GIT_SLOP_POLICY: ${{ steps.analyze.outputs.policy }}
         GIT_SLOP_ENFORCEMENT: ${{ steps.analyze.outputs.enforcement }}
         GIT_SLOP_REGRESSION_COUNT: ${{ steps.analyze.outputs.regression-count }}
+        GIT_SLOP_ABSOLUTE_FINDING_COUNT: ${{ steps.analyze.outputs.absolute-finding-count }}
         GIT_SLOP_BASELINE_STATUS: ${{ steps.analyze.outputs.baseline-status }}
         GIT_SLOP_FAIL_ON_CONTEXT_BAND: ${{ steps.analyze.outputs.fail-on-context-band }}
         GIT_SLOP_FAIL_ON_SLOP_BAND: ${{ steps.analyze.outputs.fail-on-slop-band }}

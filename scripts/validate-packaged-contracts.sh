@@ -6,7 +6,15 @@ schema_dir=$(realpath "${2:?usage: validate-packaged-contracts.sh BINARY SCHEMA_
 source_worktree=$(realpath "${3:?usage: validate-packaged-contracts.sh BINARY SCHEMA_DIR WORKTREE}")
 contract_root=$(mktemp -d)
 trap 'rm -rf "$contract_root"' EXIT
-export npm_config_cache="$contract_root/npm-cache"
+mkdir -p "$contract_root/npm-cache" "$contract_root/read-only-home"
+chmod 0555 "$contract_root/read-only-home"
+export HOME="$contract_root/read-only-home"
+export NPM_CONFIG_CACHE="$contract_root/npm-cache"
+
+validate_json() {
+  npx --yes --package ajv-cli@5.0.0 --package ajv-formats@3.0.1 \
+    ajv validate --spec=draft2020 --strict=false -c ajv-formats "$@"
+}
 
 # Candidate assembly deliberately creates staging files in the workflow checkout.
 # Analyze a clean clone of the exact checked-out revision so those release-owned
@@ -15,7 +23,7 @@ worktree="$contract_root/worktree"
 git clone --quiet --no-hardlinks --no-tags "$source_worktree" "$worktree"
 test -z "$(git -C "$worktree" status --short --untracked-files=all)"
 
-for schema in report config compare explain plan sarif health check doctor build-info list show prompt-manifest error find-estimate cache-status cache-prune prune compare-ndjson; do
+for schema in report config compare explain plan sarif health check doctor build-info list show prompt-manifest error find-estimate cache-status cache-prune baseline prune compare-ndjson; do
   "$binary" schema "$schema" > "$contract_root/$schema.schema.json"
 done
 
@@ -27,7 +35,7 @@ for profile in compact standard full-evidence; do
   report="$output/latest/report.json"
   "$binary" report validate "$report"
   path=$(jq -er '.files[0].path' "$report")
-  "$binary" check --report "$report" --format json > "$contract_root/check-$profile.json"
+  "$binary" check --report "$report" --format json --evaluate-only > "$contract_root/check-$profile.json"
   "$binary" compare --base "$report" --head "$report" --format json > "$contract_root/compare-$profile.json"
   "$binary" compare --base "$report" --head "$report" --format ndjson > "$contract_root/compare-$profile.ndjson"
   jq -ce . "$contract_root/compare-$profile.ndjson" >/dev/null
@@ -38,19 +46,33 @@ for profile in compact standard full-evidence; do
   "$binary" plan --report "$report" --path "$path" --format json > "$contract_root/plan-$profile.json"
   "$binary" html --report "$report" --output "$contract_root/report-$profile.html"
   "$binary" sarif --report "$report" --output "$contract_root/report-$profile.sarif.json"
-  npx --yes ajv-cli@5.0.0 validate --spec=draft2020 --strict=false \
-    -s "$schema_dir/report-5.json" -d "$report"
+  validate_json -s "$schema_dir/report-5.json" -d "$report"
   for contract in check compare health show list explain plan; do
     schema_version=1
     if [[ "$contract" == explain || "$contract" == plan ]]; then
       schema_version=2
     fi
-    npx --yes ajv-cli@5.0.0 validate --spec=draft2020 --strict=false \
+    validate_json \
       -s "$schema_dir/${contract}-${schema_version}.json" \
       -d "$contract_root/$contract-$profile.json"
   done
-  npx --yes ajv-cli@5.0.0 validate --spec=draft2020 --strict=false \
-    -s "$schema_dir/sarif-1.json" -d "$contract_root/report-$profile.sarif.json"
+  validate_json -s "$schema_dir/sarif-1.json" -d "$contract_root/report-$profile.sarif.json"
+
+  if [[ "$profile" == standard ]]; then
+    jq '.health.__unknown = true' "$report" > "$contract_root/invalid-health.json"
+    jq '.generated_at = "not-a-date"' "$report" > "$contract_root/invalid-date.json"
+    jq '.files[0].classification = "invented"' "$report" > "$contract_root/invalid-classification.json"
+    for invalid in invalid-health invalid-date invalid-classification; do
+      if "$binary" report validate "$contract_root/$invalid.json" >/dev/null 2>&1; then
+        echo "runtime validator accepted negative fixture $invalid" >&2
+        exit 1
+      fi
+      if validate_json -s "$schema_dir/report-5.json" -d "$contract_root/$invalid.json" >/dev/null 2>&1; then
+        echo "published schema accepted negative fixture $invalid" >&2
+        exit 1
+      fi
+    done
+  fi
 done
 
 package_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -69,8 +91,7 @@ for profile in compact standard full-evidence; do
     node "$package_root/action/runner.mjs" analyze
 done
 
-npx --yes ajv-cli@5.0.0 validate --spec=draft2020 --strict=false \
-  -s "$schema_dir/build-info-1.json" -d "$contract_root/build-info.json"
+validate_json -s "$schema_dir/build-info-1.json" -d "$contract_root/build-info.json"
 
 # The executable and packaged schemas must expose the exact same immutable bytes.
 for schema_file in "$schema_dir"/*.json; do

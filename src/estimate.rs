@@ -20,6 +20,7 @@ pub struct AnalysisEstimate {
     pub memory_budget_bytes: u128,
     pub estimated_cache_bytes: u128,
     pub estimated_report_bytes: u128,
+    pub estimated_relationship_count: u128,
     pub estimated_inode_count: u128,
     pub estimated_seconds: u128,
     pub estimated_history_commit_count: u64,
@@ -141,6 +142,7 @@ pub fn build(repo_root: &Path, paths: &[String], config_value: &Value) -> Analys
             .saturating_div(3)
             .saturating_add(path_count * 512),
         estimated_report_bytes: report_bytes,
+        estimated_relationship_count: path_count.saturating_mul(pair_limit).saturating_div(2),
         estimated_inode_count: path_count.saturating_add(16),
         estimated_seconds: inventory_bytes
             .div_ceil(8 * 1024 * 1024)
@@ -200,6 +202,34 @@ mod tests {
         assert!(large.estimated_peak_memory_low_bytes > small.estimated_peak_memory_high_bytes);
         assert!(large.estimated_seconds >= small.estimated_seconds);
         assert_eq!(large.path_breadth, 100);
+    }
+
+    #[test]
+    fn preflight_performance_contract_gates_wall_rss_report_cache_and_relationships() {
+        let repository = tempdir().unwrap();
+        let started_rss = current_rss_bytes().unwrap_or_default();
+        for (count, maximum_seconds) in [(1_000usize, 2u64), (30_000, 10), (100_000, 20)] {
+            let paths = (0..count)
+                .map(|index| format!("package-{}/src/file-{index}.rs", index % 100))
+                .collect::<Vec<_>>();
+            let started = Instant::now();
+            let estimate = build(repository.path(), &paths, &config::default_config());
+            assert!(
+                started.elapsed().as_secs() < maximum_seconds,
+                "{count}-path preflight exceeded {maximum_seconds} seconds"
+            );
+            assert!(estimate.estimated_report_bytes <= count as u128 * 4_096);
+            assert!(estimate.estimated_cache_bytes <= count as u128 * 512);
+            assert!(estimate.estimated_relationship_count <= count as u128 * 10);
+        }
+        let peak_delta = current_rss_bytes()
+            .unwrap_or(started_rss)
+            .saturating_sub(started_rss);
+        assert!(
+            peak_delta <= 512 * 1024 * 1024,
+            "synthetic preflight fixtures used {} MiB additional RSS",
+            peak_delta.div_ceil(1024 * 1024)
+        );
     }
 
     #[test]

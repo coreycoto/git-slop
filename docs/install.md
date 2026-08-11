@@ -3,7 +3,7 @@
 Git Slop is distributed as one `git-slop` executable. When it is on `PATH`, Git
 also accepts `git slop`.
 
-The examples below pin 0.11.7. Confirm that the requested distribution surface
+The examples below pin 0.11.8. Confirm that the requested distribution surface
 publishes that exact version before installing it; documentation on `main` does
 not itself prove availability.
 
@@ -46,7 +46,7 @@ manifest lives in the separate, public
 repository and consumes the existing Windows release archives; it is not an
 additional `git-slop` release asset.
 
-After the bucket lists 0.11.7, install it from PowerShell:
+After the bucket lists 0.11.8, install it from PowerShell:
 
 ```powershell
 scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket
@@ -102,7 +102,7 @@ Download the archive plus `SHA256SUMS`, verify the exact filename, then place
 `git-slop` (`git-slop.exe` on Windows) on `PATH`. For example:
 
 ```bash
-release=v0.11.7
+release=v0.11.8
 target=x86_64-unknown-linux-gnu
 gh release download "$release" \
   --repo coreycoto/git-slop \
@@ -132,6 +132,28 @@ grep "  git-slop-${release}-${target}.tar.gz$" SHA256SUMS |
 Release automation also publishes `release-manifest.json`, which maps every
 target to its URL, size, and SHA-256 digest for setup actions and other
 automated consumers.
+
+For a direct Windows x86-64 install from PowerShell (use
+`aarch64-pc-windows-msvc` on Windows ARM64):
+
+```powershell
+$Release = "v0.11.8"
+$Target = "x86_64-pc-windows-msvc"
+$Archive = "git-slop-$Release-$Target.zip"
+gh release download $Release --repo coreycoto/git-slop --pattern $Archive --pattern SHA256SUMS
+$Expected = (Select-String -Path SHA256SUMS -Pattern "  $([regex]::Escape($Archive))$").Line.Split()[0]
+$Actual = (Get-FileHash -Algorithm SHA256 $Archive).Hash.ToLowerInvariant()
+if ($Actual -ne $Expected) { throw "SHA-256 mismatch for $Archive" }
+gh attestation verify $Archive --repo coreycoto/git-slop
+Expand-Archive -LiteralPath $Archive -DestinationPath . -Force
+$Install = Join-Path $env:LOCALAPPDATA "Programs\git-slop\bin"
+New-Item -ItemType Directory -Force -Path $Install | Out-Null
+Copy-Item "git-slop-$Release-$Target\git-slop.exe" $Install
+[Environment]::SetEnvironmentVariable("Path", "$Install;$([Environment]::GetEnvironmentVariable('Path','User'))", "User")
+& "$Install\git-slop.exe" build-info --format json
+```
+
+Start a new shell after updating the user `PATH`.
 
 ## Shell Completions
 
@@ -182,19 +204,20 @@ git verify-tag "${release}"
 The fingerprint, not an email address or short key ID, is the trust anchor.
 Continue to verify the release manifest, checksums, SBOMs, artifact
 attestations, and installed binary `build-info` identity as separate provenance
-layers.
+layers; the [release trust graph](release-trust.md) defines their exact order
+and explains why the manifest is not a circular root.
 
 ## Cargo
 
 Install the canonical crates.io package directly:
 
 ```bash
-cargo install git-slop --version 0.11.7 --locked
+cargo install git-slop --version 0.11.8 --locked
 git-slop build-info --format json
 ```
 
-For a verified 0.11.7 release, `source_revision` is the full commit named by
-`v0.11.7` and `source_dirty` is `false`. A local source build can report `null`
+For a verified 0.11.8 release, `source_revision` is the full commit named by
+`v0.11.8` and `source_dirty` is `false`. A local source build can report `null`
 for provenance it cannot prove; that is not equivalent to a release build.
 
 CI jobs should prefer the repository's GitHub Action or a checksummed prebuilt

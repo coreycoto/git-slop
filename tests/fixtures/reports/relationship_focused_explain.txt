@@ -11,7 +11,7 @@ Hotspot Cost
   - coordination: diffusion=0.956, degree=37, pressure=0.701
 
 Overlay Evidence
-- organization_health: evidence_score=1140.594, crosses_top_level_boundary=False
+- organization_health: confidence=unknown, support=0, evidence_lower_bound=0.000, evidence_score=1140.594, crosses_top_level_boundary=False
 - source overlays:
 - organization_health: duplication=1.000, diffusion=0.333, coupling=0.000, boundary=0.000, clusters=2
 - verification: gap=0.000, adjacency=0.000, test_cochange=1.000, hotspot_without_nearby_tests=False
@@ -28,7 +28,7 @@ Overlay Evidence
 - concept_dispersion: pressure=1.000, terms=args, argv, def, if, none
 
 Supporting Relationships
-- src/consumer_toolkit/github/current_repo.py ↔ src/consumer_toolkit/github/shared/current_repo.py [near_duplicate_neighborhood; id=near_duplicate_neighborhood-35e7fad1c4e0; score=1140.594]
+- src/consumer_toolkit/github/current_repo.py ↔ src/consumer_toolkit/github/shared/current_repo.py [near_duplicate_neighborhood; id=near_duplicate_neighborhood-35e7fad1c4e0; confidence=unknown; support=0; lower=0.000; score=1140.594]
 
 Supporting Clusters
 - duplicate_set-ce293b441009 [duplicate_set] members=2 roots=src candidate_type=consolidate_duplicate_knowledge
@@ -42,13 +42,13 @@ Evidence Summary
 
 Report and Evidence Provenance
 - analyzer: git-slop legacy-schema-4 (analysis contract 1)
-- report_digest=137d1c0ba746bbb693f669f0d10a777de5a4b4089225768507bd3dd7ee4a8a1a content_digest=0000000000000000000000000000000000000000000000000000000000000000 target_content_fingerprint=
+- report_digest=54a618ace6fff2dc86d5cac3bb74f103ce387982347bc82fbabd3ad3273d1147 content_digest=0000000000000000000000000000000000000000000000000000000000000000 target_content_fingerprint=
 - generated_at=1970-01-01T00:00:00Z analyzed_revision_at= head_sha=
 - evidence: incomplete=false repository_relative=true experimental_overlays=6 saturation_suppressed=0
 
 Next Commands
 - Inspect source: git-slop show 'src/consumer_toolkit/github/current_repo.py'
 - Inspect target: git-slop show 'src/consumer_toolkit/github/shared/current_repo.py'
-- Draft a bounded plan: git-slop plan --relationship 'near_duplicate_neighborhood-35e7fad1c4e0'
+- Draft a bounded plan: git slop plan --relationship 'near_duplicate_neighborhood-35e7fad1c4e0'
 
 Interpretation boundary: this is structural evidence, not proof that an abstraction, boundary, or refactor is correct.

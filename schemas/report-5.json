@@ -1,5 +1,147 @@
 {
   "$defs": {
+    "band_counts": {
+      "additionalProperties": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "type": "object"
+    },
+    "candidate": {
+      "additionalProperties": false,
+      "properties": {
+        "band": {
+          "type": "string"
+        },
+        "class": {
+          "$ref": "#/$defs/classification_or_mixed"
+        },
+        "descendant_files": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "files": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "file",
+            "folder"
+          ]
+        },
+        "parent_tokens": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "recursive_tokens": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "slop_band": {
+          "type": "string"
+        },
+        "slop_score": {
+          "type": "number"
+        },
+        "tokens": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "path",
+        "profile",
+        "class",
+        "tokens",
+        "parent_tokens",
+        "band",
+        "slop_band",
+        "slop_score",
+        "reason_codes"
+      ],
+      "type": "object"
+    },
+    "classification": {
+      "enum": [
+        "source",
+        "test",
+        "docs",
+        "tool",
+        "workflow",
+        "config",
+        "data",
+        "generated",
+        "snapshot",
+        "fixture",
+        "vendored",
+        "migration_fixture",
+        "other"
+      ],
+      "type": "string"
+    },
+    "classification_or_mixed": {
+      "enum": [
+        "source",
+        "test",
+        "docs",
+        "tool",
+        "workflow",
+        "config",
+        "data",
+        "generated",
+        "snapshot",
+        "fixture",
+        "vendored",
+        "migration_fixture",
+        "other",
+        "mixed"
+      ],
+      "type": "string"
+    },
+    "collection_page": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "returned": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "total",
+        "returned",
+        "limit",
+        "truncated"
+      ],
+      "type": "object"
+    },
     "compare_record": {
       "additionalProperties": false,
       "properties": {
@@ -26,7 +168,7 @@
           "$ref": "#/$defs/costs"
         },
         "overlays": {
-          "type": "object"
+          "$ref": "#/$defs/json_object"
         },
         "path": {
           "type": "string"
@@ -177,6 +319,67 @@
       },
       "type": "object"
     },
+    "distribution": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "p50": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "p90": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "p95": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "p99": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "top_10_share": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "top_1_share": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "top_5_share": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count",
+        "total",
+        "p50",
+        "p90",
+        "p95",
+        "p99",
+        "max",
+        "top_1_share",
+        "top_5_share",
+        "top_10_share"
+      ],
+      "type": "object"
+    },
     "file": {
       "additionalProperties": false,
       "properties": {
@@ -211,7 +414,7 @@
           "type": "number"
         },
         "classification": {
-          "type": "string"
+          "$ref": "#/$defs/classification"
         },
         "code_lines": {
           "type": "integer"
@@ -266,7 +469,7 @@
           "type": "integer"
         },
         "overlays": {
-          "type": "object"
+          "$ref": "#/$defs/json_object"
         },
         "path": {
           "type": "string"
@@ -275,6 +478,9 @@
           "type": "string"
         },
         "reason_codes": {
+          "items": {
+            "type": "string"
+          },
           "type": "array"
         },
         "recency_weighted_commits": {
@@ -308,12 +514,15 @@
           "type": "number"
         },
         "structural_categories": {
-          "type": "object"
+          "$ref": "#/$defs/json_object"
         },
         "structural_token_count": {
           "type": "integer"
         },
         "symlink_metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/json_value"
+          },
           "type": [
             "object",
             "null"
@@ -329,6 +538,9 @@
           "type": "number"
         },
         "top_structural_terms": {
+          "items": {
+            "type": "string"
+          },
           "type": "array"
         }
       },
@@ -382,6 +594,66 @@
       ],
       "type": "object"
     },
+    "finding": {
+      "additionalProperties": false,
+      "properties": {
+        "context_band": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "next_command": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "notice"
+          ]
+        },
+        "slop_band": {
+          "type": "string"
+        },
+        "slop_score": {
+          "type": "number"
+        },
+        "title": {
+          "type": "string"
+        },
+        "tokens": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "profile",
+        "severity",
+        "title",
+        "message",
+        "next_command",
+        "slop_band",
+        "context_band",
+        "slop_score",
+        "tokens",
+        "reasons"
+      ],
+      "type": "object"
+    },
     "folder": {
       "additionalProperties": false,
       "properties": {
@@ -389,7 +661,7 @@
           "type": "integer"
         },
         "classification": {
-          "type": "string"
+          "$ref": "#/$defs/classification_or_mixed"
         },
         "context_band": {
           "type": "string"
@@ -416,12 +688,15 @@
           "type": "integer"
         },
         "overlays": {
-          "type": "object"
+          "$ref": "#/$defs/json_object"
         },
         "path": {
           "type": "string"
         },
         "reason_codes": {
+          "items": {
+            "type": "string"
+          },
           "type": "array"
         },
         "slop_band": {
@@ -458,6 +733,237 @@
       ],
       "type": "object"
     },
+    "health": {
+      "additionalProperties": false,
+      "properties": {
+        "file_band_counts": {
+          "$ref": "#/$defs/band_counts"
+        },
+        "file_distribution": {
+          "$ref": "#/$defs/distribution"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/finding"
+          },
+          "type": "array"
+        },
+        "folder_band_counts": {
+          "$ref": "#/$defs/band_counts"
+        },
+        "folder_distribution": {
+          "$ref": "#/$defs/distribution"
+        },
+        "language_rollups": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/language_rollup"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
+        "profile_rollups": {
+          "items": {
+            "$ref": "#/$defs/profile_rollup"
+          },
+          "type": "array"
+        },
+        "refactor_candidates": {
+          "items": {
+            "$ref": "#/$defs/candidate"
+          },
+          "type": "array"
+        },
+        "watchlist": {
+          "items": {
+            "$ref": "#/$defs/candidate"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "file_band_counts",
+        "folder_band_counts",
+        "profile_rollups",
+        "language_rollups",
+        "file_distribution",
+        "folder_distribution",
+        "refactor_candidates",
+        "watchlist",
+        "findings"
+      ],
+      "type": "object"
+    },
+    "index_collection_metadata": {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "$ref": "#/$defs/collection_page"
+        },
+        "folders": {
+          "$ref": "#/$defs/collection_page"
+        }
+      },
+      "required": [
+        "files",
+        "folders"
+      ],
+      "type": "object"
+    },
+    "json_object": {
+      "additionalProperties": {
+        "$ref": "#/$defs/json_value"
+      },
+      "type": "object"
+    },
+    "json_value": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/json_value"
+          },
+          "type": "array"
+        },
+        {
+          "$ref": "#/$defs/json_object"
+        }
+      ]
+    },
+    "language_rollup": {
+      "additionalProperties": false,
+      "properties": {
+        "blanks": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "code": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "comments": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "files": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "language": {
+          "type": "string"
+        },
+        "lines": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "token_share": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "tokens": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "profile",
+        "language",
+        "files",
+        "lines",
+        "code",
+        "comments",
+        "blanks",
+        "tokens",
+        "token_share"
+      ],
+      "type": "object"
+    },
+    "policy_record": {
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "$ref": "#/$defs/classification_or_mixed"
+        },
+        "context_band": {
+          "type": "string"
+        },
+        "generated_from": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path": {
+          "type": "string"
+        },
+        "profile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "slop_band": {
+          "type": "string"
+        },
+        "slop_score": {
+          "type": "number"
+        },
+        "tokens": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "classification",
+        "profile",
+        "generated_from",
+        "tokens",
+        "context_band",
+        "slop_score",
+        "slop_band",
+        "reason_codes"
+      ],
+      "type": "object"
+    },
+    "profile_rollup": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "totals": {
+          "$ref": "#/$defs/totals"
+        }
+      },
+      "required": [
+        "name",
+        "totals"
+      ],
+      "type": "object"
+    },
     "queue_item": {
       "additionalProperties": false,
       "properties": {
@@ -468,7 +974,7 @@
           "type": "number"
         },
         "classification": {
-          "type": "string"
+          "$ref": "#/$defs/classification"
         },
         "context_band": {
           "type": "string"
@@ -505,6 +1011,12 @@
         },
         "remediation_kind": {
           "type": "string"
+        },
+        "remediation_target_paths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "revisions_window": {
           "type": "integer"
@@ -550,17 +1062,24 @@
         "is_pure_context_hotspot",
         "severity",
         "evidence_status",
-        "next_action"
+        "next_action",
+        "remediation_target_paths"
       ],
       "type": "object"
     },
     "ranked_file": {
       "additionalProperties": false,
       "properties": {
+        "classification": {
+          "$ref": "#/$defs/classification"
+        },
         "context_band": {
           "type": "string"
         },
         "path": {
+          "type": "string"
+        },
+        "profile": {
           "type": "string"
         },
         "reason_codes": {
@@ -568,6 +1087,9 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "remediation_kind": {
+          "type": "string"
         },
         "slop_band": {
           "type": "string"
@@ -585,7 +1107,48 @@
         "slop_band",
         "context_band",
         "tokens",
-        "reason_codes"
+        "reason_codes",
+        "classification",
+        "profile",
+        "remediation_kind"
+      ],
+      "type": "object"
+    },
+    "totals": {
+      "additionalProperties": false,
+      "properties": {
+        "blanks": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "code": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "comments": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "files": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lines": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "files",
+        "lines",
+        "code",
+        "comments",
+        "blanks",
+        "tokens"
       ],
       "type": "object"
     }
@@ -670,6 +1233,51 @@
       "type": "object"
     },
     "collection_metadata": {
+      "additionalProperties": false,
+      "properties": {
+        "action_queue": {
+          "$ref": "#/$defs/collection_page"
+        },
+        "compare_index": {
+          "$ref": "#/$defs/index_collection_metadata"
+        },
+        "files": {
+          "$ref": "#/$defs/collection_page"
+        },
+        "folders": {
+          "$ref": "#/$defs/collection_page"
+        },
+        "health.findings": {
+          "$ref": "#/$defs/collection_page"
+        },
+        "health.refactor_candidates": {
+          "$ref": "#/$defs/collection_page"
+        },
+        "health.watchlist": {
+          "$ref": "#/$defs/collection_page"
+        },
+        "observation_feed": {
+          "$ref": "#/$defs/collection_page"
+        },
+        "policy_index": {
+          "$ref": "#/$defs/index_collection_metadata"
+        },
+        "ranked_files": {
+          "$ref": "#/$defs/collection_page"
+        }
+      },
+      "required": [
+        "files",
+        "folders",
+        "compare_index",
+        "policy_index",
+        "action_queue",
+        "observation_feed",
+        "ranked_files",
+        "health.findings",
+        "health.refactor_candidates",
+        "health.watchlist"
+      ],
       "type": "object"
     },
     "compare_index": {
@@ -695,15 +1303,781 @@
       "type": "object"
     },
     "config": {
+      "additionalProperties": false,
+      "properties": {
+        "blast_radius": {
+          "additionalProperties": false,
+          "description": "Git Slop blast_radius configuration.",
+          "properties": {},
+          "type": "object"
+        },
+        "check": {
+          "additionalProperties": false,
+          "description": "Git Slop check configuration.",
+          "properties": {
+            "fail_on_context_band": {
+              "default": "critical",
+              "enum": [
+                "compact",
+                "healthy",
+                "warning",
+                "critical"
+              ],
+              "type": "string"
+            },
+            "fail_on_evidence_drift": {
+              "default": false,
+              "type": "boolean"
+            },
+            "fail_on_slop_band": {
+              "default": "critical",
+              "enum": [
+                "low",
+                "moderate",
+                "high",
+                "critical"
+              ],
+              "type": "string"
+            },
+            "regression_score_delta": {
+              "default": 5.0,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "health": {
+          "additionalProperties": false,
+          "description": "Git Slop health configuration.",
+          "properties": {
+            "data_context_min_bytes": {
+              "default": 262144,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "folder_bands": {
+              "additionalProperties": false,
+              "description": "Git Slop health.folder_bands configuration.",
+              "properties": {
+                "compact_max_direct_tokens": {
+                  "default": 31999,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "healthy_max_direct_tokens": {
+                  "default": 128000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "refactor_required_max_direct_files": {
+                  "default": 37,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "warning_max_direct_files": {
+                  "default": 17,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "warning_max_direct_tokens": {
+                  "default": 256000,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "profile_context_bands": {
+              "additionalProperties": false,
+              "description": "Git Slop health.profile_context_bands configuration.",
+              "properties": {
+                "agent_context": {
+                  "additionalProperties": false,
+                  "description": "Git Slop health.profile_context_bands.agent_context configuration.",
+                  "properties": {
+                    "compact_max_tokens": {
+                      "default": 3072,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "healthy_max_tokens": {
+                      "default": 8000,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "warning_max_tokens": {
+                      "default": 10000,
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "data_context": {
+                  "additionalProperties": false,
+                  "description": "Git Slop health.profile_context_bands.data_context configuration.",
+                  "properties": {
+                    "compact_max_tokens": {
+                      "default": 16384,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "healthy_max_tokens": {
+                      "default": 65536,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "warning_max_tokens": {
+                      "default": 131072,
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            "profile_queue_minimum_score": {
+              "additionalProperties": false,
+              "description": "Git Slop health.profile_queue_minimum_score configuration.",
+              "properties": {
+                "agent_context": {
+                  "default": 0.0,
+                  "maximum": 100.0,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "data_context": {
+                  "default": 50.0,
+                  "maximum": 100.0,
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "profile_threshold_policy": {
+              "default": "shared",
+              "enum": [
+                "shared",
+                "per_profile"
+              ],
+              "type": "string"
+            },
+            "summary_top_files": {
+              "default": 10,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "summary_top_folders": {
+              "default": 10,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "history": {
+          "additionalProperties": false,
+          "description": "Git Slop history configuration.",
+          "properties": {
+            "age_half_life_days": {
+              "default": 180,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "churn_window_days": {
+              "default": 180,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "follow_renames": {
+              "default": false,
+              "type": "boolean"
+            },
+            "max_commits": {
+              "default": 10000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "inventory": {
+          "additionalProperties": false,
+          "description": "Git Slop inventory configuration.",
+          "properties": {
+            "ignore_globs": {
+              "default": [
+                "uv.lock",
+                "poetry.lock",
+                "Pipfile.lock",
+                "package-lock.json",
+                "pnpm-lock.yaml",
+                "yarn.lock",
+                "bun.lock",
+                "bun.lockb",
+                "Cargo.lock",
+                "Gemfile.lock",
+                "composer.lock",
+                "Podfile.lock"
+              ],
+              "items": {
+                "default": "uv.lock",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "path_overrides": {
+              "default": [],
+              "items": {
+                "additionalProperties": false,
+                "anyOf": [
+                  {
+                    "required": [
+                      "classification"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "profile"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "language"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "verification_applicability"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "classification": {
+                    "enum": [
+                      "source",
+                      "test",
+                      "docs",
+                      "tool",
+                      "workflow",
+                      "config",
+                      "data",
+                      "generated",
+                      "snapshot",
+                      "fixture",
+                      "vendored",
+                      "migration_fixture",
+                      "other"
+                    ],
+                    "type": "string"
+                  },
+                  "glob": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "language": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "profile": {
+                    "enum": [
+                      "agent_context",
+                      "data_context"
+                    ],
+                    "type": "string"
+                  },
+                  "verification_applicability": {
+                    "enum": [
+                      "auto",
+                      "applicable",
+                      "not_applicable"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "glob"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "navigation": {
+          "additionalProperties": false,
+          "description": "Git Slop navigation configuration.",
+          "properties": {
+            "top_distinctive_terms": {
+              "default": 5,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "organization": {
+          "additionalProperties": false,
+          "description": "Git Slop organization configuration.",
+          "properties": {
+            "candidate_file_limit": {
+              "default": 500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "max_commit_files": {
+              "default": 200,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "max_file_tokens": {
+              "default": 50000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "max_pairs_per_file": {
+              "default": 20,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "max_temporal_edges": {
+              "default": 10000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "min_cochange_support": {
+              "default": 3,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "min_coupling_lift": {
+              "default": 1.0,
+              "minimum": 0,
+              "type": "number"
+            },
+            "min_file_tokens": {
+              "default": 300,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "min_similarity": {
+              "default": 0.72,
+              "maximum": 1.0,
+              "minimum": 0,
+              "type": "number"
+            },
+            "shingle_size": {
+              "default": 8,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "window_step": {
+              "default": 32,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": false,
+          "description": "Git Slop output configuration.",
+          "properties": {
+            "pretty_json": {
+              "default": false,
+              "type": "boolean"
+            },
+            "retention_bytes": {
+              "default": 2147483648,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "retention_runs": {
+              "default": 20,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "yaml": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "resources": {
+          "additionalProperties": false,
+          "description": "Git Slop resources configuration.",
+          "properties": {
+            "cache_max_bytes": {
+              "default": 536870912,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "cache_max_entries": {
+              "default": 10000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "large_file_bytes": {
+              "default": 2097152,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "memory_budget_mb": {
+              "default": 1024,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "schema_version": {
+          "const": 2,
+          "default": 2,
+          "description": "Configuration contract version. Schema 1 is accepted only as migration input.",
+          "type": "integer"
+        },
+        "scoring": {
+          "additionalProperties": false,
+          "description": "Git Slop scoring configuration.",
+          "properties": {
+            "age_weight": {
+              "default": 0.2,
+              "minimum": 0,
+              "type": "number"
+            },
+            "churn_weight": {
+              "default": 0.2,
+              "minimum": 0,
+              "type": "number"
+            },
+            "context_weight": {
+              "default": 0.6,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "semantic_drift": {
+          "additionalProperties": false,
+          "description": "Git Slop semantic_drift configuration.",
+          "properties": {
+            "top_term_limit": {
+              "default": 25,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "stewardship": {
+          "additionalProperties": false,
+          "description": "Git Slop stewardship configuration.",
+          "properties": {
+            "bot_name_markers": {
+              "default": [
+                "bot",
+                "[bot]"
+              ],
+              "items": {
+                "default": "bot",
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "tokenization": {
+          "additionalProperties": false,
+          "description": "Git Slop tokenization configuration.",
+          "properties": {
+            "context_bands": {
+              "additionalProperties": false,
+              "description": "Git Slop tokenization.context_bands configuration.",
+              "properties": {
+                "compact_max_tokens": {
+                  "default": 3072,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "healthy_max_tokens": {
+                  "default": 8000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "warning_max_tokens": {
+                  "default": 10000,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "context_tokenizer_name": {
+              "default": "cl100k_base",
+              "enum": [
+                "cl100k_base",
+                "o200k_base",
+                "o200k_harmony",
+                "p50k_base",
+                "p50k_edit",
+                "r50k_base"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "verification": {
+          "additionalProperties": false,
+          "description": "Git Slop verification configuration.",
+          "properties": {
+            "commands": {
+              "default": [],
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "source_test_mappings": {
+              "default": [],
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "source_glob": {
+                    "description": "Source-path glob.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "test_glob": {
+                    "description": "Test-path glob.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "source_glob",
+                  "test_glob"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "test_path_markers": {
+              "default": [
+                "test/",
+                "tests/",
+                "spec/",
+                "__tests__/",
+                ".test.",
+                ".spec."
+              ],
+              "items": {
+                "default": "test/",
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema_version"
+      ],
       "type": "object"
     },
     "costs": {
       "$ref": "#/$defs/costs"
     },
     "diagnostics": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "suppressed_saturated_overlays",
+            "relationship_count",
+            "structural_token_payload_omitted",
+            "analysis"
+          ]
+        },
+        {
+          "required": [
+            "migration",
+            "evidence_limit"
+          ]
+        }
+      ],
+      "properties": {
+        "analysis": {
+          "$ref": "#/$defs/json_object"
+        },
+        "compact_profile_note": {
+          "type": "string"
+        },
+        "evidence_limit": {
+          "type": "string"
+        },
+        "migration": {
+          "type": "string"
+        },
+        "relationship_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "report_profile": {
+          "enum": [
+            "compact",
+            "standard",
+            "full_evidence"
+          ]
+        },
+        "report_profile_semantics": {
+          "type": "string"
+        },
+        "report_sizes": {
+          "additionalProperties": false,
+          "properties": {
+            "logical_artifact_bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "physical_storage_semantics": {
+              "type": "string"
+            },
+            "report_json_bytes": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "report_yaml_bytes": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "report_json_bytes",
+            "report_yaml_bytes",
+            "logical_artifact_bytes",
+            "physical_storage_semantics"
+          ],
+          "type": "object"
+        },
+        "structural_token_payload_omitted": {
+          "type": "boolean"
+        },
+        "suppressed_saturated_overlays": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "entropy_bits": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "measured_count": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "overlay": {
+                "type": "string"
+              },
+              "range": {
+                "type": "number"
+              },
+              "reason": {
+                "enum": [
+                  "saturated",
+                  "low_variance",
+                  "low_entropy"
+                ]
+              }
+            },
+            "required": [
+              "overlay",
+              "reason",
+              "measured_count",
+              "range",
+              "entropy_bits"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
       "type": "object"
     },
     "evidence_completeness": {
+      "additionalProperties": false,
+      "properties": {
+        "author_evidence": {
+          "type": "string"
+        },
+        "churn_window": {
+          "type": "string"
+        },
+        "first_seen_age": {
+          "type": "string"
+        },
+        "history": {
+          "type": "string"
+        },
+        "history_max_commits": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "history_window_days": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "low_test_cochange_evidence_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "missing_test_evidence_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "relationship_evidence": {
+          "type": "string"
+        },
+        "relationship_support": {
+          "type": "string"
+        },
+        "repository_size": {
+          "type": "string"
+        },
+        "weak_test_mapping_count": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "history",
+        "repository_size",
+        "history_window_days",
+        "history_max_commits",
+        "first_seen_age",
+        "churn_window",
+        "author_evidence",
+        "relationship_evidence",
+        "missing_test_evidence_count",
+        "weak_test_mapping_count",
+        "low_test_cochange_evidence_count",
+        "relationship_support"
+      ],
       "type": "object"
     },
     "files": {
@@ -723,7 +2097,7 @@
       "type": "string"
     },
     "health": {
-      "type": "object"
+      "$ref": "#/$defs/health"
     },
     "observation_feed": {
       "items": {
@@ -732,6 +2106,28 @@
       "type": "array"
     },
     "overlays": {
+      "$ref": "#/$defs/json_object"
+    },
+    "policy_index": {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/$defs/policy_record"
+          },
+          "type": "array"
+        },
+        "folders": {
+          "items": {
+            "$ref": "#/$defs/policy_record"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "files",
+        "folders"
+      ],
       "type": "object"
     },
     "ranked_files": {
@@ -871,12 +2267,122 @@
       "type": "object"
     },
     "stats": {
+      "additionalProperties": false,
+      "properties": {
+        "analyzed_file_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "critical_context_file_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "critical_slop_file_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "history_complete": {
+          "type": "boolean"
+        },
+        "migration_status": {
+          "type": "string"
+        },
+        "skipped_binary_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "skipped_ignored_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "skipped_missing_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "skipped_undecodable_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tracked_file_count": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tracked_file_count",
+        "analyzed_file_count",
+        "skipped_ignored_count",
+        "skipped_missing_count",
+        "skipped_binary_count",
+        "skipped_undecodable_count",
+        "critical_context_file_count",
+        "critical_slop_file_count",
+        "history_complete"
+      ],
       "type": "object"
     },
     "summary": {
+      "additionalProperties": false,
+      "properties": {
+        "health": {
+          "additionalProperties": false,
+          "properties": {
+            "file_band_counts": {
+              "$ref": "#/$defs/band_counts"
+            },
+            "folder_band_counts": {
+              "$ref": "#/$defs/band_counts"
+            }
+          },
+          "required": [
+            "file_band_counts",
+            "folder_band_counts"
+          ],
+          "type": "object"
+        },
+        "top_hotspots": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "top_structural_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "top_verification_gaps": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "top_hotspots",
+        "top_structural_files",
+        "top_verification_gaps",
+        "health"
+      ],
       "type": "object"
     },
     "terminology": {
+      "additionalProperties": false,
+      "properties": {
+        "attention_required": {
+          "type": "string"
+        },
+        "budget_exceeded": {
+          "type": "string"
+        },
+        "critical": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
       "required": [
         "attention_required",
         "budget_exceeded",

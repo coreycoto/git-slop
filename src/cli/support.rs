@@ -104,6 +104,18 @@ fn usage_error(error: impl std::fmt::Display) -> Result<i32> {
     Err(ClassifiedError::new(ErrorKind::Contract, "invalid_argument", error).into())
 }
 
+fn argument_error(
+    pointer: &str,
+    flag: &str,
+    error: impl std::fmt::Display,
+    actual: impl serde::Serialize,
+) -> Result<i32> {
+    Err(ClassifiedError::new(ErrorKind::Contract, "invalid_argument", error)
+        .at(pointer)
+        .with_details(json!({"flag": flag, "actual": actual}))
+        .into())
+}
+
 fn ensure_prompt_pack_target(path: &Path) -> Result<()> {
     if path.exists() && !path.is_dir() {
         Err(ClassifiedError::new(

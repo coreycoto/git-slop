@@ -168,6 +168,25 @@ fn check_folder_gate_and_detail_pagination_are_explicit() {
 }
 
 #[test]
+fn check_evaluate_only_preserves_canonical_findings_without_failing() {
+    let directory = TempDir::new().expect("temporary report directory");
+    let report = complete_fixture(&directory, "local_repo_folder_report.json");
+    let output = command()
+        .args(["check", "--report"])
+        .arg(&report)
+        .args(["--format", "json", "--evaluate-only"])
+        .output()
+        .expect("run evaluate-only check");
+    let payload = stdout_json(&output);
+    assert_eq!(payload["passed"], false);
+    assert!(
+        payload["finding_count"]
+            .as_u64()
+            .is_some_and(|count| count > 0)
+    );
+}
+
+#[test]
 fn compare_json_preserves_status_deltas_and_queue_movement() {
     let directory = TempDir::new().expect("temporary report directory");
     let base = complete_fixture(&directory, "compare_base_report.json");
@@ -389,9 +408,10 @@ fn compare_rejects_truncated_compact_and_degraded_inputs_even_with_force() {
         .output()
         .expect("run compact compare");
     assert_exit_code(&compact_output, 2);
+    let compact_stderr = String::from_utf8_lossy(&compact_output.stderr);
     assert!(
-        String::from_utf8_lossy(&compact_output.stderr)
-            .contains("canonical files collection is incomplete")
+        compact_stderr.contains("exhaustive policy index"),
+        "{compact_stderr}"
     );
 
     let mut degraded = load_fixture("compare_base_report.json");
@@ -541,6 +561,8 @@ fn sarif_stdout_preserves_sarif_tool_finding_and_evidence_contracts() {
             *expected_path
         );
         assert_eq!(result["properties"]["git_slop"]["rank"], index + 1);
+        assert!(result["properties"]["git_slop"]["classification"].is_string());
+        assert!(result["properties"]["git_slop"]["remediation_kind"].is_string());
         assert!(result["properties"]["git_slop"]["costs"].is_object());
         assert!(result["properties"]["git_slop"]["strongest_overlays"].is_object());
     }
@@ -567,6 +589,10 @@ fn sarif_stdout_preserves_sarif_tool_finding_and_evidence_contracts() {
     assert_eq!(
         run["invocations"][0]["properties"]["git_slop"]["report_schema_version"],
         5
+    );
+    assert_eq!(
+        run["invocations"][0]["properties"]["git_slop"]["report_path"],
+        Value::Null
     );
     assert_eq!(
         run["invocations"][0]["properties"]["git_slop"]["boundary_note"],
