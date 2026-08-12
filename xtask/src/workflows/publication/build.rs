@@ -3,6 +3,24 @@ fn validate_build_job(build: Option<&YamlValue>, text: &str, errors: &mut Vec<St
     if let Some(build) = build {
         require_needs(build, name, "build", &["publish-crate"], errors);
         validate_target_matrix(build, name, "build", false, errors);
+        let env = build.get("env");
+        for (key, expected) in [
+            (
+                "GIT_SLOP_SOURCE_REVISION",
+                "${{ needs.publish-crate.outputs.revision }}",
+            ),
+            ("GIT_SLOP_SOURCE_DIRTY", "false"),
+        ] {
+            if env
+                .and_then(|value| value.get(key))
+                .and_then(YamlValue::as_str)
+                != Some(expected)
+            {
+                errors.push(format!(
+                    "{name} build must bind {key} to {expected} for release provenance."
+                ));
+            }
+        }
         let rendered_steps = steps(build)
             .into_iter()
             .filter_map(|step| step.get("uses").and_then(YamlValue::as_str))
