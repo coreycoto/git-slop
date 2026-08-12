@@ -11,6 +11,10 @@ use sha2::{Digest, Sha256};
 
 use crate::crates_io::CrateSource;
 
+mod install;
+
+use install::install_instructions;
+
 pub const PROJECT_NAME: &str = "git-slop";
 pub const REPO_FULL_NAME: &str = "coreycoto/git-slop";
 pub const MANIFEST_SCHEMA_VERSION: u32 = 3;
@@ -506,40 +510,6 @@ pub fn artifact_name(tag: &str, target: ReleaseTarget) -> String {
     format!("git-slop-{tag}-{}.{}", target.target, target.archive)
 }
 
-fn install_instructions(tag: &str) -> InstallInstructions {
-    let version = tag.strip_prefix('v').unwrap_or(tag);
-    InstallInstructions {
-        attestation: RELEASE_TARGETS
-            .iter()
-            .map(|target| {
-                format!(
-                    "gh attestation verify '{}' --repo {REPO_FULL_NAME} --signer-repo {REPO_FULL_NAME}",
-                    artifact_name(tag, *target)
-                )
-            })
-            .collect(),
-        cargo: vec![format!(
-            "cargo install git-slop --version {version} --locked"
-        )],
-        homebrew_tap: vec![
-            "brew tap coreycoto/tap".to_owned(),
-            "brew install coreycoto/tap/git-slop".to_owned(),
-        ],
-        github_release: vec![
-            format!("gh release verify {tag} --repo {REPO_FULL_NAME}"),
-            format!(
-                "gh release download {tag} --repo {REPO_FULL_NAME} --pattern \
-                 'git-slop-{tag}-<target>.*' --pattern {CHECKSUM_FILE_NAME}"
-            ),
-            format!("sha256sum --check {CHECKSUM_FILE_NAME} --ignore-missing"),
-        ],
-        scoop: vec![
-            "scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket".to_owned(),
-            "scoop install coreycoto/git-slop".to_owned(),
-        ],
-    }
-}
-
 pub fn build_manifest(
     project_root: &Path,
     dist_dir: &Path,
@@ -934,6 +904,20 @@ mod tests {
         ] {
             assert!(!is_strict_semver(invalid), "{invalid}");
         }
+    }
+
+    #[test]
+    fn immutable_v0_12_0_keeps_its_tagged_action_install_contract() {
+        let legacy = install_instructions("v0.12.0");
+        assert_eq!(legacy.attestation.len(), 1);
+        assert!(!legacy.github_release[0].starts_with("gh release verify "));
+
+        let hardened = install_instructions("v0.12.1");
+        assert_eq!(hardened.attestation.len(), RELEASE_TARGETS.len());
+        assert_eq!(
+            hardened.github_release[0],
+            "gh release verify v0.12.1 --repo coreycoto/git-slop"
+        );
     }
 
     #[test]

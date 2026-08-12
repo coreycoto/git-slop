@@ -1,3 +1,5 @@
+import { expectedInstallInstructions } from "./instructions.mjs";
+
 export function createManifestVerifier({
   maximumArchiveBytes,
   maximumChecksumBytes,
@@ -368,12 +370,15 @@ export function createManifestVerifier({
       ["attestation", "cargo", "github_release", "homebrew_tap", "scoop"],
       "release-manifest.json install",
     );
+    const expectedInstall = expectedInstallInstructions({
+      artifacts: manifest.artifacts,
+      releaseRepository,
+      tag,
+      version,
+    });
     exactStringArray(
       manifest.install.attestation,
-      manifest.artifacts.map(
-        (artifact) =>
-          `gh attestation verify '${artifact.name}' --repo ${releaseRepository} --signer-repo ${releaseRepository}`,
-      ),
+      expectedInstall.attestation,
       "release-manifest.json install.attestation",
     );
     exactStringArray(
@@ -388,11 +393,7 @@ export function createManifestVerifier({
     );
     exactStringArray(
       manifest.install.github_release,
-      [
-        `gh release verify ${tag} --repo ${releaseRepository}`,
-        `gh release download ${tag} --repo ${releaseRepository} --pattern 'git-slop-${tag}-<target>.*' --pattern SHA256SUMS`,
-        "sha256sum --check SHA256SUMS --ignore-missing",
-      ],
+      expectedInstall.githubRelease,
       "release-manifest.json install.github_release",
     );
     exactStringArray(
