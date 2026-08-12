@@ -123,16 +123,10 @@ fn normalized_spdx_expression(license: &str) -> String {
 
 fn cyclonedx_license(license: &str) -> Value {
     let normalized = normalized_spdx_expression(license);
-    let compound = normalized.contains(" AND ")
-        || normalized.contains(" OR ")
-        || normalized.contains(" WITH ")
-        || normalized.contains('(')
-        || normalized.contains(')');
-    if compound {
-        json!({"expression": normalized})
-    } else {
-        json!({"license": {"id": normalized}})
-    }
+    // CycloneDX 1.5 embeds a snapshot of the SPDX license identifier list.
+    // Encoding even a simple identifier as an SPDX expression keeps the SBOM
+    // valid when a dependency adopts an identifier added after that snapshot.
+    json!({"expression": normalized})
 }
 
 fn cyclonedx_scope(scopes: &[String], root: bool) -> &'static str {
@@ -447,7 +441,7 @@ mod tests {
     use super::{cyclonedx_license, generate, normalized_spdx_expression, validate_graphs};
 
     #[test]
-    fn compound_and_legacy_slash_licenses_use_cyclonedx_expressions() {
+    fn licenses_use_forward_compatible_cyclonedx_expressions() {
         assert_eq!(
             cyclonedx_license("MIT OR Apache-2.0"),
             serde_json::json!({"expression": "MIT OR Apache-2.0"})
@@ -458,7 +452,11 @@ mod tests {
         );
         assert_eq!(
             cyclonedx_license("MIT"),
-            serde_json::json!({"license": {"id": "MIT"}})
+            serde_json::json!({"expression": "MIT"})
+        );
+        assert_eq!(
+            cyclonedx_license("Unicode-3.0"),
+            serde_json::json!({"expression": "Unicode-3.0"})
         );
         assert_eq!(
             normalized_spdx_expression("BSD-3-Clause/MIT"),
