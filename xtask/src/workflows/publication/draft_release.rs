@@ -57,7 +57,7 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
                     .get("with")
                     .and_then(|with| with.get("sparse-checkout"))
                     .and_then(YamlValue::as_str)
-                    != Some("action")
+                    != Some("action\nxtask\n")
                 || control_checkout
                     .get("with")
                     .and_then(|with| with.get("persist-credentials"))
@@ -80,14 +80,29 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
             ));
             return;
         };
-        require(generate, "cargo xtask sbom --output-dir dist", name, errors);
+        require(
+            generate,
+            "xtask=(cargo run --quiet --manifest-path release-control/xtask/Cargo.toml -- --repo-root .)",
+            name,
+            errors,
+        );
+        require(
+            generate,
+            r#""${xtask[@]}" sbom --output-dir dist"#,
+            name,
+            errors,
+        );
         require(
             generate,
             "(cd dist && sha256sum --check SHA256SUMS)",
             name,
             errors,
         );
-        if generate.matches("cargo xtask release-manifest").count() != 2 {
+        if generate
+            .matches(r#""${xtask[@]}" release-manifest"#)
+            .count()
+            != 2
+        {
             errors.push(format!(
                 "{name} final distribution must regenerate the manifest after Formula and SBOM generation."
             ));

@@ -29,7 +29,9 @@
         with:
           ref: ${{ needs.publish-crate.outputs.control-revision }}
           path: release-control
-          sparse-checkout: action
+          sparse-checkout: |
+            action
+            xtask
           persist-credentials: false
 
       - name: Set up Rust
@@ -54,11 +56,15 @@
         shell: bash
         run: |
           set -euo pipefail
+          xtask=(cargo xtask)
+          if test "${{ needs.publish-crate.outputs.mode }}" = recover; then
+            xtask=(cargo run --quiet --manifest-path release-control/xtask/Cargo.toml -- --repo-root .)
+          fi
           cp registry/crate-source.json dist/crate-source.json
-          cargo xtask release-manifest --dist-dir dist --crate-source dist/crate-source.json --output dist/release-manifest.json --checksum-output dist/SHA256SUMS --tag "$TAG"
-          cargo xtask homebrew-formula --manifest dist/release-manifest.json --formula dist/git-slop.rb
-          cargo xtask sbom --output-dir dist
-          cargo xtask release-manifest --dist-dir dist --crate-source dist/crate-source.json --output dist/release-manifest.json --checksum-output dist/SHA256SUMS --tag "$TAG"
+          "${xtask[@]}" release-manifest --dist-dir dist --crate-source dist/crate-source.json --output dist/release-manifest.json --checksum-output dist/SHA256SUMS --tag "$TAG"
+          "${xtask[@]}" homebrew-formula --manifest dist/release-manifest.json --formula dist/git-slop.rb
+          "${xtask[@]}" sbom --output-dir dist
+          "${xtask[@]}" release-manifest --dist-dir dist --crate-source dist/crate-source.json --output dist/release-manifest.json --checksum-output dist/SHA256SUMS --tag "$TAG"
           rm dist/crate-source.json
           (cd dist && sha256sum --check SHA256SUMS)
           test "$(wc -l < dist/SHA256SUMS | tr -d ' ')" = "11"
