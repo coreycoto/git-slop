@@ -370,7 +370,10 @@ export function createManifestVerifier({
     );
     exactStringArray(
       manifest.install.attestation,
-      [`gh attestation verify 'git-slop-${tag}-<target>.*' --repo ${releaseRepository} --signer-repo ${releaseRepository}`],
+      manifest.artifacts.map(
+        (artifact) =>
+          `gh attestation verify '${artifact.name}' --repo ${releaseRepository} --signer-repo ${releaseRepository}`,
+      ),
       "release-manifest.json install.attestation",
     );
     exactStringArray(
