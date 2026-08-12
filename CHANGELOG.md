@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.12.1 - 2026-08-12
+
+This patch republishes the complete 0.12.0 payload under a recoverable GitHub
+Release identity. The original `v0.12.0` tag and crates.io package remain
+immutable, but its first GitHub Release record was accidentally published
+without assets and GitHub permanently tombstoned the tag after that empty
+record was deleted.
+
+### Release recovery
+
+- Preserve every 0.12.0 product, report, planning, Action, packaging, dogfood,
+  and distribution contract without changing detector behavior.
+- Publish the seven native archives, checksums, release manifest, CycloneDX
+  and SPDX SBOMs, and Homebrew Formula together on the verified draft before
+  GitHub locks `v0.12.1`.
+- Keep downstream Homebrew and Scoop dispatch fail closed until the public
+  release is immutable and its exact manifest and asset inventory verify.
+- Document `v0.12.0` as superseded for GitHub archive and Action installation;
+  crates.io consumers may retain it, while new installations should use
+  0.12.1.
+
 ## 0.12.0 - 2026-08-12
 
 This release turns the complete post-0.11.8 audit into executable product,
