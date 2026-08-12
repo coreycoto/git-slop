@@ -305,6 +305,7 @@ if (process.argv[2] === "version") {
         url: `https://github.com/example/git-slop/releases/download/${tag}/SHA256SUMS`,
       });
       manifest.install.github_release = [
+        `gh release verify ${tag} --repo example/git-slop`,
         `gh release download ${tag} --repo example/git-slop --pattern 'git-slop-${tag}-<target>.*' --pattern SHA256SUMS`,
         "sha256sum --check SHA256SUMS --ignore-missing",
       ];
