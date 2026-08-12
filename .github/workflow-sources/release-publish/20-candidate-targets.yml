@@ -34,6 +34,8 @@
       TAG: ${{ needs.candidate.outputs.tag }}
       REVISION: ${{ needs.candidate.outputs.revision }}
       EXPECTED_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
+      GIT_SLOP_SOURCE_REVISION: ${{ needs.candidate.outputs.revision }}
+      GIT_SLOP_SOURCE_DIRTY: "false"
       GIT_SLOP_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
       TARGET: ${{ matrix.target }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/candidate-target

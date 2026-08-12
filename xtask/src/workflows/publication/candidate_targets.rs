@@ -9,6 +9,24 @@ fn validate_candidate_targets_job(candidate_targets: Option<&YamlValue>, text: &
             errors,
         );
         validate_target_matrix(candidate_targets, name, "candidate-targets", true, errors);
+        let env = candidate_targets.get("env");
+        for (key, expected) in [
+            (
+                "GIT_SLOP_SOURCE_REVISION",
+                "${{ needs.candidate.outputs.revision }}",
+            ),
+            ("GIT_SLOP_SOURCE_DIRTY", "false"),
+        ] {
+            if env
+                .and_then(|value| value.get(key))
+                .and_then(YamlValue::as_str)
+                != Some(expected)
+            {
+                errors.push(format!(
+                    "{name} candidate-targets must bind {key} to {expected} for release provenance."
+                ));
+            }
+        }
         if text
             .matches("candidate_source_dir=\"${RUNNER_TEMP}/candidate-source\"")
             .count()
