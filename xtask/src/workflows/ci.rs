@@ -64,8 +64,31 @@ fn validate_action_versions(repo_root: &Path, workflows: &Path, errors: &mut Vec
             continue;
         };
         let label = relative(repo_root, &path);
-        forbid(&text, "actions/upload-artifact@v4", &label, errors);
-        forbid(&text, "actions/upload-artifact@v5", &label, errors);
+        for (index, line) in text.lines().enumerate() {
+            let Some((_, action)) = line.trim().split_once("uses:") else {
+                continue;
+            };
+            let action = action.split_whitespace().next().unwrap_or_default();
+            if action.starts_with("./") || action.starts_with("docker://") {
+                continue;
+            }
+            let Some((repository, revision)) = action.rsplit_once('@') else {
+                errors.push(format!(
+                    "{label}:{} external Action {action} must use a full commit SHA.",
+                    index + 1
+                ));
+                continue;
+            };
+            let sha_pinned = repository.contains('/')
+                && revision.len() == 40
+                && revision.bytes().all(|byte| byte.is_ascii_hexdigit());
+            if !sha_pinned {
+                errors.push(format!(
+                    "{label}:{} external Action {action} must use a full commit SHA.",
+                    index + 1
+                ));
+            }
+        }
     }
 }
 
@@ -191,6 +214,10 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
     for expected in [
         "cargo build -p git-slop --release --locked",
         "target/release/git-slop find",
+        "dogfood-pr-base",
+        "--fail-on-regression",
+        "target/release/git-slop check --report .slop/latest/report.json --evaluate-only",
+        "Scan a repository with no configuration override",
         "cat .slop/latest/health.md",
         "path: .slop/latest/health.md",
         "include-hidden-files: true",
@@ -200,6 +227,7 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
     }
     forbid(&text, "path: .slop/latest\n", name, errors);
     forbid(&text, "uv run git-slop", name, errors);
+    forbid(&text, "check || true", name, errors);
 }
 
 fn validate_ci(repo_root: &Path, workflows: &Path, errors: &mut Vec<String>) {
@@ -217,6 +245,8 @@ fn validate_ci(repo_root: &Path, workflows: &Path, errors: &mut Vec<String>) {
         "cargo package -p git-slop --locked",
         "cargo publish -p git-slop --dry-run --locked",
         "cargo xtask validate",
+        "EmbarkStudios/cargo-deny-action@c3bbe7e4e3f7baeee1a3dd9aec0a3b2aded580fb",
+        "command: check advisories licenses sources",
         "node --test action/*.test.mjs",
         "ubuntu-24.04",
         "macos-15",
@@ -353,9 +383,11 @@ fn validate_windows_action_ci_job(text: &str, name: &str, errors: &mut Vec<Strin
                 "{name} {SETUP_STEP} step must use the exact Windows runner condition."
             ));
         }
-        if setup.get("uses").and_then(YamlValue::as_str) != Some("actions/setup-node@v7") {
+        if setup.get("uses").and_then(YamlValue::as_str)
+            != Some("actions/setup-node@820762786026740c76f36085b0efc47a31fe5020")
+        {
             errors.push(format!(
-                "{name} {SETUP_STEP} step must use actions/setup-node@v7."
+                "{name} {SETUP_STEP} step must use the pinned actions/setup-node v7 commit."
             ));
         }
         if setup

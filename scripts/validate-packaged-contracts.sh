@@ -4,16 +4,28 @@ set -euo pipefail
 binary=$(realpath "${1:?usage: validate-packaged-contracts.sh BINARY SCHEMA_DIR WORKTREE}")
 schema_dir=$(realpath "${2:?usage: validate-packaged-contracts.sh BINARY SCHEMA_DIR WORKTREE}")
 source_worktree=$(realpath "${3:?usage: validate-packaged-contracts.sh BINARY SCHEMA_DIR WORKTREE}")
+if [[ "$(git -C "$source_worktree" rev-parse --is-shallow-repository)" == true ]]; then
+  echo "packaged-contract validation requires complete history; use actions/checkout with fetch-depth: 0 or run git fetch --unshallow" >&2
+  exit 1
+fi
 contract_root=$(mktemp -d)
 trap 'rm -rf "$contract_root"' EXIT
-mkdir -p "$contract_root/npm-cache" "$contract_root/read-only-home"
-chmod 0555 "$contract_root/read-only-home"
-export HOME="$contract_root/read-only-home"
+mkdir -p "$contract_root/npm-cache" "$contract_root/validator"
 export NPM_CONFIG_CACHE="$contract_root/npm-cache"
+export NPM_CONFIG_AUDIT=false
+export NPM_CONFIG_FUND=false
+export NPM_CONFIG_UPDATE_NOTIFIER=false
+
+package_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cp "$package_root/tools/schema-validator/package.json" "$package_root/tools/schema-validator/package-lock.json" "$contract_root/validator/"
+(
+  cd "$contract_root/validator"
+  npm ci --ignore-scripts --no-audit --no-fund --loglevel=error
+)
+ajv="$contract_root/validator/node_modules/.bin/ajv"
 
 validate_json() {
-  npx --yes --package ajv-cli@5.0.0 --package ajv-formats@3.0.1 \
-    ajv validate --spec=draft2020 --strict=false -c ajv-formats "$@"
+  "$ajv" validate --spec=draft2020 --strict=false -c ajv-formats "$@"
 }
 
 # Candidate assembly deliberately creates staging files in the workflow checkout.
@@ -23,7 +35,7 @@ worktree="$contract_root/worktree"
 git clone --quiet --no-hardlinks --no-tags "$source_worktree" "$worktree"
 test -z "$(git -C "$worktree" status --short --untracked-files=all)"
 
-for schema in report config compare explain plan sarif health check doctor build-info list show prompt-manifest error find-estimate cache-status cache-prune baseline prune compare-ndjson; do
+for schema in report config compare explain plan sarif health check doctor build-info release-manifest list show prompt-manifest error find-estimate cache-status cache-prune baseline prune compare-ndjson; do
   "$binary" schema "$schema" > "$contract_root/$schema.schema.json"
 done
 
@@ -59,10 +71,24 @@ for profile in compact standard full-evidence; do
   validate_json -s "$schema_dir/sarif-1.json" -d "$contract_root/report-$profile.sarif.json"
 
   if [[ "$profile" == standard ]]; then
-    jq '.health.__unknown = true' "$report" > "$contract_root/invalid-health.json"
-    jq '.generated_at = "not-a-date"' "$report" > "$contract_root/invalid-date.json"
-    jq '.files[0].classification = "invented"' "$report" > "$contract_root/invalid-classification.json"
-    for invalid in invalid-health invalid-date invalid-classification; do
+    mutations=(
+      'report-profile|.analyzer.report_profile = "invented"'
+      'profile|.files[0].profile = "invented"'
+      'context-band|.files[0].context_band = "invented"'
+      'slop-band|.files[0].slop_band = "invented"'
+      'analysis-status|.files[0].analysis_status = "invented"'
+      'slop-score-high|.files[0].slop_score = 100.001'
+      'context-pressure-low|.files[0].context_pressure = -0.001'
+      'head-sha|.repo.head_sha = "not-a-sha"'
+      'worktree-digest|.repo.worktree_state_digest = "abcd"'
+      'content-sha|.files[0].content_sha256 = "abcd"'
+      'fingerprint|.files[0].content_fingerprint = "abcd"'
+      'scope-digest|.scope.selected_path_digest = "abcd"'
+    )
+    for mutation in "${mutations[@]}"; do
+      invalid=${mutation%%|*}
+      expression=${mutation#*|}
+      jq "$expression" "$report" > "$contract_root/$invalid.json"
       if "$binary" report validate "$contract_root/$invalid.json" >/dev/null 2>&1; then
         echo "runtime validator accepted negative fixture $invalid" >&2
         exit 1
@@ -75,7 +101,6 @@ for profile in compact standard full-evidence; do
   fi
 done
 
-package_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 for profile in compact standard full-evidence; do
   : > "$contract_root/github-output"
   : > "$contract_root/github-env"
@@ -91,16 +116,17 @@ for profile in compact standard full-evidence; do
     node "$package_root/action/runner.mjs" analyze
 done
 
-validate_json -s "$schema_dir/build-info-1.json" -d "$contract_root/build-info.json"
+validate_json -s "$schema_dir/build-info-2.json" -d "$contract_root/build-info.json"
 
-# The executable and packaged schemas must expose the exact same immutable bytes.
-for schema_file in "$schema_dir"/*.json; do
-  name=$(basename "$schema_file")
-  contract=${name%-1.json}
-  contract=${contract%-2.json}
-  contract=${contract%-5.json}
-  case "$name" in
-    report-4.json) continue ;;
-  esac
-  cmp <(jq -S . "$schema_file") <(jq -S . "$contract_root/$contract.schema.json")
+# The executable and each current published schema must expose the exact same
+# immutable bytes. Historical schemas can remain packaged without being
+# mistaken for the current contract.
+for generated_schema in "$contract_root"/*.schema.json; do
+  published_name=$(jq -er '."$id" | split("/") | last' "$generated_schema")
+  published_schema="$schema_dir/$published_name"
+  test -f "$published_schema"
+  if ! cmp -s <(jq -S . "$published_schema") <(jq -S . "$generated_schema"); then
+    echo "runtime schema differs from packaged $published_name" >&2
+    exit 1
+  fi
 done

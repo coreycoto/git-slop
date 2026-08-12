@@ -1,3 +1,43 @@
+#[derive(Debug, Args)]
+struct SchemaArgs {
+    /// Machine contract whose immutable schema should be printed.
+    #[arg(value_enum)]
+    contract: SchemaContract,
+    /// Destination file. Defaults to stdout.
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum SchemaContract {
+    Report,
+    Config,
+    Compare,
+    Explain,
+    Plan,
+    Sarif,
+    Health,
+    Check,
+    Doctor,
+    BuildInfo,
+    ReleaseManifest,
+    List,
+    Show,
+    PromptManifest,
+    Error,
+    FindEstimate,
+    CacheStatus,
+    CachePrune,
+    Baseline,
+    Prune,
+    CompareNdjson,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum BuildInfoFormat {
+    Json,
+}
+
 fn run_completions(args: CompletionsArgs) -> Result<i32> {
     let mut command = Cli::command();
     let mut stdout = std::io::stdout().lock();
@@ -201,6 +241,7 @@ code {{ overflow-wrap:anywhere }} details {{ margin:1rem 0 }} .muted {{ opacity:
 .views button[aria-pressed="true"] {{ font-weight:700;text-decoration:underline }} tr:target {{ outline:2px solid currentColor }}
 </style></head><body><h1>Git Slop local report</h1><p id="descriptor" class="muted"></p>
 <p id="truncation" role="status"></p>
+<p id="selection-status" role="status"></p>
 <nav class="views" aria-label="Report view"><button data-view="files" aria-pressed="true">Files</button> <button data-view="folders" aria-pressed="false">Folders</button> <button data-view="queue" aria-pressed="false">Action queue</button> <button data-view="health" aria-pressed="false">Health findings</button> <button data-view="relationships" aria-pressed="false">Relationships</button> <button data-view="clusters" aria-pressed="false">Clusters</button></nav>
 <label for="query" class="sr">Search paths</label><input id="query" type="search" placeholder="Search paths"><label for="profile" class="sr">Profile</label><select id="profile"><option value="">All profiles</option></select><label for="classification" class="sr">Classification</label><select id="classification"><option value="">All classifications</option></select>
 <label id="severity-label" for="severity" class="sr">Maintenance band</label><select id="severity"><option value="">All maintenance bands</option><option>critical</option><option>high</option><option>moderate</option><option>low</option><option>error</option><option>warning</option><option>notice</option></select>
@@ -208,29 +249,30 @@ code {{ overflow-wrap:anywhere }} details {{ margin:1rem 0 }} .muted {{ opacity:
 <details id="file-detail"><summary>Selected record details</summary><pre id="detail"></pre></details>
 <details><summary>Evidence summary</summary><pre id="evidence-summary"></pre></details>
 <script id="report" type="application/json">{payload}</script><script nonce="{csp_nonce}">
-const report=JSON.parse(document.getElementById('report').textContent), params=new URLSearchParams(location.search); let view=params.get('view')||'files', sortKey=params.get('sort')||'slop_score', ascending=params.get('dir')==='asc', page=Number(params.get('page')||0); const pageSize=100;
+const report=JSON.parse(document.getElementById('report').textContent), params=new URLSearchParams(location.search); let view=params.get('view')||'files', sortKey=params.get('sort')||'slop_score', ascending=params.get('dir')==='asc', page=Number(params.get('page')||0), initialFilters=true; const pageSize=100, requestedProfile=params.get('profile')||'', requestedClassification=params.get('classification')||'', requestedBand=params.get('band')||'', requestedRecord=params.get('record')||'';
 const files=report.files??[], folders=report.folders??[], queue=report.action_queue??[], findings=report.health?.findings??[], relationships=report.organization?.relationships??[], clusters=report.organization?.clusters??[]; const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
 document.getElementById('descriptor').textContent=`${{report.repo?.repo_name||'repository'}} · ${{report.generated_at||'unknown time'}} · schema ${{report.schema_version}}`;
 const profile=document.getElementById('profile'), classification=document.getElementById('classification'), band=document.getElementById('severity');
-document.getElementById('query').value=params.get('q')||''; profile.value=params.get('profile')||''; classification.value=params.get('classification')||''; band.value=params.get('band')||'';
+document.getElementById('query').value=params.get('q')||'';
 const columns={{files:[['path','Path'],['profile','Profile'],['classification','Classification'],['language','Language'],['slop_band','Maintenance'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],folders:[['path','Folder'],['classification','Classification'],['health_band','Health'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],queue:[['path','Path'],['profile','Profile'],['classification','Classification'],['severity','Severity'],['reason_codes','Reasons'],['evidence_status','Evidence'],['next_action','Next action']],health:[['path','Path'],['severity','Severity'],['title','Finding'],['message','Message']],relationships:[['id','Relationship'],['kind','Kind'],['source_path','Source'],['target_path','Target'],['confidence','Confidence'],['support_count','Support'],['evidence_lower_bound','Lower bound'],['evidence_score','Evidence']],clusters:[['id','Cluster'],['kind','Kind'],['member_count','Count'],['member_paths','Members'],['evidence_score','Evidence']]}};
 function records() {{ return view==='folders'?folders:view==='queue'?queue:view==='health'?findings:view==='relationships'?relationships:view==='clusters'?clusters:files }}
 function rebuildFilter(select,values,label) {{ const previous=select.value; select.replaceChildren(new Option(label,''),...([...new Set(values.filter(Boolean))].sort().map(value=>new Option(value,value)))); if([...select.options].some(option=>option.value===previous))select.value=previous }}
 function pathButton(path) {{ return `<button type="button" class="file-link" data-path="${{esc(path)}}"><code>${{esc(path)}}</code></button>` }}
 function renderCell(record,key,column) {{ const value=record[key]??(key==='member_count'?(record.member_paths??[]).length:''); if(view==='relationships'&&(key==='source_path'||key==='target_path'))return pathButton(value); if(view==='clusters'&&key==='member_paths')return (record.member_paths??[]).map(pathButton).join(', '); return column===0?`<button class="record"><code>${{esc(value??record.path??record.id)}}</code></button>`:esc(Array.isArray(value)?value.join(', '):value) }}
 function syncUrl() {{ const p=new URLSearchParams(); for (const [k,v] of Object.entries({{view,q:document.getElementById('query').value,profile:profile.value,classification:classification.value,band:band.value,sort:sortKey,dir:ascending?'asc':'desc',page}})) if(v!==''&&v!==0)p.set(k,v); history.replaceState(null,'',`${{location.pathname}}?${{p}}${{location.hash}}`) }}
-function render() {{ const q=document.getElementById('query').value.toLowerCase(), p=profile.value, c=classification.value, s=band.value, source=records();
+function render() {{ const q=document.getElementById('query').value.toLowerCase(), source=records();
  document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===view)));
  rebuildFilter(profile,source.map(record=>record.profile),'All profiles'); rebuildFilter(classification,source.map(record=>record.classification),'All classifications'); rebuildFilter(band,source.map(record=>record.slop_band??record.severity??record.health_band),'All bands');
+ if(initialFilters){{profile.value=[...profile.options].some(option=>option.value===requestedProfile)?requestedProfile:'';classification.value=[...classification.options].some(option=>option.value===requestedClassification)?requestedClassification:'';band.value=[...band.options].some(option=>option.value===requestedBand)?requestedBand:'';initialFilters=false}}
  const activeColumns=columns[view]??columns.files; if(!activeColumns.some(([key])=>key===sortKey))sortKey=activeColumns[0][0]; document.getElementById('headers').innerHTML=activeColumns.map(([key,label])=>`<th scope="col"><button data-key="${{esc(key)}}" aria-sort="${{key===sortKey?(ascending?'ascending':'descending'):'none'}}">${{esc(label)}}</button></th>`).join('');
  document.getElementById('severity-label').textContent=view==='health'||view==='queue'?'Finding severity':'Maintenance band';
  const profileApplies=source.some(record=>record.profile), classApplies=source.some(record=>record.classification), bandApplies=source.some(record=>record.slop_band??record.severity??record.health_band); profile.disabled=!profileApplies; classification.disabled=!classApplies; band.disabled=!bandApplies;
- const haystack=f=>[f.path,f.id,f.source_path,f.target_path,...(f.member_paths??[])].join(' ').toLowerCase(); const selected=source.filter(f=>(!q||haystack(f).includes(q))&&(!profileApplies||!p||f.profile===p)&&(!classApplies||!c||f.classification===c)&&(!bandApplies||!s||(f.slop_band??f.severity)===s)).sort((a,b)=>{{const x=a[sortKey],y=b[sortKey]; return (typeof x==='number'?x-y:String(x??'').localeCompare(String(y??'')))*(ascending?1:-1)}});
+ const haystack=f=>[f.path,f.id,f.source_path,f.target_path,...(f.member_paths??[])].join(' ').toLowerCase(); const selected=source.filter(f=>(!q||haystack(f).includes(q))&&(!profileApplies||!profile.value||f.profile===profile.value)&&(!classApplies||!classification.value||f.classification===classification.value)&&(!bandApplies||!band.value||(f.slop_band??f.severity??f.health_band)===band.value)).sort((a,b)=>{{const x=a[sortKey],y=b[sortKey]; return (typeof x==='number'?x-y:String(x??'').localeCompare(String(y??'')))*(ascending?1:-1)}});
  const pages=Math.max(1,Math.ceil(selected.length/pageSize)); page=Math.min(page,pages-1); const visible=selected.slice(page*pageSize,(page+1)*pageSize);
- document.getElementById('count').textContent=`${{selected.length}} of ${{source.length}} ${{view.replace('_',' ')}} records · page ${{page+1}} of ${{pages}}`;
+ const metadataKey=view==='queue'?'action_queue':view==='health'?'health.findings':view; const metadata=report.collection_metadata?.[metadataKey]??{{total:source.length,returned:source.length,limit:null}}; document.getElementById('count').textContent=`${{selected.length}} filtered · ${{metadata.returned}} embedded of ${{metadata.total}} total ${{view.replace('_',' ')}} records · limit ${{metadata.limit??'none'}} · page ${{page+1}} of ${{pages}}`;
  document.getElementById('previous').disabled=page===0; document.getElementById('next').disabled=page+1>=pages;
  document.getElementById('sort-state').textContent=`Sorted by ${{activeColumns.find(([key])=>key===sortKey)?.[1]??sortKey}}, ${{ascending?'ascending':'descending'}}`;
- document.getElementById('rows').innerHTML=visible.map((f,i)=>`<tr tabindex="0" id="record-${{page*pageSize+i}}" data-index="${{i}}">${{activeColumns.map(([key],column)=>`<td>${{renderCell(f,key,column)}}</td>`).join('')}}</tr>`).join('');
+ document.getElementById('rows').innerHTML=visible.map((f,i)=>`<tr tabindex="0" id="record-${{page*pageSize+i}}" data-index="${{i}}">${{activeColumns.map(([key],column)=>`<td>${{renderCell(f,key,column)}}</td>`).join('')}}</tr>`).join(''); if(requestedRecord){{const exact=source.find(record=>(record.path??record.id)===requestedRecord);document.getElementById('selection-status').textContent=exact?'Selected deep-link record is embedded; use the table filters to inspect it.':`Selected record "${{requestedRecord}}" was not embedded in this portable HTML view. Rerun: git slop html --report <REPORT_JSON> --output report.html`;}}
  document.querySelectorAll('.record').forEach((button,i)=>button.addEventListener('click',()=>{{document.getElementById('detail').textContent=JSON.stringify(visible[i],null,2);document.getElementById('file-detail').open=true;location.hash=`record-${{page*pageSize+i}}`}})); syncUrl(); }}
 document.getElementById('rows').addEventListener('click',event=>{{const link=event.target.closest('.file-link');if(!link)return;const target=files.find(file=>file.path===link.dataset.path);view='files';document.getElementById('query').value=link.dataset.path;page=0;render();if(target){{document.getElementById('detail').textContent=JSON.stringify(target,null,2);document.getElementById('file-detail').open=true}}}});
 document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>{{page=0;render()}})); document.getElementById('headers').addEventListener('click',event=>{{const el=event.target.closest('button');if(!el)return;ascending=sortKey===el.dataset.key?!ascending:true;sortKey=el.dataset.key;page=0;render()}});

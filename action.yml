@@ -10,7 +10,7 @@ inputs:
   version:
     description: Git Slop release version to install, with or without a leading v.
     required: false
-    default: "0.11.8"
+    default: "0.12.0"
   release-repository:
     description: GitHub repository that owns the versioned release assets.
     required: false
@@ -59,6 +59,10 @@ inputs:
     description: Advisory publishes findings without failing; enforce runs git-slop check after publication.
     required: false
     default: advisory
+  mode:
+    description: Optional preset (advisory, absolute, or regression) that overrides policy and enforcement while retaining advanced threshold inputs.
+    required: false
+    default: ""
   enforcement:
     description: Absolute applies configured report thresholds; regression fails only for native compare regressions and requires baseline-report or baseline-ref.
     required: false
@@ -143,6 +147,9 @@ outputs:
   analysis-exit-code:
     description: Exit code from the one git-slop find invocation.
     value: ${{ steps.analyze.outputs.analysis-exit-code }}
+  mode:
+    description: Effective simple preset, or advanced when policy and enforcement inputs were used directly.
+    value: ${{ steps.analyze.outputs.mode }}
   policy-exit-code:
     description: Exit code from git-slop check, or zero in advisory mode.
     value: ${{ steps.finalize.outputs.policy-exit-code }}
@@ -251,6 +258,7 @@ runs:
         GIT_SLOP_BASELINE_REF: ${{ inputs.baseline-ref }}
         GIT_SLOP_ALLOW_SHALLOW: ${{ inputs.allow-shallow }}
         GIT_SLOP_POLICY: ${{ inputs.policy }}
+        GIT_SLOP_MODE: ${{ inputs.mode }}
         GIT_SLOP_ENFORCEMENT: ${{ inputs.enforcement }}
         GIT_SLOP_BASELINE_FORCE: ${{ inputs.baseline-force }}
         GIT_SLOP_MAX_BASELINE_AGE_DAYS: ${{ inputs.max-baseline-age-days }}

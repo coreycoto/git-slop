@@ -2,7 +2,7 @@ use std::fs;
 use std::process::Command;
 
 use assert_cmd::cargo::cargo_bin_cmd;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tempfile::tempdir;
 
 fn git(root: &std::path::Path, args: &[&str]) {
@@ -263,6 +263,71 @@ fn schema_five_rejects_unknown_nested_cost_diagnostic_and_relationship_fields() 
             .unwrap();
         assert_eq!(validation.status.code(), Some(2), "{name}");
         assert!(String::from_utf8_lossy(&validation.stderr).contains("unknown_field"));
+    }
+}
+
+#[test]
+fn report_runtime_and_published_schema_reject_the_same_scalar_mutation_matrix() {
+    let repository = fixture_repository();
+    let output = tempdir().expect("output");
+    let report_path = write_report(repository.path(), output.path());
+    let report: Value = serde_json::from_slice(&fs::read(&report_path).unwrap()).unwrap();
+    let schema_output = cargo_bin_cmd!("git-slop")
+        .args(["schema", "report"])
+        .output()
+        .expect("schema");
+    assert!(schema_output.status.success());
+    let schema: Value = serde_json::from_slice(&schema_output.stdout).unwrap();
+    let validator = jsonschema::draft202012::options()
+        .should_validate_formats(true)
+        .build(&schema)
+        .expect("compiled report schema");
+    let mutations = [
+        (
+            "report-profile",
+            "/analyzer/report_profile",
+            json!("invented"),
+        ),
+        ("profile", "/files/0/profile", json!("invented")),
+        ("context-band", "/files/0/context_band", json!("invented")),
+        ("slop-band", "/files/0/slop_band", json!("invented")),
+        (
+            "analysis-status",
+            "/files/0/analysis_status",
+            json!("invented"),
+        ),
+        ("slop-score-high", "/files/0/slop_score", json!(100.001)),
+        (
+            "context-pressure-low",
+            "/files/0/context_pressure",
+            json!(-0.001),
+        ),
+        ("head-sha", "/repo/head_sha", json!("not-a-sha")),
+        (
+            "worktree-digest",
+            "/repo/worktree_state_digest",
+            json!("abcd"),
+        ),
+        ("content-sha", "/files/0/content_sha256", json!("abcd")),
+        ("fingerprint", "/files/0/content_fingerprint", json!("abcd")),
+        ("scope-digest", "/scope/selected_path_digest", json!("abcd")),
+    ];
+    for (name, pointer, replacement) in mutations {
+        let mut mutated = report.clone();
+        *mutated.pointer_mut(pointer).expect("mutation pointer") = replacement;
+        assert!(
+            !validator.is_valid(&mutated),
+            "published schema accepted {name} at {pointer}"
+        );
+        let path = repository.path().join(format!("mutation-{name}.json"));
+        fs::write(&path, serde_json::to_vec(&mutated).unwrap()).unwrap();
+        let runtime = cargo_bin_cmd!("git-slop")
+            .args(["report", "validate", path.to_str().unwrap()])
+            .output()
+            .expect("runtime validation");
+        assert_eq!(runtime.status.code(), Some(2), "runtime accepted {name}");
+        let stderr = String::from_utf8_lossy(&runtime.stderr);
+        assert!(stderr.contains(pointer), "{name}: {stderr}");
     }
 }
 
@@ -647,4 +712,29 @@ fn baseline_ensure_is_idempotent_and_fails_closed_on_drift() {
         .assert()
         .success()
         .stdout(predicates::str::contains("\"status\": \"replaced\""));
+}
+
+#[test]
+fn release_manifest_schema_accepts_the_canonical_fixture_and_rejects_digest_drift() {
+    let schema: Value = serde_json::from_str(include_str!("../schemas/release-manifest-3.json"))
+        .expect("release manifest schema");
+    let validator = jsonschema::options()
+        .build(&schema)
+        .expect("compiled release manifest schema");
+    let mut manifest: Value = serde_json::from_str(include_str!(
+        "../xtask/tests/fixtures/release-manifest-v0.9.0.json"
+    ))
+    .expect("release manifest fixture");
+    assert!(validator.is_valid(&manifest));
+    manifest["artifacts"][0]["sha256"] = json!("abcd");
+    let pointers = validator
+        .iter_errors(&manifest)
+        .map(|error| error.instance_path().as_str().to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        pointers
+            .iter()
+            .any(|pointer| pointer == "/artifacts/0/sha256"),
+        "unexpected schema pointers: {pointers:?}"
+    );
 }

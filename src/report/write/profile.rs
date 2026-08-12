@@ -181,6 +181,48 @@ fn retain_cluster_references(report: &mut Value, retained: &BTreeSet<String>) {
     }
 }
 
+fn bound_relationship_evidence(report: &mut Value, profile: &str, limit: usize) {
+    let keys = [
+        "duplicate_neighborhoods",
+        "near_duplicate_neighborhoods",
+        "temporal_coupling_edges",
+        "lexical_affinity_edges",
+        "boundary_leakage_edges",
+    ];
+    let mut metadata = Vec::new();
+    for key in keys {
+        let pointer = format!("/overlays/organization_health/relationships/{key}");
+        let Some(records) = report.pointer_mut(&pointer).and_then(Value::as_array_mut) else {
+            continue;
+        };
+        let total = records.len();
+        let low_support = records
+            .iter()
+            .filter(|record| record["confidence"] == "low_support")
+            .count();
+        if profile == "compact" {
+            records.retain(|record| record["confidence"] == "supported");
+        } else {
+            records.retain(|record| record["confidence"] != "low_support");
+        }
+        records.truncate(limit);
+        metadata.push((
+            format!("relationships.{key}"),
+            json!({
+                "total": total,
+                "returned": records.len(),
+                "limit": limit,
+                "truncated": total > records.len(),
+                "low_support_aggregated": low_support,
+                "scope": if profile == "compact" { "supported_only" } else { "supported_and_limited" }
+            }),
+        ));
+    }
+    for (key, value) in metadata {
+        report["collection_metadata"][key] = value;
+    }
+}
+
 fn apply_report_profile(report: &mut Value, profile: &str) {
     report["diagnostics"]["report_profile"] = json!(profile);
     report["diagnostics"]["report_profile_semantics"] = json!(match profile {
@@ -195,17 +237,7 @@ fn apply_report_profile(report: &mut Value, profile: &str) {
         return;
     }
     if profile == "standard" {
-        for pointer in [
-            "/overlays/organization_health/relationships/duplicate_neighborhoods",
-            "/overlays/organization_health/relationships/near_duplicate_neighborhoods",
-            "/overlays/organization_health/relationships/temporal_coupling_edges",
-            "/overlays/organization_health/relationships/lexical_affinity_edges",
-            "/overlays/organization_health/relationships/boundary_leakage_edges",
-        ] {
-            if let Some(records) = report.pointer_mut(pointer).and_then(Value::as_array_mut) {
-                records.truncate(2_000);
-            }
-        }
+        bound_relationship_evidence(report, "standard", 500);
         return;
     }
     let retained = compact_files(report, 250);
@@ -224,9 +256,10 @@ fn apply_report_profile(report: &mut Value, profile: &str) {
         retain_path_collection(report, pointer, metadata_key, &retained, limit);
     }
     retain_relationship_references(report, &retained);
+    bound_relationship_evidence(report, "compact", 100);
     retain_cluster_references(report, &retained);
     cap_collection(report, "folders", 250);
     report["diagnostics"]["compact_profile_note"] = json!(
-        "Collections are deterministically bounded; use --report-profile full-evidence for complete records."
+        "Primary collections are bounded and relationship graphs retain supported edges only with per-section totals; use --report-profile full-evidence for complete evidence."
     );
 }

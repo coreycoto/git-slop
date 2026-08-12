@@ -108,6 +108,7 @@ Compare two existing schema-5 reports without rerunning the detector
 
 | Argument | Description |
 | --- | --- |
+| `--state-dir` | Mutable state directory for named baselines. Relative paths resolve from the repository root |
 | `--base` | Base report.json path |
 | `--base-ref` | Safely resolve and scan this Git revision in an isolated worktree |
 | `--baseline` | Use a named baseline from Git-private runtime storage |
@@ -129,6 +130,10 @@ Compare two existing schema-5 reports without rerunning the detector
 ## `git-slop baseline`
 
 Manage named comparison baselines in Git-private runtime storage
+
+| Argument | Description |
+| --- | --- |
+| `--state-dir` | Mutable state directory. Relative paths resolve from the repository root |
 
 ## `git-slop baseline ensure`
 
@@ -214,7 +219,9 @@ Validate one report against the complete schema-5 contract
 | Argument | Description |
 | --- | --- |
 | `path` | Report JSON to validate |
+| `--report` | Report JSON to validate (alias for the positional path) |
 | `--allow-legacy` | Accept schema 4 as migration input and validate its normalized schema-5 form |
+| `--format` | Success output format |
 
 ## `git-slop report migrate`
 
@@ -237,6 +244,7 @@ Export action-queue findings from an existing schema-5 report as SARIF
 | --- | --- |
 | `--report` | Report path. Defaults to .slop/latest/report.json |
 | `--top` | Maximum number of action-queue findings to export |
+| `--scope` | Export configured policy failures or action-queue intervention candidates |
 | `--output` | Optional SARIF output path. Defaults to stdout |
 | `--include-local-paths` | Include the local source report path in SARIF invocation properties |
 

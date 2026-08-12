@@ -215,6 +215,7 @@ fn finding_humanizes_stable_reason_codes() {
         profile: "agent_context".to_string(),
         classification: "source".to_string(),
         generated_from: Vec::new(),
+        generated_provenance: json!({}),
         analysis_status: "analyzed".to_string(),
         skipped_reason: None,
         symlink_metadata: None,

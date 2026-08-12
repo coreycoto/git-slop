@@ -31,6 +31,11 @@ fn language_common_term(term: &str) -> bool {
         "arg"
             | "args"
             | "let"
+            | "mut"
+            | "assert"
+            | "run"
+            | "byte"
+            | "bytes"
             | "if"
             | "else"
             | "for"
@@ -359,6 +364,17 @@ pub fn analyze(
         } else {
             "none"
         };
+        let mapping_rationale = if file.has_inline_tests {
+            "inline_test_module"
+        } else if strong_test_mapping {
+            "configured_or_module_name_match"
+        } else if !nearby_tests.is_empty() {
+            "structural_term_or_import_affinity"
+        } else if test_paths.is_empty() {
+            "repository_has_no_detected_test_paths"
+        } else {
+            "no_module_import_fixture_or_configured_mapping"
+        };
         let test_adjacency = if configured_test_path(&file.path) || mapping_confidence == "high" {
             1.0
         } else if mapping_confidence == "low" {
@@ -604,6 +620,7 @@ pub fn analyze(
                 },
                 "test_adjacency_score": round6(test_adjacency),
                 "mapping_confidence": mapping_confidence,
+                "mapping_rationale": mapping_rationale,
                 "inline_tests_detected": file.has_inline_tests,
                 "nearby_test_paths": nearby_tests,
                 "test_cochange_ratio": round6(test_cochange_ratio),

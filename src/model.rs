@@ -119,6 +119,7 @@ pub struct InventoryFile {
     pub profile: String,
     pub classification: String,
     pub generated_from: Vec<String>,
+    pub generated_provenance: Value,
     /// SHA-256 of the tracked raw bytes before decoding or newline normalization.
     pub content_sha256: String,
     pub text: String,
@@ -171,6 +172,7 @@ pub struct FileAnalysis {
     pub profile: String,
     pub classification: String,
     pub generated_from: Vec<String>,
+    pub generated_provenance: Value,
     pub analysis_status: String,
     pub skipped_reason: Option<String>,
     pub symlink_metadata: Option<Value>,

@@ -72,6 +72,7 @@ pub fn schema() -> Value {
             "config": {"type": "object"},
             "stats": {"type": "object"},
             "summary": {"type": "object"},
+            "policy_evaluation": {"type": "object", "additionalProperties": false, "required": ["policy_failures", "intervention_candidates", "advisory_findings", "emitted_annotations", "thresholds", "count_semantics"], "properties": {"policy_failures":{"type":"integer","minimum":0},"intervention_candidates":{"type":"integer","minimum":0},"advisory_findings":{"type":"integer","minimum":0},"emitted_annotations":{"type":"object"},"thresholds":{"type":"object"},"count_semantics":{"type":"string"}}},
             "files": {"type": "array", "items": {"$ref": "#/$defs/file"}},
             "folders": {"type": "array", "items": {"$ref": "#/$defs/folder"}},
             "compare_index": {
@@ -107,8 +108,9 @@ pub fn schema() -> Value {
             "classification": {"type":"string","enum": crate::model::Classification::values()},
             "costs": {"type":"object","additionalProperties":false,"properties":{"load":{"type":"object","additionalProperties":false,"properties":{"analysis_status":{"type":"string"},"analysis_version":{"type":"integer"},"file_token_count":{"type":"integer"},"folder_token_count":{"type":"integer"},"top_file_share":{"type":"number"},"top_3_file_share":{"type":"number"},"token_concentration_ratio":{"type":"number"},"context_band":{"type":"string"},"load_pressure":{"type":"number"}}},"volatility":{"type":"object","additionalProperties":false,"properties":{"analysis_status":{"type":"string"},"analysis_version":{"type":"integer"},"commit_count_window":{"type":"number"},"recency_weighted_commits":{"type":"number"},"line_churn_window":{"type":"number"},"token_churn_window":{"type":"number"},"relative_token_churn":{"type":"number"},"late_churn_spike":{"type":"number"},"volatility_pressure":{"type":"number"},"churn_measurement":{"type":"string"}}},"coordination":{"type":"object","additionalProperties":false,"properties":{"analysis_status":{"type":"string"},"analysis_version":{"type":"integer"},"files_touched_per_change":{"type":"number"},"folders_touched_per_change":{"type":"number"},"edit_hunks_per_change":{"type":"number"},"change_diffusion":{"type":"number"},"cochange_degree":{"type":"number"},"cochange_centrality":{"type":"number"},"cochange_pagerank":{"type":"number"},"cross_folder_cochange_ratio":{"type":"number"},"coordination_pressure":{"type":"number"}}}}},
             "compare_record": {"type":"object","additionalProperties":false,"required":["path","content_fingerprint","content_sha256","analysis_status","skipped_reason","tokens","context_band","slop_score","slop_band","costs","overlays"],"properties":{"path":{"type":"string"},"content_fingerprint":{"type":["string","null"]},"content_sha256":{"type":["string","null"],"pattern":"^[0-9a-f]{64}$"},"analysis_status":{"type":"string"},"skipped_reason":{"type":["string","null"]},"tokens":{"type":"integer","minimum":0},"context_band":{"type":"string"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"costs":{"$ref":"#/$defs/costs"},"overlays":{"type":"object"}}},
-            "policy_record": {"type":"object","additionalProperties":false,"required":["path","classification","profile","generated_from","tokens","context_band","slop_score","slop_band","reason_codes"],"properties":{"path":{"type":"string"},"classification":{"$ref":"#/$defs/classification"},"profile":{"type":["string","null"]},"generated_from":{"type":"array","items":{"type":"string"}},"tokens":{"type":"integer","minimum":0},"context_band":{"type":"string"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"reason_codes":{"type":"array","items":{"type":"string"}}}},
-            "file": {"type": "object", "additionalProperties": false, "required": ["path", "bytes", "lines", "blank_lines", "code_lines", "comment_lines", "language", "profile", "classification", "generated_from", "analysis_status", "skipped_reason", "symlink_metadata", "has_inline_tests", "tokens", "context_band", "context_pressure", "content_fingerprint", "content_sha256", "structural_token_count", "top_structural_terms", "structural_categories", "age_days", "revisions_window", "recency_weighted_commits", "added_window", "deleted_window", "churn_lines_window", "line_churn_window", "token_churn_window", "relative_churn_window", "late_churn_spike", "author_count_window", "author_entropy", "top_author_share", "days_since_non_bot_edit", "recent_maintainer_diversity", "age_pressure", "revision_norm", "relative_churn_norm", "churn_pressure", "slop_score", "slop_band", "reason_codes", "costs", "overlays"], "properties": {"path":{"type":"string"},"bytes":{"type":"integer"},"lines":{"type":"integer"},"blank_lines":{"type":"integer"},"code_lines":{"type":"integer"},"comment_lines":{"type":"integer"},"language":{"type":"string"},"profile":{"type":"string"},"classification":{"type":"string"},"generated_from":{"type":"array","items":{"type":"string"}},"analysis_status":{"type":"string"},"skipped_reason":{"type":["string","null"]},"symlink_metadata":{"type":["object","null"]},"has_inline_tests":{"type":"boolean"},"tokens":{"type":"integer"},"context_band":{"type":"string"},"context_pressure":{"type":"number"},"content_fingerprint":{"type":"string"},"content_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"structural_token_count":{"type":"integer"},"top_structural_terms":{"type":"array"},"structural_categories":{"type":"object"},"age_days":{"type":"integer"},"revisions_window":{"type":"integer"},"recency_weighted_commits":{"type":"number"},"added_window":{"type":"integer"},"deleted_window":{"type":"integer"},"churn_lines_window":{"type":"integer"},"line_churn_window":{"type":"integer"},"token_churn_window":{"type":"integer"},"relative_churn_window":{"type":"number"},"late_churn_spike":{"type":"number"},"author_count_window":{"type":"integer"},"author_entropy":{"type":"number"},"top_author_share":{"type":"number"},"days_since_non_bot_edit":{"type":["integer","null"]},"recent_maintainer_diversity":{"type":"integer"},"age_pressure":{"type":"number"},"revision_norm":{"type":"number"},"relative_churn_norm":{"type":"number"},"churn_pressure":{"type":"number"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"reason_codes":{"type":"array"},"costs":{"$ref":"#/$defs/costs"},"overlays":{"type":"object"}}},
+            "generated_provenance": {"type":"object","additionalProperties":false,"required":["source_paths","source_globs","generator_command","verification_command"],"properties":{"source_paths":{"type":"array","items":{"type":"string"}},"source_globs":{"type":"array","items":{"type":"string"}},"generator_command":{"type":["string","null"]},"verification_command":{"type":["string","null"]}}},
+            "policy_record": {"type":"object","additionalProperties":false,"required":["path","classification","profile","generated_from","tokens","context_band","slop_score","slop_band","reason_codes"],"properties":{"path":{"type":"string"},"classification":{"$ref":"#/$defs/classification"},"profile":{"type":["string","null"]},"generated_from":{"type":"array","items":{"type":"string"}},"generated_provenance":{"$ref":"#/$defs/generated_provenance"},"tokens":{"type":"integer","minimum":0},"context_band":{"type":"string"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"reason_codes":{"type":"array","items":{"type":"string"}}}},
+            "file": {"type": "object", "additionalProperties": false, "required": ["path", "bytes", "lines", "blank_lines", "code_lines", "comment_lines", "language", "profile", "classification", "generated_from", "analysis_status", "skipped_reason", "symlink_metadata", "has_inline_tests", "tokens", "context_band", "context_pressure", "content_fingerprint", "content_sha256", "structural_token_count", "top_structural_terms", "structural_categories", "age_days", "revisions_window", "recency_weighted_commits", "added_window", "deleted_window", "churn_lines_window", "line_churn_window", "token_churn_window", "relative_churn_window", "late_churn_spike", "author_count_window", "author_entropy", "top_author_share", "days_since_non_bot_edit", "recent_maintainer_diversity", "age_pressure", "revision_norm", "relative_churn_norm", "churn_pressure", "slop_score", "slop_band", "reason_codes", "costs", "overlays"], "properties": {"path":{"type":"string"},"bytes":{"type":"integer"},"lines":{"type":"integer"},"blank_lines":{"type":"integer"},"code_lines":{"type":"integer"},"comment_lines":{"type":"integer"},"language":{"type":"string"},"profile":{"type":"string"},"classification":{"type":"string"},"generated_from":{"type":"array","items":{"type":"string"}},"generated_provenance":{"$ref":"#/$defs/generated_provenance"},"analysis_status":{"type":"string"},"skipped_reason":{"type":["string","null"]},"symlink_metadata":{"type":["object","null"]},"has_inline_tests":{"type":"boolean"},"tokens":{"type":"integer"},"context_band":{"type":"string"},"context_pressure":{"type":"number"},"content_fingerprint":{"type":"string"},"content_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"structural_token_count":{"type":"integer"},"top_structural_terms":{"type":"array"},"structural_categories":{"type":"object"},"age_days":{"type":"integer"},"revisions_window":{"type":"integer"},"recency_weighted_commits":{"type":"number"},"added_window":{"type":"integer"},"deleted_window":{"type":"integer"},"churn_lines_window":{"type":"integer"},"line_churn_window":{"type":"integer"},"token_churn_window":{"type":"integer"},"relative_churn_window":{"type":"number"},"late_churn_spike":{"type":"number"},"author_count_window":{"type":"integer"},"author_entropy":{"type":"number"},"top_author_share":{"type":"number"},"days_since_non_bot_edit":{"type":["integer","null"]},"recent_maintainer_diversity":{"type":"integer"},"age_pressure":{"type":"number"},"revision_norm":{"type":"number"},"relative_churn_norm":{"type":"number"},"churn_pressure":{"type":"number"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"reason_codes":{"type":"array"},"costs":{"$ref":"#/$defs/costs"},"overlays":{"type":"object"}}},
             "folder": {"type": "object", "additionalProperties": false, "required": ["path", "descendant_file_count", "direct_file_count", "bytes", "lines", "tokens", "direct_tokens", "context_band", "health_band", "context_pressure", "slop_score", "slop_band", "reason_codes", "top_file_path", "classification", "costs", "overlays"], "properties":{"path":{"type":"string"},"descendant_file_count":{"type":"integer"},"direct_file_count":{"type":"integer"},"bytes":{"type":"integer"},"lines":{"type":"integer"},"tokens":{"type":"integer"},"direct_tokens":{"type":"integer"},"context_band":{"type":"string"},"health_band":{"type":"string"},"context_pressure":{"type":"number"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"reason_codes":{"type":"array"},"top_file_path":{"type":"string"},"classification":{"type":"string"},"costs":{"$ref":"#/$defs/costs"},"overlays":{"type":"object"}}},
             "queue_item": {"type": "object", "additionalProperties": false, "required": ["path", "profile", "classification", "generated_from", "synchronization_group", "remediation_kind", "slop_score", "slop_band", "context_band", "tokens", "age_days", "revisions_window", "churn_pressure", "reason_codes", "is_pure_context_hotspot", "severity", "evidence_status", "next_action"], "properties":{"path":{"type":"string"},"profile":{"enum":["agent_context","data_context"]},"classification":{"type":"string"},"generated_from":{"type":"array","items":{"type":"string"}},"synchronization_group":{"type":["string","null"]},"remediation_kind":{"type":"string"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"context_band":{"type":"string"},"tokens":{"type":"integer"},"age_days":{"type":"integer"},"revisions_window":{"type":"integer"},"churn_pressure":{"type":"number"},"reason_codes":{"type":"array","items":{"type":"string"}},"is_pure_context_hotspot":{"type":"boolean"},"severity":{"enum":["error","warning","notice"]},"evidence_status":{"type":"string"},"next_action":{"type":"string"}}},
             "ranked_file": {"type": "object", "additionalProperties": false, "required": ["path", "slop_score", "slop_band", "context_band", "tokens", "reason_codes"], "properties":{"path":{"type":"string"},"slop_score":{"type":"number"},"slop_band":{"type":"string"},"context_band":{"type":"string"},"tokens":{"type":"integer"},"reason_codes":{"type":"array","items":{"type":"string"}}}}
@@ -116,7 +118,94 @@ pub fn schema() -> Value {
     });
     apply_shared_classification_schema(&mut schema);
     harden_generated_contracts(&mut schema);
+    harden_scalar_contracts(&mut schema);
     schema
+}
+
+fn harden_scalar_contracts(schema: &mut Value) {
+    schema["$defs"]["profile"] = json!({"enum":["agent_context","data_context"]});
+    schema["$defs"]["context_band"] =
+        json!({"enum":["compact","healthy","warning","critical"]});
+    schema["$defs"]["slop_band"] = json!({"enum":["low","moderate","high"]});
+    schema["$defs"]["analysis_status"] = json!({"enum":[
+        "analyzed","skipped","stable","experimental","not_applicable","legacy_unknown",
+        "complete","degraded_resource_budget","degraded_large_files","degraded_incomplete_inventory"
+    ]});
+    schema["$defs"]["evidence_status"] = json!({"enum":[
+        "supported","limited","low_support","not_applicable","evidence_unavailable",
+        "mapping_confidence_low","evidence_found","no_mapping","no_evidence","legacy_unknown"
+    ]});
+    schema["$defs"]["sha1"] = json!({"type":"string","pattern":"^[0-9a-f]{40}$"});
+    schema["$defs"]["digest"] = json!({"type":"string","pattern":"^[0-9a-f]{64}$"});
+    schema["$defs"]["fingerprint"] = json!({
+        "oneOf": [
+            {"$ref":"#/$defs/digest"},
+            {"type":"string","pattern":"^incomplete:[a-z_]+:[0-9]+$"}
+        ]
+    });
+
+    fn visit(value: &mut Value) {
+        let Some(object) = value.as_object_mut() else {
+            if let Some(values) = value.as_array_mut() {
+                for child in values {
+                    visit(child);
+                }
+            }
+            return;
+        };
+        if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
+            for (name, property) in properties.iter_mut() {
+                let nullable = property
+                    .get("type")
+                    .and_then(Value::as_array)
+                    .is_some_and(|types| types.iter().any(|kind| kind == "null"));
+                let typed = |reference: &str| {
+                    if nullable {
+                        json!({"oneOf":[{"$ref":reference},{"type":"null"}]})
+                    } else {
+                        json!({"$ref":reference})
+                    }
+                };
+                let replacement = match name.as_str() {
+                    "profile" => Some(typed("#/$defs/profile")),
+                    "context_band" | "health_band" => {
+                        Some(typed("#/$defs/context_band"))
+                    }
+                    "slop_band" => Some(typed("#/$defs/slop_band")),
+                    "analysis_status" => Some(typed("#/$defs/analysis_status")),
+                    "evidence_status" => Some(typed("#/$defs/evidence_status")),
+                    "head_sha" => Some(typed("#/$defs/sha1")),
+                    "content_sha256" => Some(typed("#/$defs/digest")),
+                    "content_fingerprint" => Some(typed("#/$defs/fingerprint")),
+                    "worktree_state_digest" | "analyzed_content_digest"
+                    | "selected_path_digest" | "config_digest" | "analysis_config_digest"
+                    | "evidence_config_digest" | "policy_config_digest"
+                    | "presentation_config_digest" => Some(typed("#/$defs/digest")),
+                    "slop_score" => Some(json!({"type":"number","minimum":0,"maximum":100})),
+                    "context_pressure" | "churn_pressure" | "load_pressure"
+                    | "volatility_pressure" | "coordination_pressure" | "top_file_share"
+                    | "top_3_file_share" | "token_concentration_ratio" | "top_author_share"
+                    | "late_churn_spike" | "cochange_centrality" | "cochange_pagerank"
+                    | "cross_folder_cochange_ratio" | "change_diffusion" | "evidence_score"
+                    | "similarity" | "similarity_ratio" | "jaccard" | "calibrated_jaccard"
+                    | "evidence_lower_bound" | "confidence_lower_bound" => {
+                        Some(json!({"type":"number","minimum":0,"maximum":1}))
+                    }
+                    _ => None,
+                };
+                if let Some(replacement) = replacement {
+                    *property = replacement;
+                }
+                visit(property);
+            }
+        }
+        for (key, child) in object.iter_mut() {
+            if key != "properties" {
+                visit(child);
+            }
+        }
+    }
+    visit(schema);
 }
 
 fn apply_shared_classification_schema(value: &mut Value) {
@@ -190,10 +279,6 @@ fn harden_generated_contracts(schema: &mut Value) {
     schema["properties"]["overlays"] = json!({"$ref":"#/$defs/json_object"});
     schema["properties"]["diagnostics"] = json!({
         "type":"object","additionalProperties":false,
-        "anyOf":[
-            {"required":["suppressed_saturated_overlays","relationship_count","structural_token_payload_omitted","analysis"]},
-            {"required":["migration","evidence_limit"]}
-        ],
         "properties":{
             "suppressed_saturated_overlays":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["overlay","reason","measured_count","range","entropy_bits"],"properties":{
                 "overlay":{"type":"string"},"reason":{"enum":["saturated","low_variance","low_entropy"]},
@@ -236,15 +321,14 @@ fn harden_generated_contracts(schema: &mut Value) {
     });
     schema["$defs"]["collection_page"] = json!({
         "type":"object","additionalProperties":false,"required":["total","returned","limit","truncated"],
-        "properties":{"total":{"type":"integer","minimum":0},"returned":{"type":"integer","minimum":0},"limit":{"type":["integer","null"],"minimum":0},"truncated":{"type":"boolean"}}
+        "properties":{"total":{"type":"integer","minimum":0},"returned":{"type":"integer","minimum":0},"limit":{"type":["integer","null"],"minimum":0},"truncated":{"type":"boolean"},"low_support_aggregated":{"type":"integer","minimum":0},"scope":{"type":"string"}}
     });
     schema["$defs"]["index_collection_metadata"] = json!({
         "type":"object","additionalProperties":false,"required":["files","folders"],
         "properties":{"files":{"$ref":"#/$defs/collection_page"},"folders":{"$ref":"#/$defs/collection_page"}}
     });
     schema["properties"]["collection_metadata"] = json!({
-        "type":"object","additionalProperties":false,
-        "required":["files","folders","compare_index","policy_index","action_queue","observation_feed","ranked_files","health.findings","health.refactor_candidates","health.watchlist"],
+        "type":"object","additionalProperties":{"$ref":"#/$defs/collection_page"},
         "properties":{
             "files":{"$ref":"#/$defs/collection_page"},"folders":{"$ref":"#/$defs/collection_page"},
             "compare_index":{"$ref":"#/$defs/index_collection_metadata"},"policy_index":{"$ref":"#/$defs/index_collection_metadata"},
@@ -448,6 +532,13 @@ pub fn migrate_legacy_report(mut report: Value) -> Result<Value> {
             .or_insert_with(|| json!(zero_digest.clone()));
         repo.entry("head_sha")
             .or_insert_with(|| legacy_head.unwrap_or(Value::Null));
+        if repo
+            .get("head_sha")
+            .and_then(Value::as_str)
+            .is_some_and(|value| value.len() != 40 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        {
+            repo.insert("head_sha".to_string(), Value::Null);
+        }
         repo.entry("remote_url")
             .or_insert_with(|| legacy_remote.unwrap_or(Value::Null));
         let has_head = repo.get("head_sha").is_some_and(|value| !value.is_null());
@@ -507,6 +598,7 @@ pub fn migrate_legacy_report(mut report: Value) -> Result<Value> {
                     ("profile", json!("agent_context")),
                     ("classification", json!("other")),
                     ("generated_from", json!([])),
+                    ("generated_provenance", json!({"source_paths": [], "source_globs": [], "generator_command": null, "verification_command": null})),
                     ("has_inline_tests", json!(false)),
                     ("tokens", json!(tokens)),
                     ("context_pressure", json!(0.0)),
@@ -544,6 +636,13 @@ pub fn migrate_legacy_report(mut report: Value) -> Result<Value> {
                     ("overlays", json!({})),
                 ] {
                     file.entry(key).or_insert(value);
+                }
+                if file
+                    .get("content_fingerprint")
+                    .and_then(Value::as_str)
+                    .is_none_or(str::is_empty)
+                {
+                    file.insert("content_fingerprint".to_string(), json!(zero_digest.clone()));
                 }
                 file.entry("analysis_status")
                     .or_insert_with(|| json!("analyzed"));
@@ -831,29 +930,50 @@ pub fn migrate_legacy_report(mut report: Value) -> Result<Value> {
             "relationship_evidence": "legacy_unknown"
         })
     });
-    if root
-        .get("evidence_completeness")
-        .and_then(Value::as_object)
-        .is_some_and(serde_json::Map::is_empty)
+    if let Some(evidence) = root
+        .get_mut("evidence_completeness")
+        .and_then(Value::as_object_mut)
     {
-        root.insert(
-            "evidence_completeness".to_string(),
-            json!({
-                "history": "legacy_unknown",
-                "repository_size": "legacy_unknown",
-                "relationship_evidence": "legacy_unknown"
-            }),
-        );
+        for (key, value) in [
+            ("history", json!("legacy_unknown")),
+            ("repository_size", json!("legacy_unknown")),
+            ("history_window_days", Value::Null),
+            ("history_max_commits", Value::Null),
+            ("first_seen_age", json!("legacy_unknown")),
+            ("churn_window", json!("legacy_unknown")),
+            ("author_evidence", json!("legacy_unknown")),
+            ("relationship_evidence", json!("legacy_unknown")),
+            ("missing_test_evidence_count", json!(0)),
+            ("weak_test_mapping_count", json!(0)),
+            ("low_test_cochange_evidence_count", json!(0)),
+            ("relationship_support", json!("legacy_unknown")),
+        ] {
+            evidence.entry(key).or_insert(value);
+        }
     }
-    if root
-        .get("stats")
-        .and_then(Value::as_object)
-        .is_some_and(serde_json::Map::is_empty)
-    {
-        root.insert(
-            "stats".to_string(),
-            json!({"migration_status": "legacy_unknown"}),
-        );
+    let tracked_file_count = root
+        .get("files")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
+    let stats = root
+        .entry("stats")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("stats must be an object"))?;
+    for (key, value) in [
+        ("tracked_file_count", json!(tracked_file_count)),
+        ("analyzed_file_count", json!(tracked_file_count)),
+        ("skipped_ignored_count", json!(0)),
+        ("skipped_missing_count", json!(0)),
+        ("skipped_binary_count", json!(0)),
+        ("skipped_undecodable_count", json!(0)),
+        ("critical_context_file_count", json!(0)),
+        ("critical_slop_file_count", json!(0)),
+        ("history_complete", json!(false)),
+        ("migration_status", json!("legacy_unknown")),
+    ] {
+        stats.entry(key).or_insert(value);
     }
     let overlays = root
         .entry("overlays")
@@ -881,5 +1001,70 @@ pub fn migrate_legacy_report(mut report: Value) -> Result<Value> {
     let health = crate::health::health_rollup_from_report(&migrated_snapshot)
         .context("legacy health evidence cannot be normalized")?;
     root.insert("health".to_string(), serde_json::to_value(health)?);
-    Ok(Value::Object(root.clone()))
+    root.entry("summary").or_insert_with(|| json!({}));
+    if let Some(summary) = root.get_mut("summary").and_then(Value::as_object_mut) {
+        summary.retain(|key, _| {
+            matches!(
+                key.as_str(),
+                "top_hotspots" | "top_structural_files" | "top_verification_gaps" | "health"
+            )
+        });
+        for (key, value) in [
+            ("top_hotspots", json!([])),
+            ("top_structural_files", json!([])),
+            ("top_verification_gaps", json!([])),
+            (
+                "health",
+                json!({"file_band_counts": {}, "folder_band_counts": {}}),
+            ),
+        ] {
+            summary.entry(key).or_insert(value);
+        }
+    }
+    let mut migrated = Value::Object(root.clone());
+    normalize_legacy_scalar_contracts(&mut migrated);
+    Ok(migrated)
+}
+
+fn normalize_legacy_scalar_contracts(value: &mut Value) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                normalize_legacy_scalar_contracts(value);
+            }
+        }
+        Value::Object(object) => {
+            for (key, value) in object.iter_mut() {
+                match key.as_str() {
+                    "context_band" | "health_band" => {
+                        let canonical = match value.as_str() {
+                            Some("compact" | "healthy" | "warning" | "critical") => None,
+                            Some("refactor_required") => Some("critical"),
+                            _ => Some("compact"),
+                        };
+                        if let Some(canonical) = canonical {
+                            *value = json!(canonical);
+                        }
+                    }
+                    "slop_band" => {
+                        let canonical = match value.as_str() {
+                            Some("low" | "moderate" | "high") => None,
+                            Some("critical" | "warning") => Some("high"),
+                            _ => Some("low"),
+                        };
+                        if let Some(canonical) = canonical {
+                            *value = json!(canonical);
+                        }
+                    }
+                    "slop_score" => {
+                        let score = value.as_f64().unwrap_or_default().clamp(0.0, 100.0);
+                        *value = json!(score);
+                    }
+                    _ => {}
+                }
+                normalize_legacy_scalar_contracts(value);
+            }
+        }
+        _ => {}
+    }
 }

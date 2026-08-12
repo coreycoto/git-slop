@@ -22,7 +22,7 @@
     "report_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "status": { "enum": ["created", "replaced", "unchanged"] },
     "source_report": { "type": "string", "minLength": 1 },
-    "storage": { "const": "git_private" },
+    "storage": { "enum": ["git_private", "content_addressed_zstd"] },
     "readiness": { "$ref": "#/$defs/readiness" },
     "baselines": { "type": "array", "items": { "$ref": "#/$defs/baseline_summary" } },
     "storage_bytes": { "type": "integer", "minimum": 0 },

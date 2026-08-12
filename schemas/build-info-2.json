@@ -1,0 +1,43 @@
+{
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.12.0/schemas/build-info-2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "build_source": {
+      "enum": ["workspace", "crate", "release"]
+    },
+    "crate_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "project": { "const": "git-slop" },
+    "rustc_version": {
+      "type": "string",
+      "pattern": "^rustc [^\\s]+"
+    },
+    "schema_version": { "const": 2 },
+    "source_dirty": { "type": ["boolean", "null"] },
+    "source_revision": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": { "type": "string" }
+  },
+  "required": [
+    "schema_version",
+    "project",
+    "version",
+    "source_revision",
+    "source_dirty",
+    "target",
+    "crate_sha256",
+    "rustc_version",
+    "build_source"
+  ],
+  "title": "Git Slop build-info schema 2",
+  "type": "object"
+}

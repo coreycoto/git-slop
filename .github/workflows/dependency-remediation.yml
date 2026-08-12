@@ -6,11 +6,51 @@ on:
   schedule:
     - cron: "35 11 * * 2"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Run a read-only canary or perform the trusted remediation flow
+        required: true
+        type: choice
+        default: canary
+        options: [canary, remediate]
+      release_tag:
+        description: Optional stable release tag that requested this canary
+        required: false
+        type: string
 
 jobs:
+  canary:
+    name: Read-only remediation canary
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'canary'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted workflow tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Validate dependency-remediation contracts without credentials or mutation
+        run: cargo xtask validate
+
+      - name: Summarize canary
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          printf '## Dependency-remediation canary passed\n\n' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' '- no write token, OpenAI credential, or private runtime was loaded' >> "$GITHUB_STEP_SUMMARY"
+          if test -n "$RELEASE_TAG"; then
+            printf -- "- release closeout: \`%s\`\n" "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   remediate:
     name: Trusted dependency remediation
-    if: github.event_name != 'pull_request_target' || github.actor == 'dependabot[bot]'
+    if: (github.event_name != 'pull_request_target' || github.actor == 'dependabot[bot]') && (github.event_name != 'workflow_dispatch' || inputs.mode == 'remediate')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -18,7 +58,7 @@ jobs:
       security-events: read
     steps:
       - name: Checkout trusted workflow tooling
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -75,7 +115,7 @@ jobs:
             --home "$RUNNER_TEMP/codex-runtime"
 
       - name: Checkout requested revision
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -134,7 +174,7 @@ jobs:
 
       - name: Upload remediation artifacts
         if: ${{ always() && steps.codex_preflight.outputs.enabled == 'true' }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dependency-remediation-artifacts
           path: |

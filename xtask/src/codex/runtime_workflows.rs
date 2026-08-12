@@ -446,7 +446,7 @@ fn validate_dependency_remediation_trust(
     }
     let checkouts = steps
         .iter()
-        .filter(|step| step.uses.starts_with("actions/checkout@"))
+        .filter(|step| step.job == "remediate" && step.uses.starts_with("actions/checkout@"))
         .collect::<Vec<_>>();
     let Some(first) = checkouts.first() else {
         errors.push(format!("{name} must check out the trusted base revision."));
@@ -467,6 +467,10 @@ fn validate_dependency_remediation_trust(
             "{name} trusted-base checkout must disable persisted GitHub credentials."
         ));
     }
+    let steps = steps
+        .iter()
+        .filter(|step| step.job == first.job)
+        .collect::<Vec<_>>();
     let head_checkouts = checkouts
         .iter()
         .filter(|step| step.checkout_ref.contains("pull_request.head.sha"))

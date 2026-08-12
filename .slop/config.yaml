@@ -1,0 +1,38 @@
+# Intentional self-analysis policy for git-slop. Keep default-behavior coverage in
+# the separate dogfood-default workflow job.
+schema_version: 2
+
+inventory:
+  path_overrides:
+    - glob: schemas/report-5.json
+      classification: generated
+      generated_source_globs:
+        - src/report/write/*.rs
+      generator_command: git slop schema report --output schemas/report-5.json
+      verification_command: git slop schema report --output /tmp/report-5.json && cmp /tmp/report-5.json schemas/report-5.json
+    - glob: schemas/config-2.json
+      classification: generated
+      generated_source_globs:
+        - src/config.rs
+      generator_command: git slop schema config --output schemas/config-2.json
+      verification_command: git slop schema config --output /tmp/config-2.json && cmp /tmp/config-2.json schemas/config-2.json
+
+check:
+  fail_on_context_band: critical
+  fail_on_slop_band: critical
+
+history:
+  churn_window_days: 180
+  max_commits: 10000
+  follow_renames: true
+
+verification:
+  commands:
+    - cargo fmt --all -- --check
+    - cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+    - cargo test --workspace --all-targets --locked
+  path_commands:
+    - path_glob: ".github/workflow-sources/release-publish/*.yml"
+      command: cargo xtask generate-release-workflow --check
+    - path_glob: "xtask/**"
+      command: cargo test --manifest-path xtask/Cargo.toml --locked

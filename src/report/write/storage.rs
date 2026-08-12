@@ -374,7 +374,7 @@ mod profile_tests {
             },
             "overlays": {"organization_health": {
                 "relationships": {"temporal_coupling_edges": [{
-                    "source_path": "src/298.rs", "target_path": "src/299.rs"
+                    "source_path": "src/298.rs", "target_path": "src/299.rs", "confidence": "supported"
                 }]},
                 "clusters": {"duplicate_sets": [{
                     "member_paths": ["src/298.rs", "src/299.rs"]
@@ -415,7 +415,7 @@ mod profile_tests {
     #[test]
     fn standard_bounds_high_cardinality_evidence_while_full_evidence_does_not() {
         let relationships = (0..2_100)
-            .map(|index| json!({"id": index}))
+            .map(|index| json!({"id": index, "confidence": "supported"}))
             .collect::<Vec<_>>();
         let report = json!({
             "diagnostics": {},
@@ -432,7 +432,7 @@ mod profile_tests {
                 .pointer("/overlays/organization_health/relationships/temporal_coupling_edges")
                 .and_then(Value::as_array)
                 .map(Vec::len),
-            Some(2_000)
+            Some(500)
         );
         assert_eq!(
             full.pointer("/overlays/organization_health/relationships/temporal_coupling_edges")

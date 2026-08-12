@@ -1,16 +1,17 @@
 use std::fs;
-use std::fs::{File, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
-use fs2::FileExt;
 use globset::Glob;
 use serde_json::Map;
 use serde_json::{Value, json};
 
 use crate::model::Classification;
+
+mod lock;
+mod structured;
+pub use lock::acquire_scan_lock;
 
 pub const DEFAULT_SLOP_GITIGNORE: &str = "/latest/\n/runs/\n/cache/\n/scan.lock\n";
 pub const MINIMAL_CONFIG: &str = r#"# Git Slop configuration overrides.
@@ -27,45 +28,6 @@ schema_version: 2
 pub struct InitResult {
     pub config: &'static str,
     pub gitignore: &'static str,
-}
-
-pub struct ScanLock {
-    file: File,
-}
-
-impl Drop for ScanLock {
-    fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.file);
-    }
-}
-
-pub fn acquire_scan_lock(repo_root: &Path) -> Result<ScanLock> {
-    let runtime_root = git_runtime_dir(repo_root)?;
-    fs::create_dir_all(&runtime_root).with_context(|| {
-        format!(
-            "failed to create Git-private runtime directory {}",
-            runtime_root.display()
-        )
-    })?;
-    let path = runtime_root.join("scan.lock");
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&path)
-        .with_context(|| format!("failed to open scan lock {}", path.display()))?;
-    file.try_lock_exclusive().with_context(|| {
-        format!(
-            "another git-slop scan is already active for {}; wait for it to finish before retrying",
-            repo_root.display()
-        )
-    })?;
-    file.set_len(0)?;
-    file.seek(SeekFrom::Start(0))?;
-    writeln!(file, "pid={}", std::process::id())?;
-    file.sync_data()?;
-    Ok(ScanLock { file })
 }
 
 /// Resolve mutable coordination state inside Git's private directory so a
@@ -162,6 +124,7 @@ pub fn default_config() -> Value {
                 "test/", "tests/", "spec/", "__tests__/", ".test.", ".spec."
             ],
             "source_test_mappings": [],
+            "path_commands": [],
             "commands": []
         },
         "navigation": {"top_distinctive_terms": 5},
@@ -240,7 +203,9 @@ fn validate_override_shape(value: &Value, defaults: &Value, path: &str) -> Resul
         (Value::Array(values), Value::Array(defaults)) => {
             if matches!(
                 path,
-                "verification.source_test_mappings" | "inventory.path_overrides"
+                "verification.source_test_mappings"
+                    | "verification.path_commands"
+                    | "inventory.path_overrides"
             ) {
                 for (index, mapping) in values.iter().enumerate() {
                     let Some(mapping) = mapping.as_object() else {
@@ -248,6 +213,8 @@ fn validate_override_shape(value: &Value, defaults: &Value, path: &str) -> Resul
                     };
                     let keys: &[&str] = if path == "verification.source_test_mappings" {
                         &["source_glob", "test_glob"]
+                    } else if path == "verification.path_commands" {
+                        &["path_glob", "command"]
                     } else {
                         &[
                             "glob",
@@ -255,6 +222,9 @@ fn validate_override_shape(value: &Value, defaults: &Value, path: &str) -> Resul
                             "profile",
                             "language",
                             "verification_applicability",
+                            "generated_source_globs",
+                            "generator_command",
+                            "verification_command",
                         ]
                     };
                     if mapping.keys().any(|key| !keys.contains(&key.as_str())) {
@@ -262,6 +232,8 @@ fn validate_override_shape(value: &Value, defaults: &Value, path: &str) -> Resul
                     }
                     let required: &[&str] = if path == "verification.source_test_mappings" {
                         &["source_glob", "test_glob"]
+                    } else if path == "verification.path_commands" {
+                        &["path_glob"]
                     } else {
                         &["glob"]
                     };
@@ -273,11 +245,17 @@ fn validate_override_shape(value: &Value, defaults: &Value, path: &str) -> Resul
                             format!("{path}[{index}].{key} is not a valid glob")
                         })?;
                     }
+                    if path == "verification.path_commands" {
+                        structured::validate_path_command(mapping, path, index)?;
+                    }
                     if path == "inventory.path_overrides" {
                         if !mapping.contains_key("classification")
                             && !mapping.contains_key("profile")
                             && !mapping.contains_key("language")
                             && !mapping.contains_key("verification_applicability")
+                            && !mapping.contains_key("generated_source_globs")
+                            && !mapping.contains_key("generator_command")
+                            && !mapping.contains_key("verification_command")
                         {
                             bail!("{path}[{index}] must set at least one supported override");
                         }
@@ -293,6 +271,7 @@ fn validate_override_shape(value: &Value, defaults: &Value, path: &str) -> Resul
                                 bail!("{path}[{index}].profile has an unsupported value");
                             }
                         }
+                        structured::validate_generated_override(mapping, path, index)?;
                         if mapping
                             .get("language")
                             .is_some_and(|value| value.as_str().is_none_or(str::is_empty))
@@ -309,6 +288,15 @@ fn validate_override_shape(value: &Value, defaults: &Value, path: &str) -> Resul
                                 );
                             }
                         }
+                    }
+                }
+            } else if path == "verification.commands" {
+                for (index, value) in values.iter().enumerate() {
+                    if value
+                        .as_str()
+                        .is_none_or(|command| command.trim().is_empty())
+                    {
+                        bail!("{path}[{index}] must be a non-empty string");
                     }
                 }
             } else if path == "inventory.ignore_globs" {
@@ -605,25 +593,10 @@ fn schema_for_value(value: &Value, path: &str) -> Value {
                         "test_glob": {"type": "string", "minLength": 1, "description": "Test-path glob."}
                     }
                 })
+            } else if path == "verification.path_commands" {
+                structured::path_command_schema()
             } else if path == "inventory.path_overrides" {
-                json!({
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["glob"],
-                    "properties": {
-                        "glob": {"type": "string", "minLength": 1},
-                        "classification": {"type": "string", "enum": Classification::values()},
-                        "profile": {"type": "string", "enum": ["agent_context", "data_context"]},
-                        "language": {"type": "string", "minLength": 1},
-                        "verification_applicability": {"type": "string", "enum": ["auto", "applicable", "not_applicable"]}
-                    },
-                    "anyOf": [
-                        {"required": ["classification"]},
-                        {"required": ["profile"]},
-                        {"required": ["language"]},
-                        {"required": ["verification_applicability"]}
-                    ]
-                })
+                structured::path_override_schema()
             } else {
                 values.first().map_or_else(
                     || json!({}),
@@ -946,10 +919,13 @@ mod tests {
                 .expect("git init")
                 .success()
         );
-        let first = super::acquire_scan_lock(repository.path()).expect("first lock");
-        assert!(super::acquire_scan_lock(repository.path()).is_err());
+        let state = repository.path().join("state-a");
+        let first = super::acquire_scan_lock(&state).expect("first lock");
+        let error = super::acquire_scan_lock(&state).unwrap_err().to_string();
+        assert!(error.contains("scan.lock"), "{error}");
+        super::acquire_scan_lock(&repository.path().join("state-b")).expect("parallel state lock");
         drop(first);
-        super::acquire_scan_lock(repository.path()).expect("reacquired lock");
+        super::acquire_scan_lock(&state).expect("reacquired lock");
     }
 
     #[test]

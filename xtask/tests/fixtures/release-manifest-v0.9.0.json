@@ -95,12 +95,19 @@
   },
   "install": {
     "attestation": [
-      "gh attestation verify 'git-slop-v0.9.0-<target>.*' --repo coreycoto/git-slop --signer-repo coreycoto/git-slop"
+      "gh attestation verify 'git-slop-v0.9.0-aarch64-apple-darwin.tar.gz' --repo coreycoto/git-slop --signer-repo coreycoto/git-slop",
+      "gh attestation verify 'git-slop-v0.9.0-aarch64-pc-windows-msvc.zip' --repo coreycoto/git-slop --signer-repo coreycoto/git-slop",
+      "gh attestation verify 'git-slop-v0.9.0-aarch64-unknown-linux-gnu.tar.gz' --repo coreycoto/git-slop --signer-repo coreycoto/git-slop",
+      "gh attestation verify 'git-slop-v0.9.0-x86_64-apple-darwin.tar.gz' --repo coreycoto/git-slop --signer-repo coreycoto/git-slop",
+      "gh attestation verify 'git-slop-v0.9.0-x86_64-pc-windows-msvc.zip' --repo coreycoto/git-slop --signer-repo coreycoto/git-slop",
+      "gh attestation verify 'git-slop-v0.9.0-x86_64-unknown-linux-gnu.tar.gz' --repo coreycoto/git-slop --signer-repo coreycoto/git-slop",
+      "gh attestation verify 'git-slop-v0.9.0-x86_64-unknown-linux-musl.tar.gz' --repo coreycoto/git-slop --signer-repo coreycoto/git-slop"
     ],
     "cargo": [
       "cargo install git-slop --version 0.9.0 --locked"
     ],
     "github_release": [
+      "gh release verify v0.9.0 --repo coreycoto/git-slop",
       "gh release download v0.9.0 --repo coreycoto/git-slop --pattern 'git-slop-v0.9.0-<target>.*' --pattern SHA256SUMS",
       "sha256sum --check SHA256SUMS --ignore-missing"
     ],

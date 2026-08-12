@@ -267,12 +267,11 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         target_classification.as_str(),
         "generated" | "vendored" | "snapshot" | "fixture" | "migration_fixture"
     );
-    let target_score = if target_non_actionable {
-        None
-    } else if top_score >= 75.0 {
-        Some(74.999)
+    let target_score: Option<f64> = None;
+    let target_band = if top_score >= 75.0 {
+        Some("moderate_or_lower")
     } else if top_score >= 40.0 {
-        Some(39.999)
+        Some("low")
     } else {
         None
     };
@@ -285,13 +284,32 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
                 )
             })
         });
-    let unsupported_relationship = relationship_ids.iter().any(|id| {
-        relationship_by_id(report, id)
-            .is_some_and(|relationship| string(relationship.get("confidence")) != "supported")
-    });
+    let supported_relationship_ids = relationship_ids
+        .iter()
+        .filter(|id| {
+            relationship_by_id(report, id)
+                .is_some_and(|relationship| string(relationship.get("confidence")) == "supported")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let contextual_relationship_ids = relationship_ids
+        .iter()
+        .filter(|id| !supported_relationship_ids.contains(id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let anchor_reason_codes = scope_paths
+        .iter()
+        .flat_map(|path| {
+            resolved_record(report, path)
+                .map(|record| string_array(record.get("reason_codes")))
+                .unwrap_or_default()
+        })
+        .collect::<BTreeSet<_>>();
+    let anchor_intervention_evidence = top_score >= 40.0 || !anchor_reason_codes.is_empty();
+    let no_intervention_evidence =
+        !anchor_intervention_evidence && supported_relationship_ids.is_empty();
     let plan_type = if !non_actionable_scope
-        && !unsupported_relationship
-        && (top_score >= 40.0 || !relationship_ids.is_empty())
+        && (anchor_intervention_evidence || !supported_relationship_ids.is_empty())
     {
         "intervention"
     } else {
@@ -322,6 +340,7 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         .collect::<BTreeSet<_>>();
     let configured_commands = string_array(report.pointer("/config/verification/commands"));
     let verification_commands = super::super::verification::from_report_paths(
+        report,
         &repository_paths,
         &scope_paths,
         &configured_commands,
@@ -351,14 +370,20 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
             "Identify and verify the generator, upstream dependency, or fixture/test strategy without requiring a score reduction in derived content.",
             "Produce zero native compare regressions and pass every discovered verification command."
         ])
+    } else if no_intervention_evidence {
+        json!([
+            format!(
+                "Change no more than {scope_path_count} existing scoped paths unless the plan is regenerated."
+            ),
+            "No intervention evidence is present; gather a supported reason code, band breach, or relationship before proposing repository mutation.",
+            "If evidence remains absent, close the investigation without changing source files."
+        ])
     } else {
         json!([
             format!(
                 "Change no more than {scope_path_count} existing scoped paths unless the plan is regenerated."
             ),
-            format!(
-                "Remove or materially reduce the cited source reason codes while preserving raw-content identity evidence (baseline score {top_score:.3})."
-            ),
+            "Remove or materially reduce at least one cited source reason code or exit the cited maintenance band while preserving raw-content identity evidence.",
             "Produce zero native compare regressions and pass every discovered verification command."
         ])
     };
@@ -385,6 +410,11 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
                 "Investigate the generator, upstream source, or fixture/test strategy associated with {}; do not require a direct score reduction in derived content, and pass every discovered verification command without unreviewed scope expansion.",
                 render_limited(&scope_paths, 5)
             ))
+        } else if no_intervention_evidence {
+            json!(format!(
+                "Investigate {}; no intervention evidence is currently present, so do not mutate source unless a supported reason code, band breach, or relationship is established.",
+                render_limited(&scope_paths, 5)
+            ))
         } else {
             json!(format!(
                 "Resolve the cited detector reason codes across {}, improve at least one source-derived metric without worsening supported relationship evidence, introduce zero native compare regressions, and pass every discovered verification command without unreviewed scope expansion.",
@@ -398,6 +428,15 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
         "evidence".to_string(),
         json!({
             "summary": evidence_summary,
+            "anchor": {
+                "intervention_supported": anchor_intervention_evidence,
+                "reason_codes": anchor_reason_codes,
+                "top_slop_score": top_score
+            },
+            "relationship_support": {
+                "supported_ids": supported_relationship_ids,
+                "context_only_ids": contextual_relationship_ids
+            },
             "relationship_ids": relationship_ids,
             "relationships": relationship_labels,
             "cluster_ids": cluster_ids,
@@ -452,16 +491,23 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
             "maximum_scope_paths": scope_path_count,
             "baseline_top_slop_score": top_score,
             "target_top_slop_score": target_score,
+            "target_slop_band": target_band,
             "required": if non_actionable_scope {
                 json!([
                     "No new native compare regression.",
                     "The generator, upstream source, or fixture/test strategy is identified and verified; derived-content score reduction is not required.",
                     "All reviewed verification commands pass."
                 ])
+            } else if no_intervention_evidence {
+                json!([
+                    "No repository mutation without newly established intervention evidence.",
+                    "The investigation records whether a reason-code, band, or supported relationship signal exists.",
+                    "All reviewed verification commands pass if any diagnostic-only change is made."
+                ])
             } else {
                 json!([
                     "No new native compare regression.",
-                    "At least one cited source-derived reason code is removed, or the scoped score crosses the documented 40 or 75 threshold.",
+                    "At least one cited source-derived reason code is removed, or the scoped maintenance band improves.",
                     "Supported relationship evidence remains explainable; limited and low-support edges are investigation context only.",
                     "All reviewed verification commands pass."
                 ])
@@ -668,7 +714,7 @@ mod tests {
         let payload = plan_payload(&report, PlanSelector::Path(path), 1).expect("plan");
         assert_eq!(
             payload.pointer("/proposed_slices/0/plan_type"),
-            Some(&json!("investigation"))
+            Some(&json!("intervention"))
         );
         assert_eq!(
             payload.pointer("/proposed_slices/0/verification/concrete_targets/0/nearby_tests"),

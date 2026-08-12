@@ -1,13 +1,25 @@
 fn run_report(args: ReportArgs) -> Result<i32> {
     match args.command {
-        ReportCommand::Validate { path, allow_legacy } => {
+        ReportCommand::Validate { path, report, allow_legacy, format } => {
+            let path = path.or(report).expect("Clap requires a report path");
             match report::load_report_with_legacy(&path, allow_legacy) {
                 Ok(value) => {
-                    println!(
-                        "Report is valid: {} (schema {}).",
-                        path.display(),
-                        value["schema_version"]
-                    );
+                    let payload = json!({
+                        "schema_version": 1,
+                        "command": "report validate",
+                        "valid": true,
+                        "report_schema_version": value["schema_version"],
+                        "report": portable_source(&path)
+                    });
+                    match format {
+                        DisplayFormat::Text => println!(
+                            "Report is valid: {} (schema {}).",
+                            path.display(),
+                            value["schema_version"]
+                        ),
+                        DisplayFormat::Json => print_text(&render_json(&payload)?),
+                        DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
+                    }
                     Ok(0)
                 }
                 Err(error) => {
@@ -48,6 +60,12 @@ fn run_report(args: ReportArgs) -> Result<i32> {
     }
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum SarifScope {
+    Policy,
+    ActionQueue,
+}
+
 fn run_sarif(repo_root: &Path, args: SarifArgs) -> Result<i32> {
     let (loaded, report_path) = report_or_missing(repo_root, args.report.as_deref())?;
     let top = match args.top {
@@ -60,7 +78,11 @@ fn run_sarif(repo_root: &Path, args: SarifArgs) -> Result<i32> {
     let report_descriptor = args
         .include_local_paths
         .then(|| report_path.to_string_lossy().to_string());
-    let payload = match sarif_payload(&loaded, report_descriptor.as_deref(), top) {
+    let scope = match args.scope {
+        SarifScope::Policy => "policy",
+        SarifScope::ActionQueue => "action-queue",
+    };
+    let payload = match sarif_payload(&loaded, report_descriptor.as_deref(), top, scope) {
         Ok(payload) => payload,
         Err(error) => return usage_error(error),
     };

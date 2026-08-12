@@ -9,6 +9,38 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  dogfood-default:
+    name: Verify Default Behavior
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Build release binary
+        run: cargo build -p git-slop --release --locked
+
+      - name: Scan a repository with no configuration override
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture="$RUNNER_TEMP/default-behavior"
+          mkdir -p "$fixture"
+          git -C "$fixture" init --quiet
+          printf '%s\n' '# Default behavior fixture' > "$fixture/README.md"
+          git -C "$fixture" add README.md
+          git -C "$fixture" -c user.name=git-slop -c user.email=git-slop@users.noreply.github.com commit --quiet -m fixture
+          target/release/git-slop --repo "$fixture" find --quiet --no-progress --no-cache \
+            --state-dir "$RUNNER_TEMP/default-state" --output-dir "$RUNNER_TEMP/default-output"
+          target/release/git-slop report validate --report "$RUNNER_TEMP/default-output/latest/report.json" --format json \
+            | jq -e '.valid == true'
+
   dogfood:
     name: Run Git Slop On Git Slop
     runs-on: ubuntu-24.04
@@ -16,7 +48,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
@@ -37,6 +69,45 @@ jobs:
           fi
           echo "Git Slop detector completed; publishing the escaped health report."
 
+      - name: Create named pull-request baseline
+        id: pr-baseline
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base_worktree="$RUNNER_TEMP/git-slop-base"
+          git worktree add --detach "$base_worktree" "$BASE_SHA"
+          if git cat-file -e "$BASE_SHA:.slop/config.yaml" 2>/dev/null; then
+            echo "enforce=true" >> "$GITHUB_OUTPUT"
+          else
+            mkdir -p "$base_worktree/.slop"
+            cp .slop/config.yaml "$base_worktree/.slop/config.yaml"
+            echo "enforce=false" >> "$GITHUB_OUTPUT"
+          fi
+          printf '%s\n' '.slop/config.yaml' > "$RUNNER_TEMP/dogfood-base-excludes"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0=core.excludesfile \
+          GIT_CONFIG_VALUE_0="$RUNNER_TEMP/dogfood-base-excludes" \
+            target/release/git-slop --repo "$base_worktree" find --quiet --no-progress --no-cache \
+            --state-dir "$RUNNER_TEMP/base-state" --output-dir "$RUNNER_TEMP/base-output"
+          target/release/git-slop baseline --state-dir "$RUNNER_TEMP/dogfood-baselines" ensure \
+            --name dogfood-pr-base --report "$RUNNER_TEMP/base-output/latest/report.json" --format json \
+            | jq -e '.name == "dogfood-pr-base"'
+
+      - name: Enforce pull-request regressions
+        if: github.event_name == 'pull_request' && steps.pr-baseline.outputs.enforce == 'true'
+        run: |
+          target/release/git-slop compare --state-dir "$RUNNER_TEMP/dogfood-baselines" \
+            --baseline dogfood-pr-base --head .slop/latest/report.json --fail-on-regression
+
+      - name: Preview first-adoption comparison
+        if: github.event_name == 'pull_request' && steps.pr-baseline.outputs.enforce != 'true'
+        run: |
+          target/release/git-slop compare --state-dir "$RUNNER_TEMP/dogfood-baselines" \
+            --baseline dogfood-pr-base --head .slop/latest/report.json
+
       - name: Publish summary
         if: always()
         run: |
@@ -48,7 +119,7 @@ jobs:
 
       - name: Upload dogfood health report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: git-slop-dogfood
           path: .slop/latest/health.md
@@ -56,11 +127,7 @@ jobs:
           retention-days: 14
           include-hidden-files: true
 
-      - name: Warn-first threshold check
-        if: always()
+      - name: Evaluate intentional absolute policy
+        if: success()
         run: |
-          if [ -f .slop/latest/report.json ]; then
-            target/release/git-slop check || true
-          else
-            echo "Skipping threshold check because no report was generated."
-          fi
+          target/release/git-slop check --report .slop/latest/report.json --evaluate-only

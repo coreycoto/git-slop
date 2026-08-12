@@ -149,6 +149,7 @@ test("safe defaults analyze once and select only health.md", () => {
   assert.match(readFileSync(state.summary, "utf8"), /# Repository Health/u);
   const actual = outputs(state.output);
   assert.equal(actual.policy, "advisory");
+  assert.equal(actual.mode, "advanced");
   assert.equal(actual["artifact-contents"], "summary");
   assert.equal(actual["retention-days"], "14");
   assert.equal(actual["health-finding-count"], "4");
@@ -169,6 +170,49 @@ test("safe defaults analyze once and select only health.md", () => {
   const artifactOutput = readFileSync(state.output, "utf8");
   assert.match(artifactOutput, /health\.md/u);
   assert.doesNotMatch(artifactOutput, /report\.json/u);
+});
+
+test("mode presets derive policy and enforcement without changing advanced inputs", () => {
+  for (const [mode, expectedPolicy, expectedEnforcement] of [
+    ["advisory", "advisory", "absolute"],
+    ["absolute", "enforce", "absolute"],
+  ]) {
+    const state = fixture();
+    const analysis = run("analyze", {
+      GITHUB_OUTPUT: state.output,
+      GITHUB_STEP_SUMMARY: state.summary,
+      GITHUB_WORKSPACE: state.repository,
+      GIT_SLOP_BINARY: state.fakeBinary,
+      GIT_SLOP_WORKING_DIRECTORY: ".",
+      GIT_SLOP_MODE: mode,
+      GIT_SLOP_POLICY: "advisory",
+      GIT_SLOP_ENFORCEMENT: "regression",
+    });
+    assert.equal(analysis.status, 0, analysis.stderr);
+    const actual = outputs(state.output);
+    assert.equal(actual.mode, mode);
+    assert.equal(actual.policy, expectedPolicy);
+    assert.equal(actual.enforcement, expectedEnforcement);
+  }
+
+  const state = fixture();
+  const baseline = join(state.repository, "baseline.json");
+  writeFileSync(baseline, JSON.stringify({ schema_version: 5 }), "utf8");
+  const regression = run("analyze", {
+    GITHUB_OUTPUT: state.output,
+    GITHUB_STEP_SUMMARY: state.summary,
+    GITHUB_WORKSPACE: state.repository,
+    GIT_SLOP_BINARY: state.fakeBinary,
+    GIT_SLOP_WORKING_DIRECTORY: ".",
+    GIT_SLOP_MODE: "regression",
+    GIT_SLOP_BASELINE_REPORT: baseline,
+    GIT_SLOP_REQUIRE_BASELINE_ANCESTOR: "false",
+  });
+  assert.equal(regression.status, 0, regression.stderr);
+  const actual = outputs(state.output);
+  assert.equal(actual.mode, "regression");
+  assert.equal(actual.policy, "enforce");
+  assert.equal(actual.enforcement, "regression");
 });
 
 test("post-find validation failure preserves fresh diagnostics and report outputs", () => {

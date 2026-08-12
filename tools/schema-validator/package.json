@@ -1,0 +1,10 @@
+{
+  "name": "git-slop-schema-validator",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Pinned validator used by packaged-contract release qualification.",
+  "dependencies": {
+    "ajv-cli": "5.0.0",
+    "ajv-formats": "3.0.1"
+  }
+}

@@ -2,7 +2,7 @@ use std::fs;
 use std::io::IsTerminal;
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{ArgGroup, Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{Shell, generate};
 use serde_json::{Value, json};
@@ -116,40 +116,6 @@ impl Command {
             Self::Schema(_) => "schema",
         }
     }
-}
-
-#[derive(Debug, Args)]
-struct SchemaArgs {
-    /// Machine contract whose immutable schema should be printed.
-    #[arg(value_enum)]
-    contract: SchemaContract,
-    /// Destination file. Defaults to stdout.
-    #[arg(long)]
-    output: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum SchemaContract {
-    Report,
-    Config,
-    Compare,
-    Explain,
-    Plan,
-    Sarif,
-    Health,
-    Check,
-    Doctor,
-    BuildInfo,
-    List,
-    Show,
-    PromptManifest,
-    Error,
-    FindEstimate,
-    CacheStatus,
-    CachePrune,
-    Baseline,
-    Prune,
-    CompareNdjson,
 }
 
 #[derive(Debug, Args)]
@@ -376,6 +342,9 @@ struct CheckArgs {
 
 #[derive(Debug, Args)]
 struct CompareArgs {
+    /// Mutable state directory for named baselines. Relative paths resolve from the repository root.
+    #[arg(long, value_name = "PATH")]
+    state_dir: Option<PathBuf>,
     /// Base report.json path.
     #[arg(
         long,
@@ -435,6 +404,9 @@ struct CompareArgs {
 
 #[derive(Debug, Args)]
 struct BaselineArgs {
+    /// Mutable state directory. Relative paths resolve from the repository root.
+    #[arg(long, value_name = "PATH", global = true)]
+    state_dir: Option<PathBuf>,
     #[command(subcommand)]
     command: BaselineCommand,
 }
@@ -547,11 +519,17 @@ enum ReportCommand {
     /// Validate one report against the complete schema-5 contract.
     Validate {
         /// Report JSON to validate.
-        #[arg(value_name = "REPORT_JSON")]
-        path: PathBuf,
+        #[arg(value_name = "REPORT_JSON", required_unless_present = "report")]
+        path: Option<PathBuf>,
+        /// Report JSON to validate (alias for the positional path).
+        #[arg(long, value_name = "REPORT_JSON", required_unless_present = "path")]
+        report: Option<PathBuf>,
         /// Accept schema 4 as migration input and validate its normalized schema-5 form.
         #[arg(long)]
         allow_legacy: bool,
+        /// Success output format.
+        #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
+        format: DisplayFormat,
     },
     /// Migrate a schema-4 report to normalized schema 5.
     Migrate {
@@ -574,6 +552,9 @@ struct SarifArgs {
     /// Maximum number of action-queue findings to export.
     #[arg(long)]
     top: Option<i64>,
+    /// Export configured policy failures or action-queue intervention candidates.
+    #[arg(long, value_enum, default_value_t = SarifScope::ActionQueue)]
+    scope: SarifScope,
     /// Optional SARIF output path. Defaults to stdout.
     #[arg(long)]
     output: Option<PathBuf>,
@@ -810,11 +791,6 @@ enum HealthFormat {
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
-enum BuildInfoFormat {
-    Json,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
 enum CheckFormat {
     Text,
     Json,
@@ -934,7 +910,10 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
                         SchemaContract::Health => include_str!("../schemas/health-1.json"),
                         SchemaContract::Check => include_str!("../schemas/check-1.json"),
                         SchemaContract::Doctor => include_str!("../schemas/doctor-1.json"),
-                        SchemaContract::BuildInfo => include_str!("../schemas/build-info-1.json"),
+                        SchemaContract::BuildInfo => include_str!("../schemas/build-info-2.json"),
+                        SchemaContract::ReleaseManifest => {
+                            include_str!("../schemas/release-manifest-3.json")
+                        }
                         SchemaContract::List => include_str!("../schemas/list-1.json"),
                         SchemaContract::Show => include_str!("../schemas/show-1.json"),
                         SchemaContract::PromptManifest => {

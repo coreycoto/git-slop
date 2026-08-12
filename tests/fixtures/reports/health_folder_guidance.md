@@ -5,7 +5,7 @@
 - **Generated at:** `2026-08-06T12:00:00Z`
 - **Repo:** `health-folder-guidance`
 - **Branch:** `main`
-- **Head SHA:** `abc123`
+- **Head SHA:** `none`
 
 ## Summary
 
@@ -44,14 +44,14 @@
 
 | Path | Class | Tokens | Context/load band | Maintenance pressure | % of parent |
 | --- | --- | ---: | --- | --- | ---: |
-| `src/files-only/generated.json` | data | 99,999 | `budget_exceeded` | `critical` · score 99.0 | 99.6% |
+| `src/files-only/generated.json` | data | 99,999 | `budget_exceeded` | `high` · score 99.0 | 99.6% |
 
 #### Folder Risks
 
 | Path | Class | Direct load | Direct-load band and trigger | Maintenance pressure | Highest-ranked descendant | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
-| `src/files-only` | source | 4 files · 100,299 tokens · 93.3% of parent | `budget_exceeded` — tokens: 100,299 direct tokens \> 4,000 warning ceiling | `high` · score 1,234.5 | `src/files-only/nested/winner.rs` — maintenance `moderate` · score 50.0; context/load `compact` · 150 tokens | `git slop explain --path src/files-only/` |
-| `src/both` | source | 5 files · 4,500 tokens · 4.2% of parent | `budget_exceeded` — both: 5 direct files \> 4 warning ceiling; 4,500 direct tokens \> 4,000 warning ceiling | `critical` · score 90.0 | `src/both/0.rs` — maintenance `high` · score 80.0; context/load `compact` · 900 tokens | `git slop explain --path src/both/` |
+| `src/files-only` | source | 4 files · 100,299 tokens · 93.3% of parent | `budget_exceeded` — tokens: 100,299 direct tokens \> 4,000 warning ceiling | `high` · score 100.0 | `src/files-only/nested/winner.rs` — maintenance `moderate` · score 50.0; context/load `compact` · 150 tokens | `git slop explain --path src/files-only/` |
+| `src/both` | source | 5 files · 4,500 tokens · 4.2% of parent | `budget_exceeded` — both: 5 direct files \> 4 warning ceiling; 4,500 direct tokens \> 4,000 warning ceiling | `high` · score 90.0 | `src/both/0.rs` — maintenance `high` · score 80.0; context/load `compact` · 900 tokens | `git slop explain --path src/both/` |
 
 
 ### Review Candidates
@@ -67,7 +67,7 @@
 
 | Review severity | Path | Context/load band | Maintenance pressure | Why it surfaced | Next step |
 | --- | --- | --- | --- | --- | --- |
-| `error` | `src/files-only/generated.json` | `refactor_required` | `critical` · score 99.0 | 99,999 tokens exceed the configured fail threshold | `git slop explain --path src/files-only/generated.json` |
+| `error` | `src/files-only/generated.json` | `critical` | `high` · score 99.0 | 99,999 tokens exceed the configured fail threshold | `git slop explain --path src/files-only/generated.json` |
 | `warning` | `src/both/0.rs` | `compact` | `high` · score 80.0 | 900 tokens leave limited context headroom | `git slop explain --path src/both/0.rs` |
 | `warning` | `src/both/1.rs` | `compact` | `high` · score 79.0 | 900 tokens leave limited context headroom | `git slop explain --path src/both/1.rs` |
 | `warning` | `src/both/2.rs` | `compact` | `high` · score 78.0 | 900 tokens leave limited context headroom | `git slop explain --path src/both/2.rs` |

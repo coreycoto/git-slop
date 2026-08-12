@@ -120,3 +120,22 @@ jobs:
             printf -- '- Release manifest SHA-256: `%s`\n' "$RELEASE_MANIFEST_SHA256"
             printf '%s\n' '- Receiver: trusted `coreycoto/scoop-bucket` main will independently verify, qualify, and merge the manifest update.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  exercise-remediation-canary:
+    name: Exercise dependency-remediation canary
+    needs: verify-publication
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch read-only release closeout canary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          gh workflow run dependency-remediation.yml \
+            --ref main \
+            --field mode=canary \
+            --field release_tag="$TAG"
+          printf "Dispatched the credential-free dependency-remediation canary for \`%s\`.\n" "$TAG" >> "$GITHUB_STEP_SUMMARY"

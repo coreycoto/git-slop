@@ -259,7 +259,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         }
     };
     phase("preflight");
-    let _scan_lock = config::acquire_scan_lock(repo_root)?;
+    let _scan_lock = config::acquire_scan_lock(&state_root)?;
     let loaded_config = config::load(repo_root).map_err(|error| {
         ClassifiedError::new(
             ErrorKind::Contract,
@@ -586,6 +586,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             profile: file.profile.clone(),
             classification: file.classification,
             generated_from: file.generated_from,
+            generated_provenance: file.generated_provenance,
             analysis_status: file.analysis_status,
             skipped_reason: file.skipped_reason,
             symlink_metadata: file.symlink_metadata,

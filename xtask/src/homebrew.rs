@@ -116,15 +116,22 @@ mod tests {
                 url: format!("{release_url}/{CHECKSUM_FILE_NAME}"),
             },
             InstallInstructions {
-                attestation: vec![format!(
-                    "gh attestation verify 'git-slop-{tag}-<target>.*' --repo {REPO_FULL_NAME} --signer-repo {REPO_FULL_NAME}"
-                )],
+                attestation: RELEASE_TARGETS
+                    .iter()
+                    .map(|target| {
+                        format!(
+                            "gh attestation verify '{}' --repo {REPO_FULL_NAME} --signer-repo {REPO_FULL_NAME}",
+                            artifact_name(&tag, *target)
+                        )
+                    })
+                    .collect(),
                 cargo: vec!["cargo install git-slop --version 0.9.0 --locked".into()],
                 homebrew_tap: vec![
                     "brew tap coreycoto/tap".into(),
                     "brew install coreycoto/tap/git-slop".into(),
                 ],
                 github_release: vec![
+                    format!("gh release verify {tag} --repo {REPO_FULL_NAME}"),
                     format!(
                         "gh release download {tag} --repo {REPO_FULL_NAME} --pattern \
                          'git-slop-{tag}-<target>.*' --pattern {CHECKSUM_FILE_NAME}"

@@ -210,11 +210,26 @@ fn build_info_reports_version_and_source_identity_as_json() {
         .expect("run build-info");
     assert!(output.status.success());
     let payload: Value = serde_json::from_slice(&output.stdout).expect("parse build-info JSON");
-    assert_eq!(payload["schema_version"], 1);
+    assert_eq!(payload["schema_version"], 2);
     assert_eq!(payload["project"], "git-slop");
     assert_eq!(payload["version"], env!("CARGO_PKG_VERSION"));
     assert!(payload.get("source_revision").is_some());
     assert!(payload.get("source_dirty").is_some());
+    assert!(
+        payload["target"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+    );
+    assert!(payload.get("crate_sha256").is_some());
+    assert!(
+        payload["rustc_version"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("rustc "))
+    );
+    assert!(matches!(
+        payload["build_source"].as_str(),
+        Some("workspace" | "crate" | "release")
+    ));
 }
 
 #[test]
@@ -717,7 +732,7 @@ fn check_github_escapes_hostile_tracked_paths_as_one_command() {
     assert_eq!(annotations.len(), 1);
     assert_eq!(
         annotations[0],
-        "::error file=src/hostile.rs%0A%3A%3Awarning file=owned.rs%3A%3Aowned%3Amessage%2C%25::Git Slop context=critical slop=critical score=88.0"
+        "::error file=src/hostile.rs%0A%3A%3Awarning file=owned.rs%3A%3Aowned%3Amessage%2C%25::Git Slop context=critical slop=high score=88.0"
     );
 }
 

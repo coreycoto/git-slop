@@ -86,6 +86,7 @@ pub(crate) fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
         "config",
         "stats",
         "summary",
+        "policy_evaluation",
         "costs",
         "files",
         "folders",
@@ -740,6 +741,7 @@ pub(crate) fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
         "profile",
         "classification",
         "generated_from",
+        "generated_provenance",
         "analysis_status",
         "skipped_reason",
         "symlink_metadata",
@@ -954,6 +956,33 @@ pub(crate) fn validation_issues(report: &Value) -> Vec<ValidationIssue> {
                 message: "relationships must be an object".to_string(),
             });
         }
+    }
+    let contract = schema();
+    match jsonschema::draft202012::options()
+        .should_validate_formats(true)
+        .build(&contract)
+    {
+        Ok(validator) => {
+            let mut seen = issues
+                .iter()
+                .map(|issue| issue.pointer.clone())
+                .collect::<std::collections::BTreeSet<_>>();
+            for error in validator.iter_errors(report) {
+                let pointer = error.instance_path().to_string();
+                if seen.insert(pointer.clone()) {
+                    issues.push(ValidationIssue {
+                        code: "schema_violation",
+                        pointer,
+                        message: error.to_string(),
+                    });
+                }
+            }
+        }
+        Err(error) => issues.push(ValidationIssue {
+            code: "invalid_embedded_schema",
+            pointer: String::new(),
+            message: error.to_string(),
+        }),
     }
     issues
 }

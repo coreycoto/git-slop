@@ -148,6 +148,14 @@ Before the branch-restricted publication job begins, the workflow:
 The seven targets are Linux GNU x86-64, Linux ARM64, static Linux musl x86-64,
 macOS Apple Silicon, macOS Intel, Windows x86-64, and Windows ARM64.
 
+Packaged-contract qualification requires complete history because history and
+provenance fields are part of the released report contract. Keep candidate
+checkouts at `fetch-depth: 0`; a local exact-tag checkout must run
+`git fetch --unshallow` before `scripts/validate-packaged-contracts.sh`. The
+validator installs only the lockfile-pinned dependencies under
+`tools/schema-validator/` and exercises the same 12 report-schema mutations as
+the Rust runtime suite.
+
 ## Dispatch-Authorized crates.io Publication
 
 After every preflight dependency succeeds, the branch-restricted `release` job
@@ -321,6 +329,20 @@ available; the Action still installs the verified prebuilt archive, never
 Homebrew and never an unverified executable.
 
 ## Verify The Homebrew Handoff
+
+Before dispatching a new bottle release, verify that release immutability is
+enabled on the tap:
+
+```bash
+gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+  repos/coreycoto/homebrew-tap/immutable-releases \
+  --jq 'select(.enabled == true)'
+```
+
+The tap publisher must also require the published `git-slop-<version>` bottle
+release to report `immutable: true`. The historical `git-slop-0.11.8` bottle
+release predates tap-side enablement and is a documented exception; never
+replace its assets.
 
 The explicit Release Publish dispatch also authorizes one narrowly scoped
 Homebrew receiver dispatch. The receiver starts with the immutable

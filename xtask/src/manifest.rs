@@ -509,9 +509,15 @@ pub fn artifact_name(tag: &str, target: ReleaseTarget) -> String {
 fn install_instructions(tag: &str) -> InstallInstructions {
     let version = tag.strip_prefix('v').unwrap_or(tag);
     InstallInstructions {
-        attestation: vec![format!(
-            "gh attestation verify 'git-slop-{tag}-<target>.*' --repo {REPO_FULL_NAME} --signer-repo {REPO_FULL_NAME}"
-        )],
+        attestation: RELEASE_TARGETS
+            .iter()
+            .map(|target| {
+                format!(
+                    "gh attestation verify '{}' --repo {REPO_FULL_NAME} --signer-repo {REPO_FULL_NAME}",
+                    artifact_name(tag, *target)
+                )
+            })
+            .collect(),
         cargo: vec![format!(
             "cargo install git-slop --version {version} --locked"
         )],
@@ -520,6 +526,7 @@ fn install_instructions(tag: &str) -> InstallInstructions {
             "brew install coreycoto/tap/git-slop".to_owned(),
         ],
         github_release: vec![
+            format!("gh release verify {tag} --repo {REPO_FULL_NAME}"),
             format!(
                 "gh release download {tag} --repo {REPO_FULL_NAME} --pattern \
                  'git-slop-{tag}-<target>.*' --pattern {CHECKSUM_FILE_NAME}"
