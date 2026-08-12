@@ -389,6 +389,7 @@ export function createManifestVerifier({
     exactStringArray(
       manifest.install.github_release,
       [
+        `gh release verify ${tag} --repo ${releaseRepository}`,
         `gh release download ${tag} --repo ${releaseRepository} --pattern 'git-slop-${tag}-<target>.*' --pattern SHA256SUMS`,
         "sha256sum --check SHA256SUMS --ignore-missing",
       ],
