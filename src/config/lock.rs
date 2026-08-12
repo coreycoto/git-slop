@@ -1,6 +1,5 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use fs2::FileExt;
@@ -11,10 +10,12 @@ use crate::error::{ClassifiedError, ErrorKind};
 #[derive(Debug)]
 pub struct ScanLock {
     file: File,
+    owner_path: PathBuf,
 }
 
 impl Drop for ScanLock {
     fn drop(&mut self) {
+        let _ = fs::remove_file(&self.owner_path);
         let _ = FileExt::unlock(&self.file);
     }
 }
@@ -27,7 +28,8 @@ pub fn acquire_scan_lock(state_root: &Path) -> Result<ScanLock> {
         )
     })?;
     let path = state_root.join("scan.lock");
-    let mut file = OpenOptions::new()
+    let owner_path = state_root.join("scan.lock.owner");
+    let file = OpenOptions::new()
         .create(true)
         .truncate(false)
         .read(true)
@@ -35,9 +37,7 @@ pub fn acquire_scan_lock(state_root: &Path) -> Result<ScanLock> {
         .open(&path)
         .with_context(|| format!("failed to open scan lock {}", path.display()))?;
     if file.try_lock_exclusive().is_err() {
-        file.seek(SeekFrom::Start(0))?;
-        let mut owner = String::new();
-        file.read_to_string(&mut owner)?;
+        let owner = fs::read_to_string(&owner_path).unwrap_or_default();
         let pid = owner
             .trim()
             .strip_prefix("pid=")
@@ -55,9 +55,11 @@ pub fn acquire_scan_lock(state_root: &Path) -> Result<ScanLock> {
         }))
         .into());
     }
-    file.set_len(0)?;
-    file.seek(SeekFrom::Start(0))?;
-    writeln!(file, "pid={}", std::process::id())?;
-    file.sync_data()?;
-    Ok(ScanLock { file })
+    fs::write(&owner_path, format!("pid={}\n", std::process::id())).with_context(|| {
+        format!(
+            "failed to write scan lock owner metadata {}",
+            owner_path.display()
+        )
+    })?;
+    Ok(ScanLock { file, owner_path })
 }
