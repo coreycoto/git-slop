@@ -253,6 +253,21 @@
                 "required": [
                   "verification_applicability"
                 ]
+              },
+              {
+                "required": [
+                  "generated_source_globs"
+                ]
+              },
+              {
+                "required": [
+                  "generator_command"
+                ]
+              },
+              {
+                "required": [
+                  "verification_command"
+                ]
               }
             ],
             "properties": {
@@ -272,6 +287,17 @@
                   "migration_fixture",
                   "other"
                 ],
+                "type": "string"
+              },
+              "generated_source_globs": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "generator_command": {
+                "minLength": 1,
                 "type": "string"
               },
               "glob": {
@@ -295,6 +321,10 @@
                   "applicable",
                   "not_applicable"
                 ],
+                "type": "string"
+              },
+              "verification_command": {
+                "minLength": 1,
                 "type": "string"
               }
             },
@@ -543,6 +573,30 @@
           "items": {
             "minLength": 1,
             "type": "string"
+          },
+          "type": "array"
+        },
+        "path_commands": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "description": "Focused verification command.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "path_glob": {
+                "description": "Repository path glob.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "path_glob",
+              "command"
+            ],
+            "type": "object"
           },
           "type": "array"
         },

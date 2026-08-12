@@ -171,10 +171,13 @@ fn stem_structural_term(term: &str) -> String {
 fn unhelpful_structural_term(term: &str) -> bool {
     matches!(
         term,
-        "all" | "and" | "any" | "base" | "buf" | "else" | "false" | "for" | "from"
-            | "git" | "into" | "let" | "mod" | "none" | "pub" | "repo" | "root" | "self"
-            | "some" | "std" | "str" | "then" | "the" | "this" | "true" | "unwrap" | "use"
-            | "value" | "with"
+        "all" | "and" | "any" | "arg" | "args" | "assert" | "base" | "buf" | "byte"
+            | "bytes" | "const" | "else" | "enum" | "false" | "fn" | "for" | "from"
+            | "git" | "if" | "impl" | "into" | "let" | "loop" | "match" | "mod" | "mut"
+            | "none" | "pub" | "ref" | "repo" | "return" | "root" | "run" | "self"
+            | "some" | "static" | "std" | "str" | "struct" | "then" | "the" | "this"
+            | "trait" | "true" | "type" | "unsafe" | "unwrap" | "use" | "value" | "where"
+            | "while" | "with"
     )
 }
 

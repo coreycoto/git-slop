@@ -113,12 +113,27 @@ pub fn sarif_payload(
     report: &Value,
     report_path: Option<&str>,
     top: Option<usize>,
+    scope: &str,
 ) -> Result<Value> {
     require_report_schema(report, "sarif")?;
     if top == Some(0) {
         bail!("--top must be greater than zero.");
     }
-    let queue = array_at(report, &["action_queue"]);
+    let policy_records;
+    let queue = if scope == "policy" {
+        let context = report
+            .pointer("/config/check/fail_on_context_band")
+            .and_then(Value::as_str);
+        let slop = report
+            .pointer("/config/check/fail_on_slop_band")
+            .and_then(Value::as_str);
+        policy_records = super::failing_records_in(report, context, slop, false);
+        policy_records.as_slice()
+    } else if scope == "action-queue" {
+        array_at(report, &["action_queue"])
+    } else {
+        bail!("SARIF scope must be policy or action-queue.");
+    };
     let take = top.unwrap_or(queue.len());
     let results: Vec<Value> = queue
         .iter()
@@ -195,6 +210,7 @@ pub fn sarif_payload(
                         "report_path": report_path,
                         "analyzer": report.get("analyzer").cloned().unwrap_or_else(|| json!({})),
                         "boundary_note": SARIF_BOUNDARY_NOTE,
+                        "scope": scope,
                         "collection": {
                             "total": queue.len(),
                             "returned": returned,

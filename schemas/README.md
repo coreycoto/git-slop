@@ -15,6 +15,11 @@ identities; compatible later releases intentionally retain the introduction URL.
 - `compare-1.json`: native `git slop compare --format json`
 - `baseline-1.json`: named baseline create/ensure/list/inspect/update/remove output
 - `explain-2.json`, `plan-2.json`, `sarif-1.json`, `health-1.json`,
-  `check-1.json`, `doctor-1.json`, `build-info-1.json`, `list-1.json`,
+  `check-1.json`, `doctor-1.json`, `build-info-2.json`, `list-1.json`,
   `show-1.json`, and `prompt-manifest-1.json`: other versioned machine surfaces
   exposed through `git slop schema <contract>`
+
+- `release-manifest-3.json`: public release inventory, provenance, and install
+  command contract, exposed with `git slop schema release-manifest`
+
+`build-info-1.json` remains published for consumers of releases through 0.11.x.

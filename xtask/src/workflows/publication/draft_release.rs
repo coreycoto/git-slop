@@ -118,10 +118,10 @@ fn validate_draft_release_job(draft: Option<&YamlValue>, text: &str, errors: &mu
                 "brew install coreycoto/tap/git-slop",
                 "Windows bucket",
                 "sha256sum --check SHA256SUMS --ignore-missing",
-                "gh attestation verify <asset>",
+                "gh attestation verify git-slop-v%s-%s",
                 "git-slop.cdx.json",
                 "git-slop.spdx.json",
-                "Downstream status",
+                "Live verification surfaces",
             ] {
                 require(notes, required, name, errors);
             }

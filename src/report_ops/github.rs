@@ -1,30 +1,57 @@
 use super::*;
 use crate::text::{github_message_escape, github_property_escape};
 use std::io::Read;
+use std::path::{Component, PathBuf};
+
+fn push_prompt_path(paths: &mut Vec<String>, path: &str) {
+    if !paths.iter().any(|existing| existing == path) {
+        paths.push(path.to_string());
+    }
+}
 
 fn collect_prompt_paths(value: &Value, paths: &mut Vec<String>) {
     match value {
         Value::Object(object) => {
             for (key, value) in object {
-                if matches!(key.as_str(), "path" | "source_path" | "target_path") {
+                // Prompt packs may read only typed repository-path fields. In
+                // particular, generic report metadata such as
+                // `source_report.path` is never a source candidate.
+                if matches!(key.as_str(), "source_path" | "target_path") {
                     if let Some(path) = value.as_str() {
-                        if !paths.iter().any(|existing| existing == path) {
-                            paths.push(path.to_string());
-                        }
+                        push_prompt_path(paths, path);
                     }
                 } else if matches!(
                     key.as_str(),
-                    "scope_paths" | "in_scope" | "nearby_tests" | "nearby_test_paths"
+                    "scope_paths"
+                        | "in_scope"
+                        | "nearby_tests"
+                        | "nearby_test_paths"
+                        | "source_paths"
                 ) {
                     if let Some(values) = value.as_array() {
                         for path in values.iter().filter_map(Value::as_str) {
-                            if !paths.iter().any(|existing| existing == path) {
-                                paths.push(path.to_string());
-                            }
+                            push_prompt_path(paths, path);
                         }
                     }
+                } else if key == "path"
+                    && object.keys().any(|field| {
+                        matches!(
+                            field.as_str(),
+                            "classification"
+                                | "reason_codes"
+                                | "slop_score"
+                                | "context_band"
+                                | "evidence_status"
+                        )
+                    })
+                {
+                    if let Some(path) = value.as_str() {
+                        push_prompt_path(paths, path);
+                    }
                 }
-                collect_prompt_paths(value, paths);
+                if key != "source_report" {
+                    collect_prompt_paths(value, paths);
+                }
             }
         }
         Value::Array(values) => {
@@ -36,34 +63,60 @@ fn collect_prompt_paths(value: &Value, paths: &mut Vec<String>) {
     }
 }
 
-fn bounded_repository_text(root: &Path, relative: &str, byte_limit: usize) -> Option<Value> {
+fn resolve_repository_file(root: &Path, relative: &str) -> Option<PathBuf> {
     let relative_path = Path::new(relative);
     if relative_path.as_os_str().is_empty()
         || relative_path.is_absolute()
         || relative_path.components().any(|component| {
             matches!(
                 component,
-                std::path::Component::ParentDir | std::path::Component::RootDir
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
             )
         })
     {
         return None;
     }
-    let absolute = root.join(relative_path);
-    let metadata = fs::symlink_metadata(&absolute).ok()?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
+    let canonical_root = root.canonicalize().ok()?;
+    let mut candidate = canonical_root.clone();
+    for component in relative_path.components() {
+        match component {
+            Component::Normal(component) => candidate.push(component),
+            Component::CurDir => continue,
+            _ => return None,
+        }
+        if fs::symlink_metadata(&candidate)
+            .ok()?
+            .file_type()
+            .is_symlink()
+        {
+            return None;
+        }
+    }
+    let canonical_candidate = candidate.canonicalize().ok()?;
+    if !canonical_candidate.starts_with(&canonical_root)
+        || !fs::metadata(&canonical_candidate).ok()?.is_file()
+    {
         return None;
     }
-    let mut bytes = Vec::with_capacity(byte_limit.saturating_add(1));
-    std::io::Read::read_to_end(
-        &mut fs::File::open(absolute)
-            .ok()?
-            .take(u64::try_from(byte_limit.saturating_add(1)).ok()?),
-        &mut bytes,
-    )
-    .ok()?;
+    Some(canonical_candidate)
+}
+
+fn read_repository_file(root: &Path, relative: &str, byte_limit: usize) -> Option<(Vec<u8>, bool)> {
+    let absolute = resolve_repository_file(root, relative)?;
+    let limit = byte_limit.saturating_add(1);
+    let mut bytes = Vec::with_capacity(limit);
+    fs::File::open(absolute)
+        .ok()?
+        .take(u64::try_from(limit).ok()?)
+        .read_to_end(&mut bytes)
+        .ok()?;
     let truncated = bytes.len() > byte_limit;
     bytes.truncate(byte_limit);
+    Some((bytes, truncated))
+}
+
+fn bounded_repository_text(root: &Path, relative: &str, byte_limit: usize) -> Option<Value> {
+    let (bytes, truncated) = read_repository_file(root, relative, byte_limit)?;
     Some(json!({
         "path": relative,
         "excerpt": String::from_utf8_lossy(&bytes),
@@ -99,17 +152,12 @@ fn applicable_guidance_paths(candidate_paths: &[String]) -> Vec<String> {
 }
 
 fn complete_repository_text(root: &Path, relative: &str, remaining: usize) -> Option<Value> {
-    let absolute = root.join(relative);
-    let metadata = fs::symlink_metadata(&absolute).ok()?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return None;
-    }
-    let bytes = fs::read(absolute).ok()?;
-    if bytes.len() > remaining {
+    let (bytes, truncated) = read_repository_file(root, relative, remaining)?;
+    if truncated {
         return Some(json!({
             "path": relative,
             "included": false,
-            "bytes": bytes.len(),
+            "bytes": format!(">{remaining}"),
             "reason": "guidance_budget_exceeded"
         }));
     }
@@ -133,14 +181,14 @@ fn repository_context(payload: &Value, report: &Value, root: &Path, excerpt_byte
         .iter()
         .take(10)
         .filter_map(|path| {
-            let absolute = root.join(path);
-            let metadata = fs::symlink_metadata(&absolute).ok()?;
-            if !metadata.is_file() || metadata.file_type().is_symlink() {
-                return None;
-            }
-            let bytes = fs::read(absolute).ok()?;
-            if bytes.len() > source_budget.saturating_sub(source_bytes) {
+            let remaining = source_budget.saturating_sub(source_bytes);
+            let (bytes, truncated) = read_repository_file(root, path, remaining)?;
+            if truncated {
                 return bounded_repository_text(root, path, byte_limit).map(|mut value| {
+                    source_bytes += value
+                        .get("bytes_returned")
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default() as usize;
                     value["included_complete"] = json!(false);
                     value["reason"] = json!("source_budget_exceeded");
                     value

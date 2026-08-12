@@ -11,6 +11,9 @@ use sha2::{Digest, Sha256};
 use crate::config::{pointer_strings, pointer_u64};
 use crate::model::{Classification, InventoryFile, SkippedCounts};
 
+mod generated;
+use generated::{configured_generated_provenance, generated_provenance};
+
 const NULL_BYTE_WINDOW: usize = 4096;
 
 fn decode_text(raw: Vec<u8>) -> Option<String> {
@@ -216,23 +219,6 @@ fn has_generated_marker(text: &str) -> bool {
     })
 }
 
-fn generated_sources(text: &str) -> Vec<String> {
-    text.lines()
-        .take(3)
-        .filter_map(|line| {
-            let normalized = line.trim().trim_start_matches(['#', '/', '*', ' ']).trim();
-            let lower = normalized.to_ascii_lowercase();
-            let marker = lower.find("@generated from ")?;
-            Some(
-                normalized[marker + "@generated from ".len()..]
-                    .trim()
-                    .to_string(),
-            )
-        })
-        .filter(|source| !source.is_empty())
-        .collect()
-}
-
 fn line_counts(text: &str, language: &str) -> (usize, usize, usize, usize) {
     if text.is_empty() {
         return (0, 0, 0, 0);
@@ -290,11 +276,14 @@ fn profile_for(path: &str, bytes: usize, config: &Value) -> &'static str {
     }
 }
 
-struct CompiledPathOverride {
+pub(super) struct CompiledPathOverride {
     matcher: GlobMatcher,
     classification: Option<String>,
     profile: Option<String>,
     language: Option<String>,
+    pub(super) generated_source_globs: Vec<String>,
+    pub(super) generator_command: Option<String>,
+    pub(super) verification_command: Option<String>,
 }
 
 fn compile_path_overrides(config: &Value) -> Result<Vec<CompiledPathOverride>> {
@@ -322,6 +311,22 @@ fn compile_path_overrides(config: &Value) -> Result<Vec<CompiledPathOverride>> {
                     .map(str::to_owned),
                 language: mapping
                     .get("language")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                generated_source_globs: mapping
+                    .get("generated_source_globs")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect(),
+                generator_command: mapping
+                    .get("generator_command")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                verification_command: mapping
+                    .get("verification_command")
                     .and_then(Value::as_str)
                     .map(str::to_owned),
             })
@@ -415,6 +420,7 @@ fn skipped_record(
         classification: classification_override
             .unwrap_or_else(|| classification_for_path(path).as_str().to_string()),
         generated_from: Vec::new(),
+        generated_provenance: json!({"source_paths": [], "source_globs": [], "generator_command": null, "verification_command": null}),
         content_sha256,
         text: String::new(),
         analysis_status: "skipped".to_string(),
@@ -533,6 +539,9 @@ pub fn build(
             path_override(relative_path, &path_overrides);
         let language = language_override.unwrap_or_else(|| language_for_path(relative_path).into());
         let (lines, code_lines, comment_lines, blank_lines) = line_counts(&text, &language);
+        let (generated_from, generated_provenance) =
+            configured_generated_provenance(relative_path, &path_overrides, tracked_paths)
+                .unwrap_or_else(|| generated_provenance(&text, tracked_paths));
         records.push(InventoryFile {
             path: relative_path.replace('\\', "/"),
             bytes,
@@ -550,7 +559,8 @@ pub fn build(
                     classification_for_path(relative_path).as_str().to_string()
                 }
             }),
-            generated_from: generated_sources(&text),
+            generated_from,
+            generated_provenance,
             content_sha256,
             text,
             analysis_status: "analyzed".to_string(),
@@ -574,6 +584,7 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
+    use serde_json::json;
     use tempfile::tempdir;
 
     use super::build;
@@ -682,6 +693,42 @@ mod tests {
         assert_eq!(
             files[0].generated_from,
             vec!["reviewed stage fragments".to_string()]
+        );
+    }
+
+    #[test]
+    fn path_overrides_describe_commentless_generated_files_structurally() {
+        let repository = tempdir().expect("repository");
+        fs::create_dir_all(repository.path().join("schemas")).expect("schema directory");
+        fs::create_dir_all(repository.path().join("src")).expect("source directory");
+        fs::write(repository.path().join("schemas/report.json"), "{}\n").expect("report schema");
+        fs::write(
+            repository.path().join("src/contract.rs"),
+            "fn schema() {}\n",
+        )
+        .expect("contract source");
+        let tracked = vec![
+            "schemas/report.json".to_string(),
+            "src/contract.rs".to_string(),
+        ];
+        let mut config = config::default_config();
+        config["inventory"]["path_overrides"] = json!([{
+            "glob": "schemas/report.json",
+            "classification": "generated",
+            "generated_source_globs": ["src/*.rs"],
+            "generator_command": "git slop schema report --output schemas/report.json",
+            "verification_command": "cargo test published_report_schema"
+        }]);
+        let (files, _) = build(repository.path(), &tracked, &config).expect("inventory");
+        let report = files
+            .iter()
+            .find(|file| file.path == "schemas/report.json")
+            .expect("generated report");
+        assert_eq!(report.classification, "generated");
+        assert_eq!(report.generated_from, vec!["src/contract.rs"]);
+        assert_eq!(
+            report.generated_provenance["verification_command"],
+            "cargo test published_report_schema"
         );
     }
 

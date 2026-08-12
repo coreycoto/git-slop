@@ -1,4 +1,13 @@
-fn baseline_path(repo_root: &Path, name: &str) -> Result<PathBuf> {
+fn baseline_root(repo_root: &Path, state_dir: Option<&Path>) -> Result<PathBuf> {
+    Ok(match state_dir {
+        Some(path) if path.is_absolute() => path.to_path_buf(),
+        Some(path) => repo_root.join(path),
+        None => config::git_runtime_dir(repo_root)?,
+    }
+    .join("baselines"))
+}
+
+fn baseline_path(repo_root: &Path, state_dir: Option<&Path>, name: &str) -> Result<PathBuf> {
     if name.is_empty()
         || name.len() > 64
         || !name
@@ -14,9 +23,7 @@ fn baseline_path(repo_root: &Path, name: &str) -> Result<PathBuf> {
         .with_details(json!({"name": name}))
         .into());
     }
-    Ok(config::git_runtime_dir(repo_root)?
-        .join("baselines")
-        .join(format!("{name}.json")))
+    Ok(baseline_root(repo_root, state_dir)?.join(format!("{name}.json")))
 }
 
 fn write_named_baseline(path: &Path, report: &Value, replace: bool) -> Result<()> {
@@ -32,8 +39,32 @@ fn write_named_baseline(path: &Path, report: &Value, replace: bool) -> Result<()
     }
     let parent = path.parent().expect("baseline path has parent");
     fs::create_dir_all(parent)?;
+    let bytes = serde_json::to_vec(report)?;
+    let digest = hex::encode(sha2::Sha256::digest(&bytes));
+    let objects = parent.join("objects");
+    fs::create_dir_all(&objects)?;
+    let object = objects.join(format!("{digest}.json.zst"));
+    if !object.exists() {
+        let encoded = zstd::stream::encode_all(bytes.as_slice(), 9)?;
+        let temporary_object = objects.join(format!(".{digest}-{}-tmp", std::process::id()));
+        fs::write(&temporary_object, encoded)?;
+        match fs::rename(&temporary_object, &object) {
+            Ok(()) => {}
+            Err(error) if object.exists() => {
+                let _ = fs::remove_file(temporary_object);
+                drop(error);
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let reference = json!({
+        "schema_version": 1,
+        "object_sha256": digest,
+        "compression": "zstd",
+        "report_schema_version": report.get("schema_version")
+    });
     let temporary = parent.join(format!(".baseline-{}-tmp", std::process::id()));
-    fs::write(&temporary, render_json(report)?)?;
+    fs::write(&temporary, render_json(&reference)?)?;
     let backup = parent.join(format!(".baseline-{}-backup", std::process::id()));
     let had_existing = path.exists();
     if had_existing {
@@ -52,6 +83,56 @@ fn write_named_baseline(path: &Path, report: &Value, replace: bool) -> Result<()
     Ok(())
 }
 
+fn load_named_baseline(path: &Path) -> Result<Option<Value>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let reference: Value = serde_json::from_slice(&fs::read(path)?)?;
+    let Some(digest) = reference.get("object_sha256").and_then(Value::as_str) else {
+        return load_report_at(path);
+    };
+    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("baseline reference contains an invalid object digest");
+    }
+    let object = path
+        .parent()
+        .expect("baseline reference has parent")
+        .join("objects")
+        .join(format!("{digest}.json.zst"));
+    let decoded = zstd::stream::decode_all(fs::File::open(&object)?)?;
+    let actual = hex::encode(sha2::Sha256::digest(&decoded));
+    if actual != digest {
+        bail!("baseline object digest mismatch for {}", object.display());
+    }
+    Ok(Some(serde_json::from_slice(&decoded)?))
+}
+
+fn portable_source(path: &Path) -> String {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("report.json")
+        .to_owned()
+}
+
+fn baseline_storage_bytes(path: &Path) -> u64 {
+    let reference_bytes = fs::metadata(path).map(|value| value.len()).unwrap_or_default();
+    let object_bytes = fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|reference| reference.get("object_sha256").and_then(Value::as_str).map(str::to_owned))
+        .and_then(|digest| {
+            fs::metadata(
+                path.parent()?
+                    .join("objects")
+                    .join(format!("{digest}.json.zst")),
+            )
+            .ok()
+        })
+        .map(|value| value.len())
+        .unwrap_or_default();
+    reference_bytes.saturating_add(object_bytes)
+}
+
 fn emit_baseline_result(format: DisplayFormat, payload: &Value, text: &str) -> Result<()> {
     match format {
         DisplayFormat::Text => println!("{text}"),
@@ -62,6 +143,7 @@ fn emit_baseline_result(format: DisplayFormat, payload: &Value, text: &str) -> R
 }
 
 fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
+    let state_dir = args.state_dir;
     match args.command {
         BaselineCommand::Ensure {
             name,
@@ -86,8 +168,8 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 .with_details(readiness.as_json())
                 .into());
             }
-            let path = baseline_path(repo_root, &name)?;
-            let existing = load_report_at(&path)?;
+            let path = baseline_path(repo_root, state_dir.as_deref(), &name)?;
+            let existing = load_named_baseline(&path)?;
             let requested_digest =
                 hex::encode(sha2::Sha256::digest(serde_json::to_vec(&loaded)?));
             let status = match existing {
@@ -114,7 +196,7 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
             };
             emit_baseline_result(
                 format,
-                &json!({"schema_version":1,"command":"baseline ensure","name":name,"status":status,"report_digest":requested_digest,"source_report":source,"storage":"git_private","readiness":readiness.as_json()}),
+                &json!({"schema_version":1,"command":"baseline ensure","name":name,"status":status,"report_digest":requested_digest,"source_report":portable_source(&source),"storage":"content_addressed_zstd","readiness":readiness.as_json()}),
                 &format!("Baseline '{name}' is {status} for {}.", source.display()),
             )?;
             Ok(0)
@@ -142,11 +224,11 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 .with_details(readiness.as_json())
                 .into());
             }
-            let path = baseline_path(repo_root, &name)?;
+            let path = baseline_path(repo_root, state_dir.as_deref(), &name)?;
             write_named_baseline(&path, &loaded, force)?;
             emit_baseline_result(
                 format,
-                &json!({"schema_version":1,"command":"baseline create","name":name,"source_report":source,"storage":"git_private","readiness":readiness.as_json()}),
+                &json!({"schema_version":1,"command":"baseline create","name":name,"source_report":portable_source(&source),"storage":"content_addressed_zstd","readiness":readiness.as_json()}),
                 &format!("Created baseline '{name}' from {} in Git-private runtime storage.", source.display()),
             )?;
             Ok(0)
@@ -158,7 +240,7 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
             allow_incomplete_evidence,
             format,
         } => {
-            let path = baseline_path(repo_root, &name)?;
+            let path = baseline_path(repo_root, state_dir.as_deref(), &name)?;
             if !path.exists() {
                 return Err(ClassifiedError::new(
                     ErrorKind::Contract,
@@ -187,13 +269,13 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
             write_named_baseline(&path, &loaded, true)?;
             emit_baseline_result(
                 format,
-                &json!({"schema_version":1,"command":"baseline update","name":name,"source_report":source,"storage":"git_private","readiness":readiness.as_json()}),
+                &json!({"schema_version":1,"command":"baseline update","name":name,"source_report":portable_source(&source),"storage":"content_addressed_zstd","readiness":readiness.as_json()}),
                 &format!("Updated baseline '{name}' from {}.", source.display()),
             )?;
             Ok(0)
         }
         BaselineCommand::List { format } => {
-            let directory = config::git_runtime_dir(repo_root)?.join("baselines");
+            let directory = baseline_root(repo_root, state_dir.as_deref())?;
             let mut baselines = Vec::new();
             if directory.is_dir() {
                 for entry in fs::read_dir(&directory)? {
@@ -201,7 +283,7 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                     if path.extension().and_then(|value| value.to_str()) != Some("json") {
                         continue;
                     }
-                    let Some(report) = load_report_at(&path)? else { continue };
+                    let Some(report) = load_named_baseline(&path)? else { continue };
                     let readiness = crate::report_ops::evaluate_report_readiness(&report, true, false);
                     baselines.push(json!({
                         "name": path.file_stem().and_then(|value| value.to_str()).unwrap_or_default(),
@@ -214,7 +296,7 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 }
             }
             baselines.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
-            let payload = json!({"schema_version": 1, "command": "baseline list", "storage": "git_private", "baselines": baselines});
+            let payload = json!({"schema_version": 1, "command": "baseline list", "storage": "content_addressed_zstd", "baselines": baselines});
             match format {
                 DisplayFormat::Json => print_text(&render_json(&payload)?),
                 DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
@@ -233,8 +315,8 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
             Ok(0)
         }
         BaselineCommand::Inspect { name, format } => {
-            let path = baseline_path(repo_root, &name)?;
-            let Some(report) = load_report_at(&path)? else {
+            let path = baseline_path(repo_root, state_dir.as_deref(), &name)?;
+            let Some(report) = load_named_baseline(&path)? else {
                 return Err(ClassifiedError::new(
                     ErrorKind::Contract,
                     "baseline_not_found",
@@ -248,9 +330,9 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 "schema_version": 1,
                 "command": "baseline inspect",
                 "name": name,
-                "storage": "git_private",
+                "storage": "content_addressed_zstd",
                 "readiness": crate::report_ops::evaluate_report_readiness(&report, true, false).as_json(),
-                "storage_bytes": fs::metadata(&path).map(|value| value.len()).unwrap_or_default(),
+                "storage_bytes": baseline_storage_bytes(&path),
                 "updated_at": fs::metadata(&path).ok().and_then(|value| value.modified().ok()).map(|value| chrono::DateTime::<chrono::Utc>::from(value).to_rfc3339()),
                 "report": {
                     "schema_version": report.get("schema_version"),
@@ -274,7 +356,7 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 DisplayFormat::Json => print_text(&render_json(&payload)?),
                 DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
                 DisplayFormat::Text => println!(
-                    "baseline={} revision={} generated_at={} storage=git_private",
+                    "baseline={} revision={} generated_at={} storage=content_addressed_zstd",
                     payload["name"].as_str().unwrap_or_default(),
                     payload
                         .pointer("/report/head_sha")
@@ -289,8 +371,8 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
             Ok(0)
         }
         BaselineCommand::Validate { name, format } => {
-            let path = baseline_path(repo_root, &name)?;
-            let Some(_) = load_report_at(&path)? else {
+            let path = baseline_path(repo_root, state_dir.as_deref(), &name)?;
+            let Some(_) = load_named_baseline(&path)? else {
                 return Err(ClassifiedError::new(
                     ErrorKind::Contract,
                     "baseline_not_found",
@@ -308,7 +390,7 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
             Ok(0)
         }
         BaselineCommand::Remove { name, format } => {
-            let path = baseline_path(repo_root, &name)?;
+            let path = baseline_path(repo_root, state_dir.as_deref(), &name)?;
             if !path.exists() {
                 return Err(ClassifiedError::new(
                     ErrorKind::Contract,
@@ -358,7 +440,7 @@ fn run_compare(repo_root: &Path, args: CompareArgs) -> Result<i32> {
     let named_baseline_path = args
         .baseline
         .as_deref()
-        .map(|name| baseline_path(repo_root, name))
+        .map(|name| baseline_path(repo_root, args.state_dir.as_deref(), name))
         .transpose()?;
     let base_path = args
         .base
@@ -367,7 +449,17 @@ fn run_compare(repo_root: &Path, args: CompareArgs) -> Result<i32> {
         .or_else(|| materialized.as_ref().map(|value| value.report_path.clone()))
         .or(named_baseline_path)
         .expect("Clap requires --base, --base-ref, or --baseline");
-    let base_report = report_or_missing(Path::new(""), Some(&base_path))?.0;
+    let base_report = if args.baseline.is_some() {
+        load_named_baseline(&base_path)?.ok_or_else(|| {
+            ClassifiedError::new(
+                ErrorKind::Contract,
+                "baseline_not_found",
+                format!("Named baseline not found: {}", base_path.display()),
+            )
+        })?
+    } else {
+        report_or_missing(Path::new(""), Some(&base_path))?.0
+    };
     let Some(top) = usize::try_from(args.top).ok().filter(|count| *count > 0) else {
         return argument_error("/top", "--top", "--top must be greater than zero.", args.top);
     };

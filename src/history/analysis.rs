@@ -181,6 +181,20 @@ pub fn analyze_history(
                 })
                 .unwrap_or_default();
             let subject = commit.subject.to_ascii_lowercase();
+            let mechanical_path_count = paths
+                .iter()
+                .filter(|path| {
+                    let lower = path.to_ascii_lowercase();
+                    lower.ends_with(".lock")
+                        || lower.ends_with("-lock.json")
+                        || lower.contains("generated")
+                        || lower.contains("snapshot")
+                        || lower.contains("vendor/")
+                })
+                .count();
+            let mechanical_path_share = mechanical_path_count as f64 / paths.len().max(1) as f64;
+            let bulk_creation = paths.len() >= 20 && creation_changes * 4 >= paths.len() * 3;
+            let mechanical_bulk = paths.len() >= 10 && mechanical_path_share >= 0.8;
             let change_kind = if commit.parents.len() > 1 {
                 "merge"
             } else if subject.contains("release")
@@ -188,7 +202,9 @@ pub fn analyze_history(
                 || subject.starts_with("chore: version")
             {
                 "release"
-            } else if subject.contains("import")
+            } else if bulk_creation
+                || mechanical_bulk
+                || subject.contains("import")
                 || subject.contains("vendor")
                 || subject.contains("generated snapshot")
             {

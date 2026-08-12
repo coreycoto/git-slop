@@ -252,14 +252,19 @@ fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
     let canonical_report_path = report_path
         .canonicalize()
         .unwrap_or_else(|_| report_path.clone());
-    let report_command_path = canonical_report_path
-        .strip_prefix(&canonical_repo_root)
-        .unwrap_or(canonical_report_path.as_path())
-        .to_string_lossy()
-        .replace('\\', "/");
+    let report_command_path = if args.include_local_paths {
+        canonical_report_path
+            .strip_prefix(&canonical_repo_root)
+            .unwrap_or(canonical_report_path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/")
+    } else {
+        "<SOURCE_REPORT>".to_string()
+    };
     let quoted_report = format!("'{}'", report_command_path.replace('\'', "'\\''"));
     payload["source_report"] = json!({
-        "path": report_command_path,
+        "path": args.include_local_paths.then_some(report_command_path.clone()),
+        "descriptor": if args.include_local_paths { "local_path" } else { "logical_source_report" },
         "sha256": report_digest,
         "baseline_name": baseline_name,
     });

@@ -64,7 +64,13 @@ export function createToolCache({
       }
       if (process.platform !== "win32") chmodSync(binaryPath, 0o755);
       verifyInstalledVersion(binaryPath, expected.version);
-      verifyInstalledBuildInfo(binaryPath, expected.version, expected.revision);
+      verifyInstalledBuildInfo(
+        binaryPath,
+        expected.version,
+        expected.revision,
+        expected.target,
+        metadata.crate_sha256,
+      );
       return { binaryPath, crateSha256: metadata.crate_sha256 };
     } catch (error) {
       console.warn(`Discarding invalid Git Slop tool cache entry: ${error.message}`);

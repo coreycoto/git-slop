@@ -91,6 +91,7 @@ fn plan_path_target(record: &Value) -> Value {
         "context_band": record.get("context_band").cloned().unwrap_or(Value::Null),
         "classification": record.get("classification").cloned().unwrap_or(Value::Null),
         "generated_from": record.get("generated_from").cloned().unwrap_or_else(|| json!([])),
+        "generated_provenance": record.get("generated_provenance").cloned().unwrap_or_else(|| json!({})),
         "reason_codes": record.get("reason_codes").cloned().unwrap_or_else(|| json!([])),
     })
 }

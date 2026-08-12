@@ -34,7 +34,7 @@ mod tests {
                 repository_id: Some("remote:github.com/example/fixture".to_string()),
                 repository_identity_source: Some("normalized_remote".to_string()),
                 branch: Some("main".to_string()),
-                head_commit: Some("abc123".to_string()),
+                head_commit: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
                 head_commit_timestamp: Some("2026-07-29T08:00:00Z".to_string()),
                 git_remote_url: Some("git@github.com:example/fixture.git".to_string()),
                 is_shallow: false,
@@ -43,7 +43,8 @@ mod tests {
                 staged_change_count: 0,
                 modified_tracked_file_count: 0,
                 untracked_file_count: 0,
-                worktree_state_digest: String::new(),
+                worktree_state_digest:
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
                 analyzed_content_digest: None,
             },
             config: crate::config::default_config(),
@@ -55,7 +56,8 @@ mod tests {
                 mode: "repository".to_string(),
                 path: None,
                 selected_path_count: 0,
-                selected_path_digest: String::new(),
+                selected_path_digest:
+                    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string(),
             },
             files: vec![],
             folders: vec![],
@@ -74,7 +76,10 @@ mod tests {
         assert_eq!(report["generated_at"], "2026-07-30T10:11:12Z");
         assert_eq!(report["analyzed_revision_at"], "2026-07-29T08:00:00Z");
         assert!(report["repo"].get("head_commit").is_none());
-        assert_eq!(report["repo"]["head_sha"], "abc123");
+        assert_eq!(
+            report["repo"]["head_sha"],
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
         assert_eq!(
             report["repo"]["remote_url"],
             "git@github.com:example/fixture.git"

@@ -26,7 +26,7 @@ Evidence Summary
 
 Report and Evidence Provenance
 - analyzer: git-slop legacy-schema-4 (analysis contract 1)
-- report_digest=54a618ace6fff2dc86d5cac3bb74f103ce387982347bc82fbabd3ad3273d1147 content_digest=0000000000000000000000000000000000000000000000000000000000000000 target_content_fingerprint=
+- report_digest=7a0c7a0143984361a61f6377fb3fe78754dde6843ed0cf25811f52601425e6c6 content_digest=0000000000000000000000000000000000000000000000000000000000000000 target_content_fingerprint=
 - generated_at=1970-01-01T00:00:00Z analyzed_revision_at= head_sha=
 - evidence: incomplete=false repository_relative=true experimental_overlays=6 saturation_suppressed=0
 

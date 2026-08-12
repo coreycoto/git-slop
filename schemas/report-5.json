@@ -1,5 +1,19 @@
 {
   "$defs": {
+    "analysis_status": {
+      "enum": [
+        "analyzed",
+        "skipped",
+        "stable",
+        "experimental",
+        "not_applicable",
+        "legacy_unknown",
+        "complete",
+        "degraded_resource_budget",
+        "degraded_large_files",
+        "degraded_incomplete_inventory"
+      ]
+    },
     "band_counts": {
       "additionalProperties": {
         "minimum": 0,
@@ -38,7 +52,7 @@
           "type": "string"
         },
         "profile": {
-          "type": "string"
+          "$ref": "#/$defs/profile"
         },
         "reason_codes": {
           "items": {
@@ -51,9 +65,11 @@
           "type": "integer"
         },
         "slop_band": {
-          "type": "string"
+          "$ref": "#/$defs/slop_band"
         },
         "slop_score": {
+          "maximum": 100,
+          "minimum": 0,
           "type": "number"
         },
         "tokens": {
@@ -122,9 +138,16 @@
             "null"
           ]
         },
+        "low_support_aggregated": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "returned": {
           "minimum": 0,
           "type": "integer"
+        },
+        "scope": {
+          "type": "string"
         },
         "total": {
           "minimum": 0,
@@ -146,23 +169,30 @@
       "additionalProperties": false,
       "properties": {
         "analysis_status": {
-          "type": "string"
+          "$ref": "#/$defs/analysis_status"
         },
         "content_fingerprint": {
-          "type": [
-            "string",
-            "null"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/fingerprint"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "content_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "type": [
-            "string",
-            "null"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/digest"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "context_band": {
-          "type": "string"
+          "$ref": "#/$defs/context_band"
         },
         "costs": {
           "$ref": "#/$defs/costs"
@@ -180,9 +210,11 @@
           ]
         },
         "slop_band": {
-          "type": "string"
+          "$ref": "#/$defs/slop_band"
         },
         "slop_score": {
+          "maximum": 100,
+          "minimum": 0,
           "type": "number"
         },
         "tokens": {
@@ -205,6 +237,14 @@
       ],
       "type": "object"
     },
+    "context_band": {
+      "enum": [
+        "compact",
+        "healthy",
+        "warning",
+        "critical"
+      ]
+    },
     "costs": {
       "additionalProperties": false,
       "properties": {
@@ -212,27 +252,37 @@
           "additionalProperties": false,
           "properties": {
             "analysis_status": {
-              "type": "string"
+              "$ref": "#/$defs/analysis_status"
             },
             "analysis_version": {
               "type": "integer"
             },
             "change_diffusion": {
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "cochange_centrality": {
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "cochange_degree": {
               "type": "number"
             },
             "cochange_pagerank": {
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "coordination_pressure": {
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "cross_folder_cochange_ratio": {
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "edit_hunks_per_change": {
@@ -251,13 +301,13 @@
           "additionalProperties": false,
           "properties": {
             "analysis_status": {
-              "type": "string"
+              "$ref": "#/$defs/analysis_status"
             },
             "analysis_version": {
               "type": "integer"
             },
             "context_band": {
-              "type": "string"
+              "$ref": "#/$defs/context_band"
             },
             "file_token_count": {
               "type": "integer"
@@ -266,15 +316,23 @@
               "type": "integer"
             },
             "load_pressure": {
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "token_concentration_ratio": {
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "top_3_file_share": {
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "top_file_share": {
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             }
           },
@@ -284,7 +342,7 @@
           "additionalProperties": false,
           "properties": {
             "analysis_status": {
-              "type": "string"
+              "$ref": "#/$defs/analysis_status"
             },
             "analysis_version": {
               "type": "integer"
@@ -296,6 +354,8 @@
               "type": "number"
             },
             "late_churn_spike": {
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             },
             "line_churn_window": {
@@ -311,6 +371,8 @@
               "type": "number"
             },
             "volatility_pressure": {
+              "maximum": 1,
+              "minimum": 0,
               "type": "number"
             }
           },
@@ -318,6 +380,10 @@
         }
       },
       "type": "object"
+    },
+    "digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
     },
     "distribution": {
       "additionalProperties": false,
@@ -380,6 +446,20 @@
       ],
       "type": "object"
     },
+    "evidence_status": {
+      "enum": [
+        "supported",
+        "limited",
+        "low_support",
+        "not_applicable",
+        "evidence_unavailable",
+        "mapping_confidence_low",
+        "evidence_found",
+        "no_mapping",
+        "no_evidence",
+        "legacy_unknown"
+      ]
+    },
     "file": {
       "additionalProperties": false,
       "properties": {
@@ -393,7 +473,7 @@
           "type": "number"
         },
         "analysis_status": {
-          "type": "string"
+          "$ref": "#/$defs/analysis_status"
         },
         "author_count_window": {
           "type": "integer"
@@ -411,6 +491,8 @@
           "type": "integer"
         },
         "churn_pressure": {
+          "maximum": 1,
+          "minimum": 0,
           "type": "number"
         },
         "classification": {
@@ -423,16 +505,17 @@
           "type": "integer"
         },
         "content_fingerprint": {
-          "type": "string"
+          "$ref": "#/$defs/fingerprint"
         },
         "content_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "type": "string"
+          "$ref": "#/$defs/digest"
         },
         "context_band": {
-          "type": "string"
+          "$ref": "#/$defs/context_band"
         },
         "context_pressure": {
+          "maximum": 1,
+          "minimum": 0,
           "type": "number"
         },
         "costs": {
@@ -453,6 +536,9 @@
           },
           "type": "array"
         },
+        "generated_provenance": {
+          "$ref": "#/$defs/generated_provenance"
+        },
         "has_inline_tests": {
           "type": "boolean"
         },
@@ -460,6 +546,8 @@
           "type": "string"
         },
         "late_churn_spike": {
+          "maximum": 1,
+          "minimum": 0,
           "type": "number"
         },
         "line_churn_window": {
@@ -475,7 +563,7 @@
           "type": "string"
         },
         "profile": {
-          "type": "string"
+          "$ref": "#/$defs/profile"
         },
         "reason_codes": {
           "items": {
@@ -508,9 +596,11 @@
           ]
         },
         "slop_band": {
-          "type": "string"
+          "$ref": "#/$defs/slop_band"
         },
         "slop_score": {
+          "maximum": 100,
+          "minimum": 0,
           "type": "number"
         },
         "structural_categories": {
@@ -535,6 +625,8 @@
           "type": "integer"
         },
         "top_author_share": {
+          "maximum": 1,
+          "minimum": 0,
           "type": "number"
         },
         "top_structural_terms": {
@@ -598,7 +690,7 @@
       "additionalProperties": false,
       "properties": {
         "context_band": {
-          "type": "string"
+          "$ref": "#/$defs/context_band"
         },
         "message": {
           "type": "string"
@@ -610,7 +702,7 @@
           "type": "string"
         },
         "profile": {
-          "type": "string"
+          "$ref": "#/$defs/profile"
         },
         "reasons": {
           "items": {
@@ -626,9 +718,11 @@
           ]
         },
         "slop_band": {
-          "type": "string"
+          "$ref": "#/$defs/slop_band"
         },
         "slop_score": {
+          "maximum": 100,
+          "minimum": 0,
           "type": "number"
         },
         "title": {
@@ -654,6 +748,17 @@
       ],
       "type": "object"
     },
+    "fingerprint": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/digest"
+        },
+        {
+          "pattern": "^incomplete:[a-z_]+:[0-9]+$",
+          "type": "string"
+        }
+      ]
+    },
     "folder": {
       "additionalProperties": false,
       "properties": {
@@ -664,9 +769,11 @@
           "$ref": "#/$defs/classification_or_mixed"
         },
         "context_band": {
-          "type": "string"
+          "$ref": "#/$defs/context_band"
         },
         "context_pressure": {
+          "maximum": 1,
+          "minimum": 0,
           "type": "number"
         },
         "costs": {
@@ -682,7 +789,7 @@
           "type": "integer"
         },
         "health_band": {
-          "type": "string"
+          "$ref": "#/$defs/context_band"
         },
         "lines": {
           "type": "integer"
@@ -700,9 +807,11 @@
           "type": "array"
         },
         "slop_band": {
-          "type": "string"
+          "$ref": "#/$defs/slop_band"
         },
         "slop_score": {
+          "maximum": 100,
+          "minimum": 0,
           "type": "number"
         },
         "tokens": {
@@ -730,6 +839,42 @@
         "classification",
         "costs",
         "overlays"
+      ],
+      "type": "object"
+    },
+    "generated_provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "generator_command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_globs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source_paths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "verification_command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "source_paths",
+        "source_globs",
+        "generator_command",
+        "verification_command"
       ],
       "type": "object"
     },
@@ -869,7 +1014,7 @@
           "type": "integer"
         },
         "profile": {
-          "type": "string"
+          "$ref": "#/$defs/profile"
         },
         "token_share": {
           "maximum": 1,
@@ -901,7 +1046,7 @@
           "$ref": "#/$defs/classification_or_mixed"
         },
         "context_band": {
-          "type": "string"
+          "$ref": "#/$defs/context_band"
         },
         "generated_from": {
           "items": {
@@ -909,13 +1054,20 @@
           },
           "type": "array"
         },
+        "generated_provenance": {
+          "$ref": "#/$defs/generated_provenance"
+        },
         "path": {
           "type": "string"
         },
         "profile": {
-          "type": [
-            "string",
-            "null"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/profile"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "reason_codes": {
@@ -925,9 +1077,11 @@
           "type": "array"
         },
         "slop_band": {
-          "type": "string"
+          "$ref": "#/$defs/slop_band"
         },
         "slop_score": {
+          "maximum": 100,
+          "minimum": 0,
           "type": "number"
         },
         "tokens": {
@@ -947,6 +1101,12 @@
         "reason_codes"
       ],
       "type": "object"
+    },
+    "profile": {
+      "enum": [
+        "agent_context",
+        "data_context"
+      ]
     },
     "profile_rollup": {
       "additionalProperties": false,
@@ -971,16 +1131,18 @@
           "type": "integer"
         },
         "churn_pressure": {
+          "maximum": 1,
+          "minimum": 0,
           "type": "number"
         },
         "classification": {
           "$ref": "#/$defs/classification"
         },
         "context_band": {
-          "type": "string"
+          "$ref": "#/$defs/context_band"
         },
         "evidence_status": {
-          "type": "string"
+          "$ref": "#/$defs/evidence_status"
         },
         "generated_from": {
           "items": {
@@ -998,10 +1160,7 @@
           "type": "string"
         },
         "profile": {
-          "enum": [
-            "agent_context",
-            "data_context"
-          ]
+          "$ref": "#/$defs/profile"
         },
         "reason_codes": {
           "items": {
@@ -1029,9 +1188,11 @@
           ]
         },
         "slop_band": {
-          "type": "string"
+          "$ref": "#/$defs/slop_band"
         },
         "slop_score": {
+          "maximum": 100,
+          "minimum": 0,
           "type": "number"
         },
         "synchronization_group": {
@@ -1074,13 +1235,13 @@
           "$ref": "#/$defs/classification"
         },
         "context_band": {
-          "type": "string"
+          "$ref": "#/$defs/context_band"
         },
         "path": {
           "type": "string"
         },
         "profile": {
-          "type": "string"
+          "$ref": "#/$defs/profile"
         },
         "reason_codes": {
           "items": {
@@ -1092,9 +1253,11 @@
           "type": "string"
         },
         "slop_band": {
-          "type": "string"
+          "$ref": "#/$defs/slop_band"
         },
         "slop_score": {
+          "maximum": 100,
+          "minimum": 0,
           "type": "number"
         },
         "tokens": {
@@ -1113,6 +1276,17 @@
         "remediation_kind"
       ],
       "type": "object"
+    },
+    "sha1": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "slop_band": {
+      "enum": [
+        "low",
+        "moderate",
+        "high"
+      ]
     },
     "totals": {
       "additionalProperties": false,
@@ -1178,34 +1352,29 @@
           "type": "string"
         },
         "analysis_config_digest": {
-          "pattern": "^[a-f0-9]{64}$",
-          "type": "string"
+          "$ref": "#/$defs/digest"
         },
         "analysis_contract_version": {
           "minimum": 1,
           "type": "integer"
         },
         "config_digest": {
-          "pattern": "^[a-f0-9]{64}$",
-          "type": "string"
+          "$ref": "#/$defs/digest"
         },
         "context_tokenizer": {
           "type": "string"
         },
         "evidence_config_digest": {
-          "pattern": "^[a-f0-9]{64}$",
-          "type": "string"
+          "$ref": "#/$defs/digest"
         },
         "name": {
           "const": "git-slop"
         },
         "policy_config_digest": {
-          "pattern": "^[a-f0-9]{64}$",
-          "type": "string"
+          "$ref": "#/$defs/digest"
         },
         "presentation_config_digest": {
-          "pattern": "^[a-f0-9]{64}$",
-          "type": "string"
+          "$ref": "#/$defs/digest"
         },
         "report_profile": {
           "enum": [
@@ -1233,7 +1402,9 @@
       "type": "object"
     },
     "collection_metadata": {
-      "additionalProperties": false,
+      "additionalProperties": {
+        "$ref": "#/$defs/collection_page"
+      },
       "properties": {
         "action_queue": {
           "$ref": "#/$defs/collection_page"
@@ -1266,18 +1437,6 @@
           "$ref": "#/$defs/collection_page"
         }
       },
-      "required": [
-        "files",
-        "folders",
-        "compare_index",
-        "policy_index",
-        "action_queue",
-        "observation_feed",
-        "ranked_files",
-        "health.findings",
-        "health.refactor_candidates",
-        "health.watchlist"
-      ],
       "type": "object"
     },
     "compare_index": {
@@ -1554,6 +1713,21 @@
                     "required": [
                       "verification_applicability"
                     ]
+                  },
+                  {
+                    "required": [
+                      "generated_source_globs"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "generator_command"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "verification_command"
+                    ]
                   }
                 ],
                 "properties": {
@@ -1575,6 +1749,17 @@
                     ],
                     "type": "string"
                   },
+                  "generated_source_globs": {
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "generator_command": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
                   "glob": {
                     "minLength": 1,
                     "type": "string"
@@ -1584,11 +1769,7 @@
                     "type": "string"
                   },
                   "profile": {
-                    "enum": [
-                      "agent_context",
-                      "data_context"
-                    ],
-                    "type": "string"
+                    "$ref": "#/$defs/profile"
                   },
                   "verification_applicability": {
                     "enum": [
@@ -1596,6 +1777,10 @@
                       "applicable",
                       "not_applicable"
                     ],
+                    "type": "string"
+                  },
+                  "verification_command": {
+                    "minLength": 1,
                     "type": "string"
                   }
                 },
@@ -1847,6 +2032,30 @@
               },
               "type": "array"
             },
+            "path_commands": {
+              "default": [],
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "description": "Focused verification command.",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "path_glob": {
+                    "description": "Repository path glob.",
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path_glob",
+                  "command"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
             "source_test_mappings": {
               "default": [],
               "items": {
@@ -1900,22 +2109,6 @@
     },
     "diagnostics": {
       "additionalProperties": false,
-      "anyOf": [
-        {
-          "required": [
-            "suppressed_saturated_overlays",
-            "relationship_count",
-            "structural_token_payload_omitted",
-            "analysis"
-          ]
-        },
-        {
-          "required": [
-            "migration",
-            "evidence_limit"
-          ]
-        }
-      ],
       "properties": {
         "analysis": {
           "$ref": "#/$defs/json_object"
@@ -2108,6 +2301,41 @@
     "overlays": {
       "$ref": "#/$defs/json_object"
     },
+    "policy_evaluation": {
+      "additionalProperties": false,
+      "properties": {
+        "advisory_findings": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "count_semantics": {
+          "type": "string"
+        },
+        "emitted_annotations": {
+          "type": "object"
+        },
+        "intervention_candidates": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "policy_failures": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "thresholds": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "policy_failures",
+        "intervention_candidates",
+        "advisory_findings",
+        "emitted_annotations",
+        "thresholds",
+        "count_semantics"
+      ],
+      "type": "object"
+    },
     "policy_index": {
       "additionalProperties": false,
       "properties": {
@@ -2140,9 +2368,13 @@
       "additionalProperties": false,
       "properties": {
         "analyzed_content_digest": {
-          "type": [
-            "string",
-            "null"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/digest"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "branch": {
@@ -2165,9 +2397,13 @@
           ]
         },
         "head_sha": {
-          "type": [
-            "string",
-            "null"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha1"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "is_shallow": {
@@ -2207,8 +2443,7 @@
           "type": "boolean"
         },
         "worktree_state_digest": {
-          "pattern": "^[a-f0-9]{64}$",
-          "type": "string"
+          "$ref": "#/$defs/digest"
         }
       },
       "required": [
@@ -2254,8 +2489,7 @@
           "type": "integer"
         },
         "selected_path_digest": {
-          "pattern": "^[a-f0-9]{64}$",
-          "type": "string"
+          "$ref": "#/$defs/digest"
         }
       },
       "required": [

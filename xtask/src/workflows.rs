@@ -5,6 +5,9 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use serde_yaml::Value as YamlValue;
 
+#[path = "workflows/canary.rs"]
+mod canary;
+
 const RELEASE_WORKFLOW_FRAGMENTS: [&str; 10] = [
     "00-header.yml",
     "10-candidate.yml",

@@ -27,6 +27,11 @@ fn load_fixture(name: &str) -> Value {
     } else {
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     };
+    report["repo"]["head_sha"] = if name == "compare_head_report.json" {
+        json!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    } else {
+        json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    };
     let files = report["files"].as_array_mut().expect("fixture files");
     for file in files.iter_mut() {
         file["analysis_status"] = json!("analyzed");
@@ -205,8 +210,14 @@ fn compare_json_preserves_status_deltas_and_queue_movement() {
     assert_eq!(payload["report_schema_version"], 5);
     assert_eq!(payload["command"], "compare");
     assert_eq!(payload["base_report"]["repo_name"], "compare-fixture");
-    assert_eq!(payload["base_report"]["head_sha"], "base-sha");
-    assert_eq!(payload["head_report"]["head_sha"], "head-sha");
+    assert_eq!(
+        payload["base_report"]["head_sha"],
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    assert_eq!(
+        payload["head_report"]["head_sha"],
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    );
     assert_eq!(payload["summary"]["files"]["added"], 1);
     assert_eq!(payload["summary"]["files"]["removed"], 1);
     assert_eq!(payload["summary"]["files"]["changed"], 2);
@@ -466,10 +477,18 @@ fn regression_gate_ignores_a_new_healthy_file_and_records_forced_scope_mismatche
         "costs": {},
         "overlays": {}
     }));
-    base["scope"] =
-        json!({"mode":"scoped","path":"src","selected_path_count":3,"selected_path_digest":"aaa"});
-    head["scope"] =
-        json!({"mode":"scoped","path":"lib","selected_path_count":4,"selected_path_digest":"bbb"});
+    base["scope"] = json!({
+        "mode":"scoped",
+        "path":"src",
+        "selected_path_count":3,
+        "selected_path_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    });
+    head["scope"] = json!({
+        "mode":"scoped",
+        "path":"lib",
+        "selected_path_count":4,
+        "selected_path_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    });
     let base_path = write_report(&directory, "base.json", &base);
     let head_path = write_report(&directory, "head.json", &head);
 

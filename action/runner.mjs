@@ -140,9 +140,15 @@ function writeFallbackHealth(healthPath, message) {
 }
 
 function validateInputs() {
+  const mode = enumValue("GIT_SLOP_MODE", "", ["", "advisory", "absolute", "regression"]);
+  const policy = mode ? (mode === "advisory" ? "advisory" : "enforce") : enumValue("GIT_SLOP_POLICY", "advisory", ["advisory", "enforce"]);
+  const enforcement = mode
+    ? (mode === "regression" ? "regression" : "absolute")
+    : enumValue("GIT_SLOP_ENFORCEMENT", "absolute", ["absolute", "regression"]);
   return {
-    policy: enumValue("GIT_SLOP_POLICY", "advisory", ["advisory", "enforce"]),
-    enforcement: enumValue("GIT_SLOP_ENFORCEMENT", "absolute", ["absolute", "regression"]),
+    mode,
+    policy,
+    enforcement,
     annotations: normalizedBoolean("GIT_SLOP_ANNOTATIONS", "true"),
     maxAnnotations: boundedInteger("GIT_SLOP_MAX_ANNOTATIONS", 10, 0, 50),
     uploadArtifact: normalizedBoolean("GIT_SLOP_UPLOAD_ARTIFACT", "true"),
@@ -451,6 +457,7 @@ function analyze() {
   setOutput("summary-path", reportGenerated && existsSync(summaryPath) ? summaryPath : "");
   setOutput("working-directory", cwd || fallbackCwd);
   setOutput("policy", safeInputs.policy);
+  setOutput("mode", safeInputs.mode || "advanced");
   setOutput("enforcement", safeInputs.enforcement);
   setOutput("annotations-enabled", safeInputs.annotations);
   setOutput("max-annotations", safeInputs.maxAnnotations);

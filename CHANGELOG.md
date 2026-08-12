@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.12.0 - 2026-08-12
+
+This release turns the complete post-0.11.8 audit into executable product,
+report, planning, Action, packaging, dogfood, and distribution contracts.
+
+### Security and contract integrity
+
+- Contain prompt-pack reads beneath the canonical repository, reject symlink
+  and absolute-path escapes, bound streamed context reads, and keep local paths
+  private unless explicitly requested.
+- Make runtime report validation execute the published JSON Schema, constrain
+  scalar enums, ranges, revisions, and digests identically, and exercise the
+  complete malformed-value matrix in both local and packaged qualification.
+- Publish build-info schema 2 with target, crate digest, compiler, and build
+  source identity; pin every third-party Action; and add Cargo, Actions,
+  advisory, license, and source-policy automation.
+
+### Analysis and maintenance planning
+
+- Represent generated provenance as source paths/globs plus generator and
+  verification commands, including configuration for commentless generated
+  formats.
+- Separate anchor evidence from relationship confidence, keep weak edges as
+  investigation context, generate focused path/module/generator verification,
+  and replace score-gaming targets with reason-code and maintenance-band
+  outcomes.
+- Standardize policy, intervention, advisory, annotation, and SARIF scopes;
+  bound relationship graphs by report profile; improve mechanical-import,
+  test-mapping, fixture affinity, and concept extraction evidence.
+
+### User, CI, and release experience
+
+- Repair portable HTML deep links and missing-record feedback, scope scan locks
+  to state roots, compress and content-address named baselines, support custom
+  baseline state directories, and add consistent report-validation output.
+- Lock packaged-schema tooling, preflight complete history, publish the
+  release-manifest schema and exact release/attestation verification commands,
+  and replace snapshot release statuses with live verification surfaces.
+- Turn self-dogfood into an intentional absolute and named-baseline regression
+  gate, add Action mode presets and alias removal dates, expose cargo-binstall
+  metadata, and require immutable downstream Homebrew bottle releases.
+
 ## 0.11.8 - 2026-08-11
 
 This patch makes every published count, gate, schema, and maintenance plan use

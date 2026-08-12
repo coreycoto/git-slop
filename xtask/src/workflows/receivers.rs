@@ -32,7 +32,7 @@ fn validate_release_relay(text: &str, payload: &YamlValue, errors: &mut Vec<Stri
     require_exact_job_set(
         jobs,
         name,
-        &["verify-publication", "dispatch-scoop"],
+        &["verify-publication", "dispatch-scoop", "exercise-remediation-canary"],
         errors,
     );
     let Some(relay) = job(jobs, "verify-publication", name, errors) else {
@@ -48,6 +48,7 @@ fn validate_release_relay(text: &str, payload: &YamlValue, errors: &mut Vec<Stri
         &["verify-publication"],
         errors,
     );
+    canary::validate_release_canary(jobs, name, errors);
     if dispatch_scoop
         .get("permissions")
         .and_then(YamlValue::as_mapping)

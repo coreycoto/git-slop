@@ -88,17 +88,27 @@
             printf -- '- Windows bucket: install from the downstream `coreycoto/scoop-bucket` manifest after relay verification.\n'
             printf -- '- GitHub archives: download the target archive and `SHA256SUMS` from this release.\n'
             printf '\n## Verify\n\n'
+            printf -- '- Release identity: `gh release verify v%s --repo %s`\n' "$VERSION" "$GITHUB_REPOSITORY"
             printf -- '- Checksums: `sha256sum --check SHA256SUMS --ignore-missing`\n'
-            printf -- '- Attestations: `gh attestation verify <asset> --repo %s --signer-repo %s`\n' "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY"
+            for target_archive in \
+              aarch64-apple-darwin.tar.gz \
+              aarch64-pc-windows-msvc.zip \
+              aarch64-unknown-linux-gnu.tar.gz \
+              x86_64-apple-darwin.tar.gz \
+              x86_64-pc-windows-msvc.zip \
+              x86_64-unknown-linux-gnu.tar.gz \
+              x86_64-unknown-linux-musl.tar.gz; do
+              printf -- '- Attestation: `gh attestation verify git-slop-v%s-%s --repo %s --signer-repo %s`\n' "$VERSION" "$target_archive" "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY"
+            done
             printf -- '- SBOMs: `git-slop.cdx.json` (CycloneDX 1.5) and `git-slop.spdx.json` (SPDX 2.3).\n'
-            printf '\n## Downstream status\n\n'
-            printf '| Surface | Draft-time status | Verification |\n'
-            printf '| --- | --- | --- |\n'
-            printf '| Release publication | Candidate verified; public release pending | [Release workflow](%s/%s/actions/runs/%s) |\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
-            printf '%s\n' '| Homebrew Formula | Receiver waits for this exact public immutable release | [Receiver runs](https://github.com/coreycoto/homebrew-tap/actions/workflows/update-git-slop.yml) |'
-            printf '%s\n' '| Homebrew bottles | Pending exact receiver PR and trusted-main bottle publication | [Bottle runs](https://github.com/coreycoto/homebrew-tap/actions?query=workflow%3A%22Release+git-slop+bottles%22) |'
-            printf '%s\n' '| Scoop manifest | Receiver starts only after public-release verification | [Receiver runs](https://github.com/coreycoto/scoop-bucket/actions/workflows/update-git-slop.yml) |'
-            printf '\nThe linked workflow views are the authoritative downstream status surfaces; each receiver independently reverifies this release identity before publishing.\n'
+            printf '\n## Live verification surfaces\n\n'
+            printf '| Surface | Verification |\n'
+            printf '| --- | --- |\n'
+            printf '| Release publication | [Exact release](%s/%s/releases/tag/v%s) and [release workflow](%s/%s/actions/runs/%s) |\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$VERSION" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf '%s\n' '| Homebrew Formula | [Receiver runs](https://github.com/coreycoto/homebrew-tap/actions/workflows/update-git-slop.yml) |'
+            printf '%s\n' '| Homebrew bottles | [Bottle runs](https://github.com/coreycoto/homebrew-tap/actions?query=workflow%3A%22Release+git-slop+bottles%22) |'
+            printf '%s\n' '| Scoop manifest | [Receiver runs](https://github.com/coreycoto/scoop-bucket/actions/workflows/update-git-slop.yml) |'
+            printf '\nThese linked views are authoritative live status surfaces; each receiver independently reverifies this release identity before publishing.\n'
           } > release-notes.md
 
       - name: Inspect existing GitHub Release

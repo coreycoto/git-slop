@@ -34,6 +34,7 @@
       TAG: ${{ needs.candidate.outputs.tag }}
       REVISION: ${{ needs.candidate.outputs.revision }}
       EXPECTED_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
+      GIT_SLOP_CRATE_SHA256: ${{ needs.candidate.outputs.crate-sha256 }}
       TARGET: ${{ matrix.target }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/candidate-target
     steps:
@@ -119,7 +120,8 @@
           test "$("smoke/$root/git-slop" version)" = "git-slop $VERSION"
           "smoke/$root/git-slop" build-info --format json > build-info.json
           jq -e --arg version "$VERSION" --arg revision "$REVISION" \
-            '.schema_version == 1 and .project == "git-slop" and .version == $version and .source_revision == $revision and .source_dirty == false' \
+            --arg target "$TARGET" --arg crate_sha256 "$EXPECTED_CRATE_SHA256" \
+            '.schema_version == 2 and .project == "git-slop" and .version == $version and .source_revision == $revision and .source_dirty == false and .target == $target and .crate_sha256 == $crate_sha256 and .build_source == "release"' \
             build-info.json
 
       - name: Validate packaged public contracts independently
@@ -153,7 +155,7 @@
           Expand-Archive -Path "candidate-dist\$root.zip" -DestinationPath smoke
           if ((& "smoke\$root\git-slop.exe" version) -ne "git-slop $env:VERSION") { throw "version mismatch" }
           $info = (& "smoke\$root\git-slop.exe" build-info --format json | ConvertFrom-Json)
-          if ($info.schema_version -ne 1 -or $info.project -ne "git-slop" -or $info.version -ne $env:VERSION -or $info.source_revision -ne $env:REVISION -or $info.source_dirty -ne $false) { throw "build identity mismatch" }
+          if ($info.schema_version -ne 2 -or $info.project -ne "git-slop" -or $info.version -ne $env:VERSION -or $info.source_revision -ne $env:REVISION -or $info.source_dirty -ne $false -or $info.target -ne $env:TARGET -or $info.crate_sha256 -ne $env:EXPECTED_CRATE_SHA256 -or $info.build_source -ne "release") { throw "build identity mismatch" }
 
       - name: Upload candidate target archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

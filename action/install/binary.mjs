@@ -15,7 +15,7 @@ export function createBinaryVerifier({ exactObject }) {
     }
   }
 
-  function verifyInstalledBuildInfo(binaryPath, version, revision) {
+  function verifyInstalledBuildInfo(binaryPath, version, revision, target, crateSha256) {
     const result = spawnSync(binaryPath, ["build-info", "--format", "json"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -33,15 +33,29 @@ export function createBinaryVerifier({ exactObject }) {
     }
     exactObject(
       buildInfo,
-      ["project", "schema_version", "source_dirty", "source_revision", "version"],
+      [
+        "build_source",
+        "crate_sha256",
+        "project",
+        "rustc_version",
+        "schema_version",
+        "source_dirty",
+        "source_revision",
+        "target",
+        "version",
+      ],
       "installed binary build-info",
     );
     if (
-      buildInfo.schema_version !== 1 ||
+      buildInfo.schema_version !== 2 ||
       buildInfo.project !== "git-slop" ||
       buildInfo.version !== version ||
       buildInfo.source_revision !== revision ||
-      buildInfo.source_dirty !== false
+      buildInfo.source_dirty !== false ||
+      buildInfo.target !== target ||
+      buildInfo.crate_sha256 !== crateSha256 ||
+      buildInfo.build_source !== "release" ||
+      !/^rustc [^\s]+/u.test(buildInfo.rustc_version)
     ) {
       throw new Error("installed binary build identity does not match the verified release manifest");
     }

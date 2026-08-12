@@ -338,6 +338,7 @@ fn policy_record(record: &Value) -> Value {
         "classification": record.get("classification").cloned().unwrap_or_else(|| json!("other")),
         "profile": record.get("profile").cloned().unwrap_or(Value::Null),
         "generated_from": record.get("generated_from").cloned().unwrap_or_else(|| json!([])),
+        "generated_provenance": record.get("generated_provenance").cloned().unwrap_or_else(|| json!({"source_paths": [], "source_globs": [], "generator_command": null, "verification_command": null})),
         "tokens": record.get("tokens").cloned().unwrap_or_else(|| json!(0)),
         "context_band": record.get("context_band").cloned().unwrap_or_else(|| json!("compact")),
         "slop_score": record.get("slop_score").cloned().unwrap_or_else(|| json!(0.0)),
@@ -381,7 +382,61 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
         .take(5)
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
-    let health_value = serde_json::to_value(health).unwrap_or_else(|_| json!({}));
+    let mut health_value = serde_json::to_value(health).unwrap_or_else(|_| json!({}));
+    let empty_distribution = || {
+        json!({
+            "count": 0,
+            "total": 0,
+            "p50": 0.0,
+            "p90": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0,
+            "top_1_share": 0.0,
+            "top_5_share": 0.0,
+            "top_10_share": 0.0
+        })
+    };
+    for field in ["file_distribution", "folder_distribution"] {
+        if health_value.get(field).is_none_or(Value::is_null) {
+            health_value[field] = empty_distribution();
+        }
+    }
+    let context_threshold = analysis
+        .config
+        .pointer("/check/fail_on_context_band")
+        .and_then(Value::as_str)
+        .unwrap_or("critical");
+    let slop_threshold = analysis
+        .config
+        .pointer("/check/fail_on_slop_band")
+        .and_then(Value::as_str)
+        .unwrap_or("critical");
+    let context_rank = |value: &str| match value {
+        "compact" => 0,
+        "healthy" => 1,
+        "warning" => 2,
+        "critical" | "refactor_required" | "budget_exceeded" => 3,
+        _ => -1,
+    };
+    let slop_rank = |value: &str| match value {
+        "low" => 0,
+        "moderate" => 1,
+        "high" => 2,
+        "critical" => 3,
+        _ => -1,
+    };
+    let policy_failure_count = files
+        .iter()
+        .filter(|record| {
+            !matches!(
+                string_field(record, "classification"),
+                "generated" | "vendored" | "snapshot" | "fixture" | "migration_fixture"
+            ) && (context_rank(string_field(record, "context_band"))
+                >= context_rank(context_threshold)
+                || slop_rank(string_field(record, "slop_band")) >= slop_rank(slop_threshold))
+        })
+        .count();
     let config_digest = digest_value(&analysis.config);
     let analysis_config_digest = digest_value(&selected_config(
         &analysis.config,
@@ -443,6 +498,22 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
                 "file_band_counts": health.file_band_counts,
                 "folder_band_counts": health.folder_band_counts
             }
+        },
+        "policy_evaluation": {
+            "policy_failures": policy_failure_count,
+            "intervention_candidates": action_queue.len(),
+            "advisory_findings": health.findings.len(),
+            "emitted_annotations": {
+                "github_default_limit": 50,
+                "github_default_count": health.findings.len().min(50),
+                "sarif_action_queue_count": action_queue.len()
+            },
+            "thresholds": {
+                "context_band": context_threshold,
+                "slop_band": slop_threshold,
+                "include_folders": false
+            },
+            "count_semantics": "Policy failures apply configured check thresholds; intervention candidates are the action queue; advisory findings are health diagnostics; emitted annotations depend on exporter scope and limit."
         },
         "repo": repo_payload(analysis),
         "scope": analysis.scope,

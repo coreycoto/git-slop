@@ -15,7 +15,7 @@ import { createManifestVerifier } from "./install/manifest.mjs";
 import { createReleaseApi } from "./install/release-api.mjs";
 import { createToolCache } from "./install/tool-cache.mjs";
 
-const releaseVersion = (process.env.GIT_SLOP_ACTION_VERSION || "0.11.8").trim();
+const releaseVersion = (process.env.GIT_SLOP_ACTION_VERSION || "0.12.0").trim();
 const releaseRepository = (
   process.env.GIT_SLOP_RELEASE_REPOSITORY || "coreycoto/git-slop"
 ).trim();
@@ -350,7 +350,7 @@ async function main() {
     chmodSync(binaryPath, 0o755);
   }
   verifyInstalledVersion(binaryPath, version);
-  verifyInstalledBuildInfo(binaryPath, version, identity.revision);
+  verifyInstalledBuildInfo(binaryPath, version, identity.revision, target, crateSha256);
   binaryPath = populateToolCache(cacheDirectory, executableName, binaryPath, {
     ...cacheExpected,
     crate_sha256: crateSha256,

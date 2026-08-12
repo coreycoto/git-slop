@@ -138,7 +138,7 @@ test(
 if (process.argv[2] === "version") {
   process.stdout.write("git-slop ${version}\\n");
 } else if (process.argv[2] === "build-info" && process.argv[3] === "--format" && process.argv[4] === "json") {
-  process.stdout.write(JSON.stringify({schema_version: 1, project: "git-slop", version: "${version}", source_revision: "${revision}", source_dirty: false}) + "\\n");
+  process.stdout.write(JSON.stringify({schema_version: 2, project: "git-slop", version: "${version}", source_revision: "${revision}", source_dirty: false, target: "${target}", crate_sha256: process.env.GIT_SLOP_TEST_CRATE_SHA256, rustc_version: "rustc 1.97.1", build_source: "release"}) + "\\n");
 } else {
   process.exitCode = 2;
 }
@@ -483,6 +483,7 @@ try {
       runNode(installerHarness, {
         ...environment,
         GIT_SLOP_TEST_CRATES_ORIGIN: apiRoot,
+        GIT_SLOP_TEST_CRATE_SHA256: canonicalCrateSha256,
       });
     function refreshMetadata() {
       manifestBytes = buildManifestBytes();

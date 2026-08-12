@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use globset::Glob;
+use serde_json::Value;
+
 fn candidate_directories(candidates: &[String]) -> Vec<PathBuf> {
     let mut directories = BTreeSet::from([PathBuf::new()]);
     for candidate in candidates {
@@ -104,11 +107,12 @@ pub(super) fn from_worktree(
 }
 
 pub(super) fn from_report_paths(
+    report: &Value,
     repository_paths: &BTreeSet<String>,
     candidates: &[String],
     configured_commands: &[String],
 ) -> Vec<String> {
-    discover(
+    let mut commands = discover(
         candidates,
         configured_commands,
         |path| repository_paths.contains(&path.to_string_lossy().replace('\\', "/")),
@@ -126,7 +130,69 @@ pub(super) fn from_report_paths(
                     })
             })
         },
-    )
+    );
+    let mut push = |command: String| {
+        if !command.trim().is_empty() && !commands.contains(&command) {
+            commands.push(command);
+        }
+    };
+    for mapping in report
+        .pointer("/config/verification/path_commands")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(pattern) = mapping.get("path_glob").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(command) = mapping.get("command").and_then(Value::as_str) else {
+            continue;
+        };
+        if Glob::new(pattern).ok().is_some_and(|glob| {
+            let matcher = glob.compile_matcher();
+            candidates.iter().any(|path| matcher.is_match(path))
+        }) {
+            push(command.to_owned());
+        }
+    }
+    for path in candidates {
+        let Some(record) = report
+            .get("files")
+            .and_then(Value::as_array)
+            .and_then(|files| files.iter().find(|record| record["path"] == *path))
+        else {
+            continue;
+        };
+        if let Some(command) = record
+            .pointer("/generated_provenance/verification_command")
+            .and_then(Value::as_str)
+        {
+            push(command.to_owned());
+        }
+        for test in record
+            .pointer("/overlays/verification/nearby_test_paths")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            if let Some(name) = test
+                .strip_prefix("tests/")
+                .and_then(|path| path.strip_suffix(".rs"))
+                .filter(|path| !path.contains('/'))
+            {
+                push(format!("cargo test --test {name}"));
+            }
+        }
+        if path.ends_with(".rs") {
+            if let Some(stem) = Path::new(path).file_stem().and_then(|value| value.to_str()) {
+                if stem.len() >= 3 && stem != "mod" && stem != "lib" && stem != "main" {
+                    push(format!("cargo test {stem}"));
+                }
+            }
+        }
+    }
+    commands
 }
 
 #[cfg(test)]
@@ -146,6 +212,7 @@ mod tests {
         .map(str::to_owned)
         .collect::<BTreeSet<_>>();
         let commands = from_report_paths(
+            &serde_json::json!({}),
             &paths,
             &[
                 "packages/web/src/app.ts".into(),

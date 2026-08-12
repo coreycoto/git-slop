@@ -228,8 +228,13 @@ pub fn repo_metadata(repo_root: &Path) -> Result<RepoMetadata> {
         .and_then(|name| name.to_str())
         .unwrap_or("repository")
         .to_string();
-    let branch = optional_git_output(repo_root, &["symbolic-ref", "--short", "-q", "HEAD"]);
+    let symbolic_branch =
+        optional_git_output(repo_root, &["symbolic-ref", "--short", "-q", "HEAD"]);
     let head_commit = optional_git_output(repo_root, &["rev-parse", "HEAD"]);
+    let detached_head = symbolic_branch.is_none() && head_commit.is_some();
+    let branch = symbolic_branch.or_else(|| {
+        optional_git_output(repo_root, &["describe", "--tags", "--exact-match", "HEAD"])
+    });
     let head_commit_timestamp = head_commit
         .as_ref()
         .and_then(|_| optional_git_output(repo_root, &["show", "-s", "--format=%cI", "HEAD"]));
@@ -253,7 +258,6 @@ pub fn repo_metadata(repo_root: &Path) -> Result<RepoMetadata> {
     let is_shallow = optional_git_output(repo_root, &["rev-parse", "--is-shallow-repository"])
         .is_some_and(|value| value == "true");
     let worktree = worktree_state(repo_root)?;
-    let detached_head = branch.is_none() && head_commit.is_some();
     Ok(RepoMetadata {
         repo_name,
         repo_root: canonical.to_string_lossy().into_owned(),
