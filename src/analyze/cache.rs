@@ -83,7 +83,7 @@ impl TokenCache {
 
     fn put(&self, key: &str, value: &CachedTokenData) -> Result<()> {
         let payload = serde_json::to_vec(value)?;
-        let payload_bytes = payload.len() as u64;
+        let payload_bytes = crate::cache::sqlite_i64(payload.len(), "token cache payload")?;
         self.connection.execute(
             "INSERT INTO token_cache(cache_key, payload, payload_bytes, accessed_at)
              VALUES(?1, ?2, ?3, unixepoch())
@@ -104,7 +104,7 @@ impl TokenCache {
                 .query_row(
                     "SELECT cache_key, payload_bytes FROM token_cache ORDER BY accessed_at, cache_key LIMIT 1",
                     [],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, crate::cache::sqlite_u64(row, 1)?)),
                 )
                 .optional()?;
             let Some((key, bytes)) = candidate else {
@@ -131,10 +131,10 @@ impl TokenCache {
         let (entries, bytes): (u64, u64) = self.connection.query_row(
             "SELECT COUNT(*), COALESCE(SUM(payload_bytes), 0) FROM token_cache",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((crate::cache::sqlite_u64(row, 0)?, crate::cache::sqlite_u64(row, 1)?)),
         )?;
         Ok(CacheStats {
-            entries: entries as usize,
+            entries: usize::try_from(entries).context("token cache entry count exceeds usize")?,
             bytes,
             failed_evictions: 0,
         })
