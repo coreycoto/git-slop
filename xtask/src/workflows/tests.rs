@@ -780,6 +780,22 @@ mod tests {
                 ),
                 "--field release_manifest_sha256",
             ),
+            (
+                relay.replacen(
+                    "REPOSITORY: ${{ github.repository }}\n          TAG: ${{ github.event.release.tag_name }}",
+                    "REPOSITORY: coreycoto/wrong-repository\n          TAG: ${{ github.event.release.tag_name }}",
+                    1,
+                ),
+                "must bind the explicit repository",
+            ),
+            (
+                relay.replacen(
+                    "gh workflow run dependency-remediation.yml \\\n            --repo \"$REPOSITORY\"",
+                    "gh workflow run dependency-remediation.yml \\\n            --repo coreycoto/wrong-repository",
+                    1,
+                ),
+                "--repo \"$REPOSITORY\"",
+            ),
         ] {
             let errors = relay_errors(&drifted).join("\n");
             assert!(errors.contains(expected), "missing {expected}: {errors}");
