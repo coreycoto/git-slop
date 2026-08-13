@@ -131,12 +131,11 @@ jobs:
       - name: Dispatch read-only release closeout canary
         env:
           GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
           gh workflow run dependency-remediation.yml \
-            --repo "$REPOSITORY" \
+            --repo "$GITHUB_REPOSITORY" \
             --ref main \
             --field mode=canary \
             --field release_tag="$TAG"

@@ -782,19 +782,11 @@ mod tests {
             ),
             (
                 relay.replacen(
-                    "REPOSITORY: ${{ github.repository }}\n          TAG: ${{ github.event.release.tag_name }}",
-                    "REPOSITORY: coreycoto/wrong-repository\n          TAG: ${{ github.event.release.tag_name }}",
-                    1,
-                ),
-                "must bind the explicit repository",
-            ),
-            (
-                relay.replacen(
-                    "gh workflow run dependency-remediation.yml \\\n            --repo \"$REPOSITORY\"",
+                    "gh workflow run dependency-remediation.yml \\\n            --repo \"$GITHUB_REPOSITORY\"",
                     "gh workflow run dependency-remediation.yml \\\n            --repo coreycoto/wrong-repository",
                     1,
                 ),
-                "--repo \"$REPOSITORY\"",
+                "--repo \"$GITHUB_REPOSITORY\"",
             ),
         ] {
             let errors = relay_errors(&drifted).join("\n");

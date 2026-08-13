@@ -1,6 +1,6 @@
 use serde_yaml::{Mapping, Value as YamlValue};
 
-use super::{job, named_step, require, require_needs, step_env, step_run};
+use super::{job, require, require_needs, step_run};
 
 pub(super) fn validate_release_canary(jobs: &Mapping, name: &str, errors: &mut Vec<String>) {
     let Some(canary) = job(jobs, "exercise-remediation-canary", name, errors) else {
@@ -29,16 +29,9 @@ pub(super) fn validate_release_canary(jobs: &Mapping, name: &str, errors: &mut V
         ));
         return;
     };
-    let dispatch = named_step(canary, "Dispatch read-only release closeout canary")
-        .expect("the dispatch step exists when its run script exists");
-    if step_env(dispatch, "REPOSITORY") != Some("${{ github.repository }}") {
-        errors.push(format!(
-            "{name} dependency-remediation canary must bind the explicit repository used by gh workflow run."
-        ));
-    }
     for required in [
         "gh workflow run dependency-remediation.yml",
-        "--repo \"$REPOSITORY\"",
+        "--repo \"$GITHUB_REPOSITORY\"",
         "--ref main",
         "--field mode=canary",
         "--field release_tag=\"$TAG\"",
