@@ -190,7 +190,7 @@ mod tests {
             ),
             (
                 valid.replacen(
-                    "Homebrew/actions/setup-homebrew@df4b09108a1de9d6f995fe68f302b3f68bd6d2ef",
+                    "Homebrew/actions/setup-homebrew@c8707045ccae42888fe98e86f2ee8938bc7cc193",
                     "Homebrew/actions/setup-homebrew@main",
                     1,
                 ),

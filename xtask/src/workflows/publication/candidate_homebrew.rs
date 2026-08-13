@@ -37,7 +37,7 @@ fn validate_candidate_homebrew_job(candidate_homebrew_audit: Option<&YamlValue>,
             .and_then(|step| step.get("uses"))
             .and_then(YamlValue::as_str);
         if setup_action
-            != Some("Homebrew/actions/setup-homebrew@df4b09108a1de9d6f995fe68f302b3f68bd6d2ef")
+            != Some("Homebrew/actions/setup-homebrew@c8707045ccae42888fe98e86f2ee8938bc7cc193")
         {
             errors.push(format!(
                 "{name} candidate-homebrew-audit must use the pinned Homebrew setup Action."
