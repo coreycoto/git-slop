@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, Row};
 use serde_json::{Value, json};
 
 fn database_path(state_root: &Path) -> PathBuf {
@@ -15,6 +15,15 @@ fn configured_connection(path: &Path) -> Result<Connection> {
         .with_context(|| format!("failed to open packed cache {}", path.display()))?;
     connection.busy_timeout(Duration::from_secs(5))?;
     Ok(connection)
+}
+
+pub(crate) fn sqlite_u64(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
+    let value = row.get::<_, i64>(index)?;
+    u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(index, value))
+}
+
+pub(crate) fn sqlite_i64(value: usize, field: &str) -> Result<i64> {
+    i64::try_from(value).with_context(|| format!("{field} exceeds SQLite's signed INTEGER range"))
 }
 
 fn sidecar_bytes(path: &Path, suffix: &str) -> u64 {
@@ -93,12 +102,12 @@ pub fn status(state_root: &Path) -> Result<Value> {
     let (entries, bytes, oldest, newest): (u64, u64, Option<i64>, Option<i64>) = connection.query_row(
         "SELECT COUNT(*), COALESCE(SUM(payload_bytes), 0), MIN(accessed_at), MAX(accessed_at) FROM token_cache",
         [],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        |row| Ok((sqlite_u64(row, 0)?, sqlite_u64(row, 1)?, row.get(2)?, row.get(3)?)),
     )?;
     let integrity: String = connection.query_row("PRAGMA quick_check(1)", [], |row| row.get(0))?;
-    let page_count: u64 = connection.query_row("PRAGMA page_count", [], |row| row.get(0))?;
-    let free_pages: u64 = connection.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
-    let page_size: u64 = connection.query_row("PRAGMA page_size", [], |row| row.get(0))?;
+    let page_count = connection.query_row("PRAGMA page_count", [], |row| sqlite_u64(row, 0))?;
+    let free_pages = connection.query_row("PRAGMA freelist_count", [], |row| sqlite_u64(row, 0))?;
+    let page_size = connection.query_row("PRAGMA page_size", [], |row| sqlite_u64(row, 0))?;
     let database_bytes = fs::metadata(&path)
         .map(|metadata| metadata.len())
         .unwrap_or_default();
@@ -138,7 +147,7 @@ pub fn prune(
         )?;
         statement
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+                Ok((row.get::<_, String>(0)?, sqlite_u64(row, 1)?))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?
     };
@@ -181,4 +190,34 @@ pub fn prune(
         "physical_reclaimed_bytes": before["allocated_bytes"].as_u64().unwrap_or_default().saturating_sub(after["allocated_bytes"].as_u64().unwrap_or_default()),
         "after": after
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sqlite_unsigned_adapter_rejects_negative_integers() {
+        let connection = Connection::open_in_memory().unwrap();
+        let value = connection
+            .query_row("SELECT 42", [], |row| sqlite_u64(row, 0))
+            .unwrap();
+        assert_eq!(value, 42);
+
+        let error = connection
+            .query_row("SELECT -1", [], |row| sqlite_u64(row, 0))
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            rusqlite::Error::IntegralValueOutOfRange(0, -1)
+        ));
+    }
+
+    #[test]
+    fn sqlite_size_adapter_rejects_values_outside_signed_range() {
+        assert_eq!(sqlite_i64(42, "fixture").unwrap(), 42);
+        if usize::BITS > i64::BITS {
+            assert!(sqlite_i64(usize::MAX, "fixture").is_err());
+        }
+    }
 }
