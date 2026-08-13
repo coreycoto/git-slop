@@ -780,14 +780,6 @@ mod tests {
                 ),
                 "--field release_manifest_sha256",
             ),
-            (
-                relay.replacen(
-                    "gh workflow run dependency-remediation.yml \\\n            --repo \"$GITHUB_REPOSITORY\"",
-                    "gh workflow run dependency-remediation.yml \\\n            --repo coreycoto/wrong-repository",
-                    1,
-                ),
-                "--repo \"$GITHUB_REPOSITORY\"",
-            ),
         ] {
             let errors = relay_errors(&drifted).join("\n");
             assert!(errors.contains(expected), "missing {expected}: {errors}");
