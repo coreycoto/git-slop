@@ -245,7 +245,7 @@ fn validate_ci(repo_root: &Path, workflows: &Path, errors: &mut Vec<String>) {
         "cargo package -p git-slop --locked",
         "cargo publish -p git-slop --dry-run --locked",
         "cargo xtask validate",
-        "EmbarkStudios/cargo-deny-action@c3bbe7e4e3f7baeee1a3dd9aec0a3b2aded580fb",
+        "EmbarkStudios/cargo-deny-action@",
         "command: check advisories licenses sources",
         "node --test action/*.test.mjs",
         "ubuntu-24.04",
