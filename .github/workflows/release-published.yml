@@ -134,8 +134,6 @@ jobs:
           TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          gh workflow run dependency-remediation.yml \
-            --ref main \
-            --field mode=canary \
-            --field release_tag="$TAG"
+          gh workflow run dependency-remediation.yml --repo "$GITHUB_REPOSITORY" \
+            --ref main --field mode=canary --field release_tag="$TAG"
           printf "Dispatched the credential-free dependency-remediation canary for \`%s\`.\n" "$TAG" >> "$GITHUB_STEP_SUMMARY"
