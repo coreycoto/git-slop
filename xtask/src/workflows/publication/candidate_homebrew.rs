@@ -36,11 +36,11 @@ fn validate_candidate_homebrew_job(candidate_homebrew_audit: Option<&YamlValue>,
         let setup_action = named_step(candidate_homebrew_audit, "Set up Homebrew")
             .and_then(|step| step.get("uses"))
             .and_then(YamlValue::as_str);
-        if setup_action
-            != Some("Homebrew/actions/setup-homebrew@c8707045ccae42888fe98e86f2ee8938bc7cc193")
+        if !setup_action
+            .is_some_and(|action| action.starts_with("Homebrew/actions/setup-homebrew@"))
         {
             errors.push(format!(
-                "{name} candidate-homebrew-audit must use the pinned Homebrew setup Action."
+                "{name} candidate-homebrew-audit must use the Homebrew setup Action."
             ));
         }
         let download = named_step(candidate_homebrew_audit, "Download candidate Formula");

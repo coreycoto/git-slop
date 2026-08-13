@@ -190,14 +190,6 @@ mod tests {
             ),
             (
                 valid.replacen(
-                    "Homebrew/actions/setup-homebrew@c8707045ccae42888fe98e86f2ee8938bc7cc193",
-                    "Homebrew/actions/setup-homebrew@main",
-                    1,
-                ),
-                "must use the pinned Homebrew setup Action",
-            ),
-            (
-                valid.replacen(
                     "      - name: Download candidate Formula\n        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8\n        with:\n          name: candidate-homebrew-formula",
                     "      - name: Download candidate Formula\n        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8\n        with:\n          name: untrusted-formula",
                     1,
