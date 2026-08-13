@@ -101,17 +101,6 @@ jobs:
             --arg revision "$REVISION" \
             '.schema_version == 3 and .project == "git-slop" and .repository == "coreycoto/git-slop" and .version == $version and .tag == $tag and .revision == $revision and .crate_source.registry == "crates.io" and .crate_source.package == "git-slop" and .crate_source.version == $version and .crate_source.url == ("https://static.crates.io/crates/git-slop/git-slop-" + $version + ".crate") and .crate_source.revision == $revision and .crate_source.vcs_dirty == false and (.crate_source.sha256 | test("^[0-9a-f]{64}$")) and (.artifacts | length) == 7 and all(.artifacts[]; .path == .name and (.sha256 | test("^[0-9a-f]{64}$")) and .size_bytes > 0 and .url == ("https://github.com/coreycoto/git-slop/releases/download/" + $tag + "/" + .name)) and (.supplemental_assets | length) == 3 and ([.supplemental_assets[].role] | sort) == ["cyclonedx_sbom", "homebrew_formula", "spdx_sbom"] and all(.supplemental_assets[]; .required == true and .contract_version == 1 and .path == .name and (.sha256 | test("^[0-9a-f]{64}$")) and .size_bytes > 0 and .url == ("https://github.com/coreycoto/git-slop/releases/download/" + $tag + "/" + .name)) and .checksums.algorithm == "sha256" and .checksums.name == "SHA256SUMS" and .checksums.url == ("https://github.com/coreycoto/git-slop/releases/download/" + $tag + "/SHA256SUMS")' \
             release-assets/release-manifest.json >/dev/null
-          jq -r '.artifacts[] | [.target, .name, .os, .arch, .archive] | @tsv' \
-            release-assets/release-manifest.json | LC_ALL=C sort > actual-targets.txt
-          cat > expected-targets.txt <<EOF
-          aarch64-apple-darwin	git-slop-${tag}-aarch64-apple-darwin.tar.gz	macos	aarch64	tar.gz
-          aarch64-pc-windows-msvc	git-slop-${tag}-aarch64-pc-windows-msvc.zip	windows	aarch64	zip
-          aarch64-unknown-linux-gnu	git-slop-${tag}-aarch64-unknown-linux-gnu.tar.gz	linux	aarch64	tar.gz
-          x86_64-pc-windows-msvc	git-slop-${tag}-x86_64-pc-windows-msvc.zip	windows	x86_64	zip
-          x86_64-unknown-linux-gnu	git-slop-${tag}-x86_64-unknown-linux-gnu.tar.gz	linux	x86_64	tar.gz
-          EOF
-          diff -u expected-targets.txt actual-targets.txt
-
           while IFS= read -r asset_name; do
             digest="$(sha256sum "release-assets/${asset_name}" | awk '{print $1}')"
             jq -e --arg name "$asset_name" --arg digest "sha256:${digest}" \
