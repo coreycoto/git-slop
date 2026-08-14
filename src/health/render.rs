@@ -455,11 +455,24 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
         .unwrap_or(&0);
     let file_warnings = *rollup.file_band_counts.get("warning").unwrap_or(&0);
     let folder_warnings = *rollup.folder_band_counts.get("warning").unwrap_or(&0);
-    let status = if file_failures + folder_failures > 0 {
+    let actionable_file_failures = rollup
+        .findings
+        .iter()
+        .filter(|finding| finding.severity == "error")
+        .count();
+    let observation_only_file_failures = file_failures.saturating_sub(actionable_file_failures);
+    let status = if actionable_file_failures > 0 {
         format!(
-            "❌ **Review required** — {} file(s) and {} folder(s) exceed configured refactor thresholds.",
-            format_int(file_failures),
-            format_int(folder_failures)
+            "❌ **Review required** — {} actionable file(s) exceed configured context budgets; {} derived/classified file(s) and {} folder(s) remain investigation context.",
+            format_int(actionable_file_failures),
+            format_int(observation_only_file_failures),
+            format_int(folder_failures),
+        )
+    } else if file_failures + folder_failures > 0 {
+        format!(
+            "⚠️ **Advisory** — no actionable file breach was found; {} derived/classified file(s) and {} folder(s) exceed context budgets as investigation context.",
+            format_int(observation_only_file_failures),
+            format_int(folder_failures),
         )
     } else if file_warnings + folder_warnings > 0 {
         format!(

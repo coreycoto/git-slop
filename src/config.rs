@@ -1,4 +1,6 @@
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -13,7 +15,17 @@ mod lock;
 mod structured;
 pub use lock::acquire_scan_lock;
 
-pub const DEFAULT_SLOP_GITIGNORE: &str = "/latest/\n/runs/\n/cache/\n/scan.lock\n";
+pub const DEFAULT_SLOP_GITIGNORE: &str = concat!(
+    "/latest/\n",
+    "/runs/\n",
+    "/cache/\n",
+    "/scan.lock\n",
+    "/scan.lock.owner\n",
+    "/prompt-packs/\n",
+    "/diagnostic-bundle.json\n",
+    "/config.yaml.bak\n",
+    "/.gitignore.bak\n",
+);
 pub const MINIMAL_CONFIG: &str = r#"# Git Slop configuration overrides.
 # Run `git slop config show --effective` to inspect every default.
 schema_version: 2
@@ -24,14 +36,10 @@ schema_version: 2
 #   fail_on_slop_band: critical
 "#;
 
-#[derive(Debug, Clone)]
-pub struct InitResult {
-    pub config: &'static str,
-    pub gitignore: &'static str,
-}
+include!("config/adoption.rs");
+include!("config/storage.rs");
 
-/// Resolve mutable coordination state inside Git's private directory so a
-/// detector run never needs to create or repair tracked adoption files.
+/// Resolve the explicitly Git-private state used by baselines and ephemeral scans.
 pub fn git_runtime_dir(repo_root: &Path) -> Result<PathBuf> {
     let output = Command::new("git")
         .current_dir(repo_root)
@@ -692,30 +700,6 @@ pub fn ensure_state_dirs(repo_root: &Path) -> Result<()> {
             .with_context(|| format!("failed to create {}", path.display()))?;
     }
     Ok(())
-}
-
-pub fn initialize(repo_root: &Path, force: bool) -> Result<InitResult> {
-    ensure_state_dirs(repo_root)?;
-    let config_target = config_path(repo_root);
-    let config_status = if force || !config_target.exists() {
-        fs::write(&config_target, MINIMAL_CONFIG)
-            .with_context(|| format!("failed to write {}", config_target.display()))?;
-        "written"
-    } else {
-        "kept"
-    };
-    let gitignore_target = slop_dir(repo_root).join(".gitignore");
-    let gitignore_status = if force || !gitignore_target.exists() {
-        fs::write(&gitignore_target, DEFAULT_SLOP_GITIGNORE)
-            .with_context(|| format!("failed to write {}", gitignore_target.display()))?;
-        "written"
-    } else {
-        "kept"
-    };
-    Ok(InitResult {
-        config: config_status,
-        gitignore: gitignore_status,
-    })
 }
 
 pub fn pointer_u64(value: &Value, pointer: &str, default: u64) -> u64 {

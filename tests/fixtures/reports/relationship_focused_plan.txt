@@ -1,19 +1,22 @@
 Plan: relationship near_duplicate_neighborhood-35e7fad1c4e0 [near_duplicate_neighborhood]
 
-1. Inspect src/consumer_toolkit/github/current_repo.py ↔ src/consumer_toolkit/github/shared/current_repo.py
+Baseline workflow (shared by every slice):
+  create: git slop baseline ensure --name plan-7a0c7a014398 --report 'tests/fixtures/reports/relationship_focused_report.json'
+  verify: git slop find && git slop compare --baseline plan-7a0c7a014398 --head .slop/latest/report.json --detail summary --fail-on-regression
+  accept intentional movement: git slop baseline ensure --name plan-7a0c7a014398 --report 'tests/fixtures/reports/relationship_focused_report.json' --replace
+
+1. Inspect src/consumer_toolkit/github/current_repo.py ↔ src/consumer_toolkit/github/shared/current_repo.py [intervention; priority=Later]
    scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py
    objective: Resolve the cited detector reason codes across src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py, improve at least one source-derived metric without worsening supported relationship evidence, introduce zero native compare regressions, and pass every discovered verification command without unreviewed scope expansion.
-   plan_type: intervention
-   rationale: Start with the selected coupled pair before considering any surrounding cluster evidence.
-   evidence: Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py.; relationships=near_duplicate_neighborhood-35e7fad1c4e0(src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py; confidence=unknown; lower=None; support=0; evidence=1140.594)
-   expected_outcome: remove a cited reason code; no native compare regression; verification passes
-   verification: none
-   baseline: git slop baseline ensure --name plan-7a0c7a014398 --report '<SOURCE_REPORT>'
-   baseline_update_if_intentional: git slop baseline ensure --name plan-7a0c7a014398 --report '<SOURCE_REPORT>' --replace
-   rerun: git slop find && git slop compare --baseline plan-7a0c7a014398 --head .slop/latest/report.json --detail summary --fail-on-regression
-   abandon_if: Stop and abandon or re-scope this slice if preserving behavior requires an out-of-scope change, verification cannot be identified, or the native comparison reports a regression.
-   rollback: Revert only the explicitly reviewed code changes; report and prompt artifacts are advisory and can be regenerated.
-   backlog: Maintenance: Inspect src/consumer_toolkit/github/current_repo.py ↔ src/consumer_toolkit/github/shared/current_repo.py priority=Later policy=preview_only
-   out_of_scope: none
+   evidence: Start with the selected coupled pair before considering any surrounding cluster evidence. Evidence: 1 relationship(s), 1 cluster(s). Scope: src/consumer_toolkit/github/current_repo.py, src/consumer_toolkit/github/shared/current_repo.py.
+   success:
+      - No new native compare regression.
+      - At least one cited source-derived reason code is removed, or the scoped maintenance band improves.
+      - Supported relationship evidence remains explainable; limited and low-support edges are investigation context only.
+      - All reviewed verification commands pass.
+   verification:
+      - none discovered; identify a focused repository-native check before editing
+   stop if: Stop and abandon or re-scope this slice if preserving behavior requires an out-of-scope change, verification cannot be identified, or the native comparison reports a regression.
+   backlog preview: Maintenance: Inspect src/consumer_toolkit/github/current_repo.py ↔ src/consumer_toolkit/github/shared/current_repo.py
 
 Plan boundary: this is a bounded proposal only. It does not mutate code, GitHub, or detector truth, and it does not guarantee correctness or safety.

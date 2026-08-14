@@ -46,8 +46,8 @@
           "maintenance"
         ]
       },
-      "baseline_command": "git slop baseline ensure --name plan-7a0c7a014398 --report '<SOURCE_REPORT>'",
-      "baseline_update_command": "git slop baseline ensure --name plan-7a0c7a014398 --report '<SOURCE_REPORT>' --replace",
+      "baseline_command": "git slop baseline ensure --name plan-7a0c7a014398 --report 'tests/fixtures/reports/relationship_focused_report.json'",
+      "baseline_update_command": "git slop baseline ensure --name plan-7a0c7a014398 --report 'tests/fixtures/reports/relationship_focused_report.json' --replace",
       "boundaries": {
         "existing_path_cap": {
           "constraint": "Only the named in-scope existing paths may change; regenerate the plan to expand this set.",
@@ -169,8 +169,8 @@
   },
   "source_report": {
     "baseline_name": "plan-7a0c7a014398",
-    "descriptor": "logical_source_report",
-    "path": null,
+    "descriptor": "repo_relative",
+    "path": "tests/fixtures/reports/relationship_focused_report.json",
     "sha256": "7a0c7a0143984361a61f6377fb3fe78754dde6843ed0cf25811f52601425e6c6"
   },
   "target": {

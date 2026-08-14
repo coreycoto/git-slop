@@ -261,4 +261,8 @@ fn finding_humanizes_stable_reason_codes() {
         finding.reasons,
         vec!["exceeds the configured context budget"]
     );
+
+    let mut documentation = file;
+    documentation["classification"] = json!("docs");
+    assert!(finding_for_file(&documentation, &Value::Null).is_none());
 }

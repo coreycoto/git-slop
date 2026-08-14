@@ -9,7 +9,45 @@ body:
       value: |
         Use this form for incorrect shipped behavior or regressions.
 
-        If this bug belongs under a larger track, add native parent/sub-issue links after creating it.
+        Run `git-slop version`, `git-slop build-info --format json`, and `git slop doctor --bundle`. Attach only redacted output.
+
+  - type: input
+    id: version
+    attributes:
+      label: Git Slop version
+      description: Exact output from `git-slop version`.
+      placeholder: git-slop 0.x.y
+    validations:
+      required: true
+  - type: textarea
+    id: build-info
+    attributes:
+      label: Redacted build info
+      description: Preserve version, revision, target, and build-source fields.
+      render: json
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS and architecture
+      placeholder: macOS 15 arm64
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - Homebrew
+        - Cargo Binstall
+        - Cargo install
+        - Scoop
+        - GitHub Release archive
+        - Source build
+        - GitHub Action
+    validations:
+      required: true
   - type: textarea
     id: problem
     attributes:
@@ -46,31 +84,25 @@ body:
     validations:
       required: true
   - type: textarea
+    id: command-error
+    attributes:
+      label: Exact command, exit code, and structured error
+      description: Include the command, exit code, and JSON code/pointer.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: doctor-bundle
+    attributes:
+      label: Redacted doctor bundle
+      description: Attach the redacted `.slop/diagnostic-bundle.json`.
+      render: json
+    validations:
+      required: false
+  - type: textarea
     id: impact
     attributes:
       label: Impact
       description: What user, maintainer, or contract impact does this cause?
     validations:
       required: true
-  - type: textarea
-    id: scope
-    attributes:
-      label: In scope and out of scope
-      description: What should this fix include, and what should it avoid expanding into?
-    validations:
-      required: false
-  - type: textarea
-    id: validation
-    attributes:
-      label: Validation
-      description: What evidence should prove the bug is fixed?
-    validations:
-      required: false
-  - type: input
-    id: quarter
-    attributes:
-      label: Quarter milestone target
-      description: Optional. Use only when this issue is explicitly committed for a quarter.
-      placeholder: 2026 Q2
-    validations:
-      required: false

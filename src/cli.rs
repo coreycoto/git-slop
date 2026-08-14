@@ -144,6 +144,9 @@ struct FindArgs {
     /// Disable token-cache reads and writes for an ephemeral scan.
     #[arg(long)]
     no_cache: bool,
+    /// Keep disposable state and reports under Git-private storage, without adopting `.slop/`.
+    #[arg(long, conflicts_with_all = ["state_dir", "output_dir"])]
+    ephemeral: bool,
     /// Deterministically analyze the largest path prefix that fits the memory budget.
     #[arg(long)]
     allow_degraded: bool,
@@ -203,10 +206,24 @@ struct BuildInfoArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(group(
+    ArgGroup::new("mode")
+        .args(["force", "repair", "check"])
+        .multiple(false)
+))]
 struct InitArgs {
-    /// Overwrite generated config files.
+    /// Replace generated files atomically and keep ignored `.bak` recovery copies.
     #[arg(long)]
     force: bool,
+    /// Add missing generated ignore rules without replacing repository configuration.
+    #[arg(long)]
+    repair: bool,
+    /// Inspect adoption files without changing the repository.
+    #[arg(long)]
+    check: bool,
+    /// Limit initialization, repair, force, or check to .slop/.gitignore.
+    #[arg(long)]
+    gitignore_only: bool,
 }
 
 #[derive(Debug, Args)]
@@ -338,6 +355,9 @@ struct CheckArgs {
     /// Evaluate and report the canonical policy result without returning exit 1 for findings.
     #[arg(long)]
     evaluate_only: bool,
+    /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
+    #[arg(long)]
+    require_current: bool,
 }
 
 #[derive(Debug, Args)]
@@ -505,6 +525,9 @@ enum BaselineCommand {
         /// Output format.
         #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
         format: DisplayFormat,
+        /// Apply the removal. Without this flag the command is a read-only preview.
+        #[arg(long)]
+        yes: bool,
     },
 }
 
@@ -574,6 +597,9 @@ struct HealthArgs {
     /// Maximum number of GitHub workflow annotations to emit.
     #[arg(long, default_value_t = 10)]
     max_annotations: usize,
+    /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
+    #[arg(long)]
+    require_current: bool,
 }
 
 #[derive(Debug, Args)]
@@ -595,7 +621,14 @@ enum ConfigCommand {
     /// Show only values that differ from defaults.
     DiffDefaults,
     /// Rewrite legacy schema configuration as a minimal schema-2 override.
-    Migrate,
+    Migrate {
+        /// Print the migrated configuration without writing it.
+        #[arg(long)]
+        dry_run: bool,
+        /// Do not retain the existing configuration as config.yaml.bak.
+        #[arg(long)]
+        no_backup: bool,
+    },
     /// Print the supported configuration schema as JSON.
     Schema,
 }
@@ -611,6 +644,9 @@ struct DoctorArgs {
     /// Estimate only this repo-relative scope.
     #[arg(long)]
     scope: Option<String>,
+    /// Return exit 2 when the latest report is valid but stale.
+    #[arg(long)]
+    require_current: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -675,9 +711,12 @@ struct PruneArgs {
     /// Maximum total bytes retained; defaults to output.retention_bytes.
     #[arg(long)]
     max_bytes: Option<u64>,
-    /// Print removals without changing files.
-    #[arg(long)]
+    /// Explicitly request preview behavior (preview is already the default).
+    #[arg(long, conflicts_with = "yes")]
     dry_run: bool,
+    /// Apply the selected removals. Without this flag the command is read-only.
+    #[arg(long, conflicts_with = "dry_run")]
+    yes: bool,
     /// Select text, JSON, or YAML output.
     #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
     format: DisplayFormat,
@@ -685,7 +724,7 @@ struct PruneArgs {
 
 #[derive(Debug, Args)]
 struct CacheArgs {
-    /// Mutable state directory. Defaults to Git-private runtime storage.
+    /// Mutable state directory. Defaults to .slop, matching find.
     #[arg(long, value_name = "PATH", global = true)]
     state_dir: Option<PathBuf>,
     #[command(subcommand)]
@@ -733,7 +772,8 @@ struct ManArgs {
 
 #[derive(Debug, Args)]
 struct ReferenceArgs {
-    /// Destination file. Defaults to stdout.
+    /// Index destination. Detailed command pages use the sibling stem directory.
+    /// Without an output, the complete reference is written to stdout.
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -751,118 +791,21 @@ struct HtmlArgs {
     include_local_paths: bool,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum CompletionShell {
-    Bash,
-    Zsh,
-    Fish,
-    Powershell,
-    Nushell,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum DisplayFormat {
-    Text,
-    Json,
-    Yaml,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum CompareFormat {
-    Text,
-    Json,
-    Yaml,
-    Ndjson,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum CompareDetail {
-    Summary,
-    Top,
-    Full,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum HealthFormat {
-    Text,
-    Markdown,
-    Github,
-    Json,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum CheckFormat {
-    Text,
-    Json,
-    Github,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum PolicySource {
-    Base,
-    Head,
-}
-
-impl PolicySource {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Base => "base",
-            Self::Head => "head",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum ErrorFormat {
-    Human,
-    Json,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum ContextBand {
-    Compact,
-    Healthy,
-    Warning,
-    Critical,
-}
-
-impl ContextBand {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Compact => "compact",
-            Self::Healthy => "healthy",
-            Self::Warning => "warning",
-            Self::Critical => "critical",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum SlopBand {
-    Low,
-    Moderate,
-    High,
-    Critical,
-}
-
-impl SlopBand {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Low => "low",
-            Self::Moderate => "moderate",
-            Self::High => "high",
-            Self::Critical => "critical",
-        }
-    }
-}
-
+include!("cli/formats.rs");
 include!("cli/support.rs");
+include!("cli/support/validation.rs");
+include!("cli/init.rs");
 include!("cli/analysis.rs");
+include!("cli/analysis_receipt.rs");
 include!("cli/check.rs");
 include!("cli/baseline_compare.rs");
 include!("cli/reporting.rs");
+include!("cli/doctor.rs");
 include!("cli/listing.rs");
 include!("cli/generation.rs");
+include!("cli/generation/artifacts.rs");
+include!("cli/generation/reference.rs");
+include!("cli/generation/reference/bundle.rs");
 fn execute(repo_root: &Path, command: Command) -> Result<i32> {
     match command {
         Command::Init(args) => run_init(repo_root, args),
@@ -961,9 +904,9 @@ fn command_requires_repository(command: &Command) -> bool {
         Command::Baseline(_) => true,
         Command::Explain(args) => args.report.is_none() || args.include_repository_context,
         Command::Plan(args) => args.report.is_none() || args.include_repository_context,
-        Command::Check(args) => args.report.is_none(),
+        Command::Check(args) => args.report.is_none() || args.require_current,
         Command::Sarif(args) => args.report.is_none(),
-        Command::Health(args) => args.report.is_none(),
+        Command::Health(args) => args.report.is_none() || args.require_current,
         Command::Html(args) => args.report.is_none(),
         Command::List(ListArgs {
             command:

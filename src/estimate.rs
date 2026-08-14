@@ -112,7 +112,10 @@ pub fn build(repo_root: &Path, paths: &[String], config_value: &Value) -> Analys
     let report_bytes = inventory_bytes
         .saturating_div(2)
         .saturating_add(path_count.saturating_mul(4_096));
-    let runtime_overhead_bytes = 32_u128 * 1024 * 1024;
+    // The tokenizer, SQLite, Git subprocesses, and report assembly have a
+    // meaningful fixed floor even for small repositories. Keep the estimate
+    // deliberately conservative until repository-run telemetry is available.
+    let runtime_overhead_bytes = 64_u128 * 1024 * 1024;
     let estimated_peak_memory_bytes = inventory_bytes
         .saturating_add(tokenizer_bytes)
         .saturating_add(graph_bytes)
@@ -123,8 +126,8 @@ pub fn build(repo_root: &Path, paths: &[String], config_value: &Value) -> Analys
         tracked_path_count: paths.len(),
         inventory_bytes,
         estimated_peak_memory_bytes,
-        estimated_peak_memory_low_bytes: estimated_peak_memory_bytes.saturating_mul(80) / 100,
-        estimated_peak_memory_high_bytes: estimated_peak_memory_bytes.saturating_mul(140) / 100,
+        estimated_peak_memory_low_bytes: estimated_peak_memory_bytes.saturating_mul(75) / 100,
+        estimated_peak_memory_high_bytes: estimated_peak_memory_bytes.saturating_mul(175) / 100,
         runtime_overhead_bytes,
         confidence: if paths.is_empty() {
             "low"
@@ -145,9 +148,10 @@ pub fn build(repo_root: &Path, paths: &[String], config_value: &Value) -> Analys
         estimated_relationship_count: path_count.saturating_mul(pair_limit).saturating_div(2),
         estimated_inode_count: path_count.saturating_add(16),
         estimated_seconds: inventory_bytes
-            .div_ceil(8 * 1024 * 1024)
+            .div_ceil(4 * 1024 * 1024)
             .saturating_add(path_count.div_ceil(2_000))
-            .max(1),
+            .saturating_add((estimated_history_commit_count as u128).div_ceil(5_000))
+            .max(6),
         estimated_history_commit_count,
         path_breadth: paths
             .iter()
@@ -202,6 +206,26 @@ mod tests {
         assert!(large.estimated_peak_memory_low_bytes > small.estimated_peak_memory_high_bytes);
         assert!(large.estimated_seconds >= small.estimated_seconds);
         assert_eq!(large.path_breadth, 100);
+    }
+
+    #[test]
+    fn representative_small_repository_estimate_keeps_a_conservative_range() {
+        let repository = tempdir().unwrap();
+        let paths = (0..291)
+            .map(|index| format!("src/file-{index}.rs"))
+            .collect::<Vec<_>>();
+        let estimate = build(repository.path(), &paths, &config::default_config());
+
+        // The audit regression that motivated this fixture observed an
+        // approximately 88 MiB first-run peak and a scan longer than six
+        // seconds at this path count. Keep those observations inside the
+        // advertised conservative envelope without claiming benchmark-grade
+        // calibration.
+        assert!(estimate.estimated_peak_memory_high_bytes >= 88 * 1024 * 1024);
+        assert!(estimate.estimated_seconds >= 6);
+        assert!(
+            estimate.estimated_peak_memory_low_bytes < estimate.estimated_peak_memory_high_bytes
+        );
     }
 
     #[test]

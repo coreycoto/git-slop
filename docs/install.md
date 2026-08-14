@@ -3,7 +3,7 @@
 Git Slop is distributed as one `git-slop` executable. When it is on `PATH`, Git
 also accepts `git slop`.
 
-The examples below pin 0.12.1. Confirm that the requested distribution surface
+The examples below pin 0.13.0. Confirm that the requested distribution surface
 publishes that exact version before installing it; documentation on `main` does
 not itself prove availability.
 
@@ -28,6 +28,9 @@ git-slop version
 git-slop build-info --format json
 ```
 
+Uninstall with `brew uninstall coreycoto/tap/git-slop`; remove the tap with
+`brew untap coreycoto/tap` only when no other formula from it is needed.
+
 The existing `coreycoto/tap/git-slop` formula name is stable across the Rust
 migration, so an existing Homebrew installation upgrades in place. The Formula
 generates and installs Bash, Zsh, and Fish completions from the installed
@@ -38,6 +41,34 @@ a matching bottle when one is available and falls back to the Formula's exact,
 SHA-256-pinned `git-slop-<version>.crate` source build on other supported
 systems.
 
+## Cargo Binstall
+
+The crate publishes [Cargo Binstall](https://github.com/cargo-bins/cargo-binstall)
+metadata for the checksummed native release
+archives. After the exact crate and GitHub Release are public, install the
+pinned version without compiling it locally:
+
+```bash
+cargo binstall git-slop@0.13.0
+git-slop version
+git-slop build-info --format json
+```
+
+For unattended CI, add `--no-confirm`. Binstall resolves metadata through the
+published crate and downloads the matching GitHub Release archive. It is a
+transport convenience, not a separate source identity; continue to verify
+`build-info` and the requested version. If no supported archive matches,
+Binstall may offer a source-build fallback, which should be treated as a
+different installation path.
+
+Update to another explicitly reviewed version by changing the pin and using
+`--force`; uninstall through Cargo's shared binary registry:
+
+```bash
+cargo binstall --force git-slop@0.13.0
+cargo uninstall git-slop
+```
+
 ## Scoop
 
 Scoop is the supported Windows package-manager path beginning with 0.9.5. The
@@ -46,7 +77,7 @@ manifest lives in the separate, public
 repository and consumes the existing Windows release archives; it is not an
 additional `git-slop` release asset.
 
-After the bucket lists 0.12.1, install it from PowerShell:
+After the bucket lists 0.13.0, install it from PowerShell:
 
 ```powershell
 scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket
@@ -102,7 +133,7 @@ Download the archive plus `SHA256SUMS`, verify the exact filename, then place
 `git-slop` (`git-slop.exe` on Windows) on `PATH`. For example:
 
 ```bash
-release=v0.12.1
+release=v0.13.0
 target=x86_64-unknown-linux-gnu
 gh release download "$release" \
   --repo coreycoto/git-slop \
@@ -138,14 +169,14 @@ also available from `git slop schema release-manifest`.
 Verify the release record itself before downloading assets:
 
 ```bash
-gh release verify v0.12.1 --repo coreycoto/git-slop
+gh release verify v0.13.0 --repo coreycoto/git-slop
 ```
 
 For a direct Windows x86-64 install from PowerShell (use
 `aarch64-pc-windows-msvc` on Windows ARM64):
 
 ```powershell
-$Release = "v0.12.1"
+$Release = "v0.13.0"
 $Target = "x86_64-pc-windows-msvc"
 $Archive = "git-slop-$Release-$Target.zip"
 gh release download $Release --repo coreycoto/git-slop --pattern $Archive --pattern SHA256SUMS
@@ -162,6 +193,14 @@ Copy-Item "git-slop-$Release-$Target\git-slop.exe" $Install
 ```
 
 Start a new shell after updating the user `PATH`.
+
+For a direct archive update, verify the new archive and atomically replace the
+same executable and manual targets. To uninstall the Unix example, remove
+`$HOME/.local/bin/git-slop` and
+`$HOME/.local/share/man/man1/git-slop.1` plus any completion files you created.
+For the PowerShell example, remove
+`$env:LOCALAPPDATA\Programs\git-slop` and then remove only that exact directory
+from the user `Path` value.
 
 ## Shell Completions
 
@@ -187,16 +226,16 @@ PowerShell and Nushell use `git-slop completions powershell` and
 `git-slop completions nushell` respectively.
 
 GitHub also publishes artifact attestations for every native archive. The
-schema-3 manifest contains these exact commands; for `v0.12.1` they are:
+schema-3 manifest contains these exact commands; for `v0.13.0` they are:
 
 ```bash
-gh attestation verify git-slop-v0.12.1-aarch64-apple-darwin.tar.gz --repo coreycoto/git-slop
-gh attestation verify git-slop-v0.12.1-aarch64-pc-windows-msvc.zip --repo coreycoto/git-slop
-gh attestation verify git-slop-v0.12.1-aarch64-unknown-linux-gnu.tar.gz --repo coreycoto/git-slop
-gh attestation verify git-slop-v0.12.1-x86_64-apple-darwin.tar.gz --repo coreycoto/git-slop
-gh attestation verify git-slop-v0.12.1-x86_64-pc-windows-msvc.zip --repo coreycoto/git-slop
-gh attestation verify git-slop-v0.12.1-x86_64-unknown-linux-gnu.tar.gz --repo coreycoto/git-slop
-gh attestation verify git-slop-v0.12.1-x86_64-unknown-linux-musl.tar.gz --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.13.0-aarch64-apple-darwin.tar.gz --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.13.0-aarch64-pc-windows-msvc.zip --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.13.0-aarch64-unknown-linux-gnu.tar.gz --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.13.0-x86_64-apple-darwin.tar.gz --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.13.0-x86_64-pc-windows-msvc.zip --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.13.0-x86_64-unknown-linux-gnu.tar.gz --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.13.0-x86_64-unknown-linux-musl.tar.gz --repo coreycoto/git-slop
 ```
 
 Release tags through `v0.10.1` are lightweight tags whose target commit is
@@ -226,12 +265,19 @@ and explains why the manifest is not a circular root.
 Install the canonical crates.io package directly:
 
 ```bash
-cargo install git-slop --version 0.12.1 --locked
+cargo install git-slop --version 0.13.0 --locked
 git-slop build-info --format json
 ```
 
-For a verified 0.12.1 release, `source_revision` is the full commit named by
-`v0.12.1` and `source_dirty` is `false`. A local source build can report `null`
+Update and uninstall explicitly:
+
+```bash
+cargo install git-slop --version 0.13.0 --locked --force
+cargo uninstall git-slop
+```
+
+For a verified 0.13.0 release, `source_revision` is the full commit named by
+`v0.13.0` and `source_dirty` is `false`. A local source build can report `null`
 for provenance it cannot prove; that is not equivalent to a release build.
 
 CI jobs should prefer the repository's GitHub Action or a checksummed prebuilt

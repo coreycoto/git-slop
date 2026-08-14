@@ -14,7 +14,7 @@ token, applies a 16 MiB download bound, checks its SHA-256 against the manifest,
 and verifies the package's embedded clean VCS revision. Native archives and
 their manifest entries are each limited to 128 MiB.
 
-The examples below pin `v0.12.1`. Use them only after its verified GitHub
+The examples below pin `v0.13.0`. Use them only after its verified GitHub
 Release is public and the Marketplace listing resolves; a source tag or
 documentation on `main` is not an availability proof.
 
@@ -49,7 +49,7 @@ jobs:
 
       - name: Analyze repository health
         id: git-slop
-        uses: coreycoto/git-slop@v0.12.1
+        uses: coreycoto/git-slop@v0.13.0
 ```
 
 The default is advisory:
@@ -144,7 +144,7 @@ publishes the report and job summary before it evaluates the gate:
 
 ```yaml
       - name: Analyze and enforce repository health
-        uses: coreycoto/git-slop@v0.12.1
+        uses: coreycoto/git-slop@v0.13.0
         with:
           policy: enforce
 ```
@@ -179,6 +179,112 @@ regression enforcement:
 The Action invokes `git-slop compare`; it has no second JavaScript comparator.
 Scope, tokenizer, analyzer, config, repository, and history mismatches fail
 closed. `baseline-force: "true"` records and permits exact intentional mismatches.
+
+## Practical recipes
+
+### Pull-request regression ratchet
+
+Scan the exact pull-request base SHA in an isolated worktree and fail only on
+native regression movement:
+
+```yaml
+permissions:
+  contents: read
+
+steps:
+  - uses: actions/checkout@v7
+    with:
+      fetch-depth: 0
+  - uses: coreycoto/git-slop@v0.13.0
+    with:
+      mode: regression
+      baseline-ref: ${{ github.event.pull_request.base.sha }}
+      artifact-contents: report
+```
+
+`fetch-depth: 0` is required for complete history and ancestor validation. Do
+not use an untrusted pull-request artifact as `baseline-report` merely to avoid
+fetching the base revision.
+
+### Monorepo package scope
+
+Scope inventory while retaining repository-wide Git evidence:
+
+```yaml
+  - uses: coreycoto/git-slop@v0.13.0
+    with:
+      scope: packages/api
+      report-profile: compact
+```
+
+Use the same scope, tokenizer, and effective analysis configuration on both
+sides of a comparison. A scope change is a compatibility change, not a passing
+delta.
+
+### Fork-safe pull requests
+
+Keep the workflow read-only. Job summaries, bounded annotations, and artifacts
+need no write token:
+
+```yaml
+permissions:
+  contents: read
+
+steps:
+  - uses: actions/checkout@v7
+    with:
+      fetch-depth: 0
+      persist-credentials: false
+  - uses: coreycoto/git-slop@v0.13.0
+    with:
+      mode: advisory
+      pr-comment: "false"
+      token-cache: "false"
+```
+
+Do not move this analysis to `pull_request_target`, pass repository secrets to
+fork code, or enable pull-request comments merely for presentation.
+
+### Scheduled repository health
+
+Use a scheduled full-history run to watch absolute state without changing pull
+request policy:
+
+```yaml
+on:
+  schedule:
+    - cron: "23 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: coreycoto/git-slop@v0.13.0
+        with:
+          mode: advisory
+          artifact-contents: report
+          retention-days: 30
+```
+
+### Promotion path
+
+Promote deliberately, using the same report contract throughout:
+
+1. Start with `mode: advisory` to establish runtime and finding quality.
+2. Add `baseline-ref` and `mode: regression` to block only new or worsened
+   findings.
+3. Tune committed configuration from reviewed evidence, not from a desired
+   green check.
+4. Move to `mode: absolute` only when every current configured breach is owned.
+5. Enable `pr-comment` last, with explicit `pull-requests: write`, if comments
+   materially improve review beyond summaries and annotations.
 
 ## Artifacts
 
@@ -217,7 +323,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.12.1
+  - uses: coreycoto/git-slop@v0.13.0
     with:
       pr-comment: "true"
 ```
@@ -230,7 +336,7 @@ report remains in the job summary and artifact.
 
 | Input | Default | Purpose |
 | --- | --- | --- |
-| `version` | `0.12.1` | Prebuilt release version to download and verify after that release is public |
+| `version` | `0.13.0` | Prebuilt release version to download and verify after that release is public |
 | `mode` | empty | Simple preset: `advisory`, `absolute`, or `regression`; when set, it overrides `policy` and `enforcement` only |
 | `release-repository` | `coreycoto/git-slop` | Repository containing release assets |
 | `target` | empty | Compatible release target override |
@@ -312,7 +418,7 @@ The Action will be published from this repository's verified stable GitHub
 Release under the **Code quality** and **Continuous integration** categories.
 That first listing requires a maintainer to select GitHub's Marketplace checkbox
 in the draft-release UI, confirm the categories and agreement, and complete
-2FA. Marketplace and direct `uses: coreycoto/git-slop@v0.12.1` installation then
+2FA. Marketplace and direct `uses: coreycoto/git-slop@v0.13.0` installation then
 resolve the same root `action.yml` and release provenance. For
 higher-assurance consumers, pin the Action itself to the full release commit
 SHA; the Action's own nested dependencies are already pinned to full commit

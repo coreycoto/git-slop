@@ -31,6 +31,7 @@ pub(super) fn validate_release_canary(jobs: &Mapping, name: &str, errors: &mut V
     };
     for required in [
         "gh workflow run dependency-remediation.yml",
+        "--repo \"$GITHUB_REPOSITORY\"",
         "--ref main",
         "--field mode=canary",
         "--field release_tag=\"$TAG\"",

@@ -82,6 +82,12 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
         .transpose()
         .context("--as-of must be an RFC 3339 timestamp")?
         .map(|value| value.with_timezone(&chrono::Utc));
+    let ephemeral_root = args
+        .ephemeral
+        .then(|| config::git_runtime_dir(repo_root).map(|path| path.join("ephemeral")))
+        .transpose()?;
+    let state_dir = ephemeral_root.clone().or(args.state_dir);
+    let output_dir = ephemeral_root.or(args.output_dir);
     let result = analyze::run_find_with_options(
         repo_root,
         &analyze::FindOptions {
@@ -89,9 +95,9 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
             scope: args.scope,
             progress: !args.quiet && !args.no_progress && std::io::stderr().is_terminal(),
             allow_empty_scope: args.allow_empty_scope,
-            state_dir: args.state_dir,
-            output_dir: args.output_dir,
-            no_cache: args.no_cache,
+            state_dir,
+            output_dir,
+            no_cache: args.no_cache || args.ephemeral,
             allow_degraded: args.allow_degraded,
             as_of,
             report_profile: args.report_profile.as_str().to_string(),
@@ -102,6 +108,7 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
         return Ok(0);
     }
     print_text(&result.terminal);
+    print_scan_receipt(&result);
     println!("Wrote report to {}.", result.report_json.display());
     if result.report_yaml.exists() {
         println!("Wrote YAML report to {}.", result.report_yaml.display());
@@ -252,19 +259,21 @@ fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
     let canonical_report_path = report_path
         .canonicalize()
         .unwrap_or_else(|_| report_path.clone());
-    let report_command_path = if args.include_local_paths {
-        canonical_report_path
-            .strip_prefix(&canonical_repo_root)
-            .unwrap_or(canonical_report_path.as_path())
-            .to_string_lossy()
-            .replace('\\', "/")
-    } else {
-        "<SOURCE_REPORT>".to_string()
-    };
+    let repo_relative_report = canonical_report_path
+        .strip_prefix(&canonical_repo_root)
+        .ok()
+        .map(|path| path.to_string_lossy().replace('\\', "/"));
+    let report_command_path = repo_relative_report.clone().unwrap_or_else(|| {
+        if args.include_local_paths {
+            canonical_report_path.to_string_lossy().replace('\\', "/")
+        } else {
+            "<SOURCE_REPORT>".to_string()
+        }
+    });
     let quoted_report = format!("'{}'", report_command_path.replace('\'', "'\\''"));
     payload["source_report"] = json!({
-        "path": args.include_local_paths.then_some(report_command_path.clone()),
-        "descriptor": if args.include_local_paths { "local_path" } else { "logical_source_report" },
+        "path": repo_relative_report.or_else(|| args.include_local_paths.then_some(report_command_path.clone())),
+        "descriptor": if canonical_report_path.starts_with(&canonical_repo_root) { "repo_relative" } else if args.include_local_paths { "local_path" } else { "logical_source_report" },
         "sha256": report_digest,
         "baseline_name": baseline_name,
     });

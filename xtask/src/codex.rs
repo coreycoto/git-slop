@@ -6,6 +6,8 @@ mod runtime_tests;
 #[cfg(test)]
 mod tests;
 
+include!("codex/product_documentation.rs");
+
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
@@ -1075,6 +1077,7 @@ fn validate_product_documentation(repo_root: &Path, errors: &mut Vec<String>) {
         &[],
         errors,
     );
+    validate_product_documentation_additions(repo_root, errors);
 }
 
 fn validate_normalized_contract(

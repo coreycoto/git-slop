@@ -349,6 +349,7 @@ pub fn write_report_bundle(analysis: &Analysis, health: &HealthRollup) -> Result
         health_md: latest.join("health.md"),
         compressed_report,
         terminal,
+        elapsed_ms: 0,
     })
 }
 

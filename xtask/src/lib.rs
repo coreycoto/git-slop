@@ -1,5 +1,6 @@
 pub mod codex;
 pub mod crates_io;
+pub mod developer;
 pub mod distribution;
 pub mod homebrew;
 pub mod issue_forms;

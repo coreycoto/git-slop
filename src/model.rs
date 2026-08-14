@@ -278,6 +278,8 @@ pub struct FindResult {
     pub health_md: PathBuf,
     pub compressed_report: Option<PathBuf>,
     pub terminal: String,
+    /// End-to-end analysis and report-publication elapsed time.
+    pub elapsed_ms: u128,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

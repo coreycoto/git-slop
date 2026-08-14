@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.13.0 - 2026-08-14
+
+This release removes the remaining first-run, report-currentness, and
+maintenance-workflow friction found in the complete 0.12.1 user and developer
+experience audit.
+
+### Safe adoption and current evidence
+
+- Keep scan locks, owner sidecars, reports, caches, prompt packs, diagnostics,
+  and recovery backups Git-private so a clean adopted repository remains clean
+  and comparison-ready.
+- Add read-only adoption checks, selective repair, ignore-only repair, and
+  Git-private ephemeral scans without replacing repository configuration.
+- Distinguish current, stale, unverified, invalid, and missing reports using
+  revision, worktree, analyzer, configuration, scope, and age evidence; expose
+  explicit currentness gates for local and CI consumers.
+- Make configuration and generated-output writes atomic, retain recovery
+  backups, and require preview-then-confirm behavior for pruning and baseline
+  removal.
+
+### Clearer CLI and maintenance workflows
+
+- Print complete scan receipts, skipped-path explanations, conservative
+  resource estimates, classification-aware health summaries, and
+  copy-pasteable repo-relative plan and baseline commands.
+- Keep source findings actionable while presenting generated, fixture,
+  vendored, documentation, and data evidence as investigation context.
+- Expand baseline errors, lifecycle guidance, troubleshooting, worked examples,
+  and the generated CLI reference with defaults, values, conflicts, machine
+  contracts, exit codes, and one example for every command.
+
+### Distribution and contributor experience
+
+- Add exact install, update, removal, and verification recipes for every
+  package-manager and Agent Plugin client, plus practical advisory, regression,
+  monorepo, fork-safe, scheduled, and promotion Action recipes.
+- Record that existing static artifacts satisfy the validated editor workflows;
+  no first-party extension, language server, watcher, or background detector is
+  planned without a reproducible missing contract.
+- Add tested changed-surface classification, contributor doctor and complete CI
+  commands, stronger issue intake, real module boundaries, faster hermetic
+  Action tests, lane timing, concurrency cancellation, and an aggregate hosted
+  validation gate.
+
 ## 0.12.1 - 2026-08-12
 
 This patch republishes the complete 0.12.0 payload under a recoverable GitHub

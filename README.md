@@ -37,14 +37,20 @@ Then run Git Slop inside any Git repository:
 ```bash
 git slop init
 git slop find
-git slop health
 git slop explain --top 5
 ```
 
 `init` creates a repo-owned configuration and ignore rules. `find` performs the
-analysis once; the other commands read the generated report without rescoring
-it. Run from a full-history checkout when age, churn, coupling, and stewardship
-evidence matter.
+analysis once and prints the concise health view; the other commands read the
+generated report without rescoring it. Use `git slop health --format markdown`
+when you want to re-render the full dashboard. Run from a full-history checkout
+when age, churn, coupling, and stewardship evidence matter.
+
+For a no-adoption first look, keep state and output under Git-private storage:
+
+```bash
+git slop find --ephemeral
+```
 
 The health dashboard points to the next useful command. After reviewing a
 finding, ask Git Slop for a bounded maintenance proposal:
@@ -113,7 +119,7 @@ Routine generated output stays untracked. Commit `.slop/config.yaml` and
 
 ## Install
 
-The examples below pin the 0.12.1 release identity. Use each command only after
+The examples below pin the 0.13.0 release identity. Use each command only after
 that exact version is published on the requested distribution surface;
 documentation or a source tag is not proof that every surface is available.
 
@@ -129,7 +135,7 @@ brew install coreycoto/tap/git-slop
 ### Cargo (Crates.io)
 
 ```bash
-cargo install git-slop --version 0.12.1 --locked
+cargo install git-slop --version 0.13.0 --locked
 ```
 
 ### Scoop (Windows)
@@ -161,7 +167,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.12.1
+  - uses: coreycoto/git-slop@v0.13.0
 ```
 
 The Action is advisory by default. It verifies the native release, writes the
@@ -182,12 +188,17 @@ comments are explicit opt-ins. See [GitHub Action](docs/github-action.md).
 | `git slop plan` | Propose bounded maintenance slices from reviewed evidence |
 | `git slop check` | Apply the stable detector gate |
 | `git slop compare` | Compare two existing reports without rerunning analysis |
+| `git slop baseline` | Create, inspect, update, validate, or safely remove named baselines |
 | `git slop sarif` | Export action-queue findings as SARIF 2.1.0 |
 | `git slop config` | Inspect, validate, migrate, or describe configuration |
 | `git slop doctor` | Diagnose repository readiness and resource estimates |
 | `git slop list` | List versioned findings, relationships, clusters, or profiles |
 | `git slop prune` | Preview or remove retained immutable run snapshots |
+| `git slop cache` | Inspect or prune the packed token cache |
 | `git slop completions` | Generate completion source from the live command tree |
+| `git slop man` | Generate the roff manual from the live command tree |
+| `git slop reference` | Generate the Markdown CLI reference from the live command tree |
+| `git slop schema` | Print a published machine-contract schema |
 | `git slop html` | Write a self-contained local report browser |
 | `git slop version` | Print the installed version |
 | `git slop build-info` | Print machine-readable package and source provenance |
@@ -205,7 +216,7 @@ planning, and adoption workflows.
 
 Start with `git slop doctor`; see [Troubleshooting](docs/troubleshooting.md),
 [Configuration Recipes](docs/config-recipes.md), the neutral [Worked
-Example](docs/worked-example.md), and the [0.12.1 release notes](CHANGELOG.md).
+Example](docs/worked-example.md), and the [0.13.0 release notes](CHANGELOG.md).
 
 ## Trust Boundaries
 
@@ -232,6 +243,8 @@ in the [release trust graph](docs/release-trust.md).
 - [Configuration Recipes](docs/config-recipes.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Worked Example](docs/worked-example.md)
+- [Named Baselines](docs/baselines.md)
+- [Editor-Adjacent Workflows](docs/editor-integrations.md)
 - [Report and Config Contract](docs/report-contract.md)
 - [.slop Directory Policy](docs/slop-directory.md)
 - [Scoring Model](docs/scoring-model.md)
@@ -242,6 +255,7 @@ in the [release trust graph](docs/release-trust.md).
 - [Changelog](CHANGELOG.md)
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
+- [Agent Plugin Client Recipes](plugins/git-slop/CLIENTS.md)
 - [Brand Mark](assets/brand/README.md)
 
 ## Sponsors

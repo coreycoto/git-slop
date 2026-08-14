@@ -234,6 +234,7 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
 }
 
 fn run_prune(repo_root: &Path, args: PruneArgs) -> Result<i32> {
+    let dry_run = args.dry_run || !args.yes;
     let loaded = config::load(repo_root).unwrap_or_else(|_| config::default_config());
     let keep = args
         .keep
@@ -246,7 +247,8 @@ fn run_prune(repo_root: &Path, args: PruneArgs) -> Result<i32> {
         let payload = json!({
             "schema_version": 1,
             "command": "prune",
-            "dry_run": args.dry_run,
+            "dry_run": dry_run,
+            "apply_flag": "--yes",
             "limits": {"max_runs": keep, "max_bytes": max_bytes},
             "before": {"runs": 0, "bytes": 0},
             "selected": [],
@@ -296,7 +298,7 @@ fn run_prune(repo_root: &Path, args: PruneArgs) -> Result<i32> {
         for (entry, _) in &remove {
             println!(
                 "{} {}",
-                if args.dry_run {
+                if dry_run {
                     "Would remove"
                 } else {
                     "Removing"
@@ -306,7 +308,7 @@ fn run_prune(repo_root: &Path, args: PruneArgs) -> Result<i32> {
         }
     }
     for (entry, _) in &remove {
-        if !args.dry_run {
+        if !dry_run {
             fs::remove_dir_all(entry.path())?;
         }
     }
@@ -314,17 +316,18 @@ fn run_prune(repo_root: &Path, args: PruneArgs) -> Result<i32> {
     let payload = json!({
         "schema_version": 1,
         "command": "prune",
-        "dry_run": args.dry_run,
+        "dry_run": dry_run,
+        "apply_flag": "--yes",
         "limits": {"max_runs": keep, "max_bytes": max_bytes},
         "before": {"runs": before_runs, "bytes": before_bytes},
         "selected": selected,
         "removed": {"runs": remove.len(), "bytes": removed_bytes},
-        "after": {"runs": retained_runs, "bytes": retained_bytes, "projected": args.dry_run}
+        "after": {"runs": retained_runs, "bytes": retained_bytes, "projected": dry_run}
     });
     match args.format {
         DisplayFormat::Text => println!(
             "{} {} old run snapshot(s) ({} bytes); retained {} run(s) ({} bytes).",
-            if args.dry_run { "Selected" } else { "Pruned" },
+            if dry_run { "Selected" } else { "Pruned" },
             remove.len(),
             removed_bytes,
             retained_runs,
@@ -332,6 +335,9 @@ fn run_prune(repo_root: &Path, args: PruneArgs) -> Result<i32> {
         ),
         DisplayFormat::Json => print_text(&render_json(&payload)?),
         DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
+    }
+    if dry_run && args.format == DisplayFormat::Text && !remove.is_empty() {
+        println!("Preview only; re-run with --yes to apply these removals.");
     }
     Ok(0)
 }

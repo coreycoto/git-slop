@@ -112,7 +112,7 @@ pub(crate) fn normalize_scope(value: Option<&str>) -> Result<Option<String>> {
     Ok((!normalized.is_empty()).then_some(normalized))
 }
 
-fn selected_path_digest(paths: &[String]) -> String {
+pub(crate) fn selected_path_digest(paths: &[String]) -> String {
     let mut digest = Sha256::new();
     for path in paths {
         digest.update(path.as_bytes());
@@ -271,6 +271,8 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
     let mut repo = git::repo_metadata(repo_root)?;
     let runtime_exclusions = [
         state_root.join("cache"),
+        state_root.join("scan.lock"),
+        state_root.join("scan.lock.owner"),
         output_root.join("latest"),
         output_root.join("runs"),
     ]
@@ -659,10 +661,7 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
             .get("classification")
             .and_then(Value::as_str)
             .unwrap_or("other");
-        let actionable = !matches!(
-            classification,
-            "generated" | "vendored" | "snapshot" | "fixture" | "migration_fixture"
-        );
+        let actionable = classification == "source";
         let supported = item.get("evidence_status").and_then(Value::as_str) == Some("supported")
             || item.get("is_pure_context_hotspot").and_then(Value::as_bool) == Some(true);
         actionable
@@ -751,8 +750,9 @@ pub fn run_find_with_options(repo_root: &Path, options: &FindOptions) -> Result<
         }),
     };
     let rollup = health::build_health_rollup(&analysis);
-    let result = report::write_report_bundle(&analysis, &rollup)?;
+    let mut result = report::write_report_bundle(&analysis, &rollup)?;
     phase("report writing");
+    result.elapsed_ms = started.elapsed().as_millis();
     if result.report.get("schema_version").and_then(Value::as_u64) != Some(5) {
         bail!("internal error: report writer did not produce schema 5");
     }

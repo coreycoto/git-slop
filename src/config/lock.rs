@@ -23,7 +23,7 @@ impl Drop for ScanLock {
 pub fn acquire_scan_lock(state_root: &Path) -> Result<ScanLock> {
     fs::create_dir_all(state_root).with_context(|| {
         format!(
-            "failed to create Git-private runtime directory {}",
+            "failed to create mutable scan-state directory {}",
             state_root.display()
         )
     })?;
