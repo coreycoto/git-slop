@@ -10,6 +10,11 @@ fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
         .into());
     }
     let (loaded, _) = report_or_missing(repo_root, args.report.as_deref())?;
+    let freshness = if args.require_current {
+        Some(require_current_report(repo_root, &loaded)?)
+    } else {
+        None
+    };
     let readiness = crate::report_ops::evaluate_report_readiness(
         &loaded,
         false,
@@ -65,6 +70,7 @@ fn run_check(repo_root: &Path, args: CheckArgs) -> Result<i32> {
                     "finding_count": failures.len(),
                     "details_included": args.details,
                     "gate_scope": if args.include_folders { "files_and_folders" } else { "files" },
+                    "freshness": freshness,
                 });
                 if args.details {
                     let findings = failures

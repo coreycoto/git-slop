@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -10,7 +10,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -70,26 +69,6 @@ function outputs(path) {
     result[name] = values.join("\n");
   }
   return result;
-}
-
-function runNode(script, environment) {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [script], {
-      env: isolatedActionEnvironment(environment),
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("close", (status) => resolve({ status, stdout, stderr }));
-  });
 }
 
 function runArchiveTar(archivePath, operationArguments, trailingArguments = [], options = {}) {
@@ -379,17 +358,18 @@ if (process.argv[2] === "version") {
       return assets;
     }
 
-    let apiRoot;
-    const server = createServer((request, response) => {
-      if (request.url === `/repos/example/git-slop/releases/tags/${tag}`) {
+    const apiRoot = "https://git-slop-action.test";
+    const fixtureFetch = async (input, options = {}) => {
+      const requested = new URL(String(input));
+      const path = requested.pathname;
+      const headers = new Headers(options.headers);
+      const response = (body, init = {}) => new Response(body, init);
+      if (path === `/repos/example/git-slop/releases/tags/${tag}`) {
         releaseTagRequests += 1;
         if (releaseDraft) {
-          response.statusCode = 404;
-          response.end("not found");
-          return;
+          return response("not found", { status: 404 });
         }
-        response.setHeader("content-type", "application/json");
-        response.end(
+        return response(
           JSON.stringify({
             id: servedReleaseId,
             tag_name: releaseTagName,
@@ -401,11 +381,12 @@ if (process.argv[2] === "version") {
             }`,
             assets: buildReleaseAssets(),
           }),
+          { headers: { "content-type": "application/json" } },
         );
-      } else if (request.url === `/repos/example/git-slop/releases/${draftReleaseId}`) {
+      }
+      if (path === `/repos/example/git-slop/releases/${draftReleaseId}`) {
         releaseIdRequests += 1;
-        response.setHeader("content-type", "application/json");
-        response.end(
+        return response(
           JSON.stringify({
             id: servedReleaseId,
             tag_name: releaseTagName,
@@ -417,10 +398,11 @@ if (process.argv[2] === "version") {
             }`,
             assets: buildReleaseAssets(),
           }),
+          { headers: { "content-type": "application/json" } },
         );
-      } else if (request.url === `/repos/example/git-slop/git/ref/tags/${tag}`) {
-        response.setHeader("content-type", "application/json");
-        response.end(
+      }
+      if (path === `/repos/example/git-slop/git/ref/tags/${tag}`) {
+        return response(
           JSON.stringify({
             ref: tagReferenceName,
             object: {
@@ -428,67 +410,98 @@ if (process.argv[2] === "version") {
               sha: tagReferenceType === "commit" ? servedTagRevision : annotatedTagSha,
             },
           }),
+          { headers: { "content-type": "application/json" } },
         );
-      } else if (request.url === `/repos/example/git-slop/git/tags/${annotatedTagSha}`) {
-        response.setHeader("content-type", "application/json");
-        response.end(
+      }
+      if (path === `/repos/example/git-slop/git/tags/${annotatedTagSha}`) {
+        return response(
           JSON.stringify({
             sha: annotatedTagSha,
             tag,
             object: { type: "commit", sha: servedTagRevision },
           }),
+          { headers: { "content-type": "application/json" } },
         );
-      } else if (request.url === "/assets/archive") {
-        archiveDownloadRequests += 1;
-        response.end(servedArchiveBytes);
-      } else if (request.url === "/assets/checksums") {
-        response.end(checksumBytes);
-      } else if (request.url === "/assets/manifest") {
-        response.end(manifestBytes);
-      } else if (request.url === "/assets/formula") {
-        response.end(servedFormulaBytes);
-      } else if (request.url === `/crates/git-slop/git-slop-${version}.crate`) {
-        crateDownloadRequests += 1;
-        crateAuthorizationObserved = request.headers.authorization ?? null;
-        if (crateContentLengthOverride !== null) {
-          response.setHeader("content-length", crateContentLengthOverride);
-        }
-        response.end(servedCrateBytes);
-      } else {
-        response.statusCode = 404;
-        response.end("not found");
       }
-    });
-    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const address = server.address();
-    apiRoot = `http://127.0.0.1:${address.port}`;
-    const installerHarness = join(root, "installer-harness.mjs");
-    writeFileSync(
-      installerHarness,
-      `const originalFetch = globalThis.fetch;
-globalThis.fetch = (input, options) => {
-  const url = String(input);
-  if (url.startsWith("https://static.crates.io/")) {
-    return originalFetch(process.env.GIT_SLOP_TEST_CRATES_ORIGIN + new URL(url).pathname, options);
-  }
-  return originalFetch(input, options);
-};
-const { main } = await import(${JSON.stringify(pathToFileURL(installer).href)});
-try {
-  await main();
-} catch (error) {
-  console.error("git-slop Action installation failed: " + (error instanceof Error ? error.message : String(error)));
-  process.exitCode = 1;
-}
-`,
-      "utf8",
-    );
-    const runInstaller = (environment) =>
-      runNode(installerHarness, {
+      if (path === "/assets/archive") {
+        archiveDownloadRequests += 1;
+        return response(servedArchiveBytes);
+      }
+      if (path === "/assets/checksums") return response(checksumBytes);
+      if (path === "/assets/manifest") return response(manifestBytes);
+      if (path === "/assets/formula") return response(servedFormulaBytes);
+      if (path === "/assets/cdx") return response(cdxBytes);
+      if (path === "/assets/spdx") return response(spdxBytes);
+      if (path === `/crates/git-slop/git-slop-${version}.crate`) {
+        crateDownloadRequests += 1;
+        crateAuthorizationObserved = headers.get("authorization");
+        const responseHeaders = {};
+        if (crateContentLengthOverride !== null) {
+          responseHeaders["content-length"] = crateContentLengthOverride;
+        }
+        return response(servedCrateBytes, { headers: responseHeaders });
+      }
+      return response("not found", { status: 404 });
+    };
+    let installerRun = 0;
+    const runInstaller = async (environment) => {
+      const runEnvironment = isolatedActionEnvironment({
         ...environment,
-        GIT_SLOP_TEST_CRATES_ORIGIN: apiRoot,
         GIT_SLOP_TEST_CRATE_SHA256: canonicalCrateSha256,
       });
+      const savedEnvironment = { ...process.env };
+      const savedFetch = globalThis.fetch;
+      const savedExitCode = process.exitCode;
+      const savedConsole = {
+        error: console.error,
+        log: console.log,
+        warn: console.warn,
+      };
+      let stdout = "";
+      let stderr = "";
+      let status = 0;
+      try {
+        for (const name of Object.keys(process.env)) delete process.env[name];
+        Object.assign(process.env, runEnvironment);
+        globalThis.fetch = (input, options) => {
+          const url = String(input);
+          if (url.startsWith("https://static.crates.io/")) {
+            return fixtureFetch(`${apiRoot}${new URL(url).pathname}`, options);
+          }
+          return fixtureFetch(input, options);
+        };
+        console.log = (...values) => {
+          stdout += `${values.join(" ")}\n`;
+        };
+        console.error = (...values) => {
+          stderr += `${values.join(" ")}\n`;
+        };
+        console.warn = (...values) => {
+          stderr += `${values.join(" ")}\n`;
+        };
+        process.exitCode = undefined;
+        installerRun += 1;
+        const { main } = await import(
+          `${pathToFileURL(installer).href}?hermetic-run=${installerRun}`
+        );
+        await main();
+        status = process.exitCode ?? 0;
+      } catch (error) {
+        stderr += `git-slop Action installation failed: ${
+          error instanceof Error ? error.message : String(error)
+        }\n`;
+        status = 1;
+      } finally {
+        for (const name of Object.keys(process.env)) delete process.env[name];
+        Object.assign(process.env, savedEnvironment);
+        globalThis.fetch = savedFetch;
+        process.exitCode = savedExitCode;
+        console.error = savedConsole.error;
+        console.log = savedConsole.log;
+        console.warn = savedConsole.warn;
+      }
+      return { status, stdout, stderr };
+    };
     function refreshMetadata() {
       manifestBytes = buildManifestBytes();
       const manifestDigest = createHash("sha256").update(manifestBytes).digest("hex");
@@ -645,19 +658,13 @@ try {
       },
     };
 
-    try {
-      await exerciseInstallAndCache(scenarioContext);
-      await exerciseDraftRelease(scenarioContext);
-      await exerciseTagIdentity(scenarioContext);
-      await exerciseCrateSource(scenarioContext);
-      await exerciseReleaseAssets(scenarioContext);
-      await exerciseArchiveLayout(scenarioContext);
-      await exerciseReleaseManifest(scenarioContext);
-    } finally {
-      await new Promise((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      );
-    }
+    await exerciseInstallAndCache(scenarioContext);
+    await exerciseDraftRelease(scenarioContext);
+    await exerciseTagIdentity(scenarioContext);
+    await exerciseCrateSource(scenarioContext);
+    await exerciseReleaseAssets(scenarioContext);
+    await exerciseArchiveLayout(scenarioContext);
+    await exerciseReleaseManifest(scenarioContext);
   },
 );
 

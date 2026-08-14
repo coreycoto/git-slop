@@ -8,6 +8,7 @@ pub mod cli;
 pub(crate) mod config;
 pub(crate) mod error;
 pub(crate) mod estimate;
+pub(crate) mod freshness;
 pub(crate) mod git;
 pub(crate) mod health;
 pub(crate) mod history;

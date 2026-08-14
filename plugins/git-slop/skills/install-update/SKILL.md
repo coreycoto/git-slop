@@ -67,8 +67,9 @@ git-slop build-info --format json
 ```
 
 The version must match the repository's pinned contract. For a published
-release, build-info schema 1 must report `project: "git-slop"`, the same version,
-the full canonical `source_revision`, and `source_dirty: false`. Reject a
+release, build-info schema 2 must report `project: "git-slop"`, the same version,
+the full canonical `source_revision`, target and crate identity, and
+`source_dirty: false`. Reject a
 release install with a missing or mismatched revision or a dirty source marker;
 the version string alone does not prove source identity. For Scoop, also run
 `git slop version` to prove the Git subcommand resolves through the installed

@@ -2,6 +2,9 @@
   "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/doctor-1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "adoption": {
+      "type": "object"
+    },
     "command": {
       "const": "doctor"
     },
@@ -41,6 +44,7 @@
     "scan_ready",
     "report_available",
     "repository",
+    "adoption",
     "config",
     "report",
     "estimate"

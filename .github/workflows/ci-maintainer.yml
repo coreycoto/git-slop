@@ -1,0 +1,160 @@
+name: CI maintainer validation
+
+on:
+  workflow_call:
+    inputs:
+      base-sha:
+        description: Base revision for changed-surface classification
+        required: false
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Start lane timer
+        id: lane-timer
+        shell: bash
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Lint workflows
+        uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+
+      - name: Report lane timing
+        if: always()
+        shell: bash
+        env:
+          LANE_STARTED: ${{ steps.lane-timer.outputs.started }}
+          LANE_RESULT: ${{ job.status }}
+        run: echo "### Workflow lint — $(($(date +%s) - LANE_STARTED))s — $LANE_RESULT" >> "$GITHUB_STEP_SUMMARY"
+
+  change-classification:
+    name: Changed-surface classification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Start lane timer
+        id: lane-timer
+        shell: bash
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Classify required validation gates
+        env:
+          BASE_SHA: ${{ inputs.base-sha }}
+        run: |
+          if [[ -n "$BASE_SHA" && ! "$BASE_SHA" =~ ^0+$ ]]; then
+            cargo xtask verify-changed --base "$BASE_SHA" --dry-run
+          else
+            cargo xtask verify-changed --dry-run
+          fi | tee changed-surfaces.txt
+          {
+            echo "### Changed-surface validation"
+            echo
+            echo '```text'
+            cat changed-surfaces.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report lane timing
+        if: always()
+        shell: bash
+        env:
+          LANE_STARTED: ${{ steps.lane-timer.outputs.started }}
+          LANE_RESULT: ${{ job.status }}
+        run: echo "### Change classification — $(($(date +%s) - LANE_STARTED))s — $LANE_RESULT" >> "$GITHUB_STEP_SUMMARY"
+
+  maintainer-contracts:
+    name: Maintainer contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Start lane timer
+        id: lane-timer
+        shell: bash
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          components: clippy,rustfmt
+
+      - name: Check maintainer formatting
+        run: cargo fmt --manifest-path xtask/Cargo.toml --all -- --check
+
+      - name: Lint maintainer tooling
+        run: cargo clippy --manifest-path xtask/Cargo.toml --all-targets --all-features --locked -- -D warnings
+
+      - name: Test maintainer tooling
+        run: cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
+
+      - name: Test agent-plugins runtime launcher
+        run: bash scripts/with-agent-plugins.test.sh
+
+      - name: Validate maintainer contracts
+        run: cargo xtask validate
+
+      - name: Report lane timing
+        if: always()
+        shell: bash
+        env:
+          LANE_STARTED: ${{ steps.lane-timer.outputs.started }}
+          LANE_RESULT: ${{ job.status }}
+        run: echo "### Maintainer contracts — $(($(date +%s) - LANE_STARTED))s — $LANE_RESULT" >> "$GITHUB_STEP_SUMMARY"
+
+  supply-chain:
+    name: Supply-chain policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Start lane timer
+        id: lane-timer
+        shell: bash
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Check advisories, licenses, and dependency sources
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check advisories licenses sources
+
+      - name: Report lane timing
+        if: always()
+        shell: bash
+        env:
+          LANE_STARTED: ${{ steps.lane-timer.outputs.started }}
+          LANE_RESULT: ${{ job.status }}
+        run: echo "### Supply chain — $(($(date +%s) - LANE_STARTED))s — $LANE_RESULT" >> "$GITHUB_STEP_SUMMARY"

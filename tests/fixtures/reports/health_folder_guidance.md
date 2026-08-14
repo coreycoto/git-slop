@@ -1,6 +1,6 @@
 # Repository Health
 
-❌ **Review required** — 1 file(s) and 2 folder(s) exceed configured refactor thresholds.
+⚠️ **Advisory** — no actionable file breach was found; 1 derived/classified file(s) and 2 folder(s) exceed context budgets as investigation context.
 
 - **Generated at:** `2026-08-06T12:00:00Z`
 - **Repo:** `health-folder-guidance`
@@ -67,7 +67,6 @@
 
 | Review severity | Path | Context/load band | Maintenance pressure | Why it surfaced | Next step |
 | --- | --- | --- | --- | --- | --- |
-| `error` | `src/files-only/generated.json` | `critical` | `high` · score 99.0 | 99,999 tokens exceed the configured fail threshold | `git slop explain --path src/files-only/generated.json` |
 | `warning` | `src/both/0.rs` | `compact` | `high` · score 80.0 | 900 tokens leave limited context headroom | `git slop explain --path src/both/0.rs` |
 | `warning` | `src/both/1.rs` | `compact` | `high` · score 79.0 | 900 tokens leave limited context headroom | `git slop explain --path src/both/1.rs` |
 | `warning` | `src/both/2.rs` | `compact` | `high` · score 78.0 | 900 tokens leave limited context headroom | `git slop explain --path src/both/2.rs` |

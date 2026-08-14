@@ -350,6 +350,11 @@ pub fn render_terminal(report: &Value) -> String {
         .and_then(Value::as_array)
         .map(Vec::as_slice)
         .unwrap_or(&[]);
+    let observation_count = report
+        .get("observation_feed")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
     let file_total = report
         .get("files")
         .and_then(Value::as_array)
@@ -396,6 +401,11 @@ pub fn render_terminal(report: &Value) -> String {
             usize_field(repo, "modified_tracked_file_count"),
             usize_field(repo, "untracked_file_count"),
         ),
+        format!(
+            "  review routing: source_interventions={} observation_only={} (non-source classification or unsupported evidence)",
+            queue.len(),
+            observation_count,
+        ),
         String::new(),
     ];
     if file_total == 0 {
@@ -427,6 +437,19 @@ pub fn render_terminal(report: &Value) -> String {
             usize_field(item, "age_days"),
             usize_field(item, "revisions_window"),
             float_field(item, "churn_pressure"),
+        ));
+    }
+    if queue.len() > limit {
+        lines.push(format!(
+            "Showing {limit} of {} intervention candidates. Run `git slop list findings --top {}` for the full bounded view.",
+            queue.len(),
+            queue.len()
+        ));
+    }
+    if observation_count > 0 {
+        lines.push(format!(
+            "{} additional record(s) are observation-only and intentionally omitted from the intervention table; inspect `git slop list findings --format json` for routing evidence.",
+            observation_count
         ));
     }
     lines.extend([

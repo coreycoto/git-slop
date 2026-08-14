@@ -192,11 +192,11 @@ pub fn worktree_state_excluding(
     ];
     if !excluded_roots.is_empty() {
         arguments.extend(["--".to_string(), ".".to_string()]);
-        arguments.extend(
-            excluded_roots
-                .iter()
-                .map(|path| format!(":(exclude,top){}/**", path.trim_matches('/'))),
-        );
+        for path in excluded_roots {
+            let path = path.trim_matches('/');
+            arguments.push(format!(":(exclude,top){path}"));
+            arguments.push(format!(":(exclude,top){path}/**"));
+        }
     }
     let output = Command::new("git")
         .current_dir(repo_root)

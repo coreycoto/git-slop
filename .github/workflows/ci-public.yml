@@ -1,0 +1,172 @@
+name: CI public validation
+
+on:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  public-rust:
+    name: Public Rust quality and packaging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Start lane timer
+        id: lane-timer
+        shell: bash
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          components: clippy,rustfmt
+
+      - name: Check formatting
+        run: cargo fmt -p git-slop -- --check
+
+      - name: Lint
+        run: cargo clippy -p git-slop --all-targets --all-features --locked -- -D warnings
+
+      - name: Test
+        run: cargo test -p git-slop --all-targets --all-features --locked
+
+      - name: Validate Cargo package
+        run: cargo package -p git-slop --locked
+
+      - name: Validate crates.io publication
+        run: cargo publish -p git-slop --dry-run --locked
+
+      - name: Report lane timing
+        if: always()
+        shell: bash
+        env:
+          LANE_STARTED: ${{ steps.lane-timer.outputs.started }}
+          LANE_RESULT: ${{ job.status }}
+        run: echo "### Public Rust — $(($(date +%s) - LANE_STARTED))s — $LANE_RESULT" >> "$GITHUB_STEP_SUMMARY"
+
+  action-tests:
+    name: Composite Action tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Start lane timer
+        id: lane-timer
+        shell: bash
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Test GitHub Action
+        run: node --test action/*.test.mjs
+
+      - name: Report lane timing
+        if: always()
+        shell: bash
+        env:
+          LANE_STARTED: ${{ steps.lane-timer.outputs.started }}
+          LANE_RESULT: ${{ job.status }}
+        run: echo "### Composite Action — $(($(date +%s) - LANE_STARTED))s — $LANE_RESULT" >> "$GITHUB_STEP_SUMMARY"
+
+  msrv:
+    name: Minimum supported Rust 1.85
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Start lane timer
+        id: lane-timer
+        shell: bash
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up minimum supported Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.85.0
+
+      - name: Check public package on MSRV
+        run: cargo check -p git-slop --all-targets --all-features --locked
+
+      - name: Report lane timing
+        if: always()
+        shell: bash
+        env:
+          LANE_STARTED: ${{ steps.lane-timer.outputs.started }}
+          LANE_RESULT: ${{ job.status }}
+        run: echo "### MSRV — $(($(date +%s) - LANE_STARTED))s — $LANE_RESULT" >> "$GITHUB_STEP_SUMMARY"
+
+  platform-smoke:
+    name: Native smoke (${{ matrix.os }})
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2025
+          - windows-11-arm
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - name: Start lane timer
+        id: lane-timer
+        shell: bash
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node.js for Windows Action tests
+        if: runner.os == 'Windows'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Run tests
+        run: cargo test -p git-slop --all-targets --all-features --locked
+
+      - name: Build release binary
+        run: cargo build -p git-slop --release --locked
+
+      - name: Smoke release binary
+        if: runner.os != 'Windows'
+        run: ./target/release/git-slop version
+
+      - name: Smoke release binary on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\target\release\git-slop.exe version
+
+      - name: Test GitHub Action on Windows
+        if: runner.os == 'Windows'
+        run: node --test action/install.test.mjs
+
+      - name: Report lane timing
+        if: always()
+        shell: bash
+        env:
+          LANE_STARTED: ${{ steps.lane-timer.outputs.started }}
+          LANE_RESULT: ${{ job.status }}
+        run: echo "### Native smoke (${{ matrix.os }}) — $(($(date +%s) - LANE_STARTED))s — $LANE_RESULT" >> "$GITHUB_STEP_SUMMARY"

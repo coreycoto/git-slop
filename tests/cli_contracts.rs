@@ -499,7 +499,7 @@ fn prompt_pack_rejects_report_metadata_absolute_and_symlink_escape_paths() {
 }
 
 #[test]
-fn plan_local_paths_are_opt_in_and_do_not_become_source_candidates() {
+fn plan_uses_safe_repo_relative_paths_without_exposing_external_local_paths() {
     let report = fixture("relationship_focused_report.json");
     let output = cargo_bin_cmd!("git-slop")
         .current_dir(manifest_dir())
@@ -516,15 +516,16 @@ fn plan_local_paths_are_opt_in_and_do_not_become_source_candidates() {
         .expect("run plan");
     assert!(output.status.success());
     let payload: Value = serde_json::from_slice(&output.stdout).expect("plan JSON");
-    assert_eq!(payload["source_report"]["path"], Value::Null);
     assert_eq!(
-        payload["source_report"]["descriptor"],
-        "logical_source_report"
+        payload["source_report"]["path"],
+        "tests/fixtures/reports/relationship_focused_report.json"
     );
+    assert_eq!(payload["source_report"]["descriptor"], "repo_relative");
     assert!(
         payload["proposed_slices"][0]["baseline_command"]
             .as_str()
-            .is_some_and(|command| command.contains("<SOURCE_REPORT>"))
+            .is_some_and(|command| command
+                .contains("tests/fixtures/reports/relationship_focused_report.json"))
     );
 }
 
@@ -566,6 +567,6 @@ fn init_writes_schema_two_config_ignore_rules_and_state_directories() {
 
     assert_eq!(
         fs::read_to_string(gitignore_path).expect("read generated .gitignore"),
-        "/latest/\n/runs/\n/cache/\n/scan.lock\n"
+        "/latest/\n/runs/\n/cache/\n/scan.lock\n/scan.lock.owner\n/prompt-packs/\n/diagnostic-bundle.json\n/config.yaml.bak\n/.gitignore.bak\n"
     );
 }

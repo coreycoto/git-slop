@@ -49,6 +49,47 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
                 ".github/ISSUE_TEMPLATE/{filename} must define a non-empty body."
             ));
         }
+        if filename == "bug.yml" {
+            let entries = payload
+                .get(Value::String("body".into()))
+                .and_then(Value::as_sequence)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_mapping)
+                .collect::<Vec<_>>();
+            let ids = entries
+                .iter()
+                .filter_map(|entry| string_field(entry, "id"))
+                .collect::<std::collections::BTreeSet<_>>();
+            for required in [
+                "version",
+                "build-info",
+                "platform",
+                "installation",
+                "command-error",
+                "doctor-bundle",
+            ] {
+                if !ids.contains(required) {
+                    errors.push(format!(
+                        ".github/ISSUE_TEMPLATE/bug.yml must collect {required:?}."
+                    ));
+                }
+            }
+            let doctor_bundle_is_optional = entries.iter().any(|entry| {
+                string_field(entry, "id") == Some("doctor-bundle")
+                    && entry
+                        .get(Value::String("validations".into()))
+                        .and_then(Value::as_mapping)
+                        .and_then(|validations| validations.get(Value::String("required".into())))
+                        .and_then(Value::as_bool)
+                        == Some(false)
+            });
+            if !doctor_bundle_is_optional {
+                errors.push(
+                    ".github/ISSUE_TEMPLATE/bug.yml must keep doctor-bundle optional.".into(),
+                );
+            }
+        }
     }
 
     let config_path = template_root.join("config.yml");
@@ -82,6 +123,20 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
             None => errors.push(
                 ".github/ISSUE_TEMPLATE/config.yml must define at least one contact link.".into(),
             ),
+        }
+        let has_troubleshooting = payload
+            .get(Value::String("contact_links".into()))
+            .and_then(Value::as_sequence)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_mapping)
+            .any(|link| {
+                string_field(link, "url").is_some_and(|url| url.contains("docs/troubleshooting.md"))
+            });
+        if !has_troubleshooting {
+            errors.push(
+                ".github/ISSUE_TEMPLATE/config.yml must link to docs/troubleshooting.md.".into(),
+            );
         }
     }
 

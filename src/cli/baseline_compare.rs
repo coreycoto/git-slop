@@ -142,6 +142,41 @@ fn emit_baseline_result(format: DisplayFormat, payload: &Value, text: &str) -> R
     Ok(())
 }
 
+fn baseline_readiness_error(readiness: &crate::report_ops::ReportReadiness) -> anyhow::Error {
+    let guidance = readiness
+        .blockers
+        .iter()
+        .map(|blocker| {
+            format!(
+                "- {}: {} ({})",
+                blocker
+                    .get("code")
+                    .and_then(Value::as_str)
+                    .unwrap_or("not_ready"),
+                blocker
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("report evidence is incomplete"),
+                blocker
+                    .get("pointer")
+                    .and_then(Value::as_str)
+                    .unwrap_or("/report")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    ClassifiedError::new(
+        ErrorKind::Contract,
+        "baseline_not_comparison_ready",
+        format!(
+            "Baseline source is not comparison-ready. Resolve these blockers and rerun:\n{guidance}"
+        ),
+    )
+    .at("/readiness")
+    .with_details(readiness.as_json())
+    .into()
+}
+
 fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
     let state_dir = args.state_dir;
     match args.command {
@@ -160,13 +195,7 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 allow_incomplete_evidence,
             );
             if !readiness.comparison_ready {
-                return Err(ClassifiedError::new(
-                    ErrorKind::Contract,
-                    "baseline_not_comparison_ready",
-                    "Baseline source is not comparison-ready.",
-                )
-                .with_details(readiness.as_json())
-                .into());
+                return Err(baseline_readiness_error(&readiness));
             }
             let path = baseline_path(repo_root, state_dir.as_deref(), &name)?;
             let existing = load_named_baseline(&path)?;
@@ -216,13 +245,7 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 allow_incomplete_evidence,
             );
             if !readiness.comparison_ready {
-                return Err(ClassifiedError::new(
-                    ErrorKind::Contract,
-                    "baseline_not_comparison_ready",
-                    "Baseline source is not comparison-ready.",
-                )
-                .with_details(readiness.as_json())
-                .into());
+                return Err(baseline_readiness_error(&readiness));
             }
             let path = baseline_path(repo_root, state_dir.as_deref(), &name)?;
             write_named_baseline(&path, &loaded, force)?;
@@ -258,13 +281,7 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 allow_incomplete_evidence,
             );
             if !readiness.comparison_ready {
-                return Err(ClassifiedError::new(
-                    ErrorKind::Contract,
-                    "baseline_not_comparison_ready",
-                    "Baseline source is not comparison-ready.",
-                )
-                .with_details(readiness.as_json())
-                .into());
+                return Err(baseline_readiness_error(&readiness));
             }
             write_named_baseline(&path, &loaded, true)?;
             emit_baseline_result(
@@ -389,7 +406,7 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
             )?;
             Ok(0)
         }
-        BaselineCommand::Remove { name, format } => {
+        BaselineCommand::Remove { name, format, yes } => {
             let path = baseline_path(repo_root, state_dir.as_deref(), &name)?;
             if !path.exists() {
                 return Err(ClassifiedError::new(
@@ -400,6 +417,14 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 .at("/name")
                 .with_details(json!({"name": name}))
                 .into());
+            }
+            if !yes {
+                emit_baseline_result(
+                    format,
+                    &json!({"schema_version":1,"command":"baseline remove","name":name,"removed":false,"preview":true,"apply_flag":"--yes"}),
+                    &format!("Would remove baseline '{name}'. Re-run with --yes to apply."),
+                )?;
+                return Ok(0);
             }
             fs::remove_file(path)?;
             emit_baseline_result(

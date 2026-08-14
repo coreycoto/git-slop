@@ -114,6 +114,13 @@
       "minimum": 0,
       "type": "integer"
     },
+    "freshness": {
+      "description": "Current-repository freshness evidence when --require-current is used; otherwise null.",
+      "type": [
+        "object",
+        "null"
+      ]
+    },
     "findings": {
       "items": {
         "type": "object"
@@ -164,6 +171,7 @@
     "boundary",
     "passed",
     "finding_count",
+    "freshness",
     "details_included",
     "gate_scope"
   ],

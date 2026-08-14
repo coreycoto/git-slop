@@ -27,8 +27,9 @@ caller explicitly wants a separate output file.
 | `markdown` | The human repository-health dashboard used by `health.md` | Terminal review or redirected job-summary content |
 | `json` | The additive `health` object | Automation that needs bands, distributions, watchlists, and findings |
 | `github` | Escaped GitHub workflow-command annotations | Bounded CI annotations with each finding's `next_command` |
+| `text` | Concise terminal table | Default interactive rendering |
 
-`markdown` is the default. For `github`, `--max-annotations` defaults to 10;
+`text` is the default. For `github`, `--max-annotations` defaults to 10;
 set it explicitly when the caller needs a different bound.
 
 ## Exit And Enforcement Semantics
@@ -42,8 +43,11 @@ set it explicitly when the caller needs a different bound.
 Do not use `health` as the required gate. Use `git-slop check` for the stable
 file-level threshold contract: exit `0` passes, exit `1` reports threshold
 findings, and exit `2` reports invalid input. Health rollups and overlay
-evidence do not change that gate. `check` reads the report and repository
-config, writes its result to stdout, and does not modify report artifacts.
+evidence do not change that gate. `check` reads configuration embedded in the
+immutable report, writes its result to stdout, and does not modify report
+artifacts. Pass `--require-current` when a local gate must also match current
+HEAD, worktree, effective config, scope, analyzer, and the 24-hour currentness
+window.
 Configure the gate with `check.fail_on_context_band` and
 `check.fail_on_slop_band`, or override those values with the corresponding
 `--fail-on-*` options.

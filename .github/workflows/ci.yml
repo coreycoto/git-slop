@@ -5,137 +5,58 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  CARGO_TERM_COLOR: always
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  workflow-lint:
-    name: Workflow lint
+  public-validation:
+    name: Public validation
+    uses: ./.github/workflows/ci-public.yml
+    permissions:
+      contents: read
+
+  maintainer-validation:
+    name: Maintainer validation
+    uses: ./.github/workflows/ci-maintainer.yml
+    with:
+      base-sha: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+    permissions:
+      contents: read
+
+  full-validation:
+    name: Full required validation
+    if: always()
+    needs:
+      - public-validation
+      - maintainer-validation
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Start lane timer
+        id: lane-timer
+        shell: bash
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
 
-      - name: Lint workflows
-        uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+      - name: Require every validation lane
+        env:
+          PUBLIC_VALIDATION: ${{ needs.public-validation.result }}
+          MAINTAINER_VALIDATION: ${{ needs.maintainer-validation.result }}
+        run: |
+          for result in "$PUBLIC_VALIDATION" "$MAINTAINER_VALIDATION"; do
+            if [[ "$result" != "success" ]]; then
+              echo "At least one required validation lane did not succeed."
+              exit 1
+            fi
+          done
+          echo "All required validation lanes succeeded."
 
-  rust-quality:
-    name: Rust quality and packaging
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: "24"
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-        with:
-          components: clippy,rustfmt
-
-      - name: Check formatting
-        run: cargo fmt -p git-slop -- --check
-
-      - name: Lint
-        run: cargo clippy -p git-slop --all-targets --all-features --locked -- -D warnings
-
-      - name: Test
-        run: cargo test -p git-slop --all-targets --all-features --locked
-
-      - name: Validate Cargo package
-        run: cargo package -p git-slop --locked
-
-      - name: Validate crates.io publication
-        run: cargo publish -p git-slop --dry-run --locked
-
-      - name: Check maintainer formatting
-        run: cargo fmt --manifest-path xtask/Cargo.toml --all -- --check
-
-      - name: Lint maintainer tooling
-        run: cargo clippy --manifest-path xtask/Cargo.toml --all-targets --all-features --locked -- -D warnings
-
-      - name: Test maintainer tooling
-        run: cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
-
-      - name: Test agent-plugins runtime launcher
-        run: bash scripts/with-agent-plugins.test.sh
-
-      - name: Validate maintainer contracts
-        run: cargo xtask validate
-
-      - name: Check advisories, licenses, and dependency sources
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
-        with:
-          command: check advisories licenses sources
-
-      - name: Test GitHub Action
-        run: node --test action/*.test.mjs
-
-  msrv:
-    name: Minimum supported Rust 1.85
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up minimum supported Rust
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-        with:
-          toolchain: 1.85.0
-
-      - name: Check public package on MSRV
-        run: cargo check -p git-slop --all-targets --all-features --locked
-
-  platform-smoke:
-    name: Native smoke (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-24.04
-          - macos-15
-          - windows-2025
-          - windows-11-arm
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Node.js for Windows Action tests
-        if: runner.os == 'Windows'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: "24"
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-
-      - name: Run tests
-        run: cargo test -p git-slop --all-targets --all-features --locked
-
-      - name: Build release binary
-        run: cargo build -p git-slop --release --locked
-
-      - name: Smoke release binary
-        if: runner.os != 'Windows'
-        run: ./target/release/git-slop version
-
-      - name: Smoke release binary on Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: .\target\release\git-slop.exe version
-
-      - name: Test GitHub Action on Windows
-        if: runner.os == 'Windows'
-        run: node --test action/install.test.mjs
+      - name: Report lane timing
+        if: always()
+        shell: bash
+        env:
+          LANE_STARTED: ${{ steps.lane-timer.outputs.started }}
+          LANE_RESULT: ${{ job.status }}
+        run: echo "### Full validation — $(($(date +%s) - LANE_STARTED))s — $LANE_RESULT" >> "$GITHUB_STEP_SUMMARY"

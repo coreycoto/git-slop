@@ -3,3 +3,6 @@ contact_links:
   - name: Contributing Guide
     url: https://github.com/coreycoto/git-slop/blob/main/CONTRIBUTING.md
     about: Read setup, validation, contribution scope, and security-reporting guidance before opening a new issue.
+  - name: Troubleshooting Guide
+    url: https://github.com/coreycoto/git-slop/blob/main/docs/troubleshooting.md
+    about: Use stable error codes and recovery commands before filing a bug.

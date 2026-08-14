@@ -30,13 +30,21 @@ Requirements:
 - Rust 1.85 or newer
 - Cargo
 - Git
+- Node.js 24 for the composite Action tests
+- Bash for the pinned runtime-launcher tests
+- `actionlint` for workflow validation
+- `cargo-deny` for dependency policy checks
 
 ```bash
 git clone https://github.com/coreycoto/git-slop.git
 cd git-slop
 cargo build -p git-slop --locked
 cargo run -p git-slop --locked -- version
+cargo xtask doctor
 ```
+
+`cargo xtask doctor` reports every missing prerequisite with an installation
+hint. It does not install or change anything.
 
 The public runtime lives in the Rust modules under `src/` (including focused
 submodules under `src/health/`, `src/overlays/`, `src/report/`, and
@@ -61,12 +69,24 @@ does not create or sync a project dependency environment in this repository.
 Run these before submitting a pull request:
 
 ```bash
-./scripts/verify_changed.sh
+cargo xtask verify-changed
 ```
 
-The changed-files command selects the relevant public Rust, maintainer-contract,
-Action, and repository validation gates. Run the complete matrix when changing
-shared contracts or before a release:
+The tested path classifier prints every selected and skipped gate before it
+runs anything. Preview that decision with
+`cargo xtask verify-changed --dry-run`, or compare against an explicit base
+with `cargo xtask verify-changed --base origin/main`. The compatibility wrapper
+`./scripts/verify_changed.sh` delegates to the same command; set
+`VERIFY_CHANGED_BASE` when the wrapper needs an explicit base.
+
+Run the complete matrix when changing shared contracts or before a release:
+
+```bash
+cargo xtask ci
+```
+
+That cross-platform Rust entry point runs the commands below in explicit
+gates. They remain documented individually for focused diagnosis:
 
 ```bash
 cargo fmt -p git-slop -- --check

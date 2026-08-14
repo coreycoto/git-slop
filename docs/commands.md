@@ -16,6 +16,7 @@ it as `git slop`.
 
 ```bash
 git-slop init
+git-slop init --check
 git-slop find
 git-slop health
 git-slop show README.md
@@ -34,10 +35,19 @@ state directories exist:
 
 ```bash
 git-slop init
+git-slop init --check
+git-slop init --repair
+git-slop init --repair --gitignore-only
 git-slop init --force
 ```
 
-Existing generated config files are kept unless `--force` is supplied.
+`--check` is read-only and exits 1 when adoption metadata needs repair.
+`--repair` adds missing generated ignore rules without replacing repository
+configuration. `--gitignore-only` limits check, repair, or force to the ignore
+contract, so it never creates or replaces `config.yaml`. Existing generated
+config files are kept unless `--force` is supplied; forced replacements are
+atomic and keep ignored `.bak` recovery copies. `doctor` prints the exact safe
+repair command when it detects adoption drift.
 
 ### Find
 
@@ -52,6 +62,7 @@ git-slop find --no-progress
 git-slop find --quiet
 git-slop find --allow-shallow
 git-slop find --state-dir /tmp/git-slop-state --output-dir /tmp/git-slop-output --no-cache
+git-slop find --ephemeral
 git-slop find --estimate-only
 ```
 
@@ -67,6 +78,10 @@ Shallow history fails by default. `--allow-shallow` is an explicit
 acknowledgement and the report records incomplete evidence.
 `--no-progress` keeps the final report summary but disables phase updates;
 `--quiet` suppresses both.
+`--ephemeral` keeps disposable state and reports under Git-private storage and
+disables cache reads and writes. Every non-quiet scan ends with a receipt for
+elapsed time, tracked/analyzed/skipped paths, commits examined, cache
+hits/misses, peak memory, report size/profile, and output root.
 
 ### Health
 
@@ -78,14 +93,8 @@ git-slop health
 git-slop health --report .slop/latest/report.json
 git-slop health --format json
 git-slop health --format github --max-annotations 10
+git-slop health --require-current
 ```
-
-Formats:
-
-- `markdown`: the repository-health dashboard used by `health.md`
-- `text`: the concise interactive terminal view
-- `github`: bounded GitHub workflow-command annotations
-- `json`: an automation payload containing the additive health section
 
 The default report is `.slop/latest/report.json`, the default format is
 `text`, and the default annotation cap is 10. Every format writes to
@@ -93,42 +102,15 @@ standard output. `health` never rewrites `.slop/latest/health.md`; only `find`
 writes the persisted report bundle. GitHub annotations include a specific next
 command such as `git-slop explain --path <path>`.
 
-The dashboard keeps three related concepts separate:
-
-- **Context/load bands** (`compact`, `healthy`, `warning`, and
-  `budget_exceeded`) describe how much `agent_context` content must be loaded.
-  File bands use file tokens; folder bands use direct child-file counts and
-  direct tokens.
-- **Maintenance-pressure evidence** is the stable `slop_score` and `slop_band`
-  derived from deterministic load, history, and coordination signals. It is
-  not an overall quality score and is not another name for a context/load
-  band.
-- **Finding severity** (`notice`, `warning`, or `error`) is the rendered review
-  priority. It stays the same in Markdown and GitHub annotations; policy mode
-  does not promote or demote it.
-
-Every surfaced warning or budget-exceeded folder states the exact boundary
-that produced its displayed band. For example, `19 direct files > 17 healthy
-ceiling` identifies both the observed value and configured boundary. When
-direct files and direct tokens both cross the relevant ceiling, both clauses
-are shown. The row includes a copyable folder command such as
-`git-slop explain --path src/` (`--path .` for the repository root) and one
-highest-ranked recursive `agent_context` descendant. That descendant is chosen
-deterministically by descending maintenance-pressure score, then descending
-tokens, then ascending path.
-
-Markdown number formatting is locale-independent: integer counts and token
-totals use comma grouping; non-integral percentiles use comma grouping and two
-decimal places; concentration and profile shares use one decimal place plus
-`%`; and maintenance-pressure scores use one decimal place. JSON keeps numeric
-values and types instead of formatted strings.
+See [Health Output](health-output.md) for format contracts, band semantics,
+folder boundary explanations, deterministic descendants, and number rendering.
 
 An abridged Markdown dashboard looks like this:
 
 ```markdown
 # Repository Health
 
-❌ **Review required** — 1 file(s) and 0 folder(s) exceed configured refactor thresholds.
+❌ **Review required** — 1 actionable file(s) exceed configured context budgets; 0 derived/classified file(s) and 0 folder(s) remain investigation context.
 
 ## Actionable Findings
 
@@ -162,12 +144,15 @@ git-slop config show --effective
 git-slop config validate
 git-slop config diff-defaults
 git-slop config migrate
+git-slop config migrate --dry-run
 git-slop config schema
 git-slop doctor --bundle
 git-slop doctor --scope packages/example --format json
+git-slop doctor --require-current
 git-slop list findings --profile data_context --top 20
 git-slop list relationships --path src
 git-slop prune --dry-run --format json
+git-slop prune --yes
 git-slop cache status --format json
 git-slop cache prune --dry-run --format json
 git-slop completions zsh
@@ -178,6 +163,8 @@ Global `--repo <path>` avoids changing directories. Diagnostic bundles exclude
 source, raw tokens, credentials, absolute paths, and author identities.
 The HTML export is self-contained and local-only, with path search, profile and
 severity filters, sortable file metrics, and collapsible relationship evidence.
+Run pruning is preview-only unless `--yes` is supplied; `--dry-run` remains an
+explicit, script-friendly spelling of the default.
 
 ### Explain
 
@@ -265,10 +252,24 @@ by release, Action, and Homebrew verification:
 git-slop build-info --format json
 ```
 
-The schema-1 object contains `project`, `version`, `source_revision`, and
-`source_dirty`. Verified release builds contain the full 40-character tag
-revision and `source_dirty: false`. Local or source builds that cannot prove Git
-identity keep the nullable provenance fields instead of inventing a revision.
+The schema-2 object contains `project`, `version`, `source_revision`,
+`source_dirty`, target, crate identity, and build-source fields. Verified
+release builds contain the full 40-character tag revision and
+`source_dirty: false`. Local or source builds that cannot prove Git identity
+keep nullable provenance fields instead of inventing a revision.
+
+### Named baselines
+
+```bash
+git-slop baseline ensure --name main
+git-slop baseline inspect --name main
+git-slop compare --baseline main --fail-on-regression
+git-slop baseline remove --name main          # preview
+git-slop baseline remove --name main --yes    # apply
+```
+
+See [Named Baselines](baselines.md) for readiness, storage, drift, update, and
+recovery semantics.
 
 ## Prompt Packs
 

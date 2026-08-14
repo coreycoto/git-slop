@@ -1,3 +1,9 @@
 /latest/
 /runs/
 /cache/
+/scan.lock
+/scan.lock.owner
+/prompt-packs/
+/diagnostic-bundle.json
+/config.yaml.bak
+/.gitignore.bak

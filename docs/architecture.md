@@ -81,8 +81,8 @@ src/
 ### Entry Point And CLI
 
 - `main.rs` delegates to the library CLI and returns its process exit code.
-- `build_info.rs` exposes schema-1 package and source-build provenance embedded
-  by Cargo packaging for release verification.
+- `build_info.rs` exposes schema-2 package, target, crate, and source-build
+  provenance embedded by Cargo packaging for release verification.
 - `cli.rs` defines the `clap` command surface, validates selectors and
   thresholds, resolves report paths, and dispatches read-only artifact
   operations.
@@ -241,6 +241,7 @@ The CLI exposes:
 - `git slop plan`
 - `git slop check`
 - `git slop compare`
+- `git slop baseline`
 - `git slop sarif`
 - `git slop health`
 - `git slop report`
@@ -248,7 +249,11 @@ The CLI exposes:
 - `git slop doctor`
 - `git slop list`
 - `git slop prune`
+- `git slop cache`
 - `git slop completions`
+- `git slop man`
+- `git slop reference`
+- `git slop schema`
 - `git slop html`
 - `git slop version`
 - `git slop build-info`

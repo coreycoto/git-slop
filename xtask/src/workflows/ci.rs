@@ -1,3 +1,5 @@
+include!("ci_feedback.rs");
+
 fn validate_agent_plugin_runtime(workflows: &Path, errors: &mut Vec<String>) {
     for name in AGENT_PLUGIN_WORKFLOWS {
         let Some(text) = read(&workflows.join(name), errors) else {
@@ -231,11 +233,32 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
 }
 
 fn validate_ci(repo_root: &Path, workflows: &Path, errors: &mut Vec<String>) {
-    let name = "ci.yml";
-    let Some(text) = read(&workflows.join(name), errors) else {
+    let names = ["ci.yml", "ci-public.yml", "ci-maintainer.yml"];
+    let texts = names
+        .into_iter()
+        .filter_map(|name| read(&workflows.join(name), errors).map(|text| (name, text)))
+        .collect::<Vec<_>>();
+    if texts.len() != names.len() {
         return;
-    };
+    }
+    let combined = texts
+        .iter()
+        .map(|(_, text)| text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     for expected in [
+        "concurrency:",
+        "cancel-in-progress: true",
+        "uses: ./.github/workflows/ci-public.yml",
+        "uses: ./.github/workflows/ci-maintainer.yml",
+        "public-rust:",
+        "maintainer-contracts:",
+        "supply-chain:",
+        "action-tests:",
+        "change-classification:",
+        "full-validation:",
+        "cargo xtask verify-changed --base \"$BASE_SHA\" --dry-run",
+        "Full required validation",
         "cargo fmt -p git-slop -- --check",
         "cargo clippy -p git-slop --all-targets --all-features --locked",
         "cargo test -p git-slop --all-targets --all-features --locked",
@@ -253,7 +276,7 @@ fn validate_ci(repo_root: &Path, workflows: &Path, errors: &mut Vec<String>) {
         "windows-2025",
         "windows-11-arm",
     ] {
-        require(&text, expected, name, errors);
+        require(&combined, expected, "CI workflow family", errors);
     }
     for forbidden in [
         "maintainer-tooling:",
@@ -266,10 +289,11 @@ fn validate_ci(repo_root: &Path, workflows: &Path, errors: &mut Vec<String>) {
         "macos-15-intel",
         "uv build",
     ] {
-        forbid(&text, forbidden, name, errors);
+        forbid(&combined, forbidden, "CI workflow family", errors);
     }
-    validate_runtime_launcher_ci_job(&text, name, errors);
-    validate_windows_action_ci_job(&text, name, errors);
+    validate_ci_feedback_contract(workflows, errors);
+    validate_runtime_launcher_ci_job(&texts[2].1, texts[2].0, errors);
+    validate_windows_action_ci_job(&texts[1].1, texts[1].0, errors);
     validate_runtime_launcher_fixture(repo_root, errors);
 }
 
@@ -282,9 +306,9 @@ fn validate_runtime_launcher_ci_job(text: &str, name: &str, errors: &mut Vec<Str
             return;
         }
     };
-    let command_is_in_rust_quality = payload
+    let command_is_in_maintainer_contracts = payload
         .get("jobs")
-        .and_then(|jobs| jobs.get("rust-quality"))
+        .and_then(|jobs| jobs.get("maintainer-contracts"))
         .and_then(|job| job.get("steps"))
         .and_then(YamlValue::as_sequence)
         .is_some_and(|steps| {
@@ -294,8 +318,10 @@ fn validate_runtime_launcher_ci_job(text: &str, name: &str, errors: &mut Vec<Str
                     .is_some_and(|run| run.trim() == COMMAND)
             })
         });
-    if !command_is_in_rust_quality {
-        errors.push(format!("{name} rust-quality job must run {COMMAND}."));
+    if !command_is_in_maintainer_contracts {
+        errors.push(format!(
+            "{name} maintainer-contracts job must run {COMMAND}."
+        ));
     }
 }
 

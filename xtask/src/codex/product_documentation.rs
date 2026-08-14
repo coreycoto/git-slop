@@ -1,0 +1,108 @@
+fn validate_product_documentation_additions(repo_root: &Path, errors: &mut Vec<String>) {
+    validate_normalized_contract(
+        repo_root,
+        "plugins/git-slop/CLIENTS.md",
+        &[
+            "codex plugin marketplace add coreycoto/git-slop --ref <release>",
+            "codex plugin marketplace upgrade git-slop-marketplace",
+            "codex plugin remove git-slop@git-slop-marketplace",
+            "codex plugin marketplace remove git-slop-marketplace",
+            "codex plugin list --json",
+            "copilot plugin install coreycoto/git-slop:plugins/git-slop",
+            "copilot plugin list",
+            "copilot plugin update git-slop",
+            "copilot plugin uninstall git-slop",
+            ".cursor/skills/adopt-repo",
+            ".cursor/skills/install-update",
+            ".cursor/skills/review-results",
+            ".cursor/skills/run-report",
+            "To update, remove only these four exact directories",
+            "To uninstall, remove those same directories",
+            "Agent Steering & Skills",
+            "https://github.com/coreycoto/git-slop/tree/<release>/plugins/git-slop/skills/run-report",
+            ".kiro/skills/",
+            "To update, remove each imported Git Slop skill",
+            "To uninstall, remove those four workspace or global skills",
+            "Acceptance check for every client",
+            "cargo xtask validate-codex",
+        ],
+        &["codex plugin update"],
+        errors,
+    );
+    validate_normalized_contract(
+        repo_root,
+        "plugins/git-slop/skills/run-report/references/health.md",
+        &[
+            "`text` is the default",
+            "configuration embedded in the immutable report",
+            "--require-current",
+        ],
+        &[],
+        errors,
+    );
+    validate_normalized_contract(
+        repo_root,
+        "docs/install.md",
+        &[
+            "brew upgrade coreycoto/tap/git-slop",
+            "brew uninstall coreycoto/tap/git-slop",
+            "cargo binstall git-slop@0.13.0",
+            "cargo binstall --force git-slop@0.13.0",
+            "cargo uninstall git-slop",
+            "scoop update git-slop",
+            "scoop uninstall git-slop",
+            "cargo install git-slop --version 0.13.0 --locked --force",
+            "For a direct archive update",
+        ],
+        &[],
+        errors,
+    );
+    validate_normalized_contract(
+        repo_root,
+        "docs/baselines.md",
+        &[
+            "git slop doctor --require-current",
+            "git slop baseline ensure --name main",
+            "git slop baseline ensure --name main --replace",
+            "git slop baseline validate --name main",
+            "git slop baseline update --name main",
+            "git slop baseline remove --name main # preview only",
+            "git slop baseline remove --name main --yes # apply",
+            "baseline_not_comparison_ready",
+            "baseline_drift",
+        ],
+        &[],
+        errors,
+    );
+    validate_normalized_contract(
+        repo_root,
+        "docs/editor-integrations.md",
+        &[
+            "existing static artifacts cover the validated editor use cases",
+            "git slop find --ephemeral",
+            "git slop doctor --require-current",
+            "git slop html --output .slop/latest/report.html",
+            "git slop sarif --output .slop/latest/git-slop.sarif",
+            "git slop doctor --bundle",
+            "git slop compare --baseline before",
+            "None requires an extension today",
+        ],
+        &[],
+        errors,
+    );
+    validate_normalized_contract(
+        repo_root,
+        "docs/github-action.md",
+        &[
+            "mode: regression",
+            "baseline-ref:",
+            "scope: packages/api",
+            "pull requests from forks",
+            "schedule:",
+            "artifact-contents: report",
+            "Promote deliberately",
+        ],
+        &[],
+        errors,
+    );
+}

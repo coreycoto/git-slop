@@ -747,6 +747,10 @@ mod tests {
                 ),
                 "--field release_manifest_sha256",
             ),
+            (
+                relay.replacen("--repo \"$GITHUB_REPOSITORY\"", "", 1),
+                "--repo \"$GITHUB_REPOSITORY\"",
+            ),
         ] {
             let errors = relay_errors(&drifted).join("\n");
             assert!(errors.contains(expected), "missing {expected}: {errors}");
@@ -822,9 +826,9 @@ mod tests {
     }
 
     #[test]
-    fn runtime_launcher_test_must_run_in_rust_quality_job() {
+    fn runtime_launcher_test_must_run_in_maintainer_contracts_job() {
         let valid = r#"jobs:
-  rust-quality:
+  maintainer-contracts:
     steps:
       - run: bash scripts/with-agent-plugins.test.sh
 "#;
@@ -836,7 +840,7 @@ mod tests {
   workflow-lint:
     steps:
       - run: bash scripts/with-agent-plugins.test.sh
-  rust-quality:
+  maintainer-contracts:
     steps:
       - run: cargo test
 "#;
@@ -845,11 +849,11 @@ mod tests {
         assert!(
             errors
                 .iter()
-                .any(|error| error.contains("rust-quality job must run"))
+                .any(|error| error.contains("maintainer-contracts job must run"))
         );
 
         let expanded_command = r#"jobs:
-  rust-quality:
+  maintainer-contracts:
     steps:
       - run: |
           echo preparing
@@ -860,7 +864,7 @@ mod tests {
         assert!(
             errors
                 .iter()
-                .any(|error| error.contains("rust-quality job must run"))
+                .any(|error| error.contains("maintainer-contracts job must run"))
         );
     }
 

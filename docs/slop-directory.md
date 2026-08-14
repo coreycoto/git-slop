@@ -18,6 +18,10 @@ Git Slop writes repository-local state under `.slop/`.
       summary.md
       health.md
   cache/
+  scan.lock
+  scan.lock.owner  # present only while a scan owns the lock
+  prompt-packs/
+  diagnostic-bundle.json
 ```
 
 ## Commit
@@ -38,6 +42,10 @@ Do not commit these runtime outputs:
 - `.slop/runs/`
 - `.slop/cache/`
 - `.slop/prompt-packs/`
+- `.slop/scan.lock`
+- `.slop/scan.lock.owner`
+- `.slop/diagnostic-bundle.json`
+- `.slop/config.yaml.bak` and `.slop/.gitignore.bak`
 - generated SARIF files
 - generated plan JSON
 - generated compare JSON
@@ -69,8 +77,10 @@ artifact or a link to a GitHub Release asset over committing `.slop/latest/`.
 
 ## Cache Notes
 
-`.slop/cache/` is generated state reserved for deterministic performance
-optimizations. It is safe to delete and must never be required for correctness.
+`.slop/cache/` is the default packed token-cache location. It is generated
+state reserved for deterministic performance optimizations, is safe to delete,
+and must never be required for correctness. `git slop cache` defaults to this
+same mutable state root; `--state-dir` selects another root explicitly.
 
 ## Bundle Notes
 
@@ -78,8 +88,14 @@ optimizations. It is safe to delete and must never be required for correctness.
 destinations. YAML is an explicit compatibility export (`output.yaml: true`). The latest
 bundle is replaced atomically so consumers do not observe a partially updated
 report set. Timestamped run directories are immutable snapshots of individual
-detector runs. A process-level lock under `.git/git-slop/` prevents concurrent
-publication without modifying the worktree.
+detector runs. A process-level `scan.lock` and transient `scan.lock.owner` under
+the selected state root prevent concurrent publication. The detector excludes
+both coordination files from its own worktree snapshot. Named baselines are the
+separate exception: they default to Git-private `git-slop/baselines` storage.
+
+`git slop find --ephemeral` places both scan state and reports under
+Git-private `git-slop/ephemeral` storage and disables the token cache. It is a
+first-look workflow, not durable repository adoption.
 
 `health`, `show`, `explain`, `plan`, `check`, and `sarif` read an existing
 report. `compare` reads two. They do not create another detector run; only

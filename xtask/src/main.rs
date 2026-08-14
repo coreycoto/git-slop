@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use git_slop_xtask::{
-    codex, crates_io, distribution, finish_validation, homebrew, issue_forms, manifest, release,
-    repository, sbom, workflows,
+    codex, crates_io, developer, distribution, finish_validation, homebrew, issue_forms, manifest,
+    release, repository, sbom, workflows,
 };
 
 #[derive(Debug, Parser)]
@@ -24,6 +24,22 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Check local contributor prerequisites and print actionable installation guidance.
+    Doctor,
+
+    /// Run the complete cross-platform local validation matrix.
+    Ci,
+
+    /// Classify changed files with tested rules and run only the required validation gates.
+    VerifyChanged {
+        /// Explicit comparison base. Defaults to upstream, origin/main, or HEAD^.
+        #[arg(long)]
+        base: Option<String>,
+        /// Print selected and skipped gates without running them.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Validate every repository-owned maintainer contract.
     Validate {
         /// Fail when the Codex CLI is unavailable instead of skipping execpolicy checks.
@@ -132,6 +148,11 @@ fn run(cli: Cli) -> Result<()> {
     })?;
 
     match cli.command {
+        Command::Doctor => developer::doctor(&repo_root),
+        Command::Ci => developer::ci(&repo_root),
+        Command::VerifyChanged { base, dry_run } => {
+            developer::verify_changed(&repo_root, base.as_deref(), dry_run)
+        }
         Command::Validate { require_codex_cli } => {
             let mut errors = codex::validate(&repo_root, require_codex_cli);
             errors.extend(workflows::validate(&repo_root));

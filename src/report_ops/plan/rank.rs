@@ -612,73 +612,75 @@ pub fn render_plan_text(payload: &Value) -> String {
             safe(target.get("relationship_kind"))
         ),
     };
+    let slices = array_at(payload, &["proposed_slices"]);
     let mut lines = vec![header];
-    for (index, slice) in array_at(payload, &["proposed_slices"]).iter().enumerate() {
+    if let Some(first) = slices.first() {
         lines.extend([
             String::new(),
-            format!("{}. {}", index + 1, safe(slice.get("title"))),
+            "Baseline workflow (shared by every slice):".to_string(),
+            format!("  create: {}", safe(first.get("baseline_command"))),
+            format!("  verify: {}", safe(first.get("rerun_command"))),
+            format!(
+                "  accept intentional movement: {}",
+                safe(first.get("baseline_update_command"))
+            ),
+        ]);
+    }
+    for (index, slice) in slices.iter().enumerate() {
+        lines.extend([
+            String::new(),
+            format!(
+                "{}. {} [{}; priority={}]",
+                index + 1,
+                safe(slice.get("title")),
+                safe(slice.get("plan_type")),
+                safe(value_at(slice, &["backlog_handoff", "priority_hint"])),
+            ),
             format!(
                 "   scope: {}",
                 render_limited(&safe_array(slice.get("scope_paths")), usize::MAX)
             ),
             format!("   objective: {}", safe(slice.get("objective"))),
-            format!("   plan_type: {}", safe(slice.get("plan_type"))),
-            format!("   rationale: {}", safe(slice.get("rationale"))),
             format!(
-                "   evidence: {}; relationships={}",
-                safe(value_at(slice, &["evidence", "summary"])),
-                array_at(slice, &["evidence", "relationships"])
-                    .iter()
-                    .map(|relationship| format!(
-                        "{}({}; confidence={}; lower={}; support={}; evidence={})",
-                        safe(relationship.get("id")),
-                        render_limited(&safe_array(relationship.get("paths")), 2),
-                        safe(relationship.get("confidence")),
-                        json_scalar_text(relationship.get("evidence_lower_bound")),
-                        json_scalar_text(relationship.get("support_count")),
-                        json_scalar_text(relationship.get("evidence_score")),
-                    ))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                "   evidence: {}",
+                safe(value_at(slice, &["evidence", "summary"]))
             ),
-            value_at(slice, &["expected_outcome", "target_top_slop_score"])
-                .filter(|value| !value.is_null())
-                .map_or_else(
-                    || "   expected_outcome: remove a cited reason code; no native compare regression; verification passes".to_string(),
-                    |target| format!(
-                        "   expected_outcome: cross the documented threshold to at most {}; no native compare regression; verification passes",
-                        json_scalar_text(Some(target))
-                    ),
-                ),
+        ]);
+        let outcomes = safe_array(value_at(slice, &["expected_outcome", "required"]));
+        if !outcomes.is_empty() {
+            lines.push("   success:".to_string());
+            lines.extend(
+                outcomes
+                    .into_iter()
+                    .map(|outcome| format!("      - {outcome}")),
+            );
+        }
+        let commands = safe_array(value_at(slice, &["verification", "discovered_commands"]));
+        lines.push("   verification:".to_string());
+        if commands.is_empty() {
+            lines.push("      - none discovered; identify a focused repository-native check before editing".to_string());
+        } else {
+            lines.extend(
+                commands
+                    .into_iter()
+                    .map(|command| format!("      - {command}")),
+            );
+        }
+        let out_of_scope = safe_array(slice.get("out_of_scope_paths"));
+        if !out_of_scope.is_empty() {
+            lines.push(format!(
+                "   explicitly out of scope: {}",
+                render_limited(&out_of_scope, usize::MAX)
+            ));
+        }
+        lines.extend([
+            format!("   stop if: {}", safe(slice.get("abandonment_condition"))),
             format!(
-                "   verification: {}",
-                render_limited(
-                    &safe_array(value_at(slice, &["verification", "discovered_commands"])),
-                    5
-                )
-            ),
-            format!("   baseline: {}", safe(slice.get("baseline_command"))),
-            format!(
-                "   baseline_update_if_intentional: {}",
-                safe(slice.get("baseline_update_command"))
-            ),
-            format!("   rerun: {}", safe(slice.get("rerun_command"))),
-            format!(
-                "   abandon_if: {}",
-                safe(slice.get("abandonment_condition"))
-            ),
-            format!("   rollback: {}", safe(slice.get("rollback"))),
-            format!(
-                "   backlog: {} priority={} policy=preview_only",
+                "   backlog preview: {}",
                 safe(value_at(
                     slice,
                     &["backlog_handoff", "proposed_issue_title"]
-                )),
-                safe(value_at(slice, &["backlog_handoff", "priority_hint"])),
-            ),
-            format!(
-                "   out_of_scope: {}",
-                render_limited(&safe_array(slice.get("out_of_scope_paths")), 5)
+                ))
             ),
         ]);
     }

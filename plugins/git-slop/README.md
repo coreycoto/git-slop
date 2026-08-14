@@ -38,6 +38,10 @@ The package targets the five clients in the
 All five load the same portable root manifest and immediate
 `skills/*/SKILL.md` directories; no client-specific copy of a skill is needed.
 
+Exact installation and acceptance checks differ by client. Use the tested
+[client recipes](CLIENTS.md); do not infer one client's marketplace commands
+from another client's discovery support.
+
 | Client | Portable surface | Client-specific presentation |
 | --- | --- | --- |
 | ChatGPT & Codex | `plugin.json` and `skills/*/SKILL.md` | `extensions.com.openai`, each skill's optional `agents/openai.yaml`, and the temporary metadata-only Codex overlay |
