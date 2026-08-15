@@ -9,7 +9,7 @@ Explain why selected hotspots or structural findings are expensive
 **Usage**
 
 ```text
-Usage: explain [OPTIONS]
+Usage: git-slop explain [OPTIONS]
 ```
 
 **Machine contract:** `explain-2`.
@@ -17,6 +17,7 @@ Usage: explain [OPTIONS]
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
 | `--report` | `REPORT` | `-` | - | Report path. Defaults to .slop/latest/report.json |
+| `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |
 | `--path` | `PATH` | `-` | exclusive group: path, cluster, relationship, top | Repo-relative file or folder path |
 | `--cluster` | `CLUSTER` | `-` | exclusive group: path, cluster, relationship, top | Cluster identifier |
 | `--relationship` | `RELATIONSHIP` | `-` | exclusive group: path, cluster, relationship, top | Relationship identifier |

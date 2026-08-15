@@ -9,7 +9,7 @@ Scan the repository and generate hotspot reports
 **Usage**
 
 ```text
-Usage: find [OPTIONS]
+Usage: git-slop find [OPTIONS]
 ```
 
 **Machine contract:** schema 5 report (`git slop schema report`); `find --estimate-only` uses `find-estimate-1`.
@@ -24,12 +24,14 @@ Usage: find [OPTIONS]
 | `--state-dir` | `PATH` | `-` | - | Mutable cache/state directory. Relative paths resolve from the repository root |
 | `--output-dir` | `PATH` | `-` | - | Report output directory. Relative paths resolve from the repository root |
 | `--no-cache` | `flag` | `-` | - | Disable token-cache reads and writes for an ephemeral scan |
-| `--ephemeral` | `flag` | `-` | conflicts: --output-dir, --state-dir | Keep disposable state and reports under Git-private storage, without adopting `.slop/` |
+| `--ephemeral` | `flag` | `-` | conflicts: --output-dir, --persist-unadopted, --state-dir | Keep disposable state and reports under Git-private storage, without adopting `.slop/` |
+| `--persist-unadopted` | `flag` | `-` | conflicts: --ephemeral | Explicitly allow persistent `.slop/` output before repository adoption |
 | `--allow-degraded` | `flag` | `-` | - | Deterministically analyze the largest path prefix that fits the memory budget |
 | `--as-of` | `RFC3339` | `-` | - | Fixed RFC 3339 analysis clock for reproducible recency and history windows |
 | `--report-profile` | `REPORT_PROFILE` | `standard` | values: compact, standard, full-evidence | Report evidence profile |
 | `--compression` | `COMPRESSION` | `none` | values: none, gzip, zstd | Also write a compressed report beside report.json |
 | `--estimate-only` | `flag` | `-` | - | Estimate scope, memory, cache, report size, time, and inodes without scanning |
+| `--format` | `FORMAT` | `-` | values: text, json, yaml | Estimate output format. Defaults to text on a terminal and JSON when piped |
 
 **Example**
 

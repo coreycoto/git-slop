@@ -1,6 +1,64 @@
+struct ListQuery<'a> {
+    output: &'a ListOutputArgs,
+    path: Option<&'a str>,
+    profile: Option<&'a str>,
+    language: Option<&'a str>,
+    classification: Option<&'a str>,
+    severity: Option<&'a str>,
+}
+
+fn list_query(command: &ListCommand) -> (&'static str, ListQuery<'_>) {
+    match command {
+        ListCommand::Findings(args) => (
+            "findings",
+            ListQuery {
+                output: &args.output,
+                path: args.path.as_deref(),
+                profile: args.profile.as_deref(),
+                language: args.language.as_deref(),
+                classification: args.classification.as_deref(),
+                severity: args.severity.as_deref(),
+            },
+        ),
+        ListCommand::Relationships(args) => (
+            "relationships",
+            ListQuery {
+                output: &args.output,
+                path: args.path.as_deref(),
+                profile: args.profile.as_deref(),
+                language: args.language.as_deref(),
+                classification: args.classification.as_deref(),
+                severity: None,
+            },
+        ),
+        ListCommand::Clusters(args) => (
+            "clusters",
+            ListQuery {
+                output: &args.output,
+                path: args.path.as_deref(),
+                profile: args.profile.as_deref(),
+                language: args.language.as_deref(),
+                classification: args.classification.as_deref(),
+                severity: None,
+            },
+        ),
+        ListCommand::Profiles(args) => (
+            "profiles",
+            ListQuery {
+                output: &args.output,
+                path: None,
+                profile: args.profile.as_deref(),
+                language: None,
+                classification: None,
+                severity: None,
+            },
+        ),
+    }
+}
+
 fn matches_list_filter(
     item: &Value,
-    args: &ListFilterArgs,
+    query: &ListQuery<'_>,
     kind: &str,
     files: &std::collections::BTreeMap<String, Value>,
 ) -> bool {
@@ -32,23 +90,21 @@ fn matches_list_filter(
                     == Some(expected)
             })
     };
-    args.path
-        .as_ref()
+    query
+        .path
         .is_none_or(|path| candidate_paths.iter().any(|value| value.starts_with(path)))
-        && args.profile.as_ref().is_none_or(|value| {
+        && query.profile.is_none_or(|value| {
             field_matches("profile", value)
                 || (kind == "profiles" && item.get("name").and_then(Value::as_str) == Some(value))
         })
-        && args
+        && query
             .language
-            .as_ref()
             .is_none_or(|value| field_matches("language", value))
-        && args.classification.as_ref().is_none_or(|value| {
+        && query.classification.is_none_or(|value| {
             field_matches("classification", value) || field_matches("class", value)
         })
-        && args
+        && query
             .severity
-            .as_ref()
             .is_none_or(|value| item.get("severity").and_then(Value::as_str) == Some(value))
 }
 
@@ -63,48 +119,25 @@ fn terminal_field(value: &str, width: usize, no_truncate: bool) -> String {
     value.chars().take(width - 1).collect::<String>() + "…"
 }
 
+include!("listing/render.rs");
+
 fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
-    let filter = match &args.command {
-        ListCommand::Findings(v)
-        | ListCommand::Relationships(v)
-        | ListCommand::Clusters(v)
-        | ListCommand::Profiles(v) => v,
-    };
-    let (loaded, _) = report_or_missing(repo_root, filter.report.as_deref())?;
-    let kind = match &args.command {
-        ListCommand::Findings(_) => "findings",
-        ListCommand::Relationships(_) => "relationships",
-        ListCommand::Clusters(_) => "clusters",
-        ListCommand::Profiles(_) => "profiles",
-    };
-    let unsupported = match kind {
-        "relationships" | "clusters" if filter.severity.is_some() => Some("--severity"),
-        "profiles" if filter.path.is_some() => Some("--path"),
-        "profiles" if filter.language.is_some() => Some("--language"),
-        "profiles" if filter.classification.is_some() => Some("--classification"),
-        "profiles" if filter.severity.is_some() => Some("--severity"),
-        _ => None,
-    };
-    if let Some(option) = unsupported {
-        return Err(ClassifiedError::new(
-            ErrorKind::Contract,
-            "unsupported_list_filter",
-            format!("{option} is not supported for `git slop list {kind}`."),
-        )
-        .at(format!("/{}", option.trim_start_matches("--").replace('-', "_")))
-        .with_details(json!({"kind": kind, "filter": option}))
-        .into());
-    }
-    if filter.top == 0 {
+    let (kind, query) = list_query(&args.command);
+    if query.output.top == 0 {
         return Err(ClassifiedError::new(
             ErrorKind::Contract,
             "invalid_list_limit",
             "--top must be greater than zero.",
         )
         .at("/top")
-        .with_details(json!({"flag": "--top", "actual": filter.top}))
+        .with_details(json!({"flag": "--top", "actual": query.output.top}))
         .into());
     }
+    let (loaded, _) = report_or_missing_with_currentness(
+        repo_root,
+        query.output.report.as_deref(),
+        query.output.require_current,
+    )?;
     let files = loaded
         .get("files")
         .and_then(Value::as_array)
@@ -127,15 +160,17 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
             .flatten()
             .cloned()
             .collect(),
-        ListCommand::Clusters(_) => loaded
-            .pointer("/overlays/organization_health/clusters")
-            .and_then(Value::as_object)
-            .into_iter()
-            .flat_map(|map| map.values())
-            .filter_map(Value::as_array)
-            .flatten()
-            .cloned()
-            .collect(),
+        ListCommand::Clusters(_) => deduplicate_clusters(
+            loaded
+                .pointer("/overlays/organization_health/clusters")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flat_map(|map| map.values())
+                .filter_map(Value::as_array)
+                .flatten()
+                .cloned()
+                .collect(),
+        ),
         ListCommand::Profiles(_) => loaded
             .pointer("/health/profile_rollups")
             .and_then(Value::as_array)
@@ -143,82 +178,27 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
             .unwrap_or_default(),
     };
     let unfiltered_total = values.len();
-    values.retain(|item| matches_list_filter(item, filter, kind, &files));
+    values.retain(|item| matches_list_filter(item, &query, kind, &files));
+    rank_list_values(kind, &mut values);
     let matched_total = values.len();
-    values.truncate(filter.top);
+    values.truncate(query.output.top);
     let returned = values.len();
-    match filter.format {
+    match query.output.format {
         DisplayFormat::Json => print_text(&render_json(&json!({
             "schema_version": 1,
             "command": "list",
             "kind": kind,
             "items": values,
-            "collection": {"total": unfiltered_total, "matched": matched_total, "returned": returned, "limit": filter.top, "truncated": returned < matched_total}
+            "collection": {"total": unfiltered_total, "matched": matched_total, "returned": returned, "limit": query.output.top, "truncated": returned < matched_total}
         }))?),
         DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&values)?),
         DisplayFormat::Text => {
-            let terminal_width = std::env::var("COLUMNS")
-                .ok()
-                .and_then(|value| value.parse::<usize>().ok())
-                .unwrap_or(100);
-            let path_width = if filter.no_truncate {
-                values
-                    .iter()
-                    .filter_map(|item| {
-                        item.get("path")
-                            .or_else(|| item.get("name"))
-                            .or_else(|| item.get("id"))
-                            .and_then(Value::as_str)
-                    })
-                    .map(str::len)
-                    .max()
-                    .unwrap_or(24)
-                    .max(24)
-            } else if filter.wide {
-                80
-            } else {
-                terminal_width.saturating_sub(59).clamp(24, 48)
-            };
-            println!(
-                "{:<path_width$}  {:<16}  {:<10}  {:<10}  {:<10}  {:>7}",
-                "PATH OR NAME", "PROFILE", "SEVERITY", "CONTEXT", "SLOP", "SCORE"
-            );
-            println!(
-                "{:-<path_width$}  {:-<16}  {:-<10}  {:-<10}  {:-<10}  {:-<7}",
-                "", "", "", "", "", ""
-            );
-            for item in &values {
-                let label = item
-                    .get("path")
-                    .or_else(|| item.get("name"))
-                    .or_else(|| item.get("id"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("-");
-                let profile = item
-                    .get("profile")
-                    .or_else(|| item.get("kind"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("-");
-                let severity = item.get("severity").and_then(Value::as_str).unwrap_or("-");
-                let context = item
-                    .get("context_band")
-                    .and_then(Value::as_str)
-                    .unwrap_or("-");
-                let slop = item.get("slop_band").and_then(Value::as_str).unwrap_or("-");
-                let score = item
-                    .get("slop_score")
-                    .or_else(|| item.get("evidence_score"))
-                    .and_then(Value::as_f64)
-                    .map_or_else(|| "-".to_string(), |value| format!("{value:.3}"));
-                println!(
-                    "{:<path_width$}  {:<16}  {:<10}  {:<10}  {:<10}  {:>7}",
-                    terminal_field(label, path_width, filter.no_truncate),
-                    terminal_field(profile, 16, filter.no_truncate),
-                    terminal_field(severity, 10, filter.no_truncate),
-                    terminal_field(context, 10, filter.no_truncate),
-                    terminal_field(slop, 10, filter.no_truncate),
-                    score
-                );
+            match kind {
+                "findings" => render_findings_table(&values, query.output),
+                "relationships" => render_relationships_table(&values, query.output),
+                "clusters" => render_clusters_table(&values, query.output),
+                "profiles" => render_profiles_table(&values),
+                _ => unreachable!(),
             }
             println!(
                 "\nReturned {returned} of {matched_total} matching record(s) from {unfiltered_total} total.{}",
@@ -373,10 +353,17 @@ fn run_cache(repo_root: &Path, args: CacheArgs) -> Result<i32> {
             max_entries,
             max_bytes,
             dry_run,
+            yes,
             compact,
             format,
         } => (
-            crate::cache::prune(&state_root, max_entries, max_bytes, dry_run, compact)?,
+            crate::cache::prune(
+                &state_root,
+                max_entries,
+                max_bytes,
+                dry_run || !yes,
+                compact,
+            )?,
             format,
         ),
     };
@@ -393,16 +380,16 @@ fn run_cache(repo_root: &Path, args: CacheArgs) -> Result<i32> {
                     payload["database_bytes"]
                 );
             } else {
+                let dry_run = payload["dry_run"].as_bool().unwrap_or(false);
                 println!(
                     "{} {} cache entries ({} payload bytes).",
-                    if payload["dry_run"].as_bool().unwrap_or(false) {
-                        "Would prune"
-                    } else {
-                        "Pruned"
-                    },
+                    if dry_run { "Would prune" } else { "Pruned" },
                     payload["removed_entries"],
                     payload["removed_payload_bytes"]
                 );
+                if dry_run && payload["removed_entries"].as_u64().unwrap_or_default() > 0 {
+                    println!("Preview only; re-run with --yes to apply these removals.");
+                }
             }
         }
     }

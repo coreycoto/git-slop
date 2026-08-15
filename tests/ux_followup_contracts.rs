@@ -1,0 +1,192 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use assert_cmd::cargo::cargo_bin_cmd;
+use predicates::prelude::*;
+use serde_json::Value;
+use tempfile::TempDir;
+
+fn manifest_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn fixture(name: &str) -> PathBuf {
+    manifest_dir().join("tests/fixtures/reports").join(name)
+}
+
+fn read_json(path: &Path) -> Value {
+    serde_json::from_slice(&fs::read(path).expect("read JSON file")).expect("parse JSON file")
+}
+
+#[test]
+fn html_export_is_responsive_and_accessible() {
+    let temporary = TempDir::new().expect("temporary directory");
+    let output = temporary.path().join("report.html");
+    cargo_bin_cmd!("git-slop")
+        .current_dir(manifest_dir())
+        .args(["html", "--report"])
+        .arg(fixture("relationship_focused_report.json"))
+        .arg("--output")
+        .arg(&output)
+        .assert()
+        .success();
+    let html = fs::read_to_string(output).expect("HTML report");
+    assert!(html.contains("<main id=\"report-main\""));
+    assert!(html.contains("class=\"table-shell\""));
+    assert!(html.contains("aria-label=\"Scrollable report table\""));
+    assert!(html.contains("<label for=\"query\">Search records</label>"));
+    assert!(html.contains("<th scope=\"col\" aria-sort="));
+    assert!(html.contains("const sortDefaults = {"));
+    assert!(html.contains("queue: { key: \"__rank\", ascending: true }"));
+    assert!(html.contains("function recordIdentity(recordView, record)"));
+    assert!(html.contains("function clearSelection("));
+    assert!(html.contains("@media (max-width: 520px)"));
+    assert!(html.contains("overflow-x: auto"));
+}
+
+#[test]
+fn list_help_only_advertises_supported_filters() {
+    let profiles = cargo_bin_cmd!("git-slop")
+        .args(["list", "profiles", "--help"])
+        .output()
+        .expect("profiles help");
+    assert!(profiles.status.success());
+    let profiles = String::from_utf8(profiles.stdout).unwrap();
+    for unsupported in ["--path", "--language", "--classification", "--severity"] {
+        assert!(
+            !profiles.contains(unsupported),
+            "{unsupported} in {profiles}"
+        );
+    }
+    assert!(profiles.contains("--profile"));
+
+    let relationships = cargo_bin_cmd!("git-slop")
+        .args(["list", "relationships", "--help"])
+        .output()
+        .expect("relationships help");
+    assert!(relationships.status.success());
+    let relationships = String::from_utf8(relationships.stdout).unwrap();
+    assert!(relationships.contains("--path"));
+    assert!(!relationships.contains("--severity"));
+}
+
+#[test]
+fn list_relationships_and_clusters_are_ranked_and_clusters_are_unique() {
+    let report = fixture("local_repo_folder_report.json");
+    let relationships = cargo_bin_cmd!("git-slop")
+        .args(["list", "relationships", "--report"])
+        .arg(&report)
+        .args(["--format", "json"])
+        .output()
+        .expect("relationships");
+    assert!(relationships.status.success());
+    let relationships: Value = serde_json::from_slice(&relationships.stdout).unwrap();
+    let scores = relationships["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["evidence_score"].as_f64().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert!(
+        scores.windows(2).all(|pair| pair[0] >= pair[1]),
+        "{scores:?}"
+    );
+
+    let clusters = cargo_bin_cmd!("git-slop")
+        .args(["list", "clusters", "--report"])
+        .arg(&report)
+        .args(["--format", "json"])
+        .output()
+        .expect("clusters");
+    assert!(clusters.status.success());
+    let clusters: Value = serde_json::from_slice(&clusters.stdout).unwrap();
+    assert_eq!(clusters["collection"]["total"], 4);
+    let items = clusters["items"].as_array().unwrap();
+    let ids = items
+        .iter()
+        .map(|item| item["id"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(ids.len(), items.len());
+    let scores = items
+        .iter()
+        .map(|item| item["evidence_score"].as_f64().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert!(
+        scores.windows(2).all(|pair| pair[0] >= pair[1]),
+        "{scores:?}"
+    );
+}
+
+#[test]
+fn list_profiles_renders_profile_totals_in_human_output() {
+    let temporary = TempDir::new().unwrap();
+    let report_path = temporary.path().join("report.json");
+    let mut report = read_json(&fixture("local_repo_folder_report.json"));
+    report["health"]["profile_rollups"] = serde_json::json!([
+        {"name":"agent_context","totals":{"files":3,"tokens":1200,"lines":300,"code":250,"comments":20,"blanks":30}}
+    ]);
+    fs::write(&report_path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+    cargo_bin_cmd!("git-slop")
+        .args(["list", "profiles", "--report"])
+        .arg(&report_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("PROFILE"))
+        .stdout(predicate::str::contains("FILES"))
+        .stdout(predicate::str::contains("TOKENS"))
+        .stdout(predicate::str::contains("agent_context"));
+}
+
+#[test]
+fn explain_distinguishes_low_support_and_concisely_reports_no_hotspots() {
+    let temporary = TempDir::new().unwrap();
+    let report_path = temporary.path().join("report.json");
+    let mut report = read_json(&fixture("local_repo_folder_report.json"));
+    report["evidence_completeness"] = serde_json::json!({
+        "history":"complete",
+        "repository_size":"low_support"
+    });
+    fs::write(&report_path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+    cargo_bin_cmd!("git-slop")
+        .args(["explain", "--report"])
+        .arg(&report_path)
+        .args(["--path", "src/git_slop/organization.py", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\": \"low_support\""))
+        .stdout(predicate::str::contains("\"incomplete\": false"));
+
+    report["action_queue"] = serde_json::json!([]);
+    fs::write(&report_path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+    cargo_bin_cmd!("git-slop")
+        .args(["explain", "--report"])
+        .arg(&report_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Explain: no matching hotspots"))
+        .stdout(predicate::str::contains("No action-queue hotspots"))
+        .stdout(predicate::str::contains("Report and Evidence Provenance").not());
+}
+
+#[test]
+fn generated_reference_uses_complete_command_paths() {
+    cargo_bin_cmd!("git-slop")
+        .arg("reference")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Usage: git-slop cache prune"))
+        .stdout(predicate::str::contains("Usage: git-slop baseline ensure"));
+}
+
+#[test]
+fn repository_errors_are_human_and_actionable() {
+    let temporary = TempDir::new().unwrap();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(temporary.path())
+        .arg("doctor")
+        .assert()
+        .code(3)
+        .stderr(predicate::str::contains("Not inside a Git repository"))
+        .stderr(predicate::str::contains("--repo <PATH>"))
+        .stderr(predicate::str::contains("git rev-parse").not());
+}

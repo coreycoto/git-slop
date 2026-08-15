@@ -138,7 +138,7 @@ fn schema_five_reports_reject_each_missing_required_root_field_with_a_pointer() 
     let repository = fixture_repository();
     cargo_bin_cmd!("git-slop")
         .current_dir(repository.path())
-        .args(["find", "--quiet", "--no-cache"])
+        .args(["find", "--quiet", "--no-cache", "--persist-unadopted"])
         .assert()
         .success();
     let report_path = repository.path().join(".slop/latest/report.json");

@@ -76,3 +76,15 @@ fn report_or_missing(repo_root: &Path, explicit_report: Option<&Path>) -> Result
     }
     Ok(loaded)
 }
+
+fn report_or_missing_with_currentness(
+    repo_root: &Path,
+    explicit_report: Option<&Path>,
+    require_current: bool,
+) -> Result<(Value, PathBuf)> {
+    let loaded = report_or_missing(repo_root, explicit_report)?;
+    if require_current {
+        require_current_report(repo_root, &loaded.0)?;
+    }
+    Ok(loaded)
+}

@@ -9,7 +9,7 @@ Scaffold .slop/ config, ignore rules, and state directories
 **Usage**
 
 ```text
-Usage: init [OPTIONS]
+Usage: git-slop init [OPTIONS]
 ```
 
 | Argument | Value | Default | Constraints | Description |

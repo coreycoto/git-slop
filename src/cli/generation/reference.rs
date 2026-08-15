@@ -79,8 +79,12 @@ fn markdown_command_body(command: &clap::Command, path: &str, output: &mut Strin
         output.push_str(&format!("{about}\n\n"));
     }
     let mut usage_command = command.clone();
+    let rendered_usage = usage_command.render_usage().to_string();
+    let short_prefix = format!("Usage: {}", command.get_name());
+    let full_prefix = format!("Usage: {path}");
+    let rendered_usage = rendered_usage.replacen(&short_prefix, &full_prefix, 1);
     output.push_str("**Usage**\n\n```text\n");
-    output.push_str(&usage_command.render_usage().to_string());
+    output.push_str(&rendered_usage);
     output.push_str("\n```\n\n");
     if let Some(contract) = machine_contract(path) {
         output.push_str(&format!("**Machine contract:** {contract}.\n\n"));

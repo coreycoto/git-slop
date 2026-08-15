@@ -9,7 +9,7 @@ Print package and source-build provenance
 **Usage**
 
 ```text
-Usage: build-info [OPTIONS]
+Usage: git-slop build-info [OPTIONS]
 ```
 
 **Machine contract:** `build-info-2`.

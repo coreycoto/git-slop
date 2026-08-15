@@ -9,7 +9,7 @@ Manage named comparison baselines in Git-private runtime storage
 **Usage**
 
 ```text
-Usage: baseline [OPTIONS] <COMMAND>
+Usage: git-slop baseline [OPTIONS] <COMMAND>
 ```
 
 **Machine contract:** `baseline-1`.
@@ -31,7 +31,7 @@ Idempotently save a named baseline, failing closed when stored content differs
 **Usage**
 
 ```text
-Usage: ensure [OPTIONS]
+Usage: git-slop baseline ensure [OPTIONS]
 ```
 
 **Machine contract:** `baseline-1`.
@@ -40,6 +40,7 @@ Usage: ensure [OPTIONS]
 | --- | --- | --- | --- | --- |
 | `--name` | `NAME` | `default` | - | Stable baseline name |
 | `--report` | `REPORT` | `-` | - | Report path. Defaults to .slop/latest/report.json |
+| `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |
 | `--replace` | `flag` | `-` | - | Explicitly replace a differing stored baseline |
 | `--allow-dirty` | `flag` | `-` | - | Permit a report produced from a dirty worktree |
 | `--allow-incomplete-evidence` | `flag` | `-` | - | Permit incomplete inventory or history evidence |
@@ -58,7 +59,7 @@ Create a named baseline from a validated report
 **Usage**
 
 ```text
-Usage: create [OPTIONS]
+Usage: git-slop baseline create [OPTIONS]
 ```
 
 **Machine contract:** `baseline-1`.
@@ -67,6 +68,7 @@ Usage: create [OPTIONS]
 | --- | --- | --- | --- | --- |
 | `--name` | `NAME` | `default` | - | Stable baseline name |
 | `--report` | `REPORT` | `-` | - | Report path. Defaults to .slop/latest/report.json |
+| `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |
 | `--force` | `flag` | `-` | - | Replace an existing named baseline |
 | `--allow-dirty` | `flag` | `-` | - | Permit a report produced from a dirty worktree |
 | `--allow-incomplete-evidence` | `flag` | `-` | - | Permit incomplete inventory or history evidence |
@@ -85,7 +87,7 @@ Replace an existing named baseline from a validated report
 **Usage**
 
 ```text
-Usage: update [OPTIONS]
+Usage: git-slop baseline update [OPTIONS]
 ```
 
 **Machine contract:** `baseline-1`.
@@ -94,6 +96,7 @@ Usage: update [OPTIONS]
 | --- | --- | --- | --- | --- |
 | `--name` | `NAME` | `default` | - | Stable baseline name |
 | `--report` | `REPORT` | `-` | - | Report path. Defaults to .slop/latest/report.json |
+| `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |
 | `--allow-dirty` | `flag` | `-` | - | Permit a report produced from a dirty worktree |
 | `--allow-incomplete-evidence` | `flag` | `-` | - | Permit incomplete inventory or history evidence |
 | `--format` | `FORMAT` | `text` | values: text, json, yaml | Output format |
@@ -111,7 +114,7 @@ List named baselines with identity and readiness metadata
 **Usage**
 
 ```text
-Usage: list [OPTIONS]
+Usage: git-slop baseline list [OPTIONS]
 ```
 
 **Machine contract:** `baseline-1`.
@@ -133,7 +136,7 @@ Inspect baseline identity and evidence status
 **Usage**
 
 ```text
-Usage: inspect [OPTIONS]
+Usage: git-slop baseline inspect [OPTIONS]
 ```
 
 **Machine contract:** `baseline-1`.
@@ -156,7 +159,7 @@ Validate a named baseline against the current report contract
 **Usage**
 
 ```text
-Usage: validate [OPTIONS]
+Usage: git-slop baseline validate [OPTIONS]
 ```
 
 **Machine contract:** `baseline-1`.
@@ -179,7 +182,7 @@ Remove a named baseline
 **Usage**
 
 ```text
-Usage: remove [OPTIONS]
+Usage: git-slop baseline remove [OPTIONS]
 ```
 
 **Machine contract:** `baseline-1`.

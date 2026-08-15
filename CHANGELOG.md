@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.14.0 - 2026-08-14
+
+This release completes the post-0.13.0 user and developer experience follow-up
+with safer first-run behavior, clearer evidence, an accessible portable report,
+and release automation that cleans up its exact downstream state.
+
+### Safer adoption and current evidence
+
+- Keep unadopted scans Git-private and ephemeral by default, require an explicit
+  persistence opt-in, and give `doctor` and repository failures concise recovery
+  guidance, including the empty-repository case.
+- Add `--require-current` to every report-consuming command and baseline
+  operation so stale, invalid, missing, or unverified evidence can fail closed
+  before it drives maintenance work.
+- Make cache pruning preview-only until explicitly confirmed and emit complete,
+  copy-pasteable invocations in generated references.
+
+### Clearer analysis and reporting
+
+- Present conservative estimates in human and machine formats, add
+  finding-specific list help and tables, rank globally before applying `--top`,
+  and collapse repeated evidence into explicit clusters.
+- Separate low-support relationships from incomplete analysis and make empty
+  explanations concise without blank provenance sections.
+- Give each HTML record a stable identity and deep link, use view-specific sort
+  defaults, expose curated reasons and commands, and keep tables, controls, and
+  keyboard interaction accessible from narrow mobile layouts through desktop.
+
+### Installation, release, and contributor workflows
+
+- Install into created destinations, activate bundled completions, and provide
+  executable release-manifest, checksum, size, attestation, and installed-build
+  verification for Unix and Windows archives.
+- Align Action alias lifecycle guidance, keep the seven-target release matrix in
+  one validated source of truth, gate marketplace instructions on actual client
+  capability, and move the completed 0.9.4 publishing migration into history.
+- Delete only the consumed exact-version Scoop automation branch after qualified
+  bucket `main`, and make changed-file validation retain staged, unstaged, and
+  untracked work even when `HEAD` and the comparison base have equal trees.
+
 ## 0.13.0 - 2026-08-14
 
 This release removes the remaining first-run, report-currentness, and

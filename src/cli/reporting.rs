@@ -67,7 +67,11 @@ enum SarifScope {
 }
 
 fn run_sarif(repo_root: &Path, args: SarifArgs) -> Result<i32> {
-    let (loaded, report_path) = report_or_missing(repo_root, args.report.as_deref())?;
+    let (loaded, report_path) = report_or_missing_with_currentness(
+        repo_root,
+        args.report.as_deref(),
+        args.require_current,
+    )?;
     let top = match args.top {
         None => None,
         Some(value) => match usize::try_from(value).ok().filter(|count| *count > 0) {

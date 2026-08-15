@@ -9,7 +9,7 @@ Remove old immutable run snapshots according to retention policy
 **Usage**
 
 ```text
-Usage: prune [OPTIONS]
+Usage: git-slop prune [OPTIONS]
 ```
 
 **Machine contract:** `prune-1`.

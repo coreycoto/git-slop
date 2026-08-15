@@ -9,7 +9,7 @@ Export action-queue findings from an existing schema-5 report as SARIF
 **Usage**
 
 ```text
-Usage: sarif [OPTIONS]
+Usage: git-slop sarif [OPTIONS]
 ```
 
 **Machine contract:** `sarif-1`.
@@ -17,6 +17,7 @@ Usage: sarif [OPTIONS]
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
 | `--report` | `REPORT` | `-` | - | Report path. Defaults to .slop/latest/report.json |
+| `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |
 | `--top` | `TOP` | `-` | - | Maximum number of action-queue findings to export |
 | `--scope` | `SCOPE` | `action-queue` | values: policy, action-queue | Export configured policy failures or action-queue intervention candidates |
 | `--output` | `OUTPUT` | `-` | - | Optional SARIF output path. Defaults to stdout |

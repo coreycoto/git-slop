@@ -9,7 +9,7 @@ Print a published JSON Schema for a machine contract
 **Usage**
 
 ```text
-Usage: schema [OPTIONS] <CONTRACT>
+Usage: git-slop schema [OPTIONS] <CONTRACT>
 ```
 
 **Machine contract:** the selected immutable schema.

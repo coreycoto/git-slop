@@ -9,7 +9,7 @@ Compare two existing schema-5 reports without rerunning the detector
 **Usage**
 
 ```text
-Usage: compare [OPTIONS]
+Usage: git-slop compare [OPTIONS]
 ```
 
 **Machine contract:** `compare-1`; NDJSON streaming uses `compare-ndjson-1`.

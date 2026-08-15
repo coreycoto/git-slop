@@ -9,7 +9,7 @@ Generate the roff manual from the live Clap command tree
 **Usage**
 
 ```text
-Usage: man [OPTIONS]
+Usage: git-slop man [OPTIONS]
 ```
 
 | Argument | Value | Default | Constraints | Description |

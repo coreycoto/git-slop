@@ -9,7 +9,7 @@ Evaluate an existing report against CI thresholds
 **Usage**
 
 ```text
-Usage: check [OPTIONS]
+Usage: git-slop check [OPTIONS]
 ```
 
 **Machine contract:** `check-1`.

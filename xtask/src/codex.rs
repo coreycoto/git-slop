@@ -968,16 +968,16 @@ fn validate_product_documentation(repo_root: &Path, errors: &mut Vec<String>) {
         &[
             "https://agent-plugins.org/specification",
             "extensions.com.openai",
+            "codex plugin marketplace --help",
             "codex plugin marketplace add coreycoto/git-slop --ref <release>",
             "codex plugin add git-slop@git-slop-marketplace",
-            "Codex CLI 0.146.0 or newer",
             "temporary Codex 0.146.x compatibility overlay",
             "agents/vscode.yaml",
             "agents/cursor.yaml",
             "agents/github.yaml",
             "agents/kiro.yaml",
         ],
-        &[],
+        &["Codex CLI 0.146.0 or newer"],
         errors,
     );
     validate_normalized_contract(

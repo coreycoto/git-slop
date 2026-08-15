@@ -49,19 +49,27 @@ fn render_report_context(payload: &Value) -> Vec<String> {
     let characteristics = context
         .get("evidence_characteristics")
         .unwrap_or(&Value::Null);
-    vec![
+    let target_fingerprint = string(value_at(payload, &["target", "content_fingerprint"]));
+    let mut lines = vec![
         "Report and Evidence Provenance".to_string(),
         format!(
             "- analyzer: git-slop {} (analysis contract {})",
             string(analyzer.get("version")),
             json_scalar_text(analyzer.get("analysis_contract_version"))
         ),
-        format!(
-            "- report_digest={} content_digest={} target_content_fingerprint={}",
-            string(context.get("report_digest")),
-            string(context.get("content_digest")),
-            string(value_at(payload, &["target", "content_fingerprint"]))
-        ),
+        if target_fingerprint.is_empty() {
+            format!(
+                "- report_digest={} content_digest={}",
+                string(context.get("report_digest")),
+                string(context.get("content_digest"))
+            )
+        } else {
+            format!(
+                "- report_digest={} content_digest={} target_content_fingerprint={target_fingerprint}",
+                string(context.get("report_digest")),
+                string(context.get("content_digest"))
+            )
+        },
         format!(
             "- generated_at={} analyzed_revision_at={} head_sha={}",
             string(context.get("generated_at")),
@@ -69,11 +77,11 @@ fn render_report_context(payload: &Value) -> Vec<String> {
             string(context.get("head_sha"))
         ),
         format!(
-            "- evidence: incomplete={} repository_relative={} experimental_overlays={} saturation_suppressed={}",
-            characteristics
-                .get("incomplete")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            "- evidence: status={} incomplete_fields={} low_support_fields={} bounded_fields={} repository_relative={} experimental_overlays={} saturation_suppressed={}",
+            string(characteristics.get("status")),
+            array_at(characteristics, &["incomplete_fields"]).len(),
+            array_at(characteristics, &["low_support_fields"]).len(),
+            array_at(characteristics, &["bounded_fields"]).len(),
             characteristics
                 .get("repository_relative")
                 .and_then(Value::as_bool)
@@ -85,7 +93,29 @@ fn render_report_context(payload: &Value) -> Vec<String> {
                 .map(Vec::len)
                 .unwrap_or_default()
         ),
-    ]
+    ];
+    let summarize_fields = |key: &str| {
+        array_at(characteristics, &[key])
+            .iter()
+            .filter_map(|item| {
+                let field = item.get("field").and_then(Value::as_str)?;
+                let status = item.get("status").and_then(Value::as_str)?;
+                Some(format!("{field}={status}"))
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    for (label, key) in [
+        ("incomplete", "incomplete_fields"),
+        ("low support", "low_support_fields"),
+        ("bounded", "bounded_fields"),
+    ] {
+        let summary = summarize_fields(key);
+        if !summary.is_empty() {
+            lines.push(format!("- {label}: {summary}"));
+        }
+    }
+    lines
 }
 
 fn render_cluster_brief(value: &Value) -> String {
@@ -302,6 +332,11 @@ fn render_evidence_summary(payload: &Value) -> Vec<String> {
 fn render_top_explain(payload: &Value) -> String {
     let count = usize_value(value_at(payload, &["target", "count"]));
     let requested = usize_value(value_at(payload, &["target", "requested_count"]));
+    if count == 0 {
+        return format!(
+            "Explain: no matching hotspots\n\nNo action-queue hotspots were present in this report (requested {requested}).\n"
+        );
+    }
     let title = if requested > count {
         format!("Explain: top {count} hotspots (requested {requested})")
     } else {

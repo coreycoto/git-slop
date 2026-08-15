@@ -9,7 +9,7 @@ Inspect or prune the packed token cache
 **Usage**
 
 ```text
-Usage: cache [OPTIONS] <COMMAND>
+Usage: git-slop cache [OPTIONS] <COMMAND>
 ```
 
 | Argument | Value | Default | Constraints | Description |
@@ -27,7 +27,7 @@ git slop cache status
 **Usage**
 
 ```text
-Usage: status [OPTIONS]
+Usage: git-slop cache status [OPTIONS]
 ```
 
 **Machine contract:** `cache-status-1`.
@@ -47,7 +47,7 @@ git slop cache status --format json
 **Usage**
 
 ```text
-Usage: prune [OPTIONS]
+Usage: git-slop cache prune [OPTIONS]
 ```
 
 **Machine contract:** `cache-prune-1`.
@@ -56,7 +56,8 @@ Usage: prune [OPTIONS]
 | --- | --- | --- | --- | --- |
 | `--max-entries` | `MAX_ENTRIES` | `10000` | - | Maximum entries to retain |
 | `--max-bytes` | `MAX_BYTES` | `536870912` | - | Maximum logical payload bytes to retain |
-| `--dry-run` | `flag` | `-` | - | Preview cache removals without changing the database |
+| `--dry-run` | `flag` | `-` | conflicts: --yes | Explicitly request preview behavior (preview is already the default) |
+| `--yes` | `flag` | `-` | conflicts: --dry-run | Apply the selected removals. Without this flag the command is read-only |
 | `--compact` | `flag` | `-` | - | Reclaim free database pages after pruning |
 | `--format` | `FORMAT` | `text` | values: text, json, yaml | Output format |
 

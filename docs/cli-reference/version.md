@@ -9,7 +9,7 @@ Print version information
 **Usage**
 
 ```text
-Usage: version
+Usage: git-slop version
 ```
 
 **Example**

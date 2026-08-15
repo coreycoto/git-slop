@@ -1,5 +1,5 @@
 {
-  "$id": "https://github.com/coreycoto/git-slop/blob/v0.13.0/schemas/build-info-2.json",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.14.0/schemas/build-info-2.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {

@@ -9,7 +9,7 @@ Generate Markdown command reference from the live Clap command tree
 **Usage**
 
 ```text
-Usage: reference [OPTIONS]
+Usage: git-slop reference [OPTIONS]
 ```
 
 | Argument | Value | Default | Constraints | Description |

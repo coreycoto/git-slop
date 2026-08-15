@@ -9,7 +9,7 @@ Diagnose repository readiness and optionally write a redacted bundle
 **Usage**
 
 ```text
-Usage: doctor [OPTIONS]
+Usage: git-slop doctor [OPTIONS]
 ```
 
 **Machine contract:** `doctor-1`.

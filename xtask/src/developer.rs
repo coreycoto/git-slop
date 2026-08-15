@@ -178,7 +178,21 @@ fn changed_paths(repo_root: &Path, explicit_base: Option<&str>) -> Result<Vec<St
             .map(|_| "origin/main".to_string())
         });
     let diff_base = if let Some(base) = base {
-        output(repo_root, "git", &["merge-base", "HEAD", &base])?
+        let head_tree = output(repo_root, "git", &["rev-parse", "HEAD^{tree}"])?;
+        let base_tree_revision = format!("{base}^{{tree}}");
+        let base_tree = output(
+            repo_root,
+            "git",
+            &["rev-parse", "--verify", &base_tree_revision],
+        )?;
+        if head_tree == base_tree {
+            // A branch that has returned to the base tree has no committed
+            // content delta. Diffing HEAD still retains staged and unstaged
+            // work without walking a potentially deep merge-base history.
+            "HEAD".to_string()
+        } else {
+            output(repo_root, "git", &["merge-base", "HEAD", &base])?
+        }
     } else if output(
         repo_root,
         "git",
@@ -514,8 +528,12 @@ pub fn doctor(repo_root: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Gate, classify_paths, node_is_supported, rust_is_supported};
+    use super::{Gate, changed_paths, classify_paths, node_is_supported, rust_is_supported};
     use std::collections::BTreeSet;
+    use std::fs;
+    use std::path::Path;
+    use std::process::Command;
+    use tempfile::TempDir;
 
     fn gates(paths: &[&str]) -> BTreeSet<Gate> {
         classify_paths(
@@ -570,5 +588,49 @@ mod tests {
         assert!(!rust_is_supported("rustc 1.84.1 (fixture)"));
         assert!(node_is_supported("v24.1.0"));
         assert!(!node_is_supported("v22.18.0"));
+    }
+
+    fn git(root: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .current_dir(root)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim().to_string()
+    }
+
+    #[test]
+    fn equal_tree_fast_path_keeps_uncommitted_and_untracked_changes() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        git(root, &["init", "--quiet"]);
+        git(root, &["config", "user.name", "Git Slop Test"]);
+        git(root, &["config", "user.email", "git-slop@example.invalid"]);
+        fs::write(root.join("tracked.txt"), "base\n").unwrap();
+        git(root, &["add", "tracked.txt"]);
+        git(root, &["commit", "--quiet", "-m", "base"]);
+        let base = git(root, &["rev-parse", "HEAD"]);
+
+        fs::write(root.join("tracked.txt"), "temporary branch content\n").unwrap();
+        git(root, &["commit", "--quiet", "-am", "change"]);
+        fs::write(root.join("tracked.txt"), "base\n").unwrap();
+        git(root, &["commit", "--quiet", "-am", "restore base tree"]);
+        assert_eq!(
+            git(root, &["rev-parse", "HEAD^{tree}"]),
+            git(root, &["rev-parse", &format!("{base}^{{tree}}")])
+        );
+
+        fs::write(root.join("tracked.txt"), "uncommitted\n").unwrap();
+        fs::write(root.join("untracked.txt"), "new\n").unwrap();
+        assert_eq!(
+            changed_paths(root, Some(&base)).unwrap(),
+            ["tracked.txt", "untracked.txt"]
+        );
     }
 }

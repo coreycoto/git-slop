@@ -1065,13 +1065,31 @@ fn explain_report_context(report: &Value) -> Value {
         .get("evidence_completeness")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let incomplete = completeness.as_object().is_some_and(|values| {
-        values.values().any(|value| {
-            value.as_str().is_some_and(|status| {
-                status.contains("incomplete") || matches!(status, "bounded" | "low_support")
+    let fields_with_status = |predicate: fn(&str) -> bool| {
+        completeness
+            .as_object()
+            .into_iter()
+            .flat_map(|values| values.iter())
+            .filter_map(|(field, value)| {
+                value
+                    .as_str()
+                    .filter(|status| predicate(status))
+                    .map(|status| json!({"field": field, "status": status}))
             })
-        })
-    });
+            .collect::<Vec<_>>()
+    };
+    let incomplete_fields = fields_with_status(|status| status.contains("incomplete"));
+    let bounded_fields = fields_with_status(|status| status == "bounded");
+    let low_support_fields = fields_with_status(|status| status == "low_support");
+    let evidence_status = if !incomplete_fields.is_empty() {
+        "incomplete"
+    } else if !low_support_fields.is_empty() {
+        "low_support"
+    } else if !bounded_fields.is_empty() {
+        "bounded"
+    } else {
+        "complete"
+    };
     json!({
         "report_digest": report_digest,
         "content_digest": report.pointer("/repo/analyzed_content_digest").cloned().unwrap_or(Value::Null),
@@ -1089,7 +1107,11 @@ fn explain_report_context(report: &Value) -> Value {
         "evidence_characteristics": {
             "stable_cost_models": ["load", "volatility", "coordination"],
             "experimental_overlays": ["organization_health", "verification", "navigation", "blast_radius", "stewardship", "concept_dispersion"],
-            "incomplete": incomplete,
+            "status": evidence_status,
+            "incomplete": !incomplete_fields.is_empty(),
+            "incomplete_fields": incomplete_fields,
+            "bounded_fields": bounded_fields,
+            "low_support_fields": low_support_fields,
             "repository_relative": true,
             "saturation_suppressed": report.pointer("/diagnostics/suppressed_saturated_overlays").cloned().unwrap_or_else(|| json!([]))
         },

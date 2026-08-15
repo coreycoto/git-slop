@@ -6,6 +6,11 @@ supplies agent guidance, not a second runtime.
 
 ## ChatGPT and Codex
 
+First run `codex plugin marketplace --help` and `codex plugin add --help` in the
+exact client being configured. Continue only when both command surfaces are
+present; documentation or a different Codex runtime does not establish live
+availability. When present, use:
+
 ```bash
 codex plugin marketplace add coreycoto/git-slop --ref <release>
 codex plugin add git-slop@git-slop-marketplace
@@ -32,8 +37,8 @@ codex plugin remove git-slop@git-slop-marketplace
 codex plugin marketplace remove git-slop-marketplace
 ```
 
-These commands are contract-tested against the repository metadata and were
-checked against the shipped Codex CLI 0.147.0 command help.
+Repository validation checks these command strings against the plugin metadata;
+it does not claim that every Codex app or bundled runtime exposes the commands.
 
 ## GitHub Copilot CLI and VS Code
 

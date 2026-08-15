@@ -4,7 +4,7 @@ use std::process::Command;
 
 use serde_yaml::Value as YamlValue;
 
-use crate::manifest::{is_strict_semver, project_version};
+use crate::manifest::{RELEASE_TARGETS, is_strict_semver, project_version};
 
 pub fn validate(repo_root: &Path) -> Vec<String> {
     let mut errors = Vec::new();
@@ -12,60 +12,15 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
     validate_package_boundary(repo_root, &mut errors);
     validate_version_alignment(repo_root, &mut errors);
     validate_action_documentation(repo_root, &mut errors);
+    validate_release_documentation(repo_root, &mut errors);
     validate_scoop_boundary(repo_root, &mut errors);
     validate_removed_runtime_surfaces(repo_root, &mut errors);
     errors
 }
 
-fn markdown_table_names(document: &str, heading: &str) -> std::collections::BTreeSet<String> {
-    let Some(section) = document.split(heading).nth(1) else {
-        return std::collections::BTreeSet::new();
-    };
-    section
-        .split("\n## ")
-        .next()
-        .unwrap_or(section)
-        .lines()
-        .filter_map(|line| line.strip_prefix("| `"))
-        .filter_map(|line| line.split('`').next())
-        .map(str::to_string)
-        .collect()
-}
+include!("distribution/release_docs.rs");
 
-fn validate_action_documentation(repo_root: &Path, errors: &mut Vec<String>) {
-    let action = match fs::read_to_string(repo_root.join("action.yml"))
-        .ok()
-        .and_then(|text| serde_yaml::from_str::<YamlValue>(&text).ok())
-    {
-        Some(action) => action,
-        None => {
-            errors.push("action.yml must be readable YAML for documentation validation.".into());
-            return;
-        }
-    };
-    let docs = match fs::read_to_string(repo_root.join("docs/github-action.md")) {
-        Ok(docs) => docs,
-        Err(error) => {
-            errors.push(format!("Unable to read docs/github-action.md: {error}"));
-            return;
-        }
-    };
-    for (field, heading) in [("inputs", "## Inputs"), ("outputs", "## Outputs")] {
-        let expected = action[field]
-            .as_mapping()
-            .into_iter()
-            .flat_map(|mapping| mapping.keys())
-            .filter_map(YamlValue::as_str)
-            .map(str::to_string)
-            .collect::<std::collections::BTreeSet<_>>();
-        let documented = markdown_table_names(&docs, heading);
-        if expected != documented {
-            errors.push(format!(
-                "docs/github-action.md {field} table must exactly match action.yml: expected={expected:?}, documented={documented:?}"
-            ));
-        }
-    }
-}
+include!("distribution/action_docs.rs");
 
 fn validate_package_boundary(repo_root: &Path, errors: &mut Vec<String>) {
     let root_manifest = repo_root.join("Cargo.toml");
@@ -90,6 +45,8 @@ fn validate_package_boundary(repo_root: &Path, errors: &mut Vec<String>) {
     require(&root, "publish = [\"crates-io\"]", "Cargo.toml", errors);
     require(&root, "build = \"build.rs\"", "Cargo.toml", errors);
     require(&root, "\"/build.rs\"", "Cargo.toml", errors);
+    require(&root, "\"/src/cli/html/*.css\"", "Cargo.toml", errors);
+    require(&root, "\"/src/cli/html/*.js\"", "Cargo.toml", errors);
     if root.lines().any(|line| {
         let line = line.trim();
         line.starts_with('"') && line.contains("xtask")
@@ -144,11 +101,11 @@ fn validate_version_alignment(repo_root: &Path, errors: &mut Vec<String>) {
         (
             "docs/install.md",
             &[
-                "release=v",
                 "cargo install git-slop --version ",
                 "After the bucket lists ",
             ][..],
         ),
+        ("docs/archive-install.md", &["release=v"][..]),
         (
             "plugins/git-slop/skills/adopt-repo/SKILL.md",
             &["Minimal CI adoption after `", "uses: coreycoto/git-slop@v"][..],
@@ -357,7 +314,7 @@ fn validate_scoop_boundary(repo_root: &Path, errors: &mut Vec<String>) {
             "docs/architecture.md",
             &[
                 "coreycoto/scoop-bucket",
-                "ten-asset/nine-checksum",
+                "twelve-asset/eleven-checksum",
                 "trusted-main receiver creates a manifest-only bucket pull request",
             ][..],
         ),
@@ -528,11 +485,11 @@ mod tests {
         .unwrap();
         fs::write(
             root.join("docs/install.md"),
-            "release=v0.9.0\n\
-             cargo install git-slop --version 0.9.0\n\
+            "cargo install git-slop --version 0.9.0\n\
              After the bucket lists 0.9.0\n",
         )
         .unwrap();
+        fs::write(root.join("docs/archive-install.md"), "release=v0.9.0\n").unwrap();
         fs::write(
             root.join("plugins/git-slop/skills/adopt-repo/SKILL.md"),
             "Minimal CI adoption after `0.9.0` is published:\nuses: coreycoto/git-slop@v0.9.0\n",
@@ -592,8 +549,7 @@ mod tests {
         .unwrap();
         fs::write(
             temp.path().join("docs/install.md"),
-            "release=v0.9.1\n\
-             cargo install git-slop --version 0.9.1\n\
+            "cargo install git-slop --version 0.9.1\n\
              After the bucket lists 0.9.1\n",
         )
         .unwrap();
@@ -689,7 +645,7 @@ mod tests {
         fs::write(
             root.join("docs/architecture.md"),
             "coreycoto/scoop-bucket\n\
-             ten-asset/nine-checksum\n\
+             twelve-asset/eleven-checksum\n\
              trusted-main receiver creates a manifest-only bucket pull request\n",
         )
         .unwrap();
