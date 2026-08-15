@@ -757,6 +757,7 @@ include!("cli/listing.rs");
 include!("cli/generation.rs");
 include!("cli/generation/artifacts.rs");
 include!("cli/generation/reference.rs");
+include!("cli/generation/reference/pages.rs");
 include!("cli/generation/reference/bundle.rs");
 include!("cli/entry.rs");
 

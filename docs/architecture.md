@@ -45,9 +45,10 @@ src/
   inventory.rs
   history.rs
   scoring.rs
-  overlays.rs
   overlays/
-    common.rs
+    mod.rs
+    common/
+      mod.rs
     coordination.rs
     relationships.rs
     clusters.rs
@@ -56,7 +57,9 @@ src/
   health/
     model.rs
     rollup.rs
-    render.rs
+    render/
+      mod.rs
+      support.rs
     tests.rs
   report.rs
   report/
@@ -102,7 +105,7 @@ src/
   co-change facts from local Git history.
 - `scoring.rs` owns context bands, stable maintenance-pressure scoring, reason
   codes, and folder aggregation.
-- `overlays.rs` orchestrates organization, verification, navigation,
+- `overlays/mod.rs` orchestrates organization, verification, navigation,
   blast-radius, stewardship, and semantic-drift evidence without changing
   `slop_score`; focused analyzers and shared test/verification/term helpers live
   under `overlays/`.

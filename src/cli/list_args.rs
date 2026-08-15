@@ -6,13 +6,13 @@ struct ListArgs {
 
 #[derive(Debug, Subcommand)]
 enum ListCommand {
-    /// List policy-enforced failures from repository health.
+    /// List records that fail configured policy.
     PolicyFailures(FindingsListArgs),
-    /// List bounded maintenance candidates that warrant review.
+    /// List maintenance candidates that warrant review.
     Interventions(FindingsListArgs),
-    /// List observation-only signals that do not request intervention.
+    /// List advisory observations.
     Observations(FindingsListArgs),
-    /// List advisory repository-health findings.
+    /// List advisory health findings.
     HealthFindings(FindingsListArgs),
     /// Deprecated compatibility name for `health-findings`.
     Findings(FindingsListArgs),
@@ -26,22 +26,22 @@ enum ListCommand {
 
 #[derive(Debug, Args)]
 struct ListOutputArgs {
-    /// Report path. Defaults to the durable latest report, then the Git-private first-run report.
+    /// Report path; defaults to the latest durable or Git-private report.
     #[arg(long)]
     report: Option<PathBuf>,
-    /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
+    /// Fail unless the report matches current repository state.
     #[arg(long)]
     require_current: bool,
-    /// Maximum number of matched records to return.
+    /// Maximum returned records.
     #[arg(long, default_value_t = 50)]
     top: usize,
     /// Output format.
     #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
     format: DisplayFormat,
-    /// Use a wider terminal layout before truncating fields.
+    /// Use a wider terminal layout.
     #[arg(long)]
     wide: bool,
-    /// Never truncate terminal fields.
+    /// Do not truncate terminal fields.
     #[arg(long)]
     no_truncate: bool,
 }
@@ -50,7 +50,7 @@ struct ListOutputArgs {
 struct FindingsListArgs {
     #[command(flatten)]
     output: ListOutputArgs,
-    /// Match a finding path, relationship endpoint, or cluster member.
+    /// Match a finding path.
     #[arg(long)]
     path: Option<String>,
     /// Match an analysis profile.
@@ -62,13 +62,13 @@ struct FindingsListArgs {
     /// Match a resolved file classification.
     #[arg(long, visible_alias = "class")]
     classification: Option<String>,
-    /// Match delivery severity (error, warning, or notice).
+    /// Match review severity.
     #[arg(long)]
     severity: Option<String>,
-    /// Match detector context band independently of severity.
+    /// Match context/load band.
     #[arg(long)]
     context_band: Option<String>,
-    /// Match detector maintenance-pressure band independently of severity.
+    /// Match maintenance-pressure band.
     #[arg(long)]
     slop_band: Option<String>,
 }

@@ -66,11 +66,9 @@ git-slop find --ephemeral
 git-slop find --estimate-only
 ```
 
-After adoption, it writes the same compact bundle to `.slop/latest/` and one
-timestamped directory under `.slop/runs/`. Before adoption, plain `find` writes
-the equivalent bundle beneath `.git/git-slop/ephemeral/`; default `health`,
-`doctor`, `show`, `list`, `plan`, and `html` commands discover that report
-without requiring a copied `--report` path:
+Adopted repositories receive the compact bundle in `.slop/latest/` and one
+timestamped run. Before adoption, plain `find` writes beneath
+`.git/git-slop/ephemeral/`; report commands discover it without `--report`:
 
 - `report.json`
 - optional `report.yaml` when `output.yaml: true`
@@ -82,11 +80,8 @@ acknowledgement and the report records incomplete evidence.
 `--no-progress` keeps the final report summary but disables phase updates;
 `--quiet` suppresses both.
 Automatic first-run storage reuses compatible Git-private cache entries.
-Explicit `--ephemeral` keeps disposable state and reports under Git-private
-storage and disables cache reads and writes. Every non-quiet scan ends with a
-receipt whose tracked-path dispositions are disjoint: analyzed, ignored,
-missing, binary, and undecodable. It also reports commits examined, cache
-hits/misses, peak memory, report size/profile, and output root.
+Explicit `--ephemeral` disables caching. Scan receipts report disjoint analyzed,
+ignored, missing, binary, and undecodable counts alongside timing and resources.
 
 ### Health
 
@@ -101,14 +96,10 @@ git-slop health --format github --max-annotations 10
 git-slop health --require-current
 ```
 
-The default report is `.slop/latest/report.json`, falling back to the
-Git-private first-run report when durable adoption is absent. The default
-format is `text`, and the default annotation cap is 10. Findings are ordered by
-review severity before maintenance pressure, and truncated output states the
-shown and total counts. Every format writes to
-standard output. `health` never rewrites `.slop/latest/health.md`; only `find`
-writes the persisted report bundle. GitHub annotations include a specific next
-command such as `git-slop explain --path <path>`.
+The default is the latest durable or Git-private report. Text is the default
+format and annotations default to 10. Findings are severity-first and state
+shown/total counts. Every format writes to standard output. `health` never
+rewrites `.slop/latest/health.md`; only `find` persists the bundle.
 
 See [Health Output](health-output.md) for format contracts, band semantics,
 folder boundary explanations, deterministic descendants, and number rendering.
@@ -175,10 +166,8 @@ git-slop html --output .slop/latest/report.html
 
 Global `--repo <path>` avoids changing directories. Diagnostic bundles exclude
 source, raw tokens, credentials, absolute paths, and author identities.
-The HTML export is self-contained and local-only. It opens on a decision
-overview, keeps policy failures, interventions, observations, and health
-findings separate, exposes independent context/load, maintenance, and review
-severity filters, and uses a visible master-detail explorer with direct paging.
+The self-contained HTML export separates the four decision surfaces and offers
+independent filters, direct paging, and visible master-detail evidence.
 Run pruning is preview-only unless `--yes` is supplied; `--dry-run` remains an
 explicit, script-friendly spelling of the default.
 

@@ -9,11 +9,9 @@ fn reference_bundle() -> (String, std::collections::BTreeMap<String, String>) {
         let path = format!("git-slop {name}");
         let filename = format!("{name}.md");
         index.push_str(&format!("- [{path}](cli-reference/{filename})\n"));
-        let mut page = format!(
-            "# Git Slop CLI Reference: `{name}`\n\nGenerated from the live Clap command tree.\n\n"
-        );
-        markdown_command_tree(subcommand, &path, &mut page);
-        pages.insert(filename, format!("{}\n", page.trim_end()));
+        let (page, nested_pages) = reference_bundle_page(subcommand, name, &path);
+        pages.insert(filename, page);
+        pages.extend(nested_pages);
     }
     (format!("{}\n", index.trim_end()), pages)
 }

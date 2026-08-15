@@ -6,6 +6,10 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 
+mod receipt;
+
+use receipt::{bounded_output, print_failure, print_success};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Gate {
     PublicRust,
@@ -267,24 +271,6 @@ fn run(repo_root: &Path, program: &str, args: &[&str], quiet: bool) -> Result<()
     }
 }
 
-fn bounded_output(bytes: &[u8]) -> String {
-    const MAX_CHARS: usize = 12_000;
-    let value = String::from_utf8_lossy(bytes);
-    let trimmed = value.trim();
-    if trimmed.chars().count() <= MAX_CHARS {
-        return trimmed.to_string();
-    }
-    let tail = trimmed
-        .chars()
-        .rev()
-        .take(MAX_CHARS)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect::<String>();
-    format!("[earlier output truncated]\n{tail}")
-}
-
 fn action_tests(repo_root: &Path) -> Result<Vec<String>> {
     let mut tests = fs::read_dir(repo_root.join("action"))?
         .filter_map(Result::ok)
@@ -470,35 +456,19 @@ pub fn ci(repo_root: &Path, quiet: bool, json_output: bool) -> Result<()> {
     for gate in ALL_GATES {
         if let Err(error) = run_gate(repo_root, gate, quiet) {
             if json_output {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({
-                        "schema_version": 1,
-                        "command": "ci",
-                        "status": "failed",
-                        "passed_gates": passed,
-                        "failed_gate": gate.label(),
-                        "elapsed_ms": started.elapsed().as_millis(),
-                        "error": format!("{error:#}")
-                    }))?
-                );
+                print_failure(
+                    &passed,
+                    gate.label(),
+                    started.elapsed().as_millis(),
+                    &format!("{error:#}"),
+                )?;
             }
             return Err(error);
         }
         passed.push(gate.label());
     }
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "schema_version": 1,
-                "command": "ci",
-                "status": "passed",
-                "passed_gates": passed,
-                "failed_gate": null,
-                "elapsed_ms": started.elapsed().as_millis()
-            }))?
-        );
+        print_success(&passed, started.elapsed().as_millis())?;
     } else {
         println!("Complete local validation matrix passed.");
     }

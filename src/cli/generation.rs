@@ -248,10 +248,10 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
 </body>
 </html>"##,
         nonce = csp_nonce,
-        style = include_str!("html/report.css"),
+        style = include_str!("html/report-app.css"),
         payload = payload,
         model = include_str!("html/report-model.js"),
-        script = include_str!("html/report.js")
+        script = include_str!("html/report-app.js")
     );
     config::write_text_atomically(&output, html, false)?;
     println!("Wrote local HTML report to {}.", output.display());
