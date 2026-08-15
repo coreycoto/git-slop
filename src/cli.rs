@@ -145,8 +145,11 @@ struct FindArgs {
     #[arg(long)]
     no_cache: bool,
     /// Keep disposable state and reports under Git-private storage, without adopting `.slop/`.
-    #[arg(long, conflicts_with_all = ["state_dir", "output_dir"])]
+    #[arg(long, conflicts_with_all = ["state_dir", "output_dir", "persist_unadopted"])]
     ephemeral: bool,
+    /// Explicitly allow persistent `.slop/` output before repository adoption.
+    #[arg(long, conflicts_with = "ephemeral")]
+    persist_unadopted: bool,
     /// Deterministically analyze the largest path prefix that fits the memory budget.
     #[arg(long)]
     allow_degraded: bool,
@@ -162,6 +165,9 @@ struct FindArgs {
     /// Estimate scope, memory, cache, report size, time, and inodes without scanning.
     #[arg(long)]
     estimate_only: bool,
+    /// Estimate output format. Defaults to text on a terminal and JSON when piped.
+    #[arg(long, value_enum, requires = "estimate_only")]
+    format: Option<DisplayFormat>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -233,6 +239,9 @@ struct ShowArgs {
     /// Report path. Defaults to .slop/latest/report.json.
     #[arg(long)]
     report: Option<PathBuf>,
+    /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
+    #[arg(long)]
+    require_current: bool,
     /// Output format.
     #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
     format: DisplayFormat,
@@ -248,6 +257,9 @@ struct ExplainArgs {
     /// Report path. Defaults to .slop/latest/report.json.
     #[arg(long)]
     report: Option<PathBuf>,
+    /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
+    #[arg(long)]
+    require_current: bool,
     /// Repo-relative file or folder path.
     #[arg(long)]
     path: Option<String>,
@@ -291,6 +303,9 @@ struct PlanArgs {
     /// Report path. Defaults to .slop/latest/report.json.
     #[arg(long)]
     report: Option<PathBuf>,
+    /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
+    #[arg(long)]
+    require_current: bool,
     /// Repo-relative file or folder path.
     #[arg(long)]
     path: Option<String>,
@@ -441,6 +456,9 @@ enum BaselineCommand {
         /// Report path. Defaults to .slop/latest/report.json.
         #[arg(long)]
         report: Option<PathBuf>,
+        /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
+        #[arg(long)]
+        require_current: bool,
         /// Explicitly replace a differing stored baseline.
         #[arg(long)]
         replace: bool,
@@ -462,6 +480,9 @@ enum BaselineCommand {
         /// Report path. Defaults to .slop/latest/report.json.
         #[arg(long)]
         report: Option<PathBuf>,
+        /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
+        #[arg(long)]
+        require_current: bool,
         /// Replace an existing named baseline.
         #[arg(long)]
         force: bool,
@@ -483,6 +504,9 @@ enum BaselineCommand {
         /// Report path. Defaults to .slop/latest/report.json.
         #[arg(long)]
         report: Option<PathBuf>,
+        /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
+        #[arg(long)]
+        require_current: bool,
         /// Permit a report produced from a dirty worktree.
         #[arg(long)]
         allow_dirty: bool,
@@ -572,6 +596,9 @@ struct SarifArgs {
     /// Report path. Defaults to .slop/latest/report.json.
     #[arg(long)]
     report: Option<PathBuf>,
+    /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
+    #[arg(long)]
+    require_current: bool,
     /// Maximum number of action-queue findings to export.
     #[arg(long)]
     top: Option<i64>,
@@ -663,17 +690,38 @@ struct ListArgs {
 
 #[derive(Debug, Subcommand)]
 enum ListCommand {
-    Findings(ListFilterArgs),
-    Relationships(ListFilterArgs),
-    Clusters(ListFilterArgs),
-    Profiles(ListFilterArgs),
+    Findings(FindingsListArgs),
+    Relationships(RelationshipsListArgs),
+    Clusters(ClustersListArgs),
+    Profiles(ProfilesListArgs),
 }
 
 #[derive(Debug, Args)]
-struct ListFilterArgs {
+struct ListOutputArgs {
     /// Report path. Defaults to .slop/latest/report.json.
     #[arg(long)]
     report: Option<PathBuf>,
+    /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
+    #[arg(long)]
+    require_current: bool,
+    /// Maximum number of matched records to return.
+    #[arg(long, default_value_t = 50)]
+    top: usize,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
+    format: DisplayFormat,
+    /// Use a wider terminal layout before truncating fields.
+    #[arg(long)]
+    wide: bool,
+    /// Never truncate terminal fields.
+    #[arg(long)]
+    no_truncate: bool,
+}
+
+#[derive(Debug, Args)]
+struct FindingsListArgs {
+    #[command(flatten)]
+    output: ListOutputArgs,
     /// Match a finding path, relationship endpoint, or cluster member.
     #[arg(long)]
     path: Option<String>,
@@ -689,18 +737,51 @@ struct ListFilterArgs {
     /// Match a finding severity.
     #[arg(long)]
     severity: Option<String>,
-    /// Maximum number of matched records to return.
-    #[arg(long, default_value_t = 50)]
-    top: usize,
-    /// Output format.
-    #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
-    format: DisplayFormat,
-    /// Use a wider terminal layout before truncating fields.
+}
+
+#[derive(Debug, Args)]
+struct RelationshipsListArgs {
+    #[command(flatten)]
+    output: ListOutputArgs,
+    /// Match a relationship endpoint.
     #[arg(long)]
-    wide: bool,
-    /// Never truncate terminal fields.
+    path: Option<String>,
+    /// Match an endpoint analysis profile.
     #[arg(long)]
-    no_truncate: bool,
+    profile: Option<String>,
+    /// Match an endpoint file language.
+    #[arg(long)]
+    language: Option<String>,
+    /// Match an endpoint file classification.
+    #[arg(long, visible_alias = "class")]
+    classification: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct ClustersListArgs {
+    #[command(flatten)]
+    output: ListOutputArgs,
+    /// Match a cluster member path.
+    #[arg(long)]
+    path: Option<String>,
+    /// Match a member analysis profile.
+    #[arg(long)]
+    profile: Option<String>,
+    /// Match a member file language.
+    #[arg(long)]
+    language: Option<String>,
+    /// Match a member file classification.
+    #[arg(long, visible_alias = "class")]
+    classification: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct ProfilesListArgs {
+    #[command(flatten)]
+    output: ListOutputArgs,
+    /// Match an analysis profile.
+    #[arg(long)]
+    profile: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -745,9 +826,12 @@ enum CacheCommand {
         /// Maximum logical payload bytes to retain.
         #[arg(long, default_value_t = 536_870_912)]
         max_bytes: u64,
-        /// Preview cache removals without changing the database.
-        #[arg(long)]
+        /// Explicitly request preview behavior (preview is already the default).
+        #[arg(long, conflicts_with = "yes")]
         dry_run: bool,
+        /// Apply the selected removals. Without this flag the command is read-only.
+        #[arg(long, conflicts_with = "dry_run")]
+        yes: bool,
         /// Reclaim free database pages after pruning.
         #[arg(long)]
         compact: bool,
@@ -783,6 +867,9 @@ struct HtmlArgs {
     /// Report path. Defaults to .slop/latest/report.json.
     #[arg(long)]
     report: Option<PathBuf>,
+    /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
+    #[arg(long)]
+    require_current: bool,
     /// Destination. Defaults to .slop/latest/report.html.
     #[arg(long)]
     output: Option<PathBuf>,
@@ -806,260 +893,7 @@ include!("cli/generation.rs");
 include!("cli/generation/artifacts.rs");
 include!("cli/generation/reference.rs");
 include!("cli/generation/reference/bundle.rs");
-fn execute(repo_root: &Path, command: Command) -> Result<i32> {
-    match command {
-        Command::Init(args) => run_init(repo_root, args),
-        Command::Find(args) => run_find(repo_root, args),
-        Command::Show(args) => run_show(repo_root, args),
-        Command::Explain(args) => run_explain(repo_root, args),
-        Command::Plan(args) => run_plan(repo_root, args),
-        Command::Check(args) => run_check(repo_root, args),
-        Command::Compare(args) => run_compare(repo_root, args),
-        Command::Baseline(args) => run_baseline(repo_root, args),
-        Command::Report(args) => run_report(args),
-        Command::Sarif(args) => run_sarif(repo_root, args),
-        Command::Health(args) => run_health(repo_root, args),
-        Command::Config(args) => run_config(repo_root, args),
-        Command::Doctor(args) => run_doctor(repo_root, args),
-        Command::List(args) => run_list(repo_root, args),
-        Command::Prune(args) => run_prune(repo_root, args),
-        Command::Cache(args) => run_cache(repo_root, args),
-        Command::Completions(args) => run_completions(args),
-        Command::Man(args) => run_man(args),
-        Command::Reference(args) => run_reference(args),
-        Command::Html(args) => run_html(repo_root, args),
-        Command::Version => {
-            println!("{PROJECT_NAME} {VERSION}");
-            Ok(0)
-        }
-        Command::BuildInfo(args) => {
-            match args.format {
-                BuildInfoFormat::Json => {
-                    println!("{}", serde_json::to_string_pretty(&build_info::current())?)
-                }
-            }
-            Ok(0)
-        }
-        Command::Schema(args) => {
-            let rendered = match args.contract {
-                SchemaContract::Report => render_json(&report::schema())?,
-                SchemaContract::Config => render_json(&config::schema())?,
-                contract => {
-                    let source = match contract {
-                        SchemaContract::Compare => include_str!("../schemas/compare-1.json"),
-                        SchemaContract::Explain => include_str!("../schemas/explain-2.json"),
-                        SchemaContract::Plan => include_str!("../schemas/plan-2.json"),
-                        SchemaContract::Sarif => include_str!("../schemas/sarif-1.json"),
-                        SchemaContract::Health => include_str!("../schemas/health-1.json"),
-                        SchemaContract::Check => include_str!("../schemas/check-1.json"),
-                        SchemaContract::Doctor => include_str!("../schemas/doctor-1.json"),
-                        SchemaContract::BuildInfo => include_str!("../schemas/build-info-2.json"),
-                        SchemaContract::ReleaseManifest => {
-                            include_str!("../schemas/release-manifest-3.json")
-                        }
-                        SchemaContract::List => include_str!("../schemas/list-1.json"),
-                        SchemaContract::Show => include_str!("../schemas/show-1.json"),
-                        SchemaContract::PromptManifest => {
-                            include_str!("../schemas/prompt-manifest-1.json")
-                        }
-                        SchemaContract::Error => include_str!("../schemas/error-1.json"),
-                        SchemaContract::FindEstimate => {
-                            include_str!("../schemas/find-estimate-1.json")
-                        }
-                        SchemaContract::CacheStatus => {
-                            include_str!("../schemas/cache-status-1.json")
-                        }
-                        SchemaContract::CachePrune => include_str!("../schemas/cache-prune-1.json"),
-                        SchemaContract::Baseline => include_str!("../schemas/baseline-1.json"),
-                        SchemaContract::Prune => include_str!("../schemas/prune-1.json"),
-                        SchemaContract::CompareNdjson => {
-                            include_str!("../schemas/compare-ndjson-1.json")
-                        }
-                        SchemaContract::Report | SchemaContract::Config => unreachable!(),
-                    };
-                    let value: Value = serde_json::from_str(source)?;
-                    render_json(&value)?
-                }
-            };
-            write_generated_output(args.output.as_deref(), rendered.as_bytes())?;
-            Ok(0)
-        }
-    }
-}
-
-fn command_requires_repository(command: &Command) -> bool {
-    match command {
-        Command::Completions(_)
-        | Command::Man(_)
-        | Command::Reference(_)
-        | Command::Version
-        | Command::BuildInfo(_)
-        | Command::Schema(_)
-        | Command::Report(_)
-        | Command::Config(ConfigArgs {
-            command: ConfigCommand::Schema,
-        }) => false,
-        Command::Show(args) => args.report.is_none(),
-        Command::Compare(args) => args.base_ref.is_some() || args.baseline.is_some(),
-        Command::Baseline(_) => true,
-        Command::Explain(args) => args.report.is_none() || args.include_repository_context,
-        Command::Plan(args) => args.report.is_none() || args.include_repository_context,
-        Command::Check(args) => args.report.is_none() || args.require_current,
-        Command::Sarif(args) => args.report.is_none(),
-        Command::Health(args) => args.report.is_none() || args.require_current,
-        Command::Html(args) => args.report.is_none(),
-        Command::List(ListArgs {
-            command:
-                ListCommand::Findings(args)
-                | ListCommand::Relationships(args)
-                | ListCommand::Clusters(args)
-                | ListCommand::Profiles(args),
-        }) => args.report.is_none(),
-        _ => true,
-    }
-}
-
-pub fn run() -> i32 {
-    let raw_args = std::env::args_os().collect::<Vec<_>>();
-    let requested_error_format = requested_error_format(&raw_args);
-    let parser_command = parser_command_name(&raw_args);
-    let cli = match Cli::try_parse_from(&raw_args) {
-        Ok(cli) => cli,
-        Err(error) => {
-            let code = error.exit_code();
-            if code == 0 || requested_error_format == ErrorFormat::Human {
-                let _ = error.print();
-            } else {
-                let classified =
-                    ClassifiedError::new(ErrorKind::Contract, "parser_error", error.to_string())
-                        .at("/arguments")
-                        .with_details(json!({"clap_kind": format!("{:?}", error.kind())}));
-                render_runtime_error(
-                    requested_error_format,
-                    &classified,
-                    parser_command.as_deref(),
-                );
-            }
-            return code;
-        }
-    };
-    let error_format = cli.error_format;
-    let command_name = cli.command.name();
-    let repo_root = if command_requires_repository(&cli.command) {
-        match git::resolve_repo_root_from(cli.repo.as_deref()) {
-            Ok(root) => root,
-            Err(error) => {
-                render_runtime_error(
-                    error_format,
-                    &ClassifiedError::new(
-                        ErrorKind::Repository,
-                        "repository_not_found",
-                        format!("{error:#}"),
-                    ),
-                    Some(command_name),
-                );
-                return 3;
-            }
-        }
-    } else {
-        PathBuf::new()
-    };
-    match execute(&repo_root, cli.command) {
-        Ok(code) => code,
-        Err(error) => {
-            let classified = error.downcast_ref::<ClassifiedError>();
-            let fallback;
-            let classified = if let Some(classified) = classified {
-                classified
-            } else {
-                fallback = if error.downcast_ref::<std::io::Error>().is_some() {
-                    ClassifiedError::new(ErrorKind::Io, "io_failure", format!("{error:#}"))
-                } else {
-                    ClassifiedError::new(
-                        ErrorKind::Repository,
-                        "operation_failed",
-                        format!("{error:#}"),
-                    )
-                };
-                &fallback
-            };
-            render_runtime_error(error_format, classified, Some(command_name));
-            classified.kind.exit_code()
-        }
-    }
-}
-
-fn requested_error_format(args: &[std::ffi::OsString]) -> ErrorFormat {
-    args.iter()
-        .filter_map(|arg| arg.to_str())
-        .enumerate()
-        .find_map(|(index, arg)| {
-            if arg == "--error-format" {
-                args.get(index + 1).and_then(|value| value.to_str())
-            } else {
-                arg.strip_prefix("--error-format=")
-            }
-        })
-        .filter(|value| *value == "json")
-        .map_or(ErrorFormat::Human, |_| ErrorFormat::Json)
-}
-
-fn parser_command_name(args: &[std::ffi::OsString]) -> Option<String> {
-    const COMMANDS: &[&str] = &[
-        "init",
-        "find",
-        "show",
-        "explain",
-        "plan",
-        "check",
-        "compare",
-        "baseline",
-        "report",
-        "sarif",
-        "health",
-        "config",
-        "doctor",
-        "list",
-        "prune",
-        "cache",
-        "completions",
-        "man",
-        "reference",
-        "html",
-        "version",
-        "build-info",
-        "schema",
-    ];
-    args.iter()
-        .skip(1)
-        .filter_map(|arg| arg.to_str())
-        .find(|arg| COMMANDS.contains(arg))
-        .map(str::to_string)
-}
-
-fn render_runtime_error(format: ErrorFormat, error: &ClassifiedError, command: Option<&str>) {
-    match format {
-        ErrorFormat::Human => eprintln!("{}", error.message),
-        ErrorFormat::Json => eprintln!(
-            "{}",
-            serde_json::to_string(&json!({
-                "schema_version": 1,
-                "error": {
-                    "kind": error.kind,
-                    "code": error.code,
-                    "pointer": error.pointer,
-                    "message": error.message,
-                    "details": error.details,
-                    "command": command,
-                    "exit_code": error.kind.exit_code()
-                }
-            }))
-            .unwrap_or_else(|_| {
-                "{\"schema_version\":1,\"error\":{\"code\":\"serialization_failed\"}}".to_string()
-            })
-        ),
-    }
-}
+include!("cli/entry.rs");
 
 #[cfg(test)]
 mod tests {

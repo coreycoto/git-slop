@@ -68,7 +68,7 @@ pub fn status(state_root: &Path) -> Result<Value> {
     let (quarantined_files, quarantined_bytes) = quarantined_stats(&path);
     if !path.exists() {
         return Ok(
-            json!({"schema_version": 1, "command": "cache status", "status": if quarantined_files > 0 { "quarantined_uncached" } else { "absent" }, "entries": 0, "payload_bytes": 0, "database_bytes": 0, "wal_bytes": 0, "shm_bytes": 0, "persistent_bytes": 0, "transient_bytes": 0, "allocated_bytes": 0, "quarantined_files": quarantined_files, "quarantined_bytes": quarantined_bytes, "repair_command": "git slop find", "cleanup_command": "git slop cache prune --max-entries 0 --max-bytes 0 --compact"}),
+            json!({"schema_version": 1, "command": "cache status", "status": if quarantined_files > 0 { "quarantined_uncached" } else { "absent" }, "entries": 0, "payload_bytes": 0, "database_bytes": 0, "wal_bytes": 0, "shm_bytes": 0, "persistent_bytes": 0, "transient_bytes": 0, "allocated_bytes": 0, "quarantined_files": quarantined_files, "quarantined_bytes": quarantined_bytes, "repair_command": "git slop find", "cleanup_command": "git slop cache prune --max-entries 0 --max-bytes 0 --compact --yes"}),
         );
     }
     let connection = match configured_connection(&path) {

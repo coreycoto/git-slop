@@ -1,6 +1,6 @@
 [package]
 name = "git-slop"
-version = "0.13.0"
+version = "0.14.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A deterministic repository token-defragmenter for humans and AI agents."
@@ -17,6 +17,8 @@ include = [
     "/Cargo.lock",
     "/src/*.rs",
     "/src/**/*.rs",
+    "/src/cli/html/*.css",
+    "/src/cli/html/*.js",
     "/README.md",
     "/LICENSE",
     "/assets/brand/*",

@@ -261,7 +261,7 @@ fn doctor_and_health_distinguish_current_and_stale_reports() {
     let repository = fixture_repository();
     cargo_bin_cmd!("git-slop")
         .current_dir(repository.path())
-        .args(["find", "--quiet", "--no-cache"])
+        .args(["find", "--quiet", "--no-cache", "--persist-unadopted"])
         .assert()
         .success();
     cargo_bin_cmd!("git-slop")
@@ -292,6 +292,22 @@ fn doctor_and_health_distinguish_current_and_stale_reports() {
         .assert()
         .code(2)
         .stderr(predicates::str::contains("Report is valid but stale"));
+    for arguments in [
+        vec!["show", "src/lib.rs", "--require-current"],
+        vec!["explain", "--path", "src/lib.rs", "--require-current"],
+        vec!["plan", "--path", "src/lib.rs", "--require-current"],
+        vec!["list", "findings", "--require-current"],
+        vec!["sarif", "--require-current"],
+        vec!["html", "--require-current"],
+        vec!["baseline", "ensure", "--name", "stale", "--require-current"],
+    ] {
+        cargo_bin_cmd!("git-slop")
+            .current_dir(repository.path())
+            .args(arguments)
+            .assert()
+            .code(2)
+            .stderr(predicates::str::contains("Report is valid but stale"));
+    }
 }
 
 #[test]
@@ -323,7 +339,7 @@ fn baseline_remove_previews_before_explicit_apply() {
     let repository = fixture_repository();
     cargo_bin_cmd!("git-slop")
         .current_dir(repository.path())
-        .args(["find", "--quiet", "--no-cache"])
+        .args(["find", "--quiet", "--no-cache", "--persist-unadopted"])
         .assert()
         .success();
     cargo_bin_cmd!("git-slop")

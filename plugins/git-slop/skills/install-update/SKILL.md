@@ -49,9 +49,14 @@ manifest before recommending its corresponding install command.
   - `scoop update git-slop`
 - Release archive, when no package manager is available:
   - download `SHA256SUMS`, `release-manifest.json`, and the exact platform archive
-  - verify the archive SHA-256 against both files
+  - execute the direct-install verifier in `docs/install.md`; require schema 3,
+    exact project/version/tag/revision/target/name/URL/size identity, one matching
+    checksum entry, the archive SHA-256 in both files, and the artifact attestation
   - extract Unix archives with `tar --no-same-owner -xzf <archive>`
-  - install `git-slop` and the bundled `man/git-slop.1` into user-owned paths
+  - create the user-owned binary, manpage, and completion directories before
+    installing `git-slop`, `man/git-slop.1`, and the bundled shell completions
+  - activate the installed completion for the user's shell and verify the
+    installed build-info version, revision, target, crate digest, and clean state
 
 The public CLI is a native Rust executable. Do not add alternate runtime
 dependencies. Use the separate `adopt-repo` skill when the requested outcome

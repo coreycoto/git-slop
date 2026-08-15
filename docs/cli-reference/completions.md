@@ -9,7 +9,7 @@ Generate shell completion source
 **Usage**
 
 ```text
-Usage: completions <SHELL>
+Usage: git-slop completions <SHELL>
 ```
 
 | Argument | Value | Default | Constraints | Description |

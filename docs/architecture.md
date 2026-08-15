@@ -345,12 +345,16 @@ Scoop is an external Windows package-manager consumer, not another release
 artifact or source-build job. After the stable release is public, the source
 workflow hands only its verified version, numeric release ID, full revision,
 and manifest digest to `coreycoto/scoop-bucket`. That repository's trusted-main
-receiver independently requires the exact ten-asset/nine-checksum release,
+receiver independently requires the exact twelve-asset/eleven-checksum release,
 rederives both Windows hashes, and tests the installed binary's full source
 revision. The trusted-main receiver creates a manifest-only bucket pull request,
 explicitly dispatches required native qualification for its exact head,
 rechecks the single-file bot PR and successful run immediately before a
 ruleset-governed merge, then explicitly qualifies the resulting exact main.
+Only after that terminal exact-main proof does it compare the published
+manifest, delete the consumed `automation/git-slop-v<version>` branch, and
+verify the exact remote ref is absent; idempotent reruns perform the same
+bounded cleanup when necessary.
 The source repository never receives bucket write permission, and the bucket
 never receives a release-environment or cross-repository secret.
 

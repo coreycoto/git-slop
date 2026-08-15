@@ -183,12 +183,17 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
         BaselineCommand::Ensure {
             name,
             report,
+            require_current,
             replace,
             allow_dirty,
             allow_incomplete_evidence,
             format,
         } => {
-            let (loaded, source) = report_or_missing(repo_root, report.as_deref())?;
+            let (loaded, source) = report_or_missing_with_currentness(
+                repo_root,
+                report.as_deref(),
+                require_current,
+            )?;
             let readiness = crate::report_ops::evaluate_report_readiness(
                 &loaded,
                 !allow_dirty,
@@ -233,12 +238,17 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
         BaselineCommand::Create {
             name,
             report,
+            require_current,
             force,
             allow_dirty,
             allow_incomplete_evidence,
             format,
         } => {
-            let (loaded, source) = report_or_missing(repo_root, report.as_deref())?;
+            let (loaded, source) = report_or_missing_with_currentness(
+                repo_root,
+                report.as_deref(),
+                require_current,
+            )?;
             let readiness = crate::report_ops::evaluate_report_readiness(
                 &loaded,
                 !allow_dirty,
@@ -259,6 +269,7 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
         BaselineCommand::Update {
             name,
             report,
+            require_current,
             allow_dirty,
             allow_incomplete_evidence,
             format,
@@ -274,7 +285,11 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
                 .with_details(json!({"name": name}))
                 .into());
             }
-            let (loaded, source) = report_or_missing(repo_root, report.as_deref())?;
+            let (loaded, source) = report_or_missing_with_currentness(
+                repo_root,
+                report.as_deref(),
+                require_current,
+            )?;
             let readiness = crate::report_ops::evaluate_report_readiness(
                 &loaded,
                 !allow_dirty,

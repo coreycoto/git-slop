@@ -127,17 +127,27 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
         diagnostics.push(json!({"code":"estimated_memory_budget_exceeded","severity":"error","detail":format!("Estimated peak memory is {} bytes for a {} byte budget.", estimate.estimated_peak_memory_bytes, estimate.memory_budget_bytes)}));
     }
     if tracked_paths.is_empty() {
-        diagnostics.push(json!({"code":"no_tracked_paths","severity":"notice","detail":"The repository has no committed tracked paths yet. Create the first commit, then run git slop find."}));
+        diagnostics.push(json!({"code":"no_tracked_paths","severity":"notice","detail":"The repository has no committed tracked paths yet. Commit a tracked file, or run git slop find --allow-empty-scope when an empty report is intentional.","recovery_command":"git slop find --allow-empty-scope"}));
     }
     let scan_ready = config_result.is_ok()
         && resource_status != "over_memory_budget"
         && !tracked_paths.is_empty();
     let report_available = matches!(report_status, "current" | "stale" | "unverified");
     let report_current = report_status == "current";
+    let doctor_status = if config_result.is_err()
+        || report_status == "invalid"
+        || resource_status == "over_memory_budget"
+    {
+        "error"
+    } else if !scan_ready || !report_available || !report_current || repo.is_shallow {
+        "not_ready"
+    } else {
+        "ready"
+    };
     let diagnostic = json!({
         "schema_version": 1,
         "command": "doctor",
-        "status": if config_result.is_err() || report_status == "invalid" || resource_status == "over_memory_budget" { "error" } else if !scan_ready || !report_available || !report_current || repo.is_shallow { "not_ready" } else { "ready" },
+        "status": doctor_status,
         "scan_ready": scan_ready,
         "report_available": report_available,
         "repository": {"name": repo.repo_name, "branch": repo.branch, "shallow": repo.is_shallow, "detached": repo.detached_head, "clean": repo.worktree_clean},
@@ -152,13 +162,18 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             "config": "Run git slop config validate, then correct the reported key or run git slop config migrate.",
             "report": "Run git slop find to replace a missing, incompatible, or stale latest report.",
             "shallow": "Fetch full history or rerun find with --allow-shallow to acknowledge incomplete evidence.",
-            "unborn": "Create the first commit with tracked files, then run git slop find."
+            "unborn": "Commit a tracked file, or run git slop find --allow-empty-scope when an empty report is intentional."
         }
     });
     if matches!(args.format, DoctorFormat::Json) {
         print_text(&render_json(&diagnostic)?);
     } else {
         println!("Git Slop doctor");
+        println!("- status: {}", doctor_status.replace('_', " "));
+        println!(
+            "- readiness: scan={} report={} current={}",
+            scan_ready, report_available, report_current
+        );
         println!("- git: available");
         println!("- repository: {}", repo.repo_name);
         println!("- adoption: {adoption_status}");
@@ -215,7 +230,11 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
         if let Some(command) = adoption_recovery {
             println!("- adoption recovery: run `{command}`");
         }
-        if report_status != "current" {
+        if tracked_paths.is_empty() {
+            println!(
+                "- recovery: commit a tracked file, or run `git slop find --allow-empty-scope` for an intentional empty report"
+            );
+        } else if report_status != "current" {
             println!("- recovery: run `git slop find` to produce a current latest report");
         }
     }

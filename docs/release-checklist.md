@@ -442,7 +442,11 @@ the current base, bot PR, single-file allowlist, head, run, and job identities
 immediately before merging through the active ruleset. Because merges made by a
 workflow token do not recursively start ordinary push workflows, it explicitly
 dispatches and awaits the same qualification on the resulting exact bucket
-`main`. No per-release approval or manual merge is part of the normal path.
+`main`. After exact-main qualification succeeds, the receiver compares the
+published manifest on `main` with the exact automation head, deletes only
+`automation/git-slop-v<version>`, and verifies that exact remote ref is absent.
+An idempotent rerun also removes that already-consumed exact-version branch. No
+per-release approval or manual merge is part of the normal path.
 
 The installed binary must report the public tag's full source revision with
 `source_dirty: false`, and both invocation forms must resolve:
@@ -524,15 +528,31 @@ identity. A receiver whose target already matches is a verified no-op.
   Formula, executable version, and full source revision all agree.
 - Confirm Release Publish required no deployment review and Marketplace
   publication with 2FA was the release's only manual approval.
-- For the Issue #69 migration proof, reserve v0.9.4 for this OIDC-backed patch
-  release. Record the successful Release Publish run ID and exact source
-  revision, then require the crates.io version API to attribute publication to
-  that same GitHub repository, run, and revision:
+- Confirm the Scoop receiver reports `Automation branch cleaned: true` (or that
+  no branch existed on an idempotent rerun), and fail closeout if the exact
+  consumed branch remains:
 
   ```bash
-  release_version=0.9.4
+  release_version=<version>
+  if gh api \
+    "repos/coreycoto/scoop-bucket/git/ref/heads/automation/git-slop-v${release_version}" \
+    >/dev/null 2>&1
+  then
+    echo "consumed Scoop automation branch still exists" >&2
+    exit 1
+  fi
+  ```
+- Confirm crates.io still requires trusted publishing and attributes this
+  version to the exact GitHub release run and revision:
+
+  ```bash
+  release_version=<version>
   release_revision=<40-character-release-revision>
   release_run_id=<release-publish-run-id>
+  curl --fail --silent --show-error \
+    --user-agent "git-slop-release-checklist/1 (https://github.com/coreycoto/git-slop)" \
+    https://crates.io/api/v1/crates/git-slop \
+    | jq -e '.crate.trustpub_only == true'
   curl --fail --silent --show-error \
     --user-agent "git-slop-release-checklist/1 (https://github.com/coreycoto/git-slop)" \
     "https://crates.io/api/v1/crates/git-slop/${release_version}" \
@@ -547,29 +567,6 @@ identity. A receiver whose target already matches is a verified no-op.
        and .version.trustpub_data.run_id == $run_id'
   ```
 
-- Do not remove the rollback token merely because crates.io accepted v0.9.4.
-  First complete the exact tag, package checksum, draft and published GitHub
-  Release, Marketplace Action smoke, Homebrew Formula, consumer install, and
-  post-publication verification gates above.
-- Only after that proof is terminal, enable **Require trusted publishing for all
-  new versions** in the crates.io `git-slop` settings and verify the public API:
-
-  ```bash
-  curl --fail --silent --show-error \
-    --user-agent "git-slop-release-checklist/1 (https://github.com/coreycoto/git-slop)" \
-    https://crates.io/api/v1/crates/git-slop \
-    | jq -e '.crate.trustpub_only == true'
-  ```
-
-- Revoke the old crates.io API token in crates.io account settings, delete the
-  inert GitHub environment secret, and verify it is absent:
-
-  ```bash
-  gh secret delete CARGO_REGISTRY_TOKEN \
-    --repo coreycoto/git-slop \
-    --env release
-  gh secret list --repo coreycoto/git-slop --env release
-  ```
-
-  Keep the existing Homebrew dispatch token on its normal rotation schedule;
-  rotate it immediately only if its value or scope was exposed.
+The completed v0.9.4 token-to-OIDC migration procedure is retained as
+[historical evidence](history/crates-io-trusted-publishing-v0.9.4.md); it is not
+an instruction for current releases.

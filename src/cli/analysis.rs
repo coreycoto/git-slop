@@ -1,3 +1,5 @@
+include!("analysis/estimate.rs");
+
 fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
     if args.estimate_only {
         let config = config::load(repo_root)?;
@@ -30,19 +32,27 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
             return Err(ClassifiedError::new(
                 ErrorKind::Contract,
                 "empty_scope",
-                "The selected estimate scope contains no tracked paths.",
+                "The selected estimate scope contains no tracked paths. Commit a tracked file, or pass `--allow-empty-scope` when an empty estimate is intentional.",
             )
             .at("/scope")
             .with_details(json!({"scope": normalized_scope}))
             .into());
         }
+        let estimate = crate::estimate::build(repo_root, &paths, &config);
         let payload = json!({
             "schema_version": 1,
             "command": "find estimate",
             "scope": normalized_scope,
-            "estimate": crate::estimate::build(repo_root, &paths, &config)
+            "estimate": estimate
         });
-        print_text(&render_json(&payload)?);
+        let format = args.format.unwrap_or_else(|| {
+            if std::io::stdout().is_terminal() {
+                DisplayFormat::Text
+            } else {
+                DisplayFormat::Json
+            }
+        });
+        print_find_estimate(&payload, normalized_scope.as_deref(), format)?;
         return Ok(0);
     }
     let normalized_scope = analyze::normalize_scope(args.scope.as_deref()).map_err(|error| {
@@ -82,8 +92,14 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
         .transpose()
         .context("--as-of must be an RFC 3339 timestamp")?
         .map(|value| value.with_timezone(&chrono::Utc));
-    let ephemeral_root = args
-        .ephemeral
+    let adoption = config::adoption_status(repo_root);
+    let persistent_unadopted = !adoption.ready() && args.persist_unadopted;
+    let auto_ephemeral = !adoption.ready()
+        && !args.ephemeral
+        && !args.persist_unadopted
+        && args.state_dir.is_none()
+        && args.output_dir.is_none();
+    let ephemeral_root = (args.ephemeral || auto_ephemeral)
         .then(|| config::git_runtime_dir(repo_root).map(|path| path.join("ephemeral")))
         .transpose()?;
     let state_dir = ephemeral_root.clone().or(args.state_dir);
@@ -97,7 +113,7 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
             allow_empty_scope: args.allow_empty_scope,
             state_dir,
             output_dir,
-            no_cache: args.no_cache || args.ephemeral,
+            no_cache: args.no_cache || args.ephemeral || auto_ephemeral,
             allow_degraded: args.allow_degraded,
             as_of,
             report_profile: args.report_profile.as_str().to_string(),
@@ -106,6 +122,18 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
     )?;
     if args.quiet {
         return Ok(0);
+    }
+    if auto_ephemeral {
+        println!(
+            "Repository adoption is incomplete; this scan used Git-private ephemeral storage."
+        );
+        println!(
+            "Next: run `git slop init` for durable reports, or pass the report path below to a report command."
+        );
+    } else if persistent_unadopted {
+        println!(
+            "Persistent unadopted output was explicitly enabled; run `git slop init` to keep runtime artifacts ignored."
+        );
     }
     print_text(&result.terminal);
     print_scan_receipt(&result);
@@ -125,7 +153,11 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
 }
 
 fn run_show(repo_root: &Path, args: ShowArgs) -> Result<i32> {
-    let (loaded, report_path) = report_or_missing(repo_root, args.report.as_deref())?;
+    let (loaded, report_path) = report_or_missing_with_currentness(
+        repo_root,
+        args.report.as_deref(),
+        args.require_current,
+    )?;
     let target = selector_path(repo_root, &args.target_path);
     let Some(payload) = show_payload(&loaded, &target) else {
         return Err(ClassifiedError::new(
@@ -180,7 +212,11 @@ fn run_explain(repo_root: &Path, args: ExplainArgs) -> Result<i32> {
             args.excerpt_bytes,
         );
     }
-    let (loaded, report_path) = report_or_missing(repo_root, args.report.as_deref())?;
+    let (loaded, report_path) = report_or_missing_with_currentness(
+        repo_root,
+        args.report.as_deref(),
+        args.require_current,
+    )?;
     let selector = explain_selector(&args, repo_root)?;
     let payload = match explain_payload(&loaded, Some(selector)) {
         Ok(payload) => payload,
@@ -229,7 +265,11 @@ fn run_plan(repo_root: &Path, args: PlanArgs) -> Result<i32> {
             args.excerpt_bytes,
         );
     }
-    let (loaded, report_path) = report_or_missing(repo_root, args.report.as_deref())?;
+    let (loaded, report_path) = report_or_missing_with_currentness(
+        repo_root,
+        args.report.as_deref(),
+        args.require_current,
+    )?;
     let Some(max_slices) = usize::try_from(args.max_slices)
         .ok()
         .filter(|count| *count > 0)

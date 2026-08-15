@@ -46,14 +46,20 @@ fn validate_product_documentation_additions(repo_root: &Path, errors: &mut Vec<S
         &[
             "brew upgrade coreycoto/tap/git-slop",
             "brew uninstall coreycoto/tap/git-slop",
-            "cargo binstall git-slop@0.13.0",
-            "cargo binstall --force git-slop@0.13.0",
+            "cargo binstall git-slop@0.14.0",
+            "cargo binstall --force git-slop@0.14.0",
             "cargo uninstall git-slop",
             "scoop update git-slop",
             "scoop uninstall git-slop",
-            "cargo install git-slop --version 0.13.0 --locked --force",
-            "For a direct archive update",
+            "cargo install git-slop --version 0.14.0 --locked --force",
         ],
+        &[],
+        errors,
+    );
+    validate_normalized_contract(
+        repo_root,
+        "docs/archive-install.md",
+        &["For a direct archive update"],
         &[],
         errors,
     );

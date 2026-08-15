@@ -32,9 +32,12 @@ normal release path's only manual approval.
   release manifest, native archives, Formula, and installed build identity as
   one immutable provenance chain.
 - Accept a candidate only when `release-publish.yml` was dispatched on the
-  exact current `main` revision and its Linux x86-64/ARM64, macOS Apple Silicon,
-  Windows x86-64/ARM64 preflight lanes, and native Homebrew Formula audit all
-  passed before the branch-restricted `release` environment job began. Treat
+  exact current `main` revision and all seven preflight lanes passed:
+  `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
+  `x86_64-unknown-linux-musl`, `aarch64-apple-darwin`,
+  `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`, and
+  `aarch64-pc-windows-msvc`. The native Homebrew Formula audit must also pass
+  before the branch-restricted `release` environment job begins. Treat
   the explicit `workflow_dispatch` as authorization for crates.io publication,
   exact tag creation, and the immutable Homebrew receiver handoff; the
   environment must add no required-reviewer gate.
@@ -74,7 +77,7 @@ normal release path's only manual approval.
   dispatch.
 - Marketplace publication is a manual GitHub UI gate with **Code quality** as
   the primary category and **Continuous integration** as the secondary. Do not
-  publish the visible draft until the five-target Action smoke matrix and the
+  publish the visible draft until the seven-target Action smoke matrix and the
   terminal `marketplace-ready` job are green. This web publication with 2FA is
   the only manual approval in the normal release path.
 

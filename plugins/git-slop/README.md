@@ -70,18 +70,21 @@ metadata and declares no skills, MCP servers, apps, or hooks. Remove it only
 after a shipped Codex release resolves the root manifest completely and the
 clean-room app-server proof passes without it.
 
-Codex consumers install the portable plugin through the repo's stable local
-marketplace name:
+Codex marketplace commands are a client capability, not a property established
+by this repository. Before using the recipe below, confirm the installed Codex
+build exposes both `codex plugin marketplace --help` and `codex plugin add
+--help`. In a build that exposes those commands, install through the repo's
+stable local marketplace name:
 
 ```bash
 codex plugin marketplace add coreycoto/git-slop --ref <release>
 codex plugin add git-slop@git-slop-marketplace
 ```
 
-These commands require Codex CLI 0.146.0 or newer, the first Codex release that
-loads Agent Plugins manifests. Pin `<release>` to an immutable published tag.
-The marketplace is Codex's distribution layer; the installed package itself
-remains an Agent Plugins 1.0.0 package.
+Pin `<release>` to an immutable published tag. Do not infer command availability
+from this documentation, a standalone CLI version number, or plugin discovery
+in another client. When available, the marketplace is Codex's distribution
+layer; the installed package itself remains an Agent Plugins 1.0.0 package.
 
 The Agent Plugins specification is not the same thing as the separate private
 repository named `coreycoto/agent-plugins`; that repository continues to own

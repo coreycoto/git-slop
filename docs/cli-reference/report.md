@@ -9,7 +9,7 @@ Validate or inspect the versioned report contract
 **Usage**
 
 ```text
-Usage: report <COMMAND>
+Usage: git-slop report <COMMAND>
 ```
 
 **Machine contract:** schema 5 report (`git slop schema report`).
@@ -27,7 +27,7 @@ Validate one report against the complete schema-5 contract
 **Usage**
 
 ```text
-Usage: validate [OPTIONS] [REPORT_JSON]
+Usage: git-slop report validate [OPTIONS] [REPORT_JSON]
 ```
 
 **Machine contract:** schema 5 report (`git slop schema report`).
@@ -52,7 +52,7 @@ Migrate a schema-4 report to normalized schema 5
 **Usage**
 
 ```text
-Usage: migrate --output <PATH> <REPORT_JSON>
+Usage: git-slop report migrate --output <PATH> <REPORT_JSON>
 ```
 
 **Machine contract:** schema 5 report (`git slop schema report`).
@@ -75,7 +75,7 @@ Print the published JSON Schema for report schema 5
 **Usage**
 
 ```text
-Usage: schema
+Usage: git-slop report schema
 ```
 
 **Machine contract:** schema 5 report (`git slop schema report`).

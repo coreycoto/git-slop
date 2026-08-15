@@ -1,6 +1,10 @@
 fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
     let explicit_report = args.report.clone();
-    let (loaded, report_path) = report_or_missing(repo_root, args.report.as_deref())?;
+    let (loaded, report_path) = report_or_missing_with_currentness(
+        repo_root,
+        args.report.as_deref(),
+        args.require_current,
+    )?;
     let output = args.output.unwrap_or_else(|| {
         explicit_report
             .as_ref()
@@ -11,14 +15,15 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
-    let bounded = |pointer: &str, limit: usize| {
+
+    let array_records = |pointer: &str| {
         loaded
             .pointer(pointer)
             .and_then(Value::as_array)
-            .map(|records| records.iter().take(limit).cloned().collect::<Vec<_>>())
+            .cloned()
             .unwrap_or_default()
     };
-    let bounded_sections = |pointer: &str, limit: usize| {
+    let section_records = |pointer: &str| {
         loaded
             .pointer(pointer)
             .and_then(Value::as_object)
@@ -26,24 +31,29 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
             .flat_map(|sections| sections.values())
             .filter_map(Value::as_array)
             .flatten()
-            .take(limit)
             .cloned()
             .collect::<Vec<_>>()
     };
     let embedded_limit = 5_000usize;
+    let bounded = |records: &[Value]| records.iter().take(embedded_limit).cloned().collect::<Vec<_>>();
+    let files = array_records("/files");
+    let folders = array_records("/folders");
+    let action_queue = array_records("/action_queue");
+    let health = array_records("/health/findings");
+    let relationships = section_records("/overlays/organization_health/relationships");
+    let clusters = deduplicate_clusters(section_records(
+        "/overlays/organization_health/clusters",
+    ));
+    let view_metadata = |records: &[Value]| {
+        json!({
+            "total": records.len(),
+            "embedded": records.len().min(embedded_limit),
+            "truncated": records.len() > embedded_limit
+        })
+    };
     let source_report = args
         .include_local_paths
         .then(|| relative_display(&report_path, repo_root));
-    let section_total = |pointer: &str| {
-        loaded
-            .pointer(pointer)
-            .and_then(Value::as_object)
-            .into_iter()
-            .flat_map(|sections| sections.values())
-            .filter_map(Value::as_array)
-            .map(Vec::len)
-            .sum::<usize>()
-    };
     let payload = serde_json::to_string(&json!({
         "schema_version": loaded.get("schema_version"),
         "generated_at": loaded.get("generated_at"),
@@ -60,26 +70,26 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
         },
         "collection_metadata": loaded.get("collection_metadata"),
         "evidence_completeness": loaded.get("evidence_completeness"),
-        "files": bounded("/files", embedded_limit),
-        "folders": bounded("/folders", embedded_limit),
-        "action_queue": bounded("/action_queue", embedded_limit),
+        "files": bounded(&files),
+        "folders": bounded(&folders),
+        "action_queue": bounded(&action_queue),
         "health": {
             "summary": loaded.pointer("/health/summary"),
-            "findings": bounded("/health/findings", embedded_limit)
+            "findings": bounded(&health)
         },
         "organization": {
-            "relationships": bounded_sections("/overlays/organization_health/relationships", embedded_limit),
-            "clusters": bounded_sections("/overlays/organization_health/clusters", embedded_limit)
+            "relationships": bounded(&relationships),
+            "clusters": bounded(&clusters)
         },
         "embedded_evidence": {
             "record_limit_per_view": embedded_limit,
-            "truncated_views": {
-                "files": loaded.pointer("/files").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit),
-                "folders": loaded.pointer("/folders").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit),
-                "action_queue": loaded.pointer("/action_queue").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit),
-                "health": loaded.pointer("/health/findings").and_then(Value::as_array).is_some_and(|values| values.len() > embedded_limit),
-                "relationships": section_total("/overlays/organization_health/relationships") > embedded_limit,
-                "clusters": section_total("/overlays/organization_health/clusters") > embedded_limit
+            "view_metadata": {
+                "files": view_metadata(&files),
+                "folders": view_metadata(&folders),
+                "action_queue": view_metadata(&action_queue),
+                "health": view_metadata(&health),
+                "relationships": view_metadata(&relationships),
+                "clusters": view_metadata(&clusters)
             }
         },
         "source_report": source_report
@@ -87,54 +97,110 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
     .replace("</", "<\\/");
     let csp_nonce = &hex::encode(sha2::Sha256::digest(payload.as_bytes()))[..24];
     let html = format!(
-        r#"<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'nonce-{csp_nonce}'; script-src 'nonce-{csp_nonce}'; base-uri 'none'; form-action 'none'"><title>Git Slop local report</title><style nonce="{csp_nonce}">
-:root {{ color-scheme: light dark; font: 15px system-ui,sans-serif }} body {{ margin: 2rem; max-width: 1100px }}
-input,select {{ padding:.55rem; margin:0 .5rem .75rem 0 }} table {{ width:100%; border-collapse:collapse }}
-th,td {{ text-align:left; padding:.5rem; border-bottom:1px solid #8885 }} th button {{ all:unset;cursor:pointer;font-weight:700 }} .file-link {{ all:unset;cursor:pointer;text-decoration:underline }}
-code {{ overflow-wrap:anywhere }} details {{ margin:1rem 0 }} .muted {{ opacity:.7 }} .sr {{ position:absolute;left:-10000px }}
-.views button[aria-pressed="true"] {{ font-weight:700;text-decoration:underline }} tr:target {{ outline:2px solid currentColor }}
-</style></head><body><h1>Git Slop local report</h1><p id="descriptor" class="muted"></p>
-<p id="truncation" role="status"></p>
-<p id="selection-status" role="status"></p>
-<nav class="views" aria-label="Report view"><button data-view="files" aria-pressed="true">Files</button> <button data-view="folders" aria-pressed="false">Folders</button> <button data-view="queue" aria-pressed="false">Action queue</button> <button data-view="health" aria-pressed="false">Health findings</button> <button data-view="relationships" aria-pressed="false">Relationships</button> <button data-view="clusters" aria-pressed="false">Clusters</button></nav>
-<label for="query" class="sr">Search paths</label><input id="query" type="search" placeholder="Search paths"><label for="profile" class="sr">Profile</label><select id="profile"><option value="">All profiles</option></select><label for="classification" class="sr">Classification</label><select id="classification"><option value="">All classifications</option></select>
-<label id="severity-label" for="severity" class="sr">Maintenance band</label><select id="severity"><option value="">All maintenance bands</option><option>critical</option><option>high</option><option>moderate</option><option>low</option><option>error</option><option>warning</option><option>notice</option></select>
-<p id="sort-state" class="muted" aria-live="polite"></p><p id="count" aria-live="polite"></p><button id="previous" type="button">Previous</button><button id="next" type="button">Next</button><table><caption class="sr">Git Slop records</caption><thead><tr id="headers"></tr></thead><tbody id="rows"></tbody></table>
-<details id="file-detail"><summary>Selected record details</summary><pre id="detail"></pre></details>
-<details><summary>Evidence summary</summary><pre id="evidence-summary"></pre></details>
-<script id="report" type="application/json">{payload}</script><script nonce="{csp_nonce}">
-const report=JSON.parse(document.getElementById('report').textContent), params=new URLSearchParams(location.search); let view=params.get('view')||'files', sortKey=params.get('sort')||'slop_score', ascending=params.get('dir')==='asc', page=Number(params.get('page')||0), initialFilters=true; const pageSize=100, requestedProfile=params.get('profile')||'', requestedClassification=params.get('classification')||'', requestedBand=params.get('band')||'', requestedRecord=params.get('record')||'';
-const files=report.files??[], folders=report.folders??[], queue=report.action_queue??[], findings=report.health?.findings??[], relationships=report.organization?.relationships??[], clusters=report.organization?.clusters??[]; const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
-document.getElementById('descriptor').textContent=`${{report.repo?.repo_name||'repository'}} · ${{report.generated_at||'unknown time'}} · schema ${{report.schema_version}}`;
-const profile=document.getElementById('profile'), classification=document.getElementById('classification'), band=document.getElementById('severity');
-document.getElementById('query').value=params.get('q')||'';
-const columns={{files:[['path','Path'],['profile','Profile'],['classification','Classification'],['language','Language'],['slop_band','Maintenance'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],folders:[['path','Folder'],['classification','Classification'],['health_band','Health'],['context_band','Context'],['slop_score','Score'],['tokens','Tokens']],queue:[['path','Path'],['profile','Profile'],['classification','Classification'],['severity','Severity'],['reason_codes','Reasons'],['evidence_status','Evidence'],['next_action','Next action']],health:[['path','Path'],['severity','Severity'],['title','Finding'],['message','Message']],relationships:[['id','Relationship'],['kind','Kind'],['source_path','Source'],['target_path','Target'],['confidence','Confidence'],['support_count','Support'],['evidence_lower_bound','Lower bound'],['evidence_score','Evidence']],clusters:[['id','Cluster'],['kind','Kind'],['member_count','Count'],['member_paths','Members'],['evidence_score','Evidence']]}};
-function records() {{ return view==='folders'?folders:view==='queue'?queue:view==='health'?findings:view==='relationships'?relationships:view==='clusters'?clusters:files }}
-function rebuildFilter(select,values,label) {{ const previous=select.value; select.replaceChildren(new Option(label,''),...([...new Set(values.filter(Boolean))].sort().map(value=>new Option(value,value)))); if([...select.options].some(option=>option.value===previous))select.value=previous }}
-function pathButton(path) {{ return `<button type="button" class="file-link" data-path="${{esc(path)}}"><code>${{esc(path)}}</code></button>` }}
-function renderCell(record,key,column) {{ const value=record[key]??(key==='member_count'?(record.member_paths??[]).length:''); if(view==='relationships'&&(key==='source_path'||key==='target_path'))return pathButton(value); if(view==='clusters'&&key==='member_paths')return (record.member_paths??[]).map(pathButton).join(', '); return column===0?`<button class="record"><code>${{esc(value??record.path??record.id)}}</code></button>`:esc(Array.isArray(value)?value.join(', '):value) }}
-function syncUrl() {{ const p=new URLSearchParams(); for (const [k,v] of Object.entries({{view,q:document.getElementById('query').value,profile:profile.value,classification:classification.value,band:band.value,sort:sortKey,dir:ascending?'asc':'desc',page}})) if(v!==''&&v!==0)p.set(k,v); history.replaceState(null,'',`${{location.pathname}}?${{p}}${{location.hash}}`) }}
-function render() {{ const q=document.getElementById('query').value.toLowerCase(), source=records();
- document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===view)));
- rebuildFilter(profile,source.map(record=>record.profile),'All profiles'); rebuildFilter(classification,source.map(record=>record.classification),'All classifications'); rebuildFilter(band,source.map(record=>record.slop_band??record.severity??record.health_band),'All bands');
- if(initialFilters){{profile.value=[...profile.options].some(option=>option.value===requestedProfile)?requestedProfile:'';classification.value=[...classification.options].some(option=>option.value===requestedClassification)?requestedClassification:'';band.value=[...band.options].some(option=>option.value===requestedBand)?requestedBand:'';initialFilters=false}}
- const activeColumns=columns[view]??columns.files; if(!activeColumns.some(([key])=>key===sortKey))sortKey=activeColumns[0][0]; document.getElementById('headers').innerHTML=activeColumns.map(([key,label])=>`<th scope="col"><button data-key="${{esc(key)}}" aria-sort="${{key===sortKey?(ascending?'ascending':'descending'):'none'}}">${{esc(label)}}</button></th>`).join('');
- document.getElementById('severity-label').textContent=view==='health'||view==='queue'?'Finding severity':'Maintenance band';
- const profileApplies=source.some(record=>record.profile), classApplies=source.some(record=>record.classification), bandApplies=source.some(record=>record.slop_band??record.severity??record.health_band); profile.disabled=!profileApplies; classification.disabled=!classApplies; band.disabled=!bandApplies;
- const haystack=f=>[f.path,f.id,f.source_path,f.target_path,...(f.member_paths??[])].join(' ').toLowerCase(); const selected=source.filter(f=>(!q||haystack(f).includes(q))&&(!profileApplies||!profile.value||f.profile===profile.value)&&(!classApplies||!classification.value||f.classification===classification.value)&&(!bandApplies||!band.value||(f.slop_band??f.severity??f.health_band)===band.value)).sort((a,b)=>{{const x=a[sortKey],y=b[sortKey]; return (typeof x==='number'?x-y:String(x??'').localeCompare(String(y??'')))*(ascending?1:-1)}});
- const pages=Math.max(1,Math.ceil(selected.length/pageSize)); page=Math.min(page,pages-1); const visible=selected.slice(page*pageSize,(page+1)*pageSize);
- const metadataKey=view==='queue'?'action_queue':view==='health'?'health.findings':view; const metadata=report.collection_metadata?.[metadataKey]??{{total:source.length,returned:source.length,limit:null}}; document.getElementById('count').textContent=`${{selected.length}} filtered · ${{metadata.returned}} embedded of ${{metadata.total}} total ${{view.replace('_',' ')}} records · limit ${{metadata.limit??'none'}} · page ${{page+1}} of ${{pages}}`;
- document.getElementById('previous').disabled=page===0; document.getElementById('next').disabled=page+1>=pages;
- document.getElementById('sort-state').textContent=`Sorted by ${{activeColumns.find(([key])=>key===sortKey)?.[1]??sortKey}}, ${{ascending?'ascending':'descending'}}`;
- document.getElementById('rows').innerHTML=visible.map((f,i)=>`<tr tabindex="0" id="record-${{page*pageSize+i}}" data-index="${{i}}">${{activeColumns.map(([key],column)=>`<td>${{renderCell(f,key,column)}}</td>`).join('')}}</tr>`).join(''); if(requestedRecord){{const exact=source.find(record=>(record.path??record.id)===requestedRecord);document.getElementById('selection-status').textContent=exact?'Selected deep-link record is embedded; use the table filters to inspect it.':`Selected record "${{requestedRecord}}" was not embedded in this portable HTML view. Rerun: git slop html --report <REPORT_JSON> --output report.html`;}}
- document.querySelectorAll('.record').forEach((button,i)=>button.addEventListener('click',()=>{{document.getElementById('detail').textContent=JSON.stringify(visible[i],null,2);document.getElementById('file-detail').open=true;location.hash=`record-${{page*pageSize+i}}`}})); syncUrl(); }}
-document.getElementById('rows').addEventListener('click',event=>{{const link=event.target.closest('.file-link');if(!link)return;const target=files.find(file=>file.path===link.dataset.path);view='files';document.getElementById('query').value=link.dataset.path;page=0;render();if(target){{document.getElementById('detail').textContent=JSON.stringify(target,null,2);document.getElementById('file-detail').open=true}}}});
-document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>{{page=0;render()}})); document.getElementById('headers').addEventListener('click',event=>{{const el=event.target.closest('button');if(!el)return;ascending=sortKey===el.dataset.key?!ascending:true;sortKey=el.dataset.key;page=0;render()}});
-document.querySelectorAll('[data-view]').forEach(el=>el.addEventListener('click',()=>{{view=el.dataset.view;page=0;if(!['files','queue'].includes(view))profile.value='';if(!['files','folders','queue'].includes(view))classification.value='';if(!['files','folders','queue','health'].includes(view))band.value='';render()}})); document.getElementById('previous').addEventListener('click',()=>{{page=Math.max(0,page-1);render()}}); document.getElementById('next').addEventListener('click',()=>{{page+=1;render()}});
-document.addEventListener('keydown',event=>{{const rows=[...document.querySelectorAll('tbody tr')],index=rows.indexOf(document.activeElement);if(event.key==='ArrowDown'&&index>=0){{event.preventDefault();rows[Math.min(rows.length-1,index+1)]?.focus()}}if(event.key==='ArrowUp'&&index>=0){{event.preventDefault();rows[Math.max(0,index-1)]?.focus()}}if((event.key==='Enter'||event.key===' ')&&index>=0){{event.preventDefault();rows[index].querySelector('.record')?.click()}}}}); const truncated=Object.entries(report.embedded_evidence?.truncated_views??{{}}).filter(([,value])=>value).map(([key])=>key); document.getElementById('truncation').textContent=truncated.length?`Embedded view limit reached for: ${{truncated.join(', ')}}.${{report.source_report?` Open ${{report.source_report}} for complete evidence.`:''}}`:''; document.getElementById('evidence-summary').textContent=JSON.stringify({{config_digests:report.config_digests,completeness:report.evidence_completeness,collections:report.collection_metadata,embedded:report.embedded_evidence,source_report:report.source_report}},null,2); render();
-</script></body></html>"#
+        r##"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; base-uri 'none'; form-action 'none'">
+  <title>Git Slop local report</title>
+  <style nonce="{nonce}">{style}</style>
+</head>
+<body>
+  <a class="skip-link" href="#report-main">Skip to report</a>
+  <header class="hero shell">
+    <div>
+      <p class="eyebrow">Local repository evidence</p>
+      <h1>Git Slop report</h1>
+      <p id="descriptor" class="descriptor"></p>
+    </div>
+    <span id="schema-badge" class="hero-badge"></span>
+  </header>
+  <main id="report-main" class="shell">
+    <section class="report-card" aria-labelledby="report-heading">
+      <h2 id="report-heading" class="sr">Report explorer</h2>
+      <p id="truncation" class="notice" role="status"></p>
+      <p id="selection-status" class="sr" role="status" aria-live="polite"></p>
+      <nav class="views" aria-label="Report view">
+        <button type="button" data-view="files" aria-pressed="true">Files</button>
+        <button type="button" data-view="folders" aria-pressed="false">Folders</button>
+        <button type="button" data-view="queue" aria-pressed="false">Action queue</button>
+        <button type="button" data-view="health" aria-pressed="false">Health findings</button>
+        <button type="button" data-view="relationships" aria-pressed="false">Relationships</button>
+        <button type="button" data-view="clusters" aria-pressed="false">Clusters</button>
+      </nav>
+      <div class="controls">
+        <div class="control">
+          <label for="query">Search records</label>
+          <input id="query" type="search" placeholder="Search paths" autocomplete="off">
+        </div>
+        <div class="control">
+          <label for="profile">Profile</label>
+          <select id="profile"><option value="">All profiles</option></select>
+        </div>
+        <div class="control">
+          <label for="classification">Classification</label>
+          <select id="classification"><option value="">All classifications</option></select>
+        </div>
+        <div class="control">
+          <label id="severity-label" for="severity">Maintenance band</label>
+          <select id="severity"><option value="">All bands</option></select>
+        </div>
+      </div>
+      <div class="results-toolbar">
+        <div>
+          <p id="count" aria-live="polite"></p>
+          <p id="sort-state" class="muted" aria-live="polite"></p>
+        </div>
+        <div class="pagination" aria-label="Result pages">
+          <button id="previous" type="button">Previous</button>
+          <button id="next" type="button">Next</button>
+        </div>
+      </div>
+      <div class="table-shell" tabindex="0" role="region" aria-label="Scrollable report table">
+        <table>
+          <caption class="sr">Git Slop report records</caption>
+          <thead><tr id="headers"></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <section id="detail-panel" class="detail-panel" aria-labelledby="detail-title" hidden>
+        <div class="detail-heading">
+          <div>
+            <p class="eyebrow">Selected evidence</p>
+            <h2 id="detail-title" tabindex="-1"></h2>
+          </div>
+          <button id="close-detail" type="button" aria-label="Close selected record">Close</button>
+        </div>
+        <p id="detail-summary" class="detail-summary"></p>
+        <dl id="detail-metrics" class="metric-grid"></dl>
+        <div class="detail-section">
+          <h3>Supporting reasons</h3>
+          <ul id="detail-reasons"></ul>
+        </div>
+        <div class="detail-section">
+          <h3>Next commands</h3>
+          <div id="detail-commands" class="command-list"></div>
+        </div>
+        <details>
+          <summary>Raw record JSON</summary>
+          <pre id="detail-raw"></pre>
+        </details>
+      </section>
+      <details>
+        <summary>Evidence and portability summary</summary>
+        <pre id="evidence-summary"></pre>
+      </details>
+    </section>
+  </main>
+  <script id="report" type="application/json">{payload}</script>
+  <script nonce="{nonce}">{script}</script>
+</body>
+</html>"##,
+        nonce = csp_nonce,
+        style = include_str!("html/report.css"),
+        payload = payload,
+        script = include_str!("html/report.js")
     );
     config::write_text_atomically(&output, html, false)?;
     println!("Wrote local HTML report to {}.", output.display());

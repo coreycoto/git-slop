@@ -193,7 +193,7 @@ fn html_export_is_self_contained_and_searchable() {
     assert!(html.contains("placeholder=\"Search paths\""));
     assert!(html.contains("near_duplicate_neighborhood"));
     assert!(html.contains("class=\"file-link\""));
-    assert!(html.contains("f.member_paths"));
+    assert!(html.contains("record.member_paths"));
     assert!(html.contains("\"source_report\":null"));
     assert!(!html.contains("https://cdn"));
 }

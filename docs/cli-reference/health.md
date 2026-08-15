@@ -9,7 +9,7 @@ Render repository health for CI summaries, annotations, or automation
 **Usage**
 
 ```text
-Usage: health [OPTIONS]
+Usage: git-slop health [OPTIONS]
 ```
 
 **Machine contract:** `health-1` for JSON output.

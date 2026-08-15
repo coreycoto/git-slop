@@ -14,7 +14,7 @@ token, applies a 16 MiB download bound, checks its SHA-256 against the manifest,
 and verifies the package's embedded clean VCS revision. Native archives and
 their manifest entries are each limited to 128 MiB.
 
-The examples below pin `v0.13.0`. Use them only after its verified GitHub
+The examples below pin `v0.14.0`. Use them only after its verified GitHub
 Release is public and the Marketplace listing resolves; a source tag or
 documentation on `main` is not an availability proof.
 
@@ -49,7 +49,7 @@ jobs:
 
       - name: Analyze repository health
         id: git-slop
-        uses: coreycoto/git-slop@v0.13.0
+        uses: coreycoto/git-slop@v0.14.0
 ```
 
 The default is advisory:
@@ -144,7 +144,7 @@ publishes the report and job summary before it evaluates the gate:
 
 ```yaml
       - name: Analyze and enforce repository health
-        uses: coreycoto/git-slop@v0.13.0
+        uses: coreycoto/git-slop@v0.14.0
         with:
           policy: enforce
 ```
@@ -195,7 +195,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.13.0
+  - uses: coreycoto/git-slop@v0.14.0
     with:
       mode: regression
       baseline-ref: ${{ github.event.pull_request.base.sha }}
@@ -211,7 +211,7 @@ fetching the base revision.
 Scope inventory while retaining repository-wide Git evidence:
 
 ```yaml
-  - uses: coreycoto/git-slop@v0.13.0
+  - uses: coreycoto/git-slop@v0.14.0
     with:
       scope: packages/api
       report-profile: compact
@@ -235,7 +235,7 @@ steps:
     with:
       fetch-depth: 0
       persist-credentials: false
-  - uses: coreycoto/git-slop@v0.13.0
+  - uses: coreycoto/git-slop@v0.14.0
     with:
       mode: advisory
       pr-comment: "false"
@@ -266,7 +266,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: coreycoto/git-slop@v0.13.0
+      - uses: coreycoto/git-slop@v0.14.0
         with:
           mode: advisory
           artifact-contents: report
@@ -323,7 +323,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.13.0
+  - uses: coreycoto/git-slop@v0.14.0
     with:
       pr-comment: "true"
 ```
@@ -336,7 +336,7 @@ report remains in the job summary and artifact.
 
 | Input | Default | Purpose |
 | --- | --- | --- |
-| `version` | `0.13.0` | Prebuilt release version to download and verify after that release is public |
+| `version` | `0.14.0` | Prebuilt release version to download and verify after that release is public |
 | `mode` | empty | Simple preset: `advisory`, `absolute`, or `regression`; when set, it overrides `policy` and `enforcement` only |
 | `release-repository` | `coreycoto/git-slop` | Repository containing release assets |
 | `target` | empty | Compatible release target override |
@@ -384,13 +384,13 @@ metadata without updating the documentation fails repository validation.
 | `mode` | Effective simple preset, or `advanced` when using policy and enforcement directly |
 | `analysis-error-path` | Preserved post-analysis diagnostic path |
 | `policy-exit-code` | Exit code from the selected policy gate |
-| `finding-count` | Deprecated alias for `selected-policy-finding-count`; removed in v0.13.0, no earlier than 2026-11-01 |
+| `finding-count` | Deprecated alias for `selected-policy-finding-count`; retained in v0.14.0 and scheduled for removal only in a future breaking release no earlier than 2026-11-01 |
 | `health-finding-count` | Uncapped actionable head-health findings |
-| `policy-finding-count` | Deprecated alias for `selected-policy-finding-count`; removed in v0.13.0, no earlier than 2026-11-01 |
+| `policy-finding-count` | Deprecated alias for `selected-policy-finding-count`; retained in v0.14.0 and scheduled for removal only in a future breaking release no earlier than 2026-11-01 |
 | `absolute-finding-count` | Findings from the absolute head gate |
 | `selected-policy-finding-count` | Findings selected by enforcement mode |
 | `regression-count` | Native comparator regressions |
-| `baseline-compatible` | Deprecated compatibility boolean; removed in v0.13.0, no earlier than 2026-11-01; use `baseline-status` |
+| `baseline-compatible` | Deprecated compatibility boolean retained in v0.14.0; use `baseline-status`; removal is limited to a future breaking release no earlier than 2026-11-01 |
 | `baseline-status` | Structured baseline evaluation state |
 | `comparison-path` | Native comparison JSON path |
 | `comparison-error-path` | Preserved baseline-comparison diagnostic path |
@@ -418,7 +418,7 @@ The Action will be published from this repository's verified stable GitHub
 Release under the **Code quality** and **Continuous integration** categories.
 That first listing requires a maintainer to select GitHub's Marketplace checkbox
 in the draft-release UI, confirm the categories and agreement, and complete
-2FA. Marketplace and direct `uses: coreycoto/git-slop@v0.13.0` installation then
+2FA. Marketplace and direct `uses: coreycoto/git-slop@v0.14.0` installation then
 resolve the same root `action.yml` and release provenance. For
 higher-assurance consumers, pin the Action itself to the full release commit
 SHA; the Action's own nested dependencies are already pinned to full commit

@@ -237,7 +237,7 @@ fn find_writes_schema_five_and_all_human_and_machine_surfaces() {
     let repository = committed_repository();
     cargo_bin_cmd!("git-slop")
         .current_dir(repository.path())
-        .arg("find")
+        .args(["find", "--persist-unadopted"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Repository Health"))
@@ -433,7 +433,7 @@ fn report_validate_rejects_a_missing_canonical_nested_field() {
     let repository = committed_repository();
     cargo_bin_cmd!("git-slop")
         .current_dir(repository.path())
-        .args(["find", "--quiet"])
+        .args(["find", "--quiet", "--persist-unadopted"])
         .assert()
         .success();
     let report_path = repository.path().join(".slop/latest/report.json");

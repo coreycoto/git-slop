@@ -9,7 +9,7 @@ Inspect or migrate effective configuration
 **Usage**
 
 ```text
-Usage: config <COMMAND>
+Usage: git-slop config <COMMAND>
 ```
 
 **Machine contract:** `config-2`.
@@ -27,7 +27,7 @@ Show configuration; --effective includes defaults
 **Usage**
 
 ```text
-Usage: show [OPTIONS]
+Usage: git-slop config show [OPTIONS]
 ```
 
 **Machine contract:** `config-2`.
@@ -49,7 +49,7 @@ Validate the local configuration
 **Usage**
 
 ```text
-Usage: validate
+Usage: git-slop config validate
 ```
 
 **Machine contract:** `config-2`.
@@ -67,7 +67,7 @@ Show only values that differ from defaults
 **Usage**
 
 ```text
-Usage: diff-defaults
+Usage: git-slop config diff-defaults
 ```
 
 **Machine contract:** `config-2`.
@@ -85,7 +85,7 @@ Rewrite legacy schema configuration as a minimal schema-2 override
 **Usage**
 
 ```text
-Usage: migrate [OPTIONS]
+Usage: git-slop config migrate [OPTIONS]
 ```
 
 **Machine contract:** `config-2`.
@@ -108,7 +108,7 @@ Print the supported configuration schema as JSON
 **Usage**
 
 ```text
-Usage: schema
+Usage: git-slop config schema
 ```
 
 **Machine contract:** `config-2`.
