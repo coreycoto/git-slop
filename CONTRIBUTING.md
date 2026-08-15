@@ -30,7 +30,7 @@ Requirements:
 - Rust 1.85 or newer
 - Cargo
 - Git
-- Node.js 24 for the composite Action tests
+- Node.js 24 or newer for the composite Action tests
 - Bash for the pinned runtime-launcher tests
 - `actionlint` for workflow validation
 - `cargo-deny` for dependency policy checks

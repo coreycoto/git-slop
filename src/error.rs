@@ -4,6 +4,30 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use thiserror::Error;
 
+/// Stable process-exit contract used by the runtime and generated reference.
+pub const EXIT_CODE_DESCRIPTIONS: &[(i32, &str)] = &[
+    (
+        0,
+        "command completed successfully; policy gates passed or were evaluation-only",
+    ),
+    (
+        1,
+        "a valid policy, regression, or adoption check found an unmet condition",
+    ),
+    (
+        2,
+        "command usage, an input contract, or required-currentness validation failed",
+    ),
+    (
+        3,
+        "repository access, report I/O, or another operational dependency failed",
+    ),
+    (
+        4,
+        "a configured or measured resource limit prevented safe completion",
+    ),
+];
+
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorKind {

@@ -16,7 +16,7 @@ Usage: git-slop health [OPTIONS]
 
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
-| `--report` | `REPORT` | `-` | - | Report path. Defaults to .slop/latest/report.json |
+| `--report` | `REPORT` | `-` | - | Report path. Defaults to the durable latest report, then the Git-private first-run report |
 | `--format` | `FORMAT` | `text` | values: text, markdown, github, json | Output suited for a job summary, workflow annotations, or automation |
 | `--max-annotations` | `MAX_ANNOTATIONS` | `10` | - | Maximum number of GitHub workflow annotations to emit |
 | `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |

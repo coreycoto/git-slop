@@ -24,6 +24,8 @@ git slop cache status
 
 ## `git-slop cache status`
 
+Show packed-cache location, entry count, and logical size
+
 **Usage**
 
 ```text
@@ -43,6 +45,8 @@ git slop cache status --format json
 ```
 
 ## `git-slop cache prune`
+
+Preview or apply bounded packed-cache retention
 
 **Usage**
 

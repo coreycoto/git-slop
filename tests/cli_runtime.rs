@@ -773,7 +773,7 @@ fn report_missing_and_check_failure_keep_their_exit_codes() {
         .assert()
         .code(2)
         .stderr(predicate::str::contains(
-            "Report not found: definitely-not-a-report.json",
+            "Report not found. Searched: definitely-not-a-report.json",
         ));
 
     let report = write_report(&health_report());

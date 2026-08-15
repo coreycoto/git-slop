@@ -520,7 +520,10 @@ pub fn assemble_report(analysis: &Analysis, health: &HealthRollup) -> Value {
         "config": analysis.config,
         "stats": {
             "tracked_file_count": analysis.tracked_file_count,
-            "analyzed_file_count": files.len(),
+            "analyzed_file_count": files
+                .iter()
+                .filter(|file| file.get("analysis_status").and_then(Value::as_str) == Some("analyzed"))
+                .count(),
             "skipped_ignored_count": analysis.skipped.ignored,
             "skipped_missing_count": analysis.skipped.missing,
             "skipped_binary_count": analysis.skipped.binary,

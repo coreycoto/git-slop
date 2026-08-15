@@ -216,7 +216,7 @@ The same four files are written to one timestamped directory under
 - `report.yaml` contains the equivalent schema-5 payload only when explicitly enabled.
 - `summary.md` preserves the detailed detector and overlay view.
 - `health.md` presents status bands, distributions, review candidates,
-  watchlists, actionable findings, and compact rollups for humans and CI.
+  watchlists, advisory health findings, and compact rollups for humans and CI.
 
 Consumers must use `schema_version`, not the Markdown layout, as the machine
 compatibility boundary.

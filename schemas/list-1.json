@@ -46,6 +46,10 @@
     },
     "kind": {
       "enum": [
+        "policy_failures",
+        "interventions",
+        "observations",
+        "health_findings",
         "findings",
         "relationships",
         "clusters",

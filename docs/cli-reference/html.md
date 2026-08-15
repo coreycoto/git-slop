@@ -14,9 +14,9 @@ Usage: git-slop html [OPTIONS]
 
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
-| `--report` | `REPORT` | `-` | - | Report path. Defaults to .slop/latest/report.json |
+| `--report` | `REPORT` | `-` | - | Report path. Defaults to the durable latest report, then the Git-private first-run report |
 | `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |
-| `--output` | `OUTPUT` | `-` | - | Destination. Defaults to .slop/latest/report.html |
+| `--output` | `OUTPUT` | `-` | - | Destination. Defaults beside the selected report |
 | `--include-local-paths` | `flag` | `-` | - | Embed the local source report path in the otherwise portable HTML file |
 
 **Example**

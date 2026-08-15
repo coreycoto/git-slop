@@ -26,6 +26,7 @@ fn collect_prompt_paths(value: &Value, paths: &mut Vec<String>) {
                         | "in_scope"
                         | "nearby_tests"
                         | "nearby_test_paths"
+                        | "nearby_verification_paths"
                         | "source_paths"
                 ) {
                     if let Some(values) = value.as_array() {
@@ -291,10 +292,30 @@ fn github_annotation_level(severity: &str) -> &'static str {
 }
 
 pub fn render_github_annotations(report: &Value, max_annotations: usize) -> String {
-    let lines: Vec<String> = array_at(report, &["health", "findings"])
+    let mut findings = array_at(report, &["health", "findings"])
         .iter()
+        .collect::<Vec<_>>();
+    let severity_rank = |finding: &&Value| match string(finding.get("severity")).as_str() {
+        "error" => 2,
+        "warning" => 1,
+        _ => 0,
+    };
+    findings.sort_by(|left, right| {
+        severity_rank(right)
+            .cmp(&severity_rank(left))
+            .then_with(|| {
+                number(right.get("slop_score"))
+                    .partial_cmp(&number(left.get("slop_score")))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| string(left.get("path")).cmp(&string(right.get("path"))))
+    });
+    let omitted = findings.len().saturating_sub(max_annotations);
+    let lines: Vec<String> = findings
+        .into_iter()
         .take(max_annotations)
-        .map(|finding| {
+        .enumerate()
+        .map(|(index, finding)| {
             let severity = string(finding.get("severity"));
             let command = github_annotation_level(&severity);
             let path = github_property_escape(&string(finding.get("path")));
@@ -307,6 +328,11 @@ pub fn render_github_annotations(report: &Value, max_annotations: usize) -> Stri
                 }
                 message.push_str("Next: ");
                 message.push_str(&next_command);
+            }
+            if omitted > 0 && index + 1 == max_annotations {
+                message.push_str(&format!(
+                    " {omitted} additional advisory finding(s) were omitted by the annotation limit; inspect the full health report."
+                ));
             }
             format!(
                 "::{command} file={path},title={title}::{}",

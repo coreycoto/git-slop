@@ -112,7 +112,7 @@ fn report_only_renderer_is_compatible_with_minimal_schema_four() {
     let rendered = render_health_from_report(&report).expect("health renders");
     assert!(rendered.starts_with("# Repository Health"));
     assert!(rendered.contains("src/lib.rs"));
-    assert!(rendered.contains("Actionable Findings"));
+    assert!(rendered.contains("Advisory Health Findings"));
     assert!(rendered.contains("blob/abc123/src/lib.rs"));
 }
 

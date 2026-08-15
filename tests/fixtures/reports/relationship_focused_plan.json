@@ -137,11 +137,13 @@
         "concrete_targets": [
           {
             "nearby_tests": [],
+            "nearby_verification": [],
             "path": "src/consumer_toolkit/github/current_repo.py",
             "symbols_or_terms": []
           },
           {
             "nearby_tests": [],
+            "nearby_verification": [],
             "path": "src/consumer_toolkit/github/shared/current_repo.py",
             "symbols_or_terms": []
           }

@@ -119,7 +119,7 @@ Routine generated output stays untracked. Commit `.slop/config.yaml` and
 
 ## Install
 
-The examples below pin the 0.14.0 release identity. Use each command only after
+The examples below pin the 0.15.0 release identity. Use each command only after
 that exact version is published on the requested distribution surface;
 documentation or a source tag is not proof that every surface is available.
 
@@ -135,7 +135,7 @@ brew install coreycoto/tap/git-slop
 ### Cargo (Crates.io)
 
 ```bash
-cargo install git-slop --version 0.14.0 --locked
+cargo install git-slop --version 0.15.0 --locked
 ```
 
 ### Scoop (Windows)
@@ -167,7 +167,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.14.0
+  - uses: coreycoto/git-slop@v0.15.0
 ```
 
 The Action is advisory by default. It verifies the native release, writes the
@@ -192,7 +192,7 @@ comments are explicit opt-ins. See [GitHub Action](docs/github-action.md).
 | `git slop sarif` | Export action-queue findings as SARIF 2.1.0 |
 | `git slop config` | Inspect, validate, migrate, or describe configuration |
 | `git slop doctor` | Diagnose repository readiness and resource estimates |
-| `git slop list` | List versioned findings, relationships, clusters, or profiles |
+| `git slop list` | List policy failures, interventions, observations, advisory health findings, relationships, clusters, or profiles |
 | `git slop prune` | Preview or remove retained immutable run snapshots |
 | `git slop cache` | Inspect or prune the packed token cache |
 | `git slop completions` | Generate completion source from the live command tree |
@@ -216,7 +216,7 @@ planning, and adoption workflows.
 
 Start with `git slop doctor`; see [Troubleshooting](docs/troubleshooting.md),
 [Configuration Recipes](docs/config-recipes.md), the neutral [Worked
-Example](docs/worked-example.md), and the [0.14.0 release notes](CHANGELOG.md).
+Example](docs/worked-example.md), and the [0.15.0 release notes](CHANGELOG.md).
 
 ## Trust Boundaries
 

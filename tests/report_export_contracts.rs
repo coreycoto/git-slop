@@ -357,8 +357,10 @@ fn compare_reports_missing_invalid_and_incomplete_inputs_as_usage_errors() {
         .expect("run compare with missing report");
     assert_exit_code(&missing_output, 2);
     assert!(
-        String::from_utf8_lossy(&missing_output.stderr)
-            .contains(&format!("Report not found: {}", missing.display()))
+        String::from_utf8_lossy(&missing_output.stderr).contains(&format!(
+            "Report not found. Searched: {}",
+            missing.display()
+        ))
     );
 
     let invalid_output = command()
@@ -380,7 +382,7 @@ fn compare_reports_missing_invalid_and_incomplete_inputs_as_usage_errors() {
         .expect("run compare with missing default head");
     assert_exit_code(&incomplete_output, 2);
     let incomplete_stderr = String::from_utf8_lossy(&incomplete_output.stderr);
-    assert!(incomplete_stderr.contains("Report not found: .slop/latest/report.json"));
+    assert!(incomplete_stderr.contains("Report not found. Searched: .slop/latest/report.json"));
 
     let bad_top_output = command()
         .args(["compare", "--base"])
@@ -669,8 +671,10 @@ fn sarif_reports_missing_invalid_and_zero_top_inputs_as_usage_errors() {
         .expect("run SARIF with missing report");
     assert_exit_code(&missing_output, 2);
     assert!(
-        String::from_utf8_lossy(&missing_output.stderr)
-            .contains(&format!("Report not found: {}", missing.display()))
+        String::from_utf8_lossy(&missing_output.stderr).contains(&format!(
+            "Report not found. Searched: {}",
+            missing.display()
+        ))
     );
 
     let invalid_output = command()

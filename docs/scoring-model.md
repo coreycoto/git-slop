@@ -187,6 +187,9 @@ These are all evidence-oriented and remain outside `slop_score`.
 Signals:
 
 - `test_adjacency_score`
+- `nearby_test_paths` (actual test modules/files only)
+- `nearby_verification_paths` (workflows and validation scripts, labeled
+  separately and never treated as test adjacency)
 - `test_cochange_ratio`
 - `hotspot_without_nearby_tests`
 - `churn_without_test_churn`

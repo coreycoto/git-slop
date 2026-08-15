@@ -2,8 +2,13 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
+
+mod receipt;
+
+use receipt::{bounded_output, print_failure, print_success};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Gate {
@@ -222,17 +227,47 @@ fn changed_paths(repo_root: &Path, explicit_base: Option<&str>) -> Result<Vec<St
     Ok(paths.into_iter().collect())
 }
 
-fn run(repo_root: &Path, program: &str, args: &[&str]) -> Result<()> {
-    println!("$ {program} {}", args.join(" "));
-    let status = Command::new(program)
+fn run(repo_root: &Path, program: &str, args: &[&str], quiet: bool) -> Result<()> {
+    if !quiet {
+        println!("$ {program} {}", args.join(" "));
+        let status = Command::new(program)
+            .current_dir(repo_root)
+            .args(args)
+            .status()
+            .with_context(|| format!("failed to run {program}"))?;
+        return if status.success() {
+            Ok(())
+        } else {
+            bail!("{program} {} exited with {status}", args.join(" "))
+        };
+    }
+    let output = Command::new(program)
         .current_dir(repo_root)
         .args(args)
-        .status()
+        .output()
         .with_context(|| format!("failed to run {program}"))?;
-    if status.success() {
+    if output.status.success() {
         Ok(())
     } else {
-        bail!("{program} {} exited with {status}", args.join(" "))
+        let captured = [
+            ("stdout", bounded_output(&output.stdout)),
+            ("stderr", bounded_output(&output.stderr)),
+        ]
+        .into_iter()
+        .filter(|(_, value)| !value.is_empty())
+        .map(|(label, value)| format!("{label}:\n{value}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+        bail!(
+            "{program} {} exited with {}{}",
+            args.join(" "),
+            output.status,
+            if captured.is_empty() {
+                String::new()
+            } else {
+                format!(":\n{captured}")
+            }
+        )
     }
 }
 
@@ -247,14 +282,17 @@ fn action_tests(repo_root: &Path) -> Result<Vec<String>> {
     Ok(tests)
 }
 
-fn run_gate(repo_root: &Path, gate: Gate) -> Result<()> {
-    println!("\n== {} ==", gate.label());
+fn run_gate(repo_root: &Path, gate: Gate, quiet: bool) -> Result<()> {
+    if !quiet {
+        println!("\n== {} ==", gate.label());
+    }
     match gate {
         Gate::PublicRust => {
             run(
                 repo_root,
                 "cargo",
                 &["fmt", "-p", "git-slop", "--", "--check"],
+                quiet,
             )?;
             run(
                 repo_root,
@@ -270,6 +308,7 @@ fn run_gate(repo_root: &Path, gate: Gate) -> Result<()> {
                     "-D",
                     "warnings",
                 ],
+                quiet,
             )?;
             run(
                 repo_root,
@@ -282,6 +321,7 @@ fn run_gate(repo_root: &Path, gate: Gate) -> Result<()> {
                     "--all-features",
                     "--locked",
                 ],
+                quiet,
             )
         }
         Gate::MaintainerContracts => {
@@ -296,6 +336,7 @@ fn run_gate(repo_root: &Path, gate: Gate) -> Result<()> {
                     "--",
                     "--check",
                 ],
+                quiet,
             )?;
             run(
                 repo_root,
@@ -311,6 +352,7 @@ fn run_gate(repo_root: &Path, gate: Gate) -> Result<()> {
                     "-D",
                     "warnings",
                 ],
+                quiet,
             )?;
             run(
                 repo_root,
@@ -323,13 +365,25 @@ fn run_gate(repo_root: &Path, gate: Gate) -> Result<()> {
                     "--all-features",
                     "--locked",
                 ],
+                quiet,
             )?;
             let mut errors = crate::codex::validate(repo_root, false);
             errors.extend(crate::workflows::validate(repo_root));
             errors.extend(crate::issue_forms::validate(repo_root));
             errors.extend(crate::repository::validate_overlays(repo_root));
             errors.extend(crate::distribution::validate(repo_root));
-            crate::finish_validation("Repository", errors)
+            if quiet {
+                if errors.is_empty() {
+                    Ok(())
+                } else {
+                    bail!(
+                        "repository contract validation failed:\n{}",
+                        errors.join("\n")
+                    )
+                }
+            } else {
+                crate::finish_validation("Repository", errors)
+            }
         }
         Gate::Action => {
             let tests = action_tests(repo_root)?;
@@ -339,14 +393,21 @@ fn run_gate(repo_root: &Path, gate: Gate) -> Result<()> {
                 repo_root,
                 "node",
                 &args.iter().map(String::as_str).collect::<Vec<_>>(),
+                quiet,
             )
         }
-        Gate::Wrapper => run(repo_root, "bash", &["scripts/with-agent-plugins.test.sh"]),
-        Gate::WorkflowLint => run(repo_root, "actionlint", &[]),
+        Gate::Wrapper => run(
+            repo_root,
+            "bash",
+            &["scripts/with-agent-plugins.test.sh"],
+            quiet,
+        ),
+        Gate::WorkflowLint => run(repo_root, "actionlint", &[], quiet),
         Gate::SupplyChain => run(
             repo_root,
             "cargo",
             &["deny", "check", "advisories", "licenses", "sources"],
+            quiet,
         ),
     }
 }
@@ -378,20 +439,39 @@ pub fn verify_changed(repo_root: &Path, base: Option<&str>, dry_run: bool) -> Re
         return Ok(());
     }
     for gate in selected {
-        run_gate(repo_root, gate)?;
+        run_gate(repo_root, gate, false)?;
     }
     Ok(())
 }
 
-pub fn ci(repo_root: &Path) -> Result<()> {
-    println!(
-        "Running the complete local validation matrix ({} gates).",
-        ALL_GATES.len()
-    );
-    for gate in ALL_GATES {
-        run_gate(repo_root, gate)?;
+pub fn ci(repo_root: &Path, quiet: bool, json_output: bool) -> Result<()> {
+    if !quiet {
+        println!(
+            "Running the complete local validation matrix ({} gates).",
+            ALL_GATES.len()
+        );
     }
-    println!("Complete local validation matrix passed.");
+    let started = Instant::now();
+    let mut passed = Vec::new();
+    for gate in ALL_GATES {
+        if let Err(error) = run_gate(repo_root, gate, quiet) {
+            if json_output {
+                print_failure(
+                    &passed,
+                    gate.label(),
+                    started.elapsed().as_millis(),
+                    &format!("{error:#}"),
+                )?;
+            }
+            return Err(error);
+        }
+        passed.push(gate.label());
+    }
+    if json_output {
+        print_success(&passed, started.elapsed().as_millis())?;
+    } else {
+        println!("Complete local validation matrix passed.");
+    }
     Ok(())
 }
 
@@ -528,7 +608,9 @@ pub fn doctor(repo_root: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Gate, changed_paths, classify_paths, node_is_supported, rust_is_supported};
+    use super::{
+        Gate, bounded_output, changed_paths, classify_paths, node_is_supported, rust_is_supported,
+    };
     use std::collections::BTreeSet;
     use std::fs;
     use std::path::Path;
@@ -588,6 +670,15 @@ mod tests {
         assert!(!rust_is_supported("rustc 1.84.1 (fixture)"));
         assert!(node_is_supported("v24.1.0"));
         assert!(!node_is_supported("v22.18.0"));
+    }
+
+    #[test]
+    fn quiet_failure_output_preserves_short_details_and_bounds_long_logs() {
+        assert_eq!(bounded_output(b" assertion failed \n"), "assertion failed");
+        let long = "a".repeat(12_001);
+        let bounded = bounded_output(long.as_bytes());
+        assert!(bounded.starts_with("[earlier output truncated]\n"));
+        assert_eq!(bounded.lines().nth(1).unwrap().len(), 12_000);
     }
 
     fn git(root: &Path, args: &[&str]) -> String {

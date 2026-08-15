@@ -25,6 +25,7 @@ use crate::{PROJECT_NAME, VERSION, analyze, git};
 #[command(
     name = "git-slop",
     about = "Find the files that cost too much context.",
+    after_help = "QUICK START:\n  git slop find                       Run a safe first scan\n  git slop health                     Review repository health\n  git slop list interventions         Review maintenance candidates\n  git slop html                       Build an interactive local report\n  git slop init                       Adopt durable reports and ignore rules",
     version = VERSION
 )]
 struct Cli {
@@ -236,7 +237,7 @@ struct InitArgs {
 struct ShowArgs {
     /// Repo-relative file or folder path.
     target_path: String,
-    /// Report path. Defaults to .slop/latest/report.json.
+    /// Report path. Defaults to the durable latest report, then the Git-private first-run report.
     #[arg(long)]
     report: Option<PathBuf>,
     /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
@@ -254,7 +255,7 @@ struct ShowArgs {
         .multiple(false)
 ))]
 struct ExplainArgs {
-    /// Report path. Defaults to .slop/latest/report.json.
+    /// Report path. Defaults to the durable latest report, then the Git-private first-run report.
     #[arg(long)]
     report: Option<PathBuf>,
     /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
@@ -300,7 +301,7 @@ struct ExplainArgs {
         .multiple(false)
 ))]
 struct PlanArgs {
-    /// Report path. Defaults to .slop/latest/report.json.
+    /// Report path. Defaults to the durable latest report, then the Git-private first-run report.
     #[arg(long)]
     report: Option<PathBuf>,
     /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
@@ -340,7 +341,7 @@ struct PlanArgs {
 
 #[derive(Debug, Args)]
 struct CheckArgs {
-    /// Report path. Defaults to .slop/latest/report.json.
+    /// Report path. Defaults to the durable latest report, then the Git-private first-run report.
     #[arg(long)]
     report: Option<PathBuf>,
     /// Override the config default fail threshold for context_band.
@@ -453,7 +454,7 @@ enum BaselineCommand {
         /// Stable baseline name.
         #[arg(long, default_value = "default")]
         name: String,
-        /// Report path. Defaults to .slop/latest/report.json.
+        /// Report path. Defaults to the durable latest report, then the Git-private first-run report.
         #[arg(long)]
         report: Option<PathBuf>,
         /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
@@ -477,7 +478,7 @@ enum BaselineCommand {
         /// Stable baseline name.
         #[arg(long, default_value = "default")]
         name: String,
-        /// Report path. Defaults to .slop/latest/report.json.
+        /// Report path. Defaults to the durable latest report, then the Git-private first-run report.
         #[arg(long)]
         report: Option<PathBuf>,
         /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
@@ -501,7 +502,7 @@ enum BaselineCommand {
         /// Stable baseline name.
         #[arg(long, default_value = "default")]
         name: String,
-        /// Report path. Defaults to .slop/latest/report.json.
+        /// Report path. Defaults to the durable latest report, then the Git-private first-run report.
         #[arg(long)]
         report: Option<PathBuf>,
         /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
@@ -593,7 +594,7 @@ enum ReportCommand {
 
 #[derive(Debug, Args)]
 struct SarifArgs {
-    /// Report path. Defaults to .slop/latest/report.json.
+    /// Report path. Defaults to the durable latest report, then the Git-private first-run report.
     #[arg(long)]
     report: Option<PathBuf>,
     /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
@@ -615,7 +616,7 @@ struct SarifArgs {
 
 #[derive(Debug, Args)]
 struct HealthArgs {
-    /// Report path. Defaults to .slop/latest/report.json.
+    /// Report path. Defaults to the durable latest report, then the Git-private first-run report.
     #[arg(long)]
     report: Option<PathBuf>,
     /// Output suited for a job summary, workflow annotations, or automation.
@@ -682,107 +683,7 @@ enum DoctorFormat {
     Json,
 }
 
-#[derive(Debug, Args)]
-struct ListArgs {
-    #[command(subcommand)]
-    command: ListCommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum ListCommand {
-    Findings(FindingsListArgs),
-    Relationships(RelationshipsListArgs),
-    Clusters(ClustersListArgs),
-    Profiles(ProfilesListArgs),
-}
-
-#[derive(Debug, Args)]
-struct ListOutputArgs {
-    /// Report path. Defaults to .slop/latest/report.json.
-    #[arg(long)]
-    report: Option<PathBuf>,
-    /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
-    #[arg(long)]
-    require_current: bool,
-    /// Maximum number of matched records to return.
-    #[arg(long, default_value_t = 50)]
-    top: usize,
-    /// Output format.
-    #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
-    format: DisplayFormat,
-    /// Use a wider terminal layout before truncating fields.
-    #[arg(long)]
-    wide: bool,
-    /// Never truncate terminal fields.
-    #[arg(long)]
-    no_truncate: bool,
-}
-
-#[derive(Debug, Args)]
-struct FindingsListArgs {
-    #[command(flatten)]
-    output: ListOutputArgs,
-    /// Match a finding path, relationship endpoint, or cluster member.
-    #[arg(long)]
-    path: Option<String>,
-    /// Match an analysis profile.
-    #[arg(long)]
-    profile: Option<String>,
-    /// Match a resolved file language.
-    #[arg(long)]
-    language: Option<String>,
-    /// Match a resolved file classification.
-    #[arg(long, visible_alias = "class")]
-    classification: Option<String>,
-    /// Match a finding severity.
-    #[arg(long)]
-    severity: Option<String>,
-}
-
-#[derive(Debug, Args)]
-struct RelationshipsListArgs {
-    #[command(flatten)]
-    output: ListOutputArgs,
-    /// Match a relationship endpoint.
-    #[arg(long)]
-    path: Option<String>,
-    /// Match an endpoint analysis profile.
-    #[arg(long)]
-    profile: Option<String>,
-    /// Match an endpoint file language.
-    #[arg(long)]
-    language: Option<String>,
-    /// Match an endpoint file classification.
-    #[arg(long, visible_alias = "class")]
-    classification: Option<String>,
-}
-
-#[derive(Debug, Args)]
-struct ClustersListArgs {
-    #[command(flatten)]
-    output: ListOutputArgs,
-    /// Match a cluster member path.
-    #[arg(long)]
-    path: Option<String>,
-    /// Match a member analysis profile.
-    #[arg(long)]
-    profile: Option<String>,
-    /// Match a member file language.
-    #[arg(long)]
-    language: Option<String>,
-    /// Match a member file classification.
-    #[arg(long, visible_alias = "class")]
-    classification: Option<String>,
-}
-
-#[derive(Debug, Args)]
-struct ProfilesListArgs {
-    #[command(flatten)]
-    output: ListOutputArgs,
-    /// Match an analysis profile.
-    #[arg(long)]
-    profile: Option<String>,
-}
+include!("cli/list_args.rs");
 
 #[derive(Debug, Args)]
 struct PruneArgs {
@@ -803,43 +704,7 @@ struct PruneArgs {
     format: DisplayFormat,
 }
 
-#[derive(Debug, Args)]
-struct CacheArgs {
-    /// Mutable state directory. Defaults to .slop, matching find.
-    #[arg(long, value_name = "PATH", global = true)]
-    state_dir: Option<PathBuf>,
-    #[command(subcommand)]
-    command: CacheCommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum CacheCommand {
-    Status {
-        /// Output format.
-        #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
-        format: DisplayFormat,
-    },
-    Prune {
-        /// Maximum entries to retain.
-        #[arg(long, default_value_t = 10_000)]
-        max_entries: usize,
-        /// Maximum logical payload bytes to retain.
-        #[arg(long, default_value_t = 536_870_912)]
-        max_bytes: u64,
-        /// Explicitly request preview behavior (preview is already the default).
-        #[arg(long, conflicts_with = "yes")]
-        dry_run: bool,
-        /// Apply the selected removals. Without this flag the command is read-only.
-        #[arg(long, conflicts_with = "dry_run")]
-        yes: bool,
-        /// Reclaim free database pages after pruning.
-        #[arg(long)]
-        compact: bool,
-        /// Output format.
-        #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
-        format: DisplayFormat,
-    },
-}
+include!("cli/cache_args.rs");
 
 #[derive(Debug, Args)]
 struct CompletionsArgs {
@@ -864,13 +729,13 @@ struct ReferenceArgs {
 
 #[derive(Debug, Args)]
 struct HtmlArgs {
-    /// Report path. Defaults to .slop/latest/report.json.
+    /// Report path. Defaults to the durable latest report, then the Git-private first-run report.
     #[arg(long)]
     report: Option<PathBuf>,
     /// Fail when the report does not match current HEAD, worktree, config, scope, or analyzer.
     #[arg(long)]
     require_current: bool,
-    /// Destination. Defaults to .slop/latest/report.html.
+    /// Destination. Defaults beside the selected report.
     #[arg(long)]
     output: Option<PathBuf>,
     /// Embed the local source report path in the otherwise portable HTML file.
@@ -892,6 +757,7 @@ include!("cli/listing.rs");
 include!("cli/generation.rs");
 include!("cli/generation/artifacts.rs");
 include!("cli/generation/reference.rs");
+include!("cli/generation/reference/pages.rs");
 include!("cli/generation/reference/bundle.rs");
 include!("cli/entry.rs");
 

@@ -113,7 +113,7 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
             allow_empty_scope: args.allow_empty_scope,
             state_dir,
             output_dir,
-            no_cache: args.no_cache || args.ephemeral || auto_ephemeral,
+            no_cache: args.no_cache || args.ephemeral,
             allow_degraded: args.allow_degraded,
             as_of,
             report_profile: args.report_profile.as_str().to_string(),
@@ -128,7 +128,7 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
             "Repository adoption is incomplete; this scan used Git-private ephemeral storage."
         );
         println!(
-            "Next: run `git slop init` for durable reports, or pass the report path below to a report command."
+            "Next: run `git slop health`, `git slop doctor`, or `git slop html`; run `git slop init` when you want durable reports."
         );
     } else if persistent_unadopted {
         println!(

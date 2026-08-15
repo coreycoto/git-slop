@@ -410,10 +410,27 @@ pub(super) fn build_health_rollup_from_values(
             .then_with(|| usize_field(right, "tokens").cmp(&usize_field(left, "tokens")))
             .then_with(|| string_field(left, "path").cmp(string_field(right, "path")))
     });
-    let findings = ranked_files
+    let mut findings: Vec<_> = ranked_files
         .into_iter()
         .filter_map(|file| finding_for_file(file, config))
         .collect();
+    let severity_rank = |value: &str| match value {
+        "error" => 2,
+        "warning" => 1,
+        _ => 0,
+    };
+    findings.sort_by(|left, right| {
+        severity_rank(&right.severity)
+            .cmp(&severity_rank(&left.severity))
+            .then_with(|| {
+                right
+                    .slop_score
+                    .partial_cmp(&left.slop_score)
+                    .unwrap_or(Ordering::Equal)
+            })
+            .then_with(|| right.tokens.cmp(&left.tokens))
+            .then_with(|| left.path.cmp(&right.path))
+    });
 
     HealthRollup {
         file_band_counts,

@@ -63,7 +63,9 @@
 | `src/tokens-only` | source | 1 files · 2,500 tokens · 2.3% of parent | `warning` — tokens: 2,500 direct tokens \> 2,000 healthy ceiling | `moderate` · score 61.2 | `src/tokens-only/a.rs` — maintenance `moderate` · score 60.0; context/load `compact` · 2,500 tokens | `git slop explain --path src/tokens-only/` |
 
 
-## Actionable Findings
+## Advisory Health Findings
+
+Showing 5 of 5 advisory finding(s), ordered by review severity and then maintenance pressure. Use `git slop list health-findings --top 5` to inspect the bounded collection.
 
 | Review severity | Path | Context/load band | Maintenance pressure | Why it surfaced | Next step |
 | --- | --- | --- | --- | --- | --- |

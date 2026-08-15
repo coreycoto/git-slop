@@ -16,7 +16,7 @@ Usage: git-slop sarif [OPTIONS]
 
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
-| `--report` | `REPORT` | `-` | - | Report path. Defaults to .slop/latest/report.json |
+| `--report` | `REPORT` | `-` | - | Report path. Defaults to the durable latest report, then the Git-private first-run report |
 | `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |
 | `--top` | `TOP` | `-` | - | Maximum number of action-queue findings to export |
 | `--scope` | `SCOPE` | `action-queue` | values: policy, action-queue | Export configured policy failures or action-queue intervention candidates |

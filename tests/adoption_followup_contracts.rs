@@ -67,6 +67,48 @@ fn unadopted_find_defaults_to_git_private_storage() {
 }
 
 #[test]
+fn first_run_report_handoff_works_without_copying_an_ephemeral_path() {
+    let repository = fixture_repository();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .arg("find")
+        .assert()
+        .success();
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["health", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"command\": \"health\""));
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("git_private_ephemeral"));
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .arg("html")
+        .assert()
+        .success();
+
+    assert!(
+        repository
+            .path()
+            .join(".git/git-slop/ephemeral/latest/report.html")
+            .is_file()
+    );
+    let status = Command::new("git")
+        .current_dir(repository.path())
+        .args(["status", "--porcelain"])
+        .output()
+        .unwrap();
+    assert!(status.status.success());
+    assert!(status.stdout.is_empty());
+}
+
+#[test]
 fn empty_repository_doctor_and_estimate_offer_exact_recovery() {
     let repository = tempdir().expect("repository");
     git(repository.path(), &["init", "--quiet"]);

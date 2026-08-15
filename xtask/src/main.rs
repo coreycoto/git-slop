@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use git_slop_xtask::{
     codex, crates_io, developer, distribution, finish_validation, homebrew, issue_forms, manifest,
     release, repository, sbom, workflows,
@@ -28,7 +28,14 @@ enum Command {
     Doctor,
 
     /// Run the complete cross-platform local validation matrix.
-    Ci,
+    Ci {
+        /// Suppress successful gate subprocess output while retaining failures.
+        #[arg(long)]
+        quiet: bool,
+        /// Select human progress or one machine-readable terminal receipt.
+        #[arg(long, value_enum, default_value_t = CiFormat::Text)]
+        format: CiFormat,
+    },
 
     /// Classify changed files with tested rules and run only the required validation gates.
     VerifyChanged {
@@ -132,6 +139,12 @@ enum Command {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum CiFormat {
+    Text,
+    Json,
+}
+
 fn main() {
     if let Err(error) = run(Cli::parse()) {
         eprintln!("error: {error:#}");
@@ -149,7 +162,11 @@ fn run(cli: Cli) -> Result<()> {
 
     match cli.command {
         Command::Doctor => developer::doctor(&repo_root),
-        Command::Ci => developer::ci(&repo_root),
+        Command::Ci { quiet, format } => developer::ci(
+            &repo_root,
+            quiet || format == CiFormat::Json,
+            format == CiFormat::Json,
+        ),
         Command::VerifyChanged { base, dry_run } => {
             developer::verify_changed(&repo_root, base.as_deref(), dry_run)
         }

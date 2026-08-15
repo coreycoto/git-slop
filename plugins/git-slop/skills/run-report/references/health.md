@@ -4,8 +4,8 @@
 
 `health` projects repository-health evidence from an existing schema-5 report.
 It does not run the detector, rescore findings, or modify report artifacts. The
-default input is `.slop/latest/report.json`; use `--report` to select another
-report.
+default input is the durable `.slop/latest/report.json`, then the Git-private
+first-run report; use `--report` to select another report.
 
 ```bash
 git-slop health
@@ -38,7 +38,9 @@ set it explicitly when the caller needs a different bound.
   health findings.
 - Exit `2` means the report is missing or incompatible, or the command input is
   invalid.
-- Exit `1` is an unexpected execution or report-read failure.
+- Exit `3` means repository access, report I/O, or another operational
+  dependency failed.
+- Exit `4` means an explicit resource limit prevented safe completion.
 
 Do not use `health` as the required gate. Use `git-slop check` for the stable
 file-level threshold contract: exit `0` passes, exit `1` reports threshold

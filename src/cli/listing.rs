@@ -5,21 +5,30 @@ struct ListQuery<'a> {
     language: Option<&'a str>,
     classification: Option<&'a str>,
     severity: Option<&'a str>,
+    context_band: Option<&'a str>,
+    slop_band: Option<&'a str>,
+}
+
+fn findings_query(args: &FindingsListArgs) -> ListQuery<'_> {
+    ListQuery {
+        output: &args.output,
+        path: args.path.as_deref(),
+        profile: args.profile.as_deref(),
+        language: args.language.as_deref(),
+        classification: args.classification.as_deref(),
+        severity: args.severity.as_deref(),
+        context_band: args.context_band.as_deref(),
+        slop_band: args.slop_band.as_deref(),
+    }
 }
 
 fn list_query(command: &ListCommand) -> (&'static str, ListQuery<'_>) {
     match command {
-        ListCommand::Findings(args) => (
-            "findings",
-            ListQuery {
-                output: &args.output,
-                path: args.path.as_deref(),
-                profile: args.profile.as_deref(),
-                language: args.language.as_deref(),
-                classification: args.classification.as_deref(),
-                severity: args.severity.as_deref(),
-            },
-        ),
+        ListCommand::PolicyFailures(args) => ("policy_failures", findings_query(args)),
+        ListCommand::Interventions(args) => ("interventions", findings_query(args)),
+        ListCommand::Observations(args) => ("observations", findings_query(args)),
+        ListCommand::HealthFindings(args) => ("health_findings", findings_query(args)),
+        ListCommand::Findings(args) => ("findings", findings_query(args)),
         ListCommand::Relationships(args) => (
             "relationships",
             ListQuery {
@@ -29,6 +38,8 @@ fn list_query(command: &ListCommand) -> (&'static str, ListQuery<'_>) {
                 language: args.language.as_deref(),
                 classification: args.classification.as_deref(),
                 severity: None,
+                context_band: None,
+                slop_band: None,
             },
         ),
         ListCommand::Clusters(args) => (
@@ -40,6 +51,8 @@ fn list_query(command: &ListCommand) -> (&'static str, ListQuery<'_>) {
                 language: args.language.as_deref(),
                 classification: args.classification.as_deref(),
                 severity: None,
+                context_band: None,
+                slop_band: None,
             },
         ),
         ListCommand::Profiles(args) => (
@@ -51,6 +64,8 @@ fn list_query(command: &ListCommand) -> (&'static str, ListQuery<'_>) {
                 language: None,
                 classification: None,
                 severity: None,
+                context_band: None,
+                slop_band: None,
             },
         ),
     }
@@ -106,6 +121,12 @@ fn matches_list_filter(
         && query
             .severity
             .is_none_or(|value| item.get("severity").and_then(Value::as_str) == Some(value))
+        && query.context_band.is_none_or(|value| {
+            item.get("context_band").and_then(Value::as_str) == Some(value)
+        })
+        && query.slop_band.is_none_or(|value| {
+            item.get("slop_band").and_then(Value::as_str) == Some(value)
+        })
 }
 
 fn terminal_field(value: &str, width: usize, no_truncate: bool) -> String {
@@ -146,7 +167,27 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
         .filter_map(|record| Some((record.get("path")?.as_str()?.to_string(), record.clone())))
         .collect::<std::collections::BTreeMap<_, _>>();
     let mut values = match &args.command {
-        ListCommand::Findings(_) => loaded
+        ListCommand::PolicyFailures(_) => failing_records_in(
+            &loaded,
+            loaded
+                .pointer("/policy_evaluation/thresholds/context_band")
+                .and_then(Value::as_str),
+            loaded
+                .pointer("/policy_evaluation/thresholds/slop_band")
+                .and_then(Value::as_str),
+            false,
+        ),
+        ListCommand::Interventions(_) => loaded
+            .pointer("/action_queue")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        ListCommand::Observations(_) => loaded
+            .pointer("/observation_feed")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        ListCommand::HealthFindings(_) | ListCommand::Findings(_) => loaded
             .pointer("/health/findings")
             .and_then(Value::as_array)
             .cloned()
@@ -194,7 +235,7 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
         DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&values)?),
         DisplayFormat::Text => {
             match kind {
-                "findings" => render_findings_table(&values, query.output),
+                "policy_failures" | "interventions" | "observations" | "health_findings" | "findings" => render_findings_table(&values, query.output),
                 "relationships" => render_relationships_table(&values, query.output),
                 "clusters" => render_clusters_table(&values, query.output),
                 "profiles" => render_profiles_table(&values),

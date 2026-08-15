@@ -17,7 +17,7 @@ Usage: git-slop show [OPTIONS] <TARGET_PATH>
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
 | `target_path` | `TARGET_PATH` | `-` | required | Repo-relative file or folder path |
-| `--report` | `REPORT` | `-` | - | Report path. Defaults to .slop/latest/report.json |
+| `--report` | `REPORT` | `-` | - | Report path. Defaults to the durable latest report, then the Git-private first-run report |
 | `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |
 | `--format` | `FORMAT` | `text` | values: text, json, yaml | Output format |
 
