@@ -26,6 +26,11 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
         "recovery_command": adoption_recovery
     });
     let report_path = default_report_path(repo_root);
+    let report_storage = if report_path == durable_report_path(repo_root) {
+        "durable"
+    } else {
+        "git_private_ephemeral"
+    };
     let mut report_freshness = None;
     let mut freshness_error = None;
     let report_status = if report_path.exists() {
@@ -153,7 +158,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
         "repository": {"name": repo.repo_name, "branch": repo.branch, "shallow": repo.is_shallow, "detached": repo.detached_head, "clean": repo.worktree_clean},
         "adoption": adoption_payload.clone(),
         "config": {"status": if config_result.is_err() { "invalid" } else if config_exists { "valid" } else { "using_defaults" }, "path": config::config_path(repo_root)},
-        "report": {"status": report_status, "path": report_path, "freshness": report_freshness, "freshness_error": freshness_error},
+        "report": {"status": report_status, "path": report_path, "storage": report_storage, "freshness": report_freshness, "freshness_error": freshness_error},
         "estimate": estimate,
         "resource_status": resource_status,
         "diagnostics": diagnostics,
@@ -212,13 +217,17 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
                 "invalid"
             }
         );
-        println!("- report: {report_status}");
         println!(
-            "- preflight: {tracked} tracked files; peak memory ~{} MiB; cache ~{} MiB; report ~{} MiB; time ~{}s; inodes ~{}",
+            "- report: {report_status} ({report_storage}, {})",
+            relative_display(&report_path, repo_root)
+        );
+        println!(
+            "- preflight: {tracked} tracked files; peak memory ~{} MiB; cache ~{} MiB; report ~{} MiB; time ~{}s cold/~{}s warm; inodes ~{}",
             estimate.estimated_peak_memory_bytes.div_ceil(1024 * 1024),
             estimate.estimated_cache_bytes.div_ceil(1024 * 1024),
             estimate.estimated_report_bytes.div_ceil(1024 * 1024),
-            estimate.estimated_seconds,
+            estimate.estimated_seconds_cold,
+            estimate.estimated_seconds_warm,
             estimate.estimated_inode_count,
         );
         if repo.is_shallow {

@@ -10,11 +10,14 @@ git slop doctor
 git slop find --estimate-only
 ```
 
-If the repository has not adopted Git Slop yet, preview it without creating
-`.slop/` adoption files:
+If the repository has not adopted Git Slop yet, the ordinary first scan is
+automatically Git-private and does not create `.slop/` adoption files:
 
 ```bash
-git slop find --ephemeral
+git slop find
+git slop health
+git slop doctor
+git slop html
 ```
 
 For durable use, initialize, review, and commit only the two adoption files:
@@ -40,7 +43,10 @@ read that evidence without rescoring it.
 ## 3. Select and explain one path
 
 ```bash
-git slop list findings --top 10
+git slop list policy-failures --top 10
+git slop list interventions --top 10
+git slop list observations --top 10
+git slop list health-findings --top 10
 git slop show src/parser.rs
 git slop explain --path src/parser.rs
 ```

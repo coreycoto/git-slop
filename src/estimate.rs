@@ -22,7 +22,11 @@ pub struct AnalysisEstimate {
     pub estimated_report_bytes: u128,
     pub estimated_relationship_count: u128,
     pub estimated_inode_count: u128,
+    /// Conservative compatibility value; equal to `estimated_seconds_cold`.
     pub estimated_seconds: u128,
+    pub estimated_seconds_cold: u128,
+    pub estimated_seconds_warm: u128,
+    pub cache_assumptions: Vec<String>,
     pub estimated_history_commit_count: u64,
     pub path_breadth: usize,
     pub dominant_subsystem: Option<String>,
@@ -122,6 +126,12 @@ pub fn build(repo_root: &Path, paths: &[String], config_value: &Value) -> Analys
         .saturating_add(history_bytes)
         .saturating_add(report_bytes)
         .saturating_add(runtime_overhead_bytes);
+    let estimated_seconds_warm = inventory_bytes
+        .div_ceil(4 * 1024 * 1024)
+        .saturating_add(path_count.div_ceil(2_000))
+        .saturating_add((estimated_history_commit_count as u128).div_ceil(5_000))
+        .max(6);
+    let estimated_seconds_cold = estimated_seconds_warm.saturating_mul(2).max(10);
     AnalysisEstimate {
         tracked_path_count: paths.len(),
         inventory_bytes,
@@ -147,11 +157,15 @@ pub fn build(repo_root: &Path, paths: &[String], config_value: &Value) -> Analys
         estimated_report_bytes: report_bytes,
         estimated_relationship_count: path_count.saturating_mul(pair_limit).saturating_div(2),
         estimated_inode_count: path_count.saturating_add(16),
-        estimated_seconds: inventory_bytes
-            .div_ceil(4 * 1024 * 1024)
-            .saturating_add(path_count.div_ceil(2_000))
-            .saturating_add((estimated_history_commit_count as u128).div_ceil(5_000))
-            .max(6),
+        estimated_seconds: estimated_seconds_cold,
+        estimated_seconds_cold,
+        estimated_seconds_warm,
+        cache_assumptions: vec![
+            "cold assumes no reusable content-token or Git-evidence cache entries".to_string(),
+            "warm assumes unchanged tracked content and compatible analyzer/config cache keys"
+                .to_string(),
+            "explicit --ephemeral and --no-cache scans use the cold estimate".to_string(),
+        ],
         estimated_history_commit_count,
         path_breadth: paths
             .iter()
@@ -205,6 +219,7 @@ mod tests {
         assert_eq!(large.tracked_path_count, 100_000);
         assert!(large.estimated_peak_memory_low_bytes > small.estimated_peak_memory_high_bytes);
         assert!(large.estimated_seconds >= small.estimated_seconds);
+        assert!(large.estimated_seconds_cold >= large.estimated_seconds_warm);
         assert_eq!(large.path_breadth, 100);
     }
 
@@ -222,7 +237,8 @@ mod tests {
         // advertised conservative envelope without claiming benchmark-grade
         // calibration.
         assert!(estimate.estimated_peak_memory_high_bytes >= 88 * 1024 * 1024);
-        assert!(estimate.estimated_seconds >= 6);
+        assert!(estimate.estimated_seconds_cold >= 10);
+        assert!(estimate.estimated_seconds_warm >= 6);
         assert!(
             estimate.estimated_peak_memory_low_bytes < estimate.estimated_peak_memory_high_bytes
         );

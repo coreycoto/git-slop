@@ -41,6 +41,92 @@ pub(super) fn is_test_path(path: &str) -> bool {
         || name.contains(".spec.")
 }
 
+pub(super) fn is_verification_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    let name = lower.rsplit('/').next().unwrap_or(&lower);
+    lower.starts_with(".github/workflows/")
+        || ((lower.starts_with("scripts/") || lower.contains("/scripts/"))
+            && ["test", "check", "validate", "verify", "ci"]
+                .iter()
+                .any(|marker| name.contains(marker)))
+}
+
+pub(super) fn language_common_term(term: &str) -> bool {
+    if term.len() <= 2 {
+        return true;
+    }
+    matches!(
+        term,
+        "arg"
+            | "args"
+            | "let"
+            | "mut"
+            | "assert"
+            | "run"
+            | "byte"
+            | "bytes"
+            | "if"
+            | "else"
+            | "for"
+            | "while"
+            | "match"
+            | "return"
+            | "self"
+            | "this"
+            | "true"
+            | "false"
+            | "none"
+            | "null"
+            | "some"
+            | "result"
+            | "string"
+            | "str"
+            | "path"
+            | "format"
+            | "from"
+            | "into"
+            | "impl"
+            | "pub"
+            | "use"
+            | "mod"
+            | "fn"
+            | "const"
+            | "static"
+            | "class"
+            | "def"
+            | "func"
+            | "var"
+            | "import"
+            | "export"
+            | "value"
+            | "values"
+            | "text"
+            | "item"
+            | "items"
+            | "data"
+            | "get"
+            | "set"
+            | "new"
+            | "default"
+            | "error"
+            | "ok"
+            | "map"
+            | "iter"
+            | "type"
+            | "name"
+            | "object"
+            | "array"
+            | "only"
+            | "other"
+            | "when"
+            | "then"
+            | "file"
+            | "key"
+            | "json"
+            | "schema"
+    )
+}
+
 pub(super) fn percentile(mut values: Vec<f64>, quantile: f64) -> f64 {
     if values.is_empty() {
         return 1.0;
@@ -75,7 +161,7 @@ pub(super) fn immediate_parent(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::stable_id;
+    use super::{is_test_path, is_verification_path, stable_id};
 
     #[test]
     fn ids_match_the_nul_delimited_blake2b_contract() {
@@ -91,5 +177,18 @@ mod tests {
             stable_id("duplicate_set", &["src/a.rs", "src/b.rs"]),
             "duplicate_set-db01f3038ceb"
         );
+    }
+
+    #[test]
+    fn workflow_and_validation_surfaces_are_not_reported_as_tests() {
+        for path in [
+            ".github/workflows/contracts.yml",
+            "scripts/validate-package.sh",
+        ] {
+            assert!(is_verification_path(path));
+            assert!(!is_test_path(path));
+        }
+        assert!(is_test_path("tests/contract.rs"));
+        assert!(!is_verification_path("tests/contract.rs"));
     }
 }

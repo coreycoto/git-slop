@@ -222,7 +222,7 @@ fn report_consumers_preserve_missing_report_exit_two() {
             .assert()
             .code(2)
             .stderr(predicate::str::contains(format!(
-                "Report not found: {missing_display}"
+                "Report not found. Searched: {missing_display}"
             )))
             .stderr(predicate::str::contains("git slop find"));
     }

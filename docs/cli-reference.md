@@ -6,7 +6,9 @@ Generated from the live Clap command tree.
 
 - `0`: command completed successfully; policy gates passed or were evaluation-only.
 - `1`: a valid policy, regression, or adoption check found an unmet condition.
-- `2`: usage, contract, stale-currentness, resource, or runtime error.
+- `2`: command usage, an input contract, or required-currentness validation failed.
+- `3`: repository access, report I/O, or another operational dependency failed.
+- `4`: a configured or measured resource limit prevented safe completion.
 
 ## `git-slop`
 

@@ -108,7 +108,11 @@ fn command_requires_repository(command: &Command) -> bool {
         Command::Html(args) => args.report.is_none() || args.require_current,
         Command::List(args) => {
             let output = match &args.command {
-                ListCommand::Findings(args) => &args.output,
+                ListCommand::PolicyFailures(args)
+                | ListCommand::Interventions(args)
+                | ListCommand::Observations(args)
+                | ListCommand::HealthFindings(args)
+                | ListCommand::Findings(args) => &args.output,
                 ListCommand::Relationships(args) => &args.output,
                 ListCommand::Clusters(args) => &args.output,
                 ListCommand::Profiles(args) => &args.output,
@@ -121,6 +125,12 @@ fn command_requires_repository(command: &Command) -> bool {
 
 pub fn run() -> i32 {
     let raw_args = std::env::args_os().collect::<Vec<_>>();
+    if raw_args.len() == 1 {
+        let mut command = Cli::command();
+        let _ = command.print_help();
+        println!();
+        return 0;
+    }
     let requested_error_format = requested_error_format(&raw_args);
     let parser_command = parser_command_name(&raw_args);
     let cli = match Cli::try_parse_from(&raw_args) {

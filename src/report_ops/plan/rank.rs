@@ -480,7 +480,8 @@ fn enrich_plan_slice(report: &Value, context: &Value, mut slice: Value) -> Value
                 json!({
                     "path": path,
                     "symbols_or_terms": string_array(record.get("top_structural_terms")).into_iter().take(5).collect::<Vec<_>>(),
-                    "nearby_tests": record.pointer("/overlays/verification/nearby_test_paths").cloned().unwrap_or_else(|| json!([]))
+                    "nearby_tests": record.pointer("/overlays/verification/nearby_test_paths").cloned().unwrap_or_else(|| json!([])),
+                    "nearby_verification": record.pointer("/overlays/verification/nearby_verification_paths").cloned().unwrap_or_else(|| json!([]))
                 })
             }).collect::<Vec<_>>()
         }),

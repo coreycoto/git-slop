@@ -10,7 +10,7 @@ inputs:
   version:
     description: Git Slop release version to install, with or without a leading v.
     required: false
-    default: "0.14.0"
+    default: "0.15.0"
   release-repository:
     description: GitHub repository that owns the versioned release assets.
     required: false
@@ -154,13 +154,13 @@ outputs:
     description: Exit code from git-slop check, or zero in advisory mode.
     value: ${{ steps.finalize.outputs.policy-exit-code }}
   finding-count:
-    description: Deprecated alias retained in v0.14.0; use selected-policy-finding-count. Removal is limited to a future breaking release no earlier than 2026-11-01.
+    description: Deprecated alias retained in v0.15.0; use selected-policy-finding-count. Removal is limited to a future breaking release no earlier than 2026-11-01.
     value: ${{ steps.analyze.outputs.finding-count }}
   health-finding-count:
     description: Uncapped actionable health findings in the head report.
     value: ${{ steps.analyze.outputs.health-finding-count }}
   policy-finding-count:
-    description: Deprecated alias retained in v0.14.0; use selected-policy-finding-count. Removal is limited to a future breaking release no earlier than 2026-11-01.
+    description: Deprecated alias retained in v0.15.0; use selected-policy-finding-count. Removal is limited to a future breaking release no earlier than 2026-11-01.
     value: ${{ steps.analyze.outputs.policy-finding-count }}
   absolute-finding-count:
     description: Findings from the absolute head policy gate after configured thresholds.
@@ -172,7 +172,7 @@ outputs:
     description: Native comparator regression count when baseline-report is supplied.
     value: ${{ steps.analyze.outputs.regression-count }}
   baseline-compatible:
-    description: Deprecated boolean alias retained in v0.14.0; prefer baseline-status. Removal is limited to a future breaking release no earlier than 2026-11-01.
+    description: Deprecated boolean alias retained in v0.15.0; prefer baseline-status. Removal is limited to a future breaking release no earlier than 2026-11-01.
     value: ${{ steps.analyze.outputs.baseline-compatible }}
   baseline-status:
     description: Baseline state (not_evaluated, compatible, forced_incompatible, incompatible, or error).

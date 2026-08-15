@@ -33,8 +33,19 @@ fn print_find_estimate(
                 mib("estimated_report_bytes")
             );
             println!(
-                "- time/inodes: ~{}s / ~{}",
-                estimate["estimated_seconds"], estimate["estimated_inode_count"]
+                "- time: ~{}s cold / ~{}s warm",
+                estimate["estimated_seconds_cold"], estimate["estimated_seconds_warm"]
+            );
+            println!("- inodes: ~{}", estimate["estimated_inode_count"]);
+            println!(
+                "- cache assumptions: {}",
+                estimate["cache_assumptions"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("; ")
             );
             println!(
                 "- confidence: {}",

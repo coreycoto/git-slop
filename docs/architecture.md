@@ -83,9 +83,10 @@ src/
 - `main.rs` delegates to the library CLI and returns its process exit code.
 - `build_info.rs` exposes schema-2 package, target, crate, and source-build
   provenance embedded by Cargo packaging for release verification.
-- `cli.rs` defines the `clap` command surface, validates selectors and
-  thresholds, resolves report paths, and dispatches read-only artifact
-  operations.
+- `cli.rs` defines the top-level `clap` command surface and dispatches focused
+  operations under `cli/`; list and cache argument contracts live in
+  `cli/list_args.rs` and `cli/cache_args.rs` so command growth does not return
+  the entry point to a monolith.
 - `lib.rs` exposes the product modules and the Cargo package version.
 
 ### Detector Pipeline
@@ -103,7 +104,8 @@ src/
   codes, and folder aggregation.
 - `overlays.rs` orchestrates organization, verification, navigation,
   blast-radius, stewardship, and semantic-drift evidence without changing
-  `slop_score`; focused analyzers live under `overlays/`.
+  `slop_score`; focused analyzers and shared test/verification/term helpers live
+  under `overlays/`.
 
 ### Reports And Read-Only Operations
 

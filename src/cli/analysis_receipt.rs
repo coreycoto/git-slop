@@ -4,22 +4,22 @@ fn print_scan_receipt(result: &crate::FindResult) {
         .pointer("/diagnostics/analysis")
         .unwrap_or(&Value::Null);
     let stats = result.report.get("stats").unwrap_or(&Value::Null);
-    let skipped = [
-        "skipped_ignored_count",
-        "skipped_missing_count",
-        "skipped_binary_count",
-        "skipped_undecodable_count",
-    ]
-    .into_iter()
-    .map(|key| stats.get(key).and_then(Value::as_u64).unwrap_or_default())
-    .sum::<u64>();
+    let skipped_count = |key: &str| stats.get(key).and_then(Value::as_u64).unwrap_or_default();
+    let skipped_ignored = skipped_count("skipped_ignored_count");
+    let skipped_missing = skipped_count("skipped_missing_count");
+    let skipped_binary = skipped_count("skipped_binary_count");
+    let skipped_undecodable = skipped_count("skipped_undecodable_count");
+    let skipped = skipped_ignored
+        .saturating_add(skipped_missing)
+        .saturating_add(skipped_binary)
+        .saturating_add(skipped_undecodable);
     let output_root = result
         .report_json
         .parent()
         .and_then(Path::parent)
         .unwrap_or_else(|| result.report_json.parent().unwrap_or(Path::new(".")));
     println!(
-        "Scan receipt: {:.2}s; paths={} tracked/{} analyzed/{} skipped; commits={} examined; cache={} hit(s)/{} miss(es); peak={} MiB; report={} KiB; profile={}; output={}.",
+        "Scan receipt: {:.2}s; paths: tracked={}, analyzed={}, skipped={} (ignored={}, missing={}, binary={}, undecodable={}); commits={} examined; cache={} hit(s)/{} miss(es); peak={} MiB; report={} KiB; profile={}; output={}.",
         result.elapsed_ms as f64 / 1_000.0,
         stats
             .get("tracked_file_count")
@@ -30,6 +30,10 @@ fn print_scan_receipt(result: &crate::FindResult) {
             .and_then(Value::as_u64)
             .unwrap_or_default(),
         skipped,
+        skipped_ignored,
+        skipped_missing,
+        skipped_binary,
+        skipped_undecodable,
         diagnostics
             .pointer("/history/window_numstat_commit_count")
             .and_then(Value::as_u64)

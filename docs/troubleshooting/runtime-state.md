@@ -53,10 +53,11 @@ Use `git slop doctor`, `resources.memory_budget_mb`,
 over `resources.large_file_bytes` retain byte and token context evidence but
 skip structural token materialization.
 
-Run `git slop find --estimate-only` before increasing a budget. Estimates use
-conservative fixed-overhead ranges; the completed scan receipt records measured
-peak memory and elapsed time. Use `--allow-degraded` only when a deterministic
-path-prefix report is acceptable.
+Run `git slop find --estimate-only` before increasing a budget. Estimates show
+separate cold- and warm-cache times, state their cache assumptions, and retain a
+conservative fixed-overhead memory range. The completed scan receipt records
+measured peak memory and elapsed time. Use `--allow-degraded` only when a
+deterministic path-prefix report is acceptable.
 
 ## Report size and validity
 
@@ -73,7 +74,7 @@ input requires `--allow-legacy` or `git slop report migrate`.
 - `scope_not_found`: the path does not exist in the selected repository.
 - `empty_scope`: commit the input, or use `--allow-empty-scope` only for an
   intentional empty report.
-- `selector_not_found`: list findings, relationships, or clusters and copy the
+- `selector_not_found`: list interventions, health findings, relationships, or clusters and copy the
   exact path or identifier.
 
 ## Filesystem failures

@@ -39,7 +39,7 @@ Usage: git-slop baseline ensure [OPTIONS]
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
 | `--name` | `NAME` | `default` | - | Stable baseline name |
-| `--report` | `REPORT` | `-` | - | Report path. Defaults to .slop/latest/report.json |
+| `--report` | `REPORT` | `-` | - | Report path. Defaults to the durable latest report, then the Git-private first-run report |
 | `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |
 | `--replace` | `flag` | `-` | - | Explicitly replace a differing stored baseline |
 | `--allow-dirty` | `flag` | `-` | - | Permit a report produced from a dirty worktree |
@@ -67,7 +67,7 @@ Usage: git-slop baseline create [OPTIONS]
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
 | `--name` | `NAME` | `default` | - | Stable baseline name |
-| `--report` | `REPORT` | `-` | - | Report path. Defaults to .slop/latest/report.json |
+| `--report` | `REPORT` | `-` | - | Report path. Defaults to the durable latest report, then the Git-private first-run report |
 | `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |
 | `--force` | `flag` | `-` | - | Replace an existing named baseline |
 | `--allow-dirty` | `flag` | `-` | - | Permit a report produced from a dirty worktree |
@@ -95,7 +95,7 @@ Usage: git-slop baseline update [OPTIONS]
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
 | `--name` | `NAME` | `default` | - | Stable baseline name |
-| `--report` | `REPORT` | `-` | - | Report path. Defaults to .slop/latest/report.json |
+| `--report` | `REPORT` | `-` | - | Report path. Defaults to the durable latest report, then the Git-private first-run report |
 | `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |
 | `--allow-dirty` | `flag` | `-` | - | Permit a report produced from a dirty worktree |
 | `--allow-incomplete-evidence` | `flag` | `-` | - | Permit incomplete inventory or history evidence |

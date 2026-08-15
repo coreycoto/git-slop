@@ -53,7 +53,11 @@ fn command_example(path: &str) -> &'static str {
         "git-slop config migrate" => "git slop config migrate --dry-run",
         "git-slop config schema" => "git slop config schema",
         "git-slop doctor" => "git slop doctor --require-current",
-        "git-slop list" => "git slop list findings --top 20",
+        "git-slop list" => "git slop list interventions --top 20",
+        "git-slop list policy-failures" => "git slop list policy-failures --top 20",
+        "git-slop list interventions" => "git slop list interventions --top 20",
+        "git-slop list observations" => "git slop list observations --top 20",
+        "git-slop list health-findings" => "git slop list health-findings --top 20",
         "git-slop list findings" => "git slop list findings --top 20",
         "git-slop list relationships" => "git slop list relationships --top 20",
         "git-slop list clusters" => "git slop list clusters --top 20",
@@ -196,7 +200,14 @@ fn markdown_command_tree(command: &clap::Command, path: &str, output: &mut Strin
 }
 
 fn reference_header() -> String {
-    "# Git Slop CLI Reference\n\nGenerated from the live Clap command tree.\n\n## Exit codes\n\n- `0`: command completed successfully; policy gates passed or were evaluation-only.\n- `1`: a valid policy, regression, or adoption check found an unmet condition.\n- `2`: usage, contract, stale-currentness, resource, or runtime error.\n\n".to_string()
+    let exit_codes = crate::error::EXIT_CODE_DESCRIPTIONS
+        .iter()
+        .map(|(code, description)| format!("- `{code}`: {description}."))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "# Git Slop CLI Reference\n\nGenerated from the live Clap command tree.\n\n## Exit codes\n\n{exit_codes}\n\n"
+    )
 }
 
 fn reference_markdown() -> String {

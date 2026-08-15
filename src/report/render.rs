@@ -273,8 +273,8 @@ pub fn render_compatibility_summary(report: &Value) -> String {
         String::new(),
         "### Verification Gaps".to_string(),
         String::new(),
-        "| Path | Gap | Nearby Tests | Test Cochange |".to_string(),
-        "| --- | ---: | --- | ---: |".to_string(),
+        "| Path | Gap | Nearby Tests | Other Verification | Test Cochange |".to_string(),
+        "| --- | ---: | --- | --- | ---: |".to_string(),
     ]);
     for item in verification.into_iter().take(5) {
         let nearby = string_array(item.get("nearby_test_paths"));
@@ -288,16 +288,28 @@ pub fn render_compatibility_summary(report: &Value) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         };
+        let verification = string_array(item.get("nearby_verification_paths"));
+        let rendered_verification = if verification.is_empty() {
+            "_none_".to_string()
+        } else {
+            verification
+                .iter()
+                .take(3)
+                .map(|path| path_cell(report, path))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
         lines.push(format!(
-            "| {} | {:.3} | {} | {:.3} |",
+            "| {} | {:.3} | {} | {} | {:.3} |",
             path_cell(report, string_field(item, "path")),
             float_field(item, "verification_gap"),
             rendered_nearby,
+            rendered_verification,
             float_field(item, "test_cochange_ratio"),
         ));
     }
     if lines.last().is_some_and(|line| line.starts_with("| ---")) {
-        lines.push("| _none_ | 0.000 | _none_ | 0.000 |".to_string());
+        lines.push("| _none_ | 0.000 | _none_ | _none_ | 0.000 |".to_string());
     }
 
     lines.extend([
@@ -355,6 +367,15 @@ pub fn render_terminal(report: &Value) -> String {
         .and_then(Value::as_array)
         .map(Vec::len)
         .unwrap_or_default();
+    let policy_failure_count = report
+        .pointer("/policy_evaluation/policy_failures")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let advisory_finding_count = report
+        .pointer("/health/findings")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
     let file_total = report
         .get("files")
         .and_then(Value::as_array)
@@ -402,9 +423,11 @@ pub fn render_terminal(report: &Value) -> String {
             usize_field(repo, "untracked_file_count"),
         ),
         format!(
-            "  review routing: source_interventions={} observation_only={} (non-source classification or unsupported evidence)",
+            "  decision surfaces: policy_failures={} interventions={} observations={} advisory_health_findings={}",
+            policy_failure_count,
             queue.len(),
             observation_count,
+            advisory_finding_count,
         ),
         String::new(),
     ];
@@ -413,7 +436,17 @@ pub fn render_terminal(report: &Value) -> String {
         return format!("{}\n", lines.join("\n"));
     }
     if queue.is_empty() {
-        lines.push("No investigation candidates found.".to_string());
+        lines.push("No intervention candidates found.".to_string());
+        if observation_count > 0 {
+            lines.push(format!(
+                "Review {observation_count} observation-only record(s) with `git slop list observations`."
+            ));
+        }
+        if advisory_finding_count > 0 {
+            lines.push(format!(
+                "Review {advisory_finding_count} advisory health finding(s) with `git slop list health-findings`."
+            ));
+        }
         return format!("{}\n", lines.join("\n"));
     }
     lines.push(format!(
@@ -441,14 +474,14 @@ pub fn render_terminal(report: &Value) -> String {
     }
     if queue.len() > limit {
         lines.push(format!(
-            "Showing {limit} of {} intervention candidates. Run `git slop list findings --top {}` for the full bounded view.",
+            "Showing {limit} of {} intervention candidates. Run `git slop list interventions --top {}` for the full bounded view.",
             queue.len(),
             queue.len()
         ));
     }
     if observation_count > 0 {
         lines.push(format!(
-            "{} additional record(s) are observation-only and intentionally omitted from the intervention table; inspect `git slop list findings --format json` for routing evidence.",
+            "{} additional record(s) are observation-only and intentionally omitted from the intervention table; inspect `git slop list observations --format json` for routing evidence.",
             observation_count
         ));
     }

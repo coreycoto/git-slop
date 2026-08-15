@@ -16,79 +16,11 @@ mod relationships;
 use clusters::build_clusters;
 use common::{
     ORGANIZATION_ANALYSIS_STATUS, ORGANIZATION_ANALYSIS_VERSION, immediate_parent, is_test_path,
-    percentile, round6,
+    is_verification_path, language_common_term, percentile, round6,
 };
 use coordination::{cochange_pagerank, coordination_facts};
 use folders::folder_overlay_map;
 use relationships::build_relationships;
-
-fn language_common_term(term: &str) -> bool {
-    if term.len() <= 2 {
-        return true;
-    }
-    matches!(
-        term,
-        "arg"
-            | "args"
-            | "let"
-            | "mut"
-            | "assert"
-            | "run"
-            | "byte"
-            | "bytes"
-            | "if"
-            | "else"
-            | "for"
-            | "while"
-            | "match"
-            | "return"
-            | "self"
-            | "this"
-            | "true"
-            | "false"
-            | "none"
-            | "null"
-            | "some"
-            | "result"
-            | "string"
-            | "str"
-            | "path"
-            | "format"
-            | "from"
-            | "into"
-            | "impl"
-            | "pub"
-            | "use"
-            | "mod"
-            | "fn"
-            | "const"
-            | "static"
-            | "class"
-            | "def"
-            | "func"
-            | "var"
-            | "import"
-            | "export"
-            | "value"
-            | "values"
-            | "text"
-            | "item"
-            | "items"
-            | "data"
-            | "get"
-            | "set"
-            | "new"
-            | "default"
-            | "error"
-            | "ok"
-            | "map"
-            | "iter"
-            | "type"
-            | "name"
-            | "object"
-            | "array"
-    )
-}
 
 fn verification_override<'a>(path: &str, config: &'a Value) -> Option<&'a str> {
     config
@@ -178,13 +110,7 @@ pub fn analyze(
     let test_markers = pointer_strings(config, "/verification/test_path_markers");
     let configured_test_path = |path: &str| {
         let lower = path.to_ascii_lowercase();
-        let name = lower.rsplit('/').next().unwrap_or(&lower);
         is_test_path(path)
-            || lower.starts_with(".github/workflows/")
-            || ((lower.starts_with("scripts/") || lower.contains("/scripts/"))
-                && ["test", "check", "validate", "verify", "ci"]
-                    .iter()
-                    .any(|marker| name.contains(marker)))
             || test_markers
                 .iter()
                 .any(|marker| lower.contains(&marker.to_ascii_lowercase()))
@@ -192,6 +118,11 @@ pub fn analyze(
     let test_paths: Vec<String> = files
         .iter()
         .filter(|file| configured_test_path(&file.path))
+        .map(|file| file.path.clone())
+        .collect();
+    let verification_paths: Vec<String> = files
+        .iter()
+        .filter(|file| is_verification_path(&file.path))
         .map(|file| file.path.clone())
         .collect();
     let test_terms = files
@@ -305,27 +236,26 @@ pub fn analyze(
             .unwrap_or_default()
             .trim_start_matches("test_")
             .trim_end_matches("_test");
-        let mut nearby_tests: Vec<String> = test_paths
-            .iter()
-            .filter(|path| {
-                let lower = path.to_ascii_lowercase();
-                !stem.is_empty() && lower.contains(&stem.to_ascii_lowercase())
-            })
-            .cloned()
-            .collect();
-        let mut strong_test_mapping = !nearby_tests.is_empty();
+        let mut ranked_tests = BTreeMap::<String, u8>::new();
+        for path in test_paths.iter().filter(|path| {
+            let lower = path.to_ascii_lowercase();
+            !stem.is_empty() && lower.contains(&stem.to_ascii_lowercase())
+        }) {
+            ranked_tests.insert(path.clone(), 1);
+        }
+        let mut strong_test_mapping = !ranked_tests.is_empty();
         let module_prefix = stem
             .split('_')
             .find(|part| part.len() >= 5)
             .unwrap_or_default()
             .to_ascii_lowercase();
-        if nearby_tests.is_empty() && !module_prefix.is_empty() {
-            nearby_tests.extend(
-                test_paths
-                    .iter()
-                    .filter(|path| path.to_ascii_lowercase().contains(&module_prefix))
-                    .cloned(),
-            );
+        if ranked_tests.is_empty() && !module_prefix.is_empty() {
+            for path in test_paths
+                .iter()
+                .filter(|path| path.to_ascii_lowercase().contains(&module_prefix))
+            {
+                ranked_tests.entry(path.clone()).or_insert(2);
+            }
         }
         let source_terms = file
             .top_structural_terms
@@ -334,27 +264,40 @@ pub fn analyze(
             .cloned()
             .collect::<BTreeSet<_>>();
         if !source_terms.is_empty() {
-            nearby_tests.extend(
-                test_terms
-                    .iter()
-                    .filter(|(_, terms)| source_terms.intersection(terms).take(2).count() >= 2)
-                    .map(|(path, _)| path.clone()),
-            );
+            for (path, _) in test_terms
+                .iter()
+                .filter(|(_, terms)| source_terms.intersection(terms).take(2).count() >= 2)
+            {
+                ranked_tests.entry(path.clone()).or_insert(3);
+            }
         }
         for (source, test) in &source_test_mappings {
             if source.is_match(&file.path) {
                 strong_test_mapping = true;
-                nearby_tests.extend(
-                    test_paths
-                        .iter()
-                        .filter(|path| test.is_match(path))
-                        .cloned(),
-                );
+                for path in test_paths.iter().filter(|path| test.is_match(path)) {
+                    ranked_tests.insert(path.clone(), 0);
+                }
             }
         }
-        nearby_tests.sort();
-        nearby_tests.dedup();
-        nearby_tests.truncate(5);
+        let mut ranked_tests = ranked_tests.into_iter().collect::<Vec<_>>();
+        ranked_tests.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
+        let nearby_tests = ranked_tests
+            .into_iter()
+            .map(|(path, _)| path)
+            .take(5)
+            .collect::<Vec<_>>();
+        let mut nearby_verification_paths = verification_paths
+            .iter()
+            .filter(|path| {
+                let lower = path.to_ascii_lowercase();
+                (!stem.is_empty() && lower.contains(&stem.to_ascii_lowercase()))
+                    || (!module_prefix.is_empty() && lower.contains(&module_prefix))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        nearby_verification_paths.sort();
+        nearby_verification_paths.dedup();
+        nearby_verification_paths.truncate(5);
         let mapping_confidence = if file.has_inline_tests || strong_test_mapping {
             "high"
         } else if !nearby_tests.is_empty() {
@@ -623,6 +566,7 @@ pub fn analyze(
                 "mapping_rationale": mapping_rationale,
                 "inline_tests_detected": file.has_inline_tests,
                 "nearby_test_paths": nearby_tests,
+                "nearby_verification_paths": nearby_verification_paths,
                 "test_cochange_ratio": round6(test_cochange_ratio),
                 "hotspot_without_nearby_tests": hotspot_without_nearby_tests,
                 "churn_without_test_churn": file.churn_pressure >= 0.6 && test_cochange_ratio == 0.0,

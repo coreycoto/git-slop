@@ -33,15 +33,46 @@ fn html_export_is_responsive_and_accessible() {
     let html = fs::read_to_string(output).expect("HTML report");
     assert!(html.contains("<main id=\"report-main\""));
     assert!(html.contains("class=\"table-shell\""));
+    assert!(html.contains("class=\"overview-grid\""));
+    assert!(html.contains("class=\"explorer-layout\""));
     assert!(html.contains("aria-label=\"Scrollable report table\""));
     assert!(html.contains("<label for=\"query\">Search records</label>"));
     assert!(html.contains("<th scope=\"col\" aria-sort="));
     assert!(html.contains("const sortDefaults = {"));
     assert!(html.contains("queue: { key: \"__rank\", ascending: true }"));
+    assert!(html.contains("observations: { key: \"__rank\", ascending: true }"));
+    assert!(html.contains("<label for=\"context-band\">Context/load band</label>"));
+    assert!(html.contains("<label for=\"slop-band\">Maintenance band</label>"));
+    assert!(html.contains("<label for=\"severity\">Review severity</label>"));
+    assert!(html.contains("id=\"page-number\""));
+    assert!(html.contains("id=\"page-size\""));
+    assert!(html.contains("function humanizeCode(value)"));
+    assert!(html.contains("data-copy="));
     assert!(html.contains("function recordIdentity(recordView, record)"));
     assert!(html.contains("function clearSelection("));
     assert!(html.contains("@media (max-width: 520px)"));
     assert!(html.contains("overflow-x: auto"));
+}
+
+#[test]
+fn root_invocation_is_successful_onboarding_help() {
+    cargo_bin_cmd!("git-slop")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("QUICK START:"))
+        .stdout(predicate::str::contains("git slop list interventions"));
+}
+
+#[test]
+fn list_help_names_all_decision_surfaces() {
+    cargo_bin_cmd!("git-slop")
+        .args(["list", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("policy-failures"))
+        .stdout(predicate::str::contains("interventions"))
+        .stdout(predicate::str::contains("observations"))
+        .stdout(predicate::str::contains("health-findings"));
 }
 
 #[test]
@@ -176,6 +207,19 @@ fn generated_reference_uses_complete_command_paths() {
         .success()
         .stdout(predicate::str::contains("Usage: git-slop cache prune"))
         .stdout(predicate::str::contains("Usage: git-slop baseline ensure"));
+}
+
+#[test]
+fn generated_reference_matches_the_complete_runtime_exit_contract() {
+    cargo_bin_cmd!("git-slop")
+        .arg("reference")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("`2`: command usage"))
+        .stdout(predicate::str::contains("`3`: repository access"))
+        .stdout(predicate::str::contains(
+            "`4`: a configured or measured resource limit",
+        ));
 }
 
 #[test]

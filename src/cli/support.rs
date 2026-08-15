@@ -19,8 +19,32 @@ fn relative_display(path: &Path, root: &Path) -> String {
         .replace('\\', "/")
 }
 
-fn default_report_path(repo_root: &Path) -> PathBuf {
+fn durable_report_path(repo_root: &Path) -> PathBuf {
     config::latest_dir(repo_root).join("report.json")
+}
+
+fn ephemeral_report_path(repo_root: &Path) -> Option<PathBuf> {
+    config::git_runtime_dir(repo_root)
+        .ok()
+        .map(|path| path.join("ephemeral/latest/report.json"))
+}
+
+fn default_report_path(repo_root: &Path) -> PathBuf {
+    let durable = durable_report_path(repo_root);
+    if durable.exists() {
+        return durable;
+    }
+    ephemeral_report_path(repo_root)
+        .filter(|path| path.exists())
+        .unwrap_or(durable)
+}
+
+fn default_report_locations(repo_root: &Path) -> Vec<PathBuf> {
+    let mut locations = vec![durable_report_path(repo_root)];
+    if let Some(path) = ephemeral_report_path(repo_root) {
+        locations.push(path);
+    }
+    locations
 }
 
 fn load_report_at(path: &Path) -> Result<Option<Value>> {
@@ -50,16 +74,24 @@ fn report_or_missing(repo_root: &Path, explicit_report: Option<&Path>) -> Result
             .with_details(json!({"path": fallback}))
     })?;
     let loaded = loaded.ok_or_else(|| -> anyhow::Error {
+        let searched = explicit_report.map_or_else(
+            || default_report_locations(repo_root),
+            |path| vec![path.to_path_buf()],
+        );
+        let searched_display = searched
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
         ClassifiedError::new(
             ErrorKind::Contract,
             "report_not_found",
             format!(
-                "Report not found: {}\nRun `git slop find` to generate it.",
-                fallback.display()
+                "Report not found. Searched: {searched_display}\nRun `git slop find` to generate a Git-private first-run report, or `git slop init` first for durable reports."
             ),
         )
         .at("/report")
-        .with_details(json!({"path": fallback}))
+        .with_details(json!({"path": fallback, "searched": searched}))
         .into()
     })?;
     if explicit_report.is_none() && !repo_root.as_os_str().is_empty() {

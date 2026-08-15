@@ -1,14 +1,12 @@
 fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
-    let explicit_report = args.report.clone();
     let (loaded, report_path) = report_or_missing_with_currentness(
         repo_root,
         args.report.as_deref(),
         args.require_current,
     )?;
     let output = args.output.unwrap_or_else(|| {
-        explicit_report
-            .as_ref()
-            .and_then(|path| path.parent())
+        report_path
+            .parent()
             .map_or_else(|| config::latest_dir(repo_root), Path::to_path_buf)
             .join("report.html")
     });
@@ -39,7 +37,18 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
     let files = array_records("/files");
     let folders = array_records("/folders");
     let action_queue = array_records("/action_queue");
+    let observation_feed = array_records("/observation_feed");
     let health = array_records("/health/findings");
+    let policy_failures = failing_records_in(
+        &loaded,
+        loaded
+            .pointer("/policy_evaluation/thresholds/context_band")
+            .and_then(Value::as_str),
+        loaded
+            .pointer("/policy_evaluation/thresholds/slop_band")
+            .and_then(Value::as_str),
+        false,
+    );
     let relationships = section_records("/overlays/organization_health/relationships");
     let clusters = deduplicate_clusters(section_records(
         "/overlays/organization_health/clusters",
@@ -70,9 +79,19 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
         },
         "collection_metadata": loaded.get("collection_metadata"),
         "evidence_completeness": loaded.get("evidence_completeness"),
+        "overview": {
+            "policy_failures": policy_failures.len(),
+            "interventions": action_queue.len(),
+            "observations": observation_feed.len(),
+            "advisory_health_findings": health.len(),
+            "tracked_paths": loaded.pointer("/stats/tracked_file_count"),
+            "analyzed_paths": loaded.pointer("/stats/analyzed_file_count")
+        },
         "files": bounded(&files),
         "folders": bounded(&folders),
+        "policy_failures": bounded(&policy_failures),
         "action_queue": bounded(&action_queue),
+        "observation_feed": bounded(&observation_feed),
         "health": {
             "summary": loaded.pointer("/health/summary"),
             "findings": bounded(&health)
@@ -86,7 +105,9 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
             "view_metadata": {
                 "files": view_metadata(&files),
                 "folders": view_metadata(&folders),
+                "policy_failures": view_metadata(&policy_failures),
                 "action_queue": view_metadata(&action_queue),
+                "observation_feed": view_metadata(&observation_feed),
                 "health": view_metadata(&health),
                 "relationships": view_metadata(&relationships),
                 "clusters": view_metadata(&clusters)
@@ -121,11 +142,21 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
       <h2 id="report-heading" class="sr">Report explorer</h2>
       <p id="truncation" class="notice" role="status"></p>
       <p id="selection-status" class="sr" role="status" aria-live="polite"></p>
+      <section class="overview" aria-labelledby="overview-heading">
+        <div>
+          <p class="eyebrow">Decision overview</p>
+          <h2 id="overview-heading">Start with the surface that matches your decision</h2>
+          <p class="muted">Policy failures enforce configured thresholds. Interventions warrant review. Observations and health findings are advisory.</p>
+        </div>
+        <div id="overview-grid" class="overview-grid"></div>
+      </section>
       <nav class="views" aria-label="Report view">
-        <button type="button" data-view="files" aria-pressed="true">Files</button>
+        <button type="button" data-view="policy" aria-pressed="false">Policy failures</button>
+        <button type="button" data-view="queue" aria-pressed="false">Interventions</button>
+        <button type="button" data-view="observations" aria-pressed="false">Observations</button>
+        <button type="button" data-view="health" aria-pressed="false">Advisory health</button>
+        <button type="button" data-view="files" aria-pressed="false">Files</button>
         <button type="button" data-view="folders" aria-pressed="false">Folders</button>
-        <button type="button" data-view="queue" aria-pressed="false">Action queue</button>
-        <button type="button" data-view="health" aria-pressed="false">Health findings</button>
         <button type="button" data-view="relationships" aria-pressed="false">Relationships</button>
         <button type="button" data-view="clusters" aria-pressed="false">Clusters</button>
       </nav>
@@ -143,8 +174,20 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
           <select id="classification"><option value="">All classifications</option></select>
         </div>
         <div class="control">
-          <label id="severity-label" for="severity">Maintenance band</label>
-          <select id="severity"><option value="">All bands</option></select>
+          <label for="language">Language</label>
+          <select id="language"><option value="">All languages</option></select>
+        </div>
+        <div class="control">
+          <label for="context-band">Context/load band</label>
+          <select id="context-band"><option value="">All context bands</option></select>
+        </div>
+        <div class="control">
+          <label for="slop-band">Maintenance band</label>
+          <select id="slop-band"><option value="">All maintenance bands</option></select>
+        </div>
+        <div class="control">
+          <label for="severity">Review severity</label>
+          <select id="severity"><option value="">All severities</option></select>
         </div>
       </div>
       <div class="results-toolbar">
@@ -153,18 +196,23 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
           <p id="sort-state" class="muted" aria-live="polite"></p>
         </div>
         <div class="pagination" aria-label="Result pages">
+          <button id="first" type="button">First</button>
           <button id="previous" type="button">Previous</button>
+          <label class="page-jump" for="page-number">Page <input id="page-number" type="number" min="1" value="1"></label>
+          <label class="page-jump" for="page-size">Rows <select id="page-size"><option>25</option><option selected>100</option><option>250</option></select></label>
           <button id="next" type="button">Next</button>
+          <button id="last" type="button">Last</button>
         </div>
       </div>
-      <div class="table-shell" tabindex="0" role="region" aria-label="Scrollable report table">
-        <table>
-          <caption class="sr">Git Slop report records</caption>
-          <thead><tr id="headers"></tr></thead>
-          <tbody id="rows"></tbody>
-        </table>
-      </div>
-      <section id="detail-panel" class="detail-panel" aria-labelledby="detail-title" hidden>
+      <div class="explorer-layout">
+        <div class="table-shell" tabindex="0" role="region" aria-label="Scrollable report table">
+          <table>
+            <caption class="sr">Git Slop report records</caption>
+            <thead><tr id="headers"></tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <aside id="detail-panel" class="detail-panel" aria-labelledby="detail-title" hidden>
         <div class="detail-heading">
           <div>
             <p class="eyebrow">Selected evidence</p>
@@ -186,7 +234,8 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
           <summary>Raw record JSON</summary>
           <pre id="detail-raw"></pre>
         </details>
-      </section>
+        </aside>
+      </div>
       <details>
         <summary>Evidence and portability summary</summary>
         <pre id="evidence-summary"></pre>
@@ -194,12 +243,14 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
     </section>
   </main>
   <script id="report" type="application/json">{payload}</script>
+  <script nonce="{nonce}">{model}</script>
   <script nonce="{nonce}">{script}</script>
 </body>
 </html>"##,
         nonce = csp_nonce,
         style = include_str!("html/report.css"),
         payload = payload,
+        model = include_str!("html/report-model.js"),
         script = include_str!("html/report.js")
     );
     config::write_text_atomically(&output, html, false)?;

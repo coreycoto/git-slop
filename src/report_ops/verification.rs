@@ -54,13 +54,41 @@ fn commands_for_directory(
     }
 }
 
+fn command_family(command: &str) -> String {
+    let command = command
+        .rsplit_once("&&")
+        .map_or(command, |(_, command)| command)
+        .trim();
+    let words = command.split_whitespace().collect::<Vec<_>>();
+    match words.as_slice() {
+        ["cargo", operation, ..] if matches!(*operation, "fmt" | "clippy" | "test") => {
+            format!("cargo {operation}")
+        }
+        [runner, "test", ..] if matches!(*runner, "bun" | "npm" | "pnpm" | "yarn" | "go") => {
+            format!("{runner} test")
+        }
+        ["pytest", ..] => "pytest".to_string(),
+        ["mvn", "test", ..] => "mvn test".to_string(),
+        ["dotnet", "test", ..] => "dotnet test".to_string(),
+        _ => command.to_string(),
+    }
+}
+
 fn discover(
     candidates: &[String],
     configured_commands: &[String],
     exists: impl Fn(&Path) -> bool + Copy,
     has_dotnet_project: impl Fn(&Path) -> bool + Copy,
 ) -> Vec<String> {
-    let mut commands = Vec::new();
+    let mut commands = configured_commands
+        .iter()
+        .filter(|command| !command.trim().is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    let configured_families = commands
+        .iter()
+        .map(|command| command_family(command))
+        .collect::<BTreeSet<_>>();
     for directory in candidate_directories(candidates) {
         let prefix = if directory.as_os_str().is_empty() {
             String::new()
@@ -69,14 +97,11 @@ fn discover(
         };
         for command in commands_for_directory(&directory, exists, has_dotnet_project) {
             let command = format!("{prefix}{command}");
-            if !commands.contains(&command) {
+            if !configured_families.contains(&command_family(&command))
+                && !commands.contains(&command)
+            {
                 commands.push(command);
             }
-        }
-    }
-    for command in configured_commands {
-        if !command.trim().is_empty() && !commands.contains(command) {
-            commands.push(command.clone());
         }
     }
     commands
@@ -184,13 +209,6 @@ pub(super) fn from_report_paths(
                 push(format!("cargo test --test {name}"));
             }
         }
-        if path.ends_with(".rs") {
-            if let Some(stem) = Path::new(path).file_stem().and_then(|value| value.to_str()) {
-                if stem.len() >= 3 && stem != "mod" && stem != "lib" && stem != "main" {
-                    push(format!("cargo test {stem}"));
-                }
-            }
-        }
     }
     commands
 }
@@ -224,5 +242,35 @@ mod tests {
         assert!(commands.contains(&"cd packages/web && pnpm test".to_string()));
         assert!(commands.contains(&"cd services/api && mvn test".to_string()));
         assert!(commands.contains(&"./scripts/verify-contracts.sh".to_string()));
+    }
+
+    #[test]
+    fn configured_command_families_replace_generic_autodetection() {
+        let paths = ["Cargo.toml"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<BTreeSet<_>>();
+        let commands = from_report_paths(
+            &serde_json::json!({}),
+            &paths,
+            &["src/contract.rs".into()],
+            &[
+                "cargo fmt --all -- --check".into(),
+                "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings"
+                    .into(),
+                "cargo test --workspace --all-targets --all-features --locked".into(),
+            ],
+        );
+        assert_eq!(commands.len(), 3);
+        assert!(
+            !commands
+                .iter()
+                .any(|command| command == "cargo test contract")
+        );
+        assert!(
+            !commands
+                .iter()
+                .any(|command| command == "cargo test --all-targets")
+        );
     }
 }

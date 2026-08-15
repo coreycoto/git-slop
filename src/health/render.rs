@@ -663,14 +663,40 @@ fn render_health_value(report: &Value, rollup: &HealthRollup) -> String {
     }
 
     if !rollup.findings.is_empty() {
+        let finding_limit = top_files.max(1);
+        let finding_count = rollup.findings.len().min(finding_limit);
+        let mut findings = rollup.findings.iter().collect::<Vec<_>>();
+        let severity_rank = |value: &str| match value {
+            "error" => 2,
+            "warning" => 1,
+            _ => 0,
+        };
+        findings.sort_by(|left, right| {
+            severity_rank(&right.severity)
+                .cmp(&severity_rank(&left.severity))
+                .then_with(|| {
+                    right
+                        .slop_score
+                        .partial_cmp(&left.slop_score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| left.path.cmp(&right.path))
+        });
         lines.extend([
             String::new(),
-            "## Actionable Findings".to_string(),
+            "## Advisory Health Findings".to_string(),
+            String::new(),
+            format!(
+                "Showing {} of {} advisory finding(s), ordered by review severity and then maintenance pressure. Use `git slop list health-findings --top {}` to inspect the bounded collection.",
+                format_int(finding_count),
+                format_int(rollup.findings.len()),
+                format_int(rollup.findings.len())
+            ),
             String::new(),
             "| Review severity | Path | Context/load band | Maintenance pressure | Why it surfaced | Next step |".to_string(),
             "| --- | --- | --- | --- | --- | --- |".to_string(),
         ]);
-        for finding in rollup.findings.iter().take(top_files.max(1)) {
+        for finding in findings.into_iter().take(finding_limit) {
             lines.push(format!(
                 "| {} | {} | {} | {} · score {} | {} | {} |",
                 inline_code(&finding.severity),
