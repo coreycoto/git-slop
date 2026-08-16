@@ -253,6 +253,15 @@ h2 {
   margin-bottom: 1rem;
 }
 
+.control-action {
+  align-self: end;
+}
+
+.control-action button {
+  width: 100%;
+  min-height: 2.55rem;
+}
+
 .control {
   min-width: 0;
 }

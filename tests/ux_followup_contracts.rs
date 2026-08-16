@@ -1,5 +1,9 @@
 use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
@@ -47,6 +51,8 @@ fn html_export_is_responsive_and_accessible() {
     assert!(html.contains("id=\"page-number\""));
     assert!(html.contains("id=\"page-size\""));
     assert!(html.contains("function humanizeCode(value)"));
+    assert!(html.contains("old_file: \"Older file\""));
+    assert!(html.contains("old_and_volatile: \"Older file with sustained churn\""));
     assert!(html.contains("data-copy="));
     assert!(html.contains("function recordIdentity(recordView, record)"));
     assert!(html.contains("function clearSelection("));
@@ -55,11 +61,66 @@ fn html_export_is_responsive_and_accessible() {
 }
 
 #[test]
+fn html_serve_is_loopback_only_and_returns_the_portable_report() {
+    let temporary = TempDir::new().expect("temporary directory");
+    let output = temporary.path().join("report.html");
+    let mut child = Command::new(assert_cmd::cargo::cargo_bin("git-slop"))
+        .current_dir(manifest_dir())
+        .args(["html", "--report"])
+        .arg(fixture("relationship_focused_report.json"))
+        .arg("--output")
+        .arg(&output)
+        .args(["--serve", "--serve-seconds", "1"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("start temporary report server");
+    let mut stdout = child.stdout.take().expect("server stdout");
+    let started = Instant::now();
+    let mut captured = String::new();
+    let address = loop {
+        let mut byte = [0_u8; 1];
+        if stdout.read(&mut byte).expect("read server output") == 0 {
+            panic!("server exited before advertising its address: {captured}");
+        }
+        captured.push(byte[0] as char);
+        if let Some(start) = captured.find("http://127.0.0.1:") {
+            if let Some(end) = captured[start..].find("/\n") {
+                break captured[start + "http://".len()..start + end].to_string();
+            }
+        }
+        assert!(started.elapsed() < Duration::from_secs(2));
+    };
+    let mut stream = TcpStream::connect(address).expect("connect to loopback report server");
+    stream
+        .write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .expect("request report");
+    let mut response = String::new();
+    stream.read_to_string(&mut response).expect("read report");
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
+    assert!(response.contains("Content-Security-Policy: default-src 'none'"));
+    assert!(response.contains("<!doctype html>"));
+    assert!(
+        child
+            .wait()
+            .expect("wait for temporary report server")
+            .success()
+    );
+
+    cargo_bin_cmd!("git-slop")
+        .args(["html", "--report"])
+        .arg(fixture("relationship_focused_report.json"))
+        .arg("--open")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--serve"));
+}
+
+#[test]
 fn root_invocation_is_successful_onboarding_help() {
     cargo_bin_cmd!("git-slop")
         .assert()
         .success()
-        .stdout(predicate::str::contains("QUICK START:"))
+        .stdout(predicate::str::contains("QUICK START"))
         .stdout(predicate::str::contains("git slop list interventions"));
 }
 
@@ -201,12 +262,16 @@ fn explain_distinguishes_low_support_and_concisely_reports_no_hotspots() {
 
 #[test]
 fn generated_reference_uses_complete_command_paths() {
-    cargo_bin_cmd!("git-slop")
+    let output = cargo_bin_cmd!("git-slop")
         .arg("reference")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Usage: git-slop cache prune"))
-        .stdout(predicate::str::contains("Usage: git-slop baseline ensure"));
+        .output()
+        .expect("generated reference");
+    assert!(output.status.success());
+    let reference = String::from_utf8(output.stdout).expect("UTF-8 reference");
+    assert!(reference.contains("Usage: git-slop cache prune"));
+    assert!(reference.contains("Usage: git-slop baseline ensure"));
+    assert!(reference.contains("git slop advise --top 1 --context-only --format json"));
+    assert!(!reference.contains("--evaluation-scenario"));
 }
 
 #[test]

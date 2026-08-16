@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.16.0/schemas/policy-lock-1.json",
+  "title": "Git Slop policy lock schema 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "resolution_digest", "packs"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "resolution_digest": {"$ref": "#/$defs/digest"},
+    "packs": {"type": "array", "minItems": 1, "maxItems": 65, "items": {"$ref": "#/$defs/pack"}}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "pack": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "schema_version", "source_type", "source_revision", "content_digest", "entrypoints"],
+      "properties": {
+        "id": {"type": "string", "minLength": 3, "maxLength": 160},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "schema_version": {"const": 1},
+        "source_type": {"enum": ["built-in", "local-directory", "user-cache"]},
+        "source_revision": {"$ref": "#/$defs/digest"},
+        "content_digest": {"$ref": "#/$defs/digest"},
+        "entrypoints": {
+          "type": "array", "minItems": 1, "maxItems": 16,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/digest"}}
+          }
+        }
+      }
+    }
+  }
+}

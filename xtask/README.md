@@ -15,18 +15,21 @@ cargo xtask validate-workflows
 cargo xtask generate-release-workflow --check
 cargo xtask check-issue-forms
 cargo xtask check-distribution
-cargo xtask release-prepare --version 0.15.0 --check-only
-cargo xtask release-prepare --version 0.15.0
+cargo xtask release-prepare --version 0.16.0 --check-only
+cargo xtask release-prepare --version 0.16.0
+cargo xtask release-status --version 0.16.0 --format json
+cargo xtask advisor-benchmark --help
+cargo xtask advisor-benchmark-finalize --help
 cargo xtask verify-crate \
-  --crate-file dist/git-slop-0.15.0.crate \
-  --version 0.15.0 \
+  --crate-file dist/git-slop-0.16.0.crate \
+  --version 0.16.0 \
   --revision <40-character-lowercase-commit> \
   --expected-sha256 <64-character-lowercase-sha256> \
   --output dist/crate-source.json
 cargo xtask release-manifest \
   --dist-dir dist \
   --crate-source dist/crate-source.json \
-  --tag v0.15.0
+  --tag v0.16.0
 cargo xtask homebrew-formula \
   --manifest dist/release-manifest.json \
   --formula ../homebrew-tap/Formula/git-slop.rb
@@ -47,6 +50,12 @@ formula, or writes another repository.
 useful failure. `ci --format json` implies quiet mode and emits one terminal
 receipt with passed gates, the failed gate when applicable, elapsed time, and
 the stable status.
+
+`advisor-benchmark` owns the reproducible, privacy-safe local Safeguard matrix.
+An explicit review directory must be absolute and outside this repository;
+validated case artifacts written there remain private. After review,
+`advisor-benchmark-finalize` binds the private ratings digest to an existing
+completed result and recalculates its manual gates without rerunning inference.
 
 After the protected workflow publishes the crate, `verify-crate` checks the
 downloaded `.crate` checksum, exact package archive boundary, Cargo package

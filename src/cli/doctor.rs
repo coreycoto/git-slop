@@ -10,20 +10,21 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     } else {
         "repair_needed"
     };
-    let adoption_recovery = if adoption_status == "ready" {
-        None
-    } else if adoption.config_exists {
+    let adoption_recovery = if adoption_status == "repair_needed" && adoption.config_exists {
         Some("git slop init --repair --gitignore-only")
     } else {
-        Some("git slop init")
+        None
     };
+    let optional_adoption_command =
+        (adoption_status == "not_adopted").then_some("git slop init");
     let adoption_payload = json!({
         "status": adoption_status,
         "config_exists": adoption.config_exists,
         "config_valid": adoption.config_valid,
         "gitignore_exists": adoption.gitignore_exists,
         "missing_ignore_entries": adoption.missing_ignore_entries,
-        "recovery_command": adoption_recovery
+        "recovery_command": adoption_recovery,
+        "optional_adoption_command": optional_adoption_command
     });
     let report_path = default_report_path(repo_root);
     let report_storage = if report_path == durable_report_path(repo_root) {
@@ -100,16 +101,19 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     } else {
         "within_budget"
     };
-    let bundle_path = args.bundle.as_ref().map(|output| {
-        if output.is_absolute() {
-            output.clone()
-        } else {
-            repo_root.join(output)
-        }
-    });
+    let state_root = config::active_state_dir(repo_root)
+        .unwrap_or_else(|_| config::slop_dir(repo_root));
+    let detector_cache = writable_cache_probe(&state_root);
+    let policy_cache = crate::policy::policy_home()
+        .map(|path| writable_cache_probe(&path))
+        .unwrap_or_else(|error| {
+            json!({"status":"unavailable","writable":false,"detail":format!("policy cache could not be resolved: {error}")})
+        });
+    let detector_cache_writable = detector_cache["writable"].as_bool() == Some(true);
+    let bundle_path = doctor_bundle_path(repo_root, args.bundle.as_deref());
     let mut diagnostics = Vec::new();
     if adoption_status == "not_adopted" {
-        diagnostics.push(json!({"code":"repository_not_adopted","severity":"notice","detail":"Repository adoption files are absent; defaults remain usable for a first scan.","recovery_command":adoption_recovery}));
+        diagnostics.push(json!({"code":"repository_not_adopted","severity":"notice","detail":"Repository adoption files are absent; defaults and Git-private state remain ready for ordinary scans.","optional_command":optional_adoption_command}));
     } else if adoption_status == "repair_needed" {
         diagnostics.push(json!({"code":"adoption_repair_needed","severity":"warning","detail":"Repository adoption files are incomplete or their runtime ignore rules are stale.","recovery_command":adoption_recovery}));
     }
@@ -131,10 +135,17 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     if resource_status == "over_memory_budget" {
         diagnostics.push(json!({"code":"estimated_memory_budget_exceeded","severity":"error","detail":format!("Estimated peak memory is {} bytes for a {} byte budget.", estimate.estimated_peak_memory_bytes, estimate.memory_budget_bytes)}));
     }
+    if !detector_cache_writable {
+        diagnostics.push(json!({"code":"detector_cache_not_writable","severity":"error","detail":detector_cache.get("detail")}));
+    }
+    if policy_cache["writable"].as_bool() != Some(true) {
+        diagnostics.push(json!({"code":"policy_cache_not_writable","severity":"warning","detail":policy_cache.get("detail"),"recovery_command":"Set GIT_SLOP_POLICY_HOME to a private writable directory before installing policy packs."}));
+    }
     if tracked_paths.is_empty() {
         diagnostics.push(json!({"code":"no_tracked_paths","severity":"notice","detail":"The repository has no committed tracked paths yet. Commit a tracked file, or run git slop find --allow-empty-scope when an empty report is intentional.","recovery_command":"git slop find --allow-empty-scope"}));
     }
     let scan_ready = config_result.is_ok()
+        && detector_cache_writable
         && resource_status != "over_memory_budget"
         && !tracked_paths.is_empty();
     let report_available = matches!(report_status, "current" | "stale" | "unverified");
@@ -142,6 +153,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     let doctor_status = if config_result.is_err()
         || report_status == "invalid"
         || resource_status == "over_memory_budget"
+        || !detector_cache_writable
     {
         "error"
     } else if !scan_ready || !report_available || !report_current || repo.is_shallow {
@@ -160,6 +172,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
         "config": {"status": if config_result.is_err() { "invalid" } else if config_exists { "valid" } else { "using_defaults" }, "path": config::config_path(repo_root)},
         "report": {"status": report_status, "path": report_path, "storage": report_storage, "freshness": report_freshness, "freshness_error": freshness_error},
         "estimate": estimate,
+        "cache_writability": {"detector_state": detector_cache, "policy_packs": policy_cache},
         "resource_status": resource_status,
         "diagnostics": diagnostics,
         "bundle_path": bundle_path,
@@ -230,6 +243,11 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             estimate.estimated_seconds_warm,
             estimate.estimated_inode_count,
         );
+        println!(
+            "- writable caches: detector={} policy-packs={}",
+            detector_cache["status"].as_str().unwrap_or("unknown"),
+            policy_cache["status"].as_str().unwrap_or("unknown")
+        );
         if repo.is_shallow {
             println!("- recovery: fetch full history, or explicitly use --allow-shallow");
         }
@@ -239,6 +257,9 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
         if let Some(command) = adoption_recovery {
             println!("- adoption recovery: run `{command}`");
         }
+        if let Some(command) = optional_adoption_command {
+            println!("- optional adoption: run `{command}` when you want durable repository-owned reports");
+        }
         if tracked_paths.is_empty() {
             println!(
                 "- recovery: commit a tracked file, or run `git slop find --allow-empty-scope` for an intentional empty report"
@@ -247,37 +268,13 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             println!("- recovery: run `git slop find` to produce a current latest report");
         }
     }
-    if let Some(output) = bundle_path {
-        if let Some(parent) = output.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let config_digest = config_result
-            .as_ref()
-            .ok()
-            .and_then(|value| serde_json::to_vec(value).ok())
-            .map(|bytes| hex::encode(sha2::Sha256::digest(bytes)));
-        let payload = json!({
-            "schema_version": 1,
-            "git_slop_version": VERSION,
-            "repository": {"name": repo.repo_name, "shallow": repo.is_shallow, "detached": repo.detached_head, "clean": repo.worktree_clean, "staged": repo.staged_change_count, "modified": repo.modified_tracked_file_count, "untracked_count": repo.untracked_file_count},
-            "adoption": adoption_payload,
-            "config_digest": config_digest,
-            "report_status": report_status,
-            "report_freshness": report_freshness,
-            "diagnostics": diagnostics,
-            "estimate": estimate,
-            "privacy": {"source_included": false, "raw_tokens_included": false, "absolute_paths_included": false, "author_identities_included": false, "credentials_included": false}
-        });
-        config::write_text_atomically(&output, render_json(&payload)?, false)?;
-        if matches!(args.format, DoctorFormat::Json) {
-            eprintln!("Wrote redacted diagnostic bundle to {}.", output.display());
-        } else {
-            println!("Wrote redacted diagnostic bundle to {}.", output.display());
-        }
+    if let Some(output) = bundle_path.as_deref() {
+        write_doctor_bundle(output, args.format, &config_result, &diagnostic, &repo)?;
     }
     Ok(if config_result.is_err()
         || report_status == "invalid"
         || resource_status == "over_memory_budget"
+        || !detector_cache_writable
         || (args.require_current && report_status != "current")
     {
         2

@@ -38,6 +38,8 @@ git slop --help
 - [git-slop show](cli-reference/show.md)
 - [git-slop explain](cli-reference/explain.md)
 - [git-slop plan](cli-reference/plan.md)
+- [git-slop policy](cli-reference/policy.md)
+- [git-slop advise](cli-reference/advise.md)
 - [git-slop check](cli-reference/check.md)
 - [git-slop compare](cli-reference/compare.md)
 - [git-slop baseline](cli-reference/baseline.md)

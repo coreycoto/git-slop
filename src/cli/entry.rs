@@ -5,10 +5,12 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
         Command::Show(args) => run_show(repo_root, args),
         Command::Explain(args) => run_explain(repo_root, args),
         Command::Plan(args) => run_plan(repo_root, args),
+        Command::Policy(args) => run_policy(repo_root, args),
+        Command::Advise(args) => run_advise(repo_root, args),
         Command::Check(args) => run_check(repo_root, args),
         Command::Compare(args) => run_compare(repo_root, args),
         Command::Baseline(args) => run_baseline(repo_root, args),
-        Command::Report(args) => run_report(args),
+        Command::Report(args) => run_report(repo_root, args),
         Command::Sarif(args) => run_sarif(repo_root, args),
         Command::Health(args) => run_health(repo_root, args),
         Command::Config(args) => run_config(repo_root, args),
@@ -69,6 +71,28 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
                         SchemaContract::CompareNdjson => {
                             include_str!("../../schemas/compare-ndjson-1.json")
                         }
+                        SchemaContract::PolicyPack => {
+                            include_str!("../../schemas/policy-pack-1.json")
+                        }
+                        SchemaContract::PolicyLock => {
+                            include_str!("../../schemas/policy-lock-1.json")
+                        }
+                        SchemaContract::AdviceInput => {
+                            include_str!("../../schemas/advice-input-1.json")
+                        }
+                        SchemaContract::AdviceResponse => {
+                            include_str!("../../schemas/advice-response-1.json")
+                        }
+                        SchemaContract::Advice => include_str!("../../schemas/advice-1.json"),
+                        SchemaContract::AdvisorCorpus => {
+                            include_str!("../../schemas/advisor-corpus-1.json")
+                        }
+                        SchemaContract::AdvisorRatings => {
+                            include_str!("../../schemas/advisor-ratings-1.json")
+                        }
+                        SchemaContract::AdvisorBenchmark => {
+                            include_str!("../../schemas/advisor-benchmark-1.json")
+                        }
                         SchemaContract::Report | SchemaContract::Config => unreachable!(),
                     };
                     let value: Value = serde_json::from_str(source)?;
@@ -96,6 +120,8 @@ fn command_requires_repository(command: &Command) -> bool {
         Command::Show(args) => args.report.is_none() || args.require_current,
         Command::Compare(args) => args.base_ref.is_some() || args.baseline.is_some(),
         Command::Baseline(_) => true,
+        Command::Policy(_) => true,
+        Command::Advise(_) => true,
         Command::Explain(args) => {
             args.report.is_none() || args.include_repository_context || args.require_current
         }
@@ -126,9 +152,19 @@ fn command_requires_repository(command: &Command) -> bool {
 pub fn run() -> i32 {
     let raw_args = std::env::args_os().collect::<Vec<_>>();
     if raw_args.len() == 1 {
-        let mut command = Cli::command();
-        let _ = command.print_help();
-        println!();
+        println!(
+            "Git Slop finds repository surfaces that cost too much context.\n\n\
+             QUICK START\n  git slop find                 Run a safe, cacheable first scan\n  \
+             git slop health               Review the current health snapshot\n  \
+             git slop list interventions   Review bounded maintenance candidates\n  \
+             git slop explain --top 5      Understand why candidates surfaced\n\n\
+             INSPECT\n  show · explain · plan · list · html · doctor\n\n\
+             AUTOMATION\n  check · compare · baseline · sarif\n\n\
+             ADOPTION AND STATE\n  init · config · cache · prune\n\n\
+             POLICY-GUIDED ADVICE\n  policy · advise\n\n\
+             GENERATE AND INFO\n  completions · man · reference · schema · version · build-info\n\n\
+             Run `git slop --help` for every command and option."
+        );
         return 0;
     }
     let requested_error_format = requested_error_format(&raw_args);
@@ -155,7 +191,7 @@ pub fn run() -> i32 {
     };
     let error_format = cli.error_format;
     let command_name = cli.command.name();
-    let repo_root = if command_requires_repository(&cli.command) {
+    let repo_root = if cli.repo.is_some() || command_requires_repository(&cli.command) {
         match git::resolve_repo_root_from(cli.repo.as_deref()) {
             Ok(root) => root,
             Err(error) => {
@@ -230,6 +266,8 @@ fn parser_command_name(args: &[std::ffi::OsString]) -> Option<String> {
         "show",
         "explain",
         "plan",
+        "policy",
+        "advise",
         "check",
         "compare",
         "baseline",

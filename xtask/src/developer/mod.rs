@@ -6,9 +6,15 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 
+mod doctor;
 mod receipt;
 
-use receipt::{bounded_output, print_failure, print_success};
+use doctor::collect_prerequisites;
+pub use doctor::doctor;
+
+use receipt::{
+    GateReceipt, PrerequisiteReceipt, bounded_output, print_ci, print_doctor, print_verify_changed,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Gate {
@@ -412,34 +418,133 @@ fn run_gate(repo_root: &Path, gate: Gate, quiet: bool) -> Result<()> {
     }
 }
 
-pub fn verify_changed(repo_root: &Path, base: Option<&str>, dry_run: bool) -> Result<()> {
+pub fn verify_changed(
+    repo_root: &Path,
+    base: Option<&str>,
+    dry_run: bool,
+    json_output: bool,
+) -> Result<()> {
+    let started = Instant::now();
+    let prerequisites = collect_prerequisites(repo_root);
     let paths = changed_paths(repo_root, base)?;
-    if paths.is_empty() {
+    if paths.is_empty() && !json_output {
         println!("No changed files detected.");
         return Ok(());
     }
-    println!("Changed files ({}):", paths.len());
-    for path in &paths {
-        println!("- {path}");
+    if !json_output {
+        println!("Changed files ({}):", paths.len());
+        for path in &paths {
+            println!("- {path}");
+        }
     }
     let selected = classify_paths(&paths);
-    println!("Selected gates:");
-    for gate in ALL_GATES {
-        println!(
-            "- {:<24} {}",
-            gate.label(),
-            if selected.contains(&gate) {
-                "run"
-            } else {
-                "skip"
-            }
-        );
+    let selected_labels = ALL_GATES
+        .iter()
+        .copied()
+        .filter(|gate| selected.contains(gate))
+        .map(Gate::label)
+        .collect::<Vec<_>>();
+    let skipped_labels = ALL_GATES
+        .iter()
+        .copied()
+        .filter(|gate| !selected.contains(gate))
+        .map(Gate::label)
+        .collect::<Vec<_>>();
+    if !json_output {
+        println!("Selected gates:");
+        for gate in ALL_GATES {
+            println!(
+                "- {:<24} {}",
+                gate.label(),
+                if selected.contains(&gate) {
+                    "run"
+                } else {
+                    "skip"
+                }
+            );
+        }
     }
     if dry_run {
+        if json_output {
+            let gates = ALL_GATES
+                .iter()
+                .map(|gate| GateReceipt {
+                    name: gate.label(),
+                    status: if selected.contains(gate) {
+                        "selected"
+                    } else {
+                        "skipped"
+                    },
+                    elapsed_ms: 0,
+                })
+                .collect::<Vec<_>>();
+            print_verify_changed(
+                "dry-run",
+                &paths,
+                &gates,
+                &selected_labels,
+                &skipped_labels,
+                &prerequisites,
+                true,
+                started.elapsed().as_millis(),
+                None,
+                None,
+            )?;
+        }
         return Ok(());
     }
-    for gate in selected {
-        run_gate(repo_root, gate, false)?;
+    let mut gates = Vec::new();
+    for gate in ALL_GATES {
+        if !selected.contains(&gate) {
+            gates.push(GateReceipt {
+                name: gate.label(),
+                status: "skipped",
+                elapsed_ms: 0,
+            });
+            continue;
+        }
+        let gate_started = Instant::now();
+        if let Err(error) = run_gate(repo_root, gate, json_output) {
+            gates.push(GateReceipt {
+                name: gate.label(),
+                status: "failed",
+                elapsed_ms: gate_started.elapsed().as_millis(),
+            });
+            if json_output {
+                print_verify_changed(
+                    "failed",
+                    &paths,
+                    &gates,
+                    &selected_labels,
+                    &skipped_labels,
+                    &prerequisites,
+                    false,
+                    started.elapsed().as_millis(),
+                    Some(gate.label()),
+                    Some(&format!("{error:#}")),
+                )?;
+            }
+            return Err(error);
+        }
+        gates.push(GateReceipt {
+            name: gate.label(),
+            status: "passed",
+            elapsed_ms: gate_started.elapsed().as_millis(),
+        });
+    }
+    if json_output {
+        print_verify_changed(
+            "passed",
+            &paths,
+            &gates,
+            &selected_labels,
+            &skipped_labels,
+            &prerequisites,
+            false,
+            started.elapsed().as_millis(),
+            None,
+            None,
+        )?;
     }
     Ok(())
 }
@@ -452,35 +557,47 @@ pub fn ci(repo_root: &Path, quiet: bool, json_output: bool) -> Result<()> {
         );
     }
     let started = Instant::now();
-    let mut passed = Vec::new();
+    let prerequisites = collect_prerequisites(repo_root);
+    let mut gates = Vec::new();
     for gate in ALL_GATES {
+        let gate_started = Instant::now();
         if let Err(error) = run_gate(repo_root, gate, quiet) {
+            gates.push(GateReceipt {
+                name: gate.label(),
+                status: "failed",
+                elapsed_ms: gate_started.elapsed().as_millis(),
+            });
             if json_output {
-                print_failure(
-                    &passed,
-                    gate.label(),
+                print_ci(
+                    "failed",
+                    &gates,
+                    &prerequisites,
                     started.elapsed().as_millis(),
-                    &format!("{error:#}"),
+                    Some(gate.label()),
+                    Some(&format!("{error:#}")),
                 )?;
             }
             return Err(error);
         }
-        passed.push(gate.label());
+        gates.push(GateReceipt {
+            name: gate.label(),
+            status: "passed",
+            elapsed_ms: gate_started.elapsed().as_millis(),
+        });
     }
     if json_output {
-        print_success(&passed, started.elapsed().as_millis())?;
+        print_ci(
+            "passed",
+            &gates,
+            &prerequisites,
+            started.elapsed().as_millis(),
+            None,
+            None,
+        )?;
     } else {
         println!("Complete local validation matrix passed.");
     }
     Ok(())
-}
-
-struct ToolCheck<'a> {
-    name: &'a str,
-    program: &'a str,
-    args: &'a [&'a str],
-    install: &'a str,
-    supported: Option<fn(&str) -> bool>,
 }
 
 fn numeric_version(value: &str) -> Vec<u64> {
@@ -500,110 +617,6 @@ fn node_is_supported(value: &str) -> bool {
     numeric_version(value)
         .first()
         .is_some_and(|major| *major >= 24)
-}
-
-pub fn doctor(repo_root: &Path) -> Result<()> {
-    let checks = [
-        ToolCheck {
-            name: "Git",
-            program: "git",
-            args: &["--version"],
-            install: "https://git-scm.com/downloads",
-            supported: None,
-        },
-        ToolCheck {
-            name: "Cargo",
-            program: "cargo",
-            args: &["--version"],
-            install: "install Rust 1.85+ with rustup",
-            supported: None,
-        },
-        ToolCheck {
-            name: "Rust",
-            program: "rustc",
-            args: &["--version"],
-            install: "rustup toolchain install 1.85",
-            supported: Some(rust_is_supported),
-        },
-        ToolCheck {
-            name: "Node.js",
-            program: "node",
-            args: &["--version"],
-            install: "install Node.js 24 or newer",
-            supported: Some(node_is_supported),
-        },
-        ToolCheck {
-            name: "Bash",
-            program: "bash",
-            args: &["--version"],
-            install: "install Bash for wrapper validation",
-            supported: None,
-        },
-        ToolCheck {
-            name: "actionlint",
-            program: "actionlint",
-            args: &["-version"],
-            install: "brew install actionlint or use its published binary",
-            supported: None,
-        },
-    ];
-    let mut missing = Vec::new();
-    println!("Developer environment:");
-    for check in checks {
-        match Command::new(check.program)
-            .current_dir(repo_root)
-            .args(check.args)
-            .output()
-        {
-            Ok(result) if result.status.success() => {
-                let version = String::from_utf8_lossy(&result.stdout)
-                    .lines()
-                    .next()
-                    .unwrap_or("available")
-                    .to_string();
-                if check.supported.is_none_or(|supported| supported(&version)) {
-                    println!("- {:<12} {version}", check.name);
-                } else {
-                    println!(
-                        "- {:<12} unsupported {version} ({})",
-                        check.name, check.install
-                    );
-                    missing.push(check.name);
-                }
-            }
-            _ => {
-                println!("- {:<12} missing ({})", check.name, check.install);
-                missing.push(check.name);
-            }
-        }
-    }
-    match Command::new("cargo")
-        .current_dir(repo_root)
-        .args(["deny", "--version"])
-        .output()
-    {
-        Ok(result) if result.status.success() => println!(
-            "- {:<12} {}",
-            "cargo-deny",
-            String::from_utf8_lossy(&result.stdout)
-                .lines()
-                .next()
-                .unwrap_or("available")
-        ),
-        _ => {
-            println!(
-                "- {:<12} missing (cargo install cargo-deny --locked)",
-                "cargo-deny"
-            );
-            missing.push("cargo-deny");
-        }
-    }
-    if missing.is_empty() {
-        println!("Developer environment is ready for `cargo xtask verify-changed`.");
-        Ok(())
-    } else {
-        bail!("missing developer prerequisite(s): {}", missing.join(", "))
-    }
 }
 
 #[cfg(test)]

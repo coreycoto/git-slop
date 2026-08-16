@@ -244,6 +244,8 @@ The CLI exposes:
 - `git slop show`
 - `git slop explain`
 - `git slop plan`
+- `git slop policy`
+- `git slop advise`
 - `git slop check`
 - `git slop compare`
 - `git slop baseline`
@@ -266,6 +268,21 @@ The CLI exposes:
 `find` is the only command that performs detector analysis. `show`, `explain`,
 `plan`, `check`, `sarif`, and `health` consume one report; `compare` consumes
 two. Prompt packs are explicit local outputs from `explain` and `plan`.
+
+`policy` manages bounded data-only policy sources and an offline user cache.
+`advise` reuses deterministic `explain` and `plan` evidence, adds bounded
+tracked excerpts, and invokes only an explicitly configured out-of-process
+provider. Its context cache and validated artifacts live under the active
+state root's `advice/` namespace, never `.slop/latest/`. The provider module is
+not linked to any model runtime and the detector path never imports it.
+
+The advice boundary has five ordered trust zones: immutable system/output
+instructions, non-disableable core policy, selected third-party policy,
+deterministic candidates, and untrusted repository excerpts. Published schemas
+cover pack sources, locks, provider-independent input, provider responses, and
+validated artifacts. Git Slop validates the model response, checks every cited
+identifier against the input index, and recomputes aggregate verdicts before
+writing an artifact. No advice result is read by another command implicitly.
 
 The composite GitHub Action installs a checksummed prebuilt binary, runs `find`
 once, publishes `health.md` to the job summary, and then optionally renders

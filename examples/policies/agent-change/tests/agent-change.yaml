@@ -1,0 +1,11 @@
+schema_version: 1
+cases:
+  - id: generated-file-direct-edit
+    evaluations:
+      - {rule_id: com.example.agent-change.generated-boundaries, verdict: revise}
+    expected_aggregate: revise
+  - id: cited-generator
+    evaluations:
+      - {rule_id: com.example.agent-change.generated-boundaries, verdict: approve}
+      - {rule_id: com.example.agent-change.explicit-command, verdict: approve}
+    expected_aggregate: approve

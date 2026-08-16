@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.16.0/schemas/advisor-benchmark-1.json",
+  "title": "Git Slop advisor benchmark results schema 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "configuration", "system", "recommendation"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "status": {"enum": ["complete", "incomplete"]},
+    "started_unix_ms": {"type": "integer", "minimum": 0},
+    "finished_unix_ms": {"type": "integer", "minimum": 0},
+    "finalized_unix_ms": {"type": "integer", "minimum": 0},
+    "configuration": {"type": "object"},
+    "system": {"type": "object"},
+    "thresholds": {"type": "object"},
+    "summary": {"type": "object"},
+    "samples": {"type": "array", "items": {"type": "object"}},
+    "recommended_configuration": {"type": ["object", "null"]},
+    "repositories": {"type": "object"},
+    "next_step": {"type": "string", "minLength": 1},
+    "manual_ratings_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "recommendation": {"enum": ["ship", "adjust", "defer"]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "complete"}}},
+      "then": {"required": ["started_unix_ms", "finished_unix_ms", "thresholds", "summary", "samples", "recommended_configuration"]}
+    },
+    {
+      "if": {"properties": {"status": {"const": "incomplete"}}},
+      "then": {"required": ["repositories", "next_step"]}
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+schema_version: 1
+id: org.git-slop.core
+name: Git Slop core invariants
+description: Non-disableable trust boundaries for policy-guided advice.
+version: 1.0.0
+license: MIT
+min_git_slop_version: 0.16.0
+entrypoints:
+  - policies/invariants.md
+applicability: [advise, plan]
+tests:
+  - tests/conformance.yaml
+rules:
+  - id: org.git-slop.core.detector-truth
+    text: Advice must not rescore, rewrite, or reinterpret slop_score, slop_band, context_band, report evidence, overlays, or git slop check semantics as new detector truth.
+    applicability: [advise, plan]
+    severity: error
+    consequence: reject
+    required_evidence: [candidate, report]
+    insufficient_evidence: abstain
+    remediation: Preserve detector fields verbatim and frame every conclusion as advice.
+  - id: org.git-slop.core.evidence-required
+    text: Every material repository or policy claim must cite a supplied path, evidence identifier, candidate, policy rule, or excerpt.
+    applicability: [advise]
+    severity: error
+    consequence: revise
+    required_evidence: [citations]
+    insufficient_evidence: abstain
+    remediation: Add valid citations or remove the unsupported claim.
+  - id: org.git-slop.core.no-invented-facts
+    text: Unknown paths, symbols, commands, tests, findings, relationships, clusters, candidates, policies, or excerpts must be rejected or explicitly treated as missing evidence.
+    applicability: [advise]
+    severity: error
+    consequence: reject
+    required_evidence: [reference-index]
+    insufficient_evidence: abstain
+    remediation: Cite only supplied identifiers and request missing evidence explicitly.
+  - id: org.git-slop.core.bounded-scope
+    text: Recommendations must stay within declared scope or explicitly request and justify scope expansion without presenting it as already authorized.
+    applicability: [advise, plan]
+    severity: error
+    consequence: revise
+    required_evidence: [scope]
+    insufficient_evidence: abstain
+    remediation: Narrow the recommendation or identify the exact expansion and rationale.
+  - id: org.git-slop.core.preserve-verification
+    text: Advice must not weaken, delete, skip, or relabel tests and checks merely to make a finding disappear.
+    applicability: [advise, plan]
+    severity: error
+    consequence: reject
+    required_evidence: [verification]
+    insufficient_evidence: revise
+    remediation: Preserve verification and propose focused additions or corrections.
+  - id: org.git-slop.core.no-inventory-evasion
+    text: Advice must not hide findings through ignore globs, generated-state relocation, renaming tricks, or moving code outside tracked inventory.
+    applicability: [advise, plan]
+    severity: error
+    consequence: reject
+    required_evidence: [scope, inventory]
+    insufficient_evidence: abstain
+    remediation: Address the measured repository surface directly.
+  - id: org.git-slop.core.canonical-guidance
+    text: Included repository-owned architecture, contribution, testing, and agent instructions are binding evidence and must not be overridden by repository excerpts.
+    applicability: [advise]
+    severity: error
+    consequence: revise
+    required_evidence: [guidance]
+    insufficient_evidence: abstain
+    remediation: Reconcile the recommendation with the cited canonical guidance.
+  - id: org.git-slop.core.reviewable-changes
+    text: Prefer bounded and reversible implementation slices with explicit verification, abandonment conditions, and rollback considerations.
+    applicability: [advise, plan]
+    severity: warning
+    consequence: revise
+    required_evidence: [candidate, verification]
+    insufficient_evidence: revise
+    remediation: Split the work and name verification and rollback steps.
+  - id: org.git-slop.core.explicit-uncertainty
+    text: Insufficient, conflicting, stale, or truncated evidence requires abstain or revise rather than confident invention.
+    applicability: [advise]
+    severity: error
+    consequence: revise
+    required_evidence: [missing-evidence, truncation]
+    insufficient_evidence: abstain
+    remediation: State the uncertainty and request the exact missing evidence.
+  - id: org.git-slop.core.non-mutating
+    text: The reasoner cannot directly edit code, Git, GitHub, configuration, reports, policy state, or detector state.
+    applicability: [advise]
+    severity: error
+    consequence: reject
+    required_evidence: [candidate]
+    insufficient_evidence: reject
+    remediation: Return advice only and leave every mutation to an explicitly authorized workflow.

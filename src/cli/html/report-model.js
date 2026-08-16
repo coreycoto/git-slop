@@ -3,10 +3,17 @@
 
   const reasonLabels = {
     critical_token_cost: "Context budget exceeded",
-    warning_token_cost: "Approaching the context budget",
+    high_token_cost: "Approaching the context budget",
+    warning_token_cost: "Approaching the context budget (legacy)",
     high_slop_score: "High maintenance pressure",
     high_churn: "High recent churn",
+    high_revision_frequency: "Frequently revised",
+    high_relative_churn: "High churn relative to file size",
+    old_file: "Older file",
+    old_and_volatile: "Older file with sustained churn",
     missing_test_evidence: "No nearby test evidence",
+    weak_test_mapping: "Weak source-to-test mapping evidence",
+    low_test_cochange_evidence: "Low source-and-test co-change evidence",
     mapping_confidence_low: "Test mapping confidence is low",
     evidence_found: "Verification evidence found",
     no_evidence: "No verification evidence found",
@@ -25,6 +32,7 @@
     if (recordsByView.policy?.length) return "policy";
     if (recordsByView.queue?.length) return "queue";
     if (recordsByView.health?.length) return "health";
+    if (recordsByView.observations?.length) return "observations";
     return "files";
   }
 

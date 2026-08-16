@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -16,8 +16,8 @@ use crate::report;
 use crate::report_ops::{
     ExplainSelector, PlanSelector, PromptPackOptions, compare_payload_with_policy, explain_payload,
     failing_records_in, health_json_payload, plan_payload, render_compare_text,
-    render_explain_text, render_github_annotations, render_json, render_plan_text,
-    render_show_text, sarif_payload, show_payload, write_prompt_pack,
+    render_explain_summary_text, render_explain_text, render_github_annotations, render_json,
+    render_plan_text, render_show_text, sarif_payload, show_payload, write_prompt_pack,
 };
 use crate::{PROJECT_NAME, VERSION, analyze, git};
 
@@ -51,6 +51,10 @@ enum Command {
     Explain(ExplainArgs),
     /// Propose bounded maintenance slices from the current detector report.
     Plan(PlanArgs),
+    /// Manage declarative policy packs used only by the optional advisor.
+    Policy(PolicyArgs),
+    /// Evaluate deterministic plan candidates with locked policies and an explicit local model.
+    Advise(AdviseArgs),
     /// Evaluate an existing report against CI thresholds.
     Check(CheckArgs),
     /// Compare two existing schema-5 reports without rerunning the detector.
@@ -97,6 +101,8 @@ impl Command {
             Self::Show(_) => "show",
             Self::Explain(_) => "explain",
             Self::Plan(_) => "plan",
+            Self::Policy(_) => "policy",
+            Self::Advise(_) => "advise",
             Self::Check(_) => "check",
             Self::Compare(_) => "compare",
             Self::Baseline(_) => "baseline",
@@ -276,6 +282,9 @@ struct ExplainArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = DisplayFormat::Text)]
     format: DisplayFormat,
+    /// Include raw normalized metrics, provenance, and bounded supporting evidence in text output.
+    #[arg(long)]
+    verbose: bool,
     /// Write a deterministic local-model prompt pack to this directory.
     #[arg(long)]
     prompt_pack: Option<PathBuf>,
@@ -663,8 +672,8 @@ enum ConfigCommand {
 
 #[derive(Debug, Args)]
 struct DoctorArgs {
-    /// Write a privacy-safe diagnostic JSON bundle.
-    #[arg(long, num_args = 0..=1, default_missing_value = ".slop/diagnostic-bundle.json")]
+    /// Write a privacy-safe diagnostic JSON bundle; defaults to the active state root.
+    #[arg(long, num_args = 0..=1, default_missing_value = "__git_slop_active_state_bundle__")]
     bundle: Option<PathBuf>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = DoctorFormat::Text)]
@@ -687,6 +696,9 @@ include!("cli/list_args.rs");
 
 #[derive(Debug, Args)]
 struct PruneArgs {
+    /// Mutable state directory. Defaults to the same active root as find.
+    #[arg(long, value_name = "PATH")]
+    state_dir: Option<PathBuf>,
     /// Number of newest run snapshots to retain; defaults to output.retention_runs.
     #[arg(long)]
     keep: Option<usize>,
@@ -705,6 +717,8 @@ struct PruneArgs {
 }
 
 include!("cli/cache_args.rs");
+include!("cli/policy_args.rs");
+include!("cli/advice_args.rs");
 
 #[derive(Debug, Args)]
 struct CompletionsArgs {
@@ -741,6 +755,15 @@ struct HtmlArgs {
     /// Embed the local source report path in the otherwise portable HTML file.
     #[arg(long)]
     include_local_paths: bool,
+    /// Serve the report temporarily over a loopback-only HTTP endpoint.
+    #[arg(long)]
+    serve: bool,
+    /// Open the temporary loopback URL in the system browser.
+    #[arg(long, requires = "serve")]
+    open: bool,
+    /// Maximum lifetime of the temporary loopback server.
+    #[arg(long, default_value_t = 120, value_parser = clap::value_parser!(u64).range(1..=3600), requires = "serve")]
+    serve_seconds: u64,
 }
 
 include!("cli/formats.rs");
@@ -748,12 +771,17 @@ include!("cli/support.rs");
 include!("cli/support/validation.rs");
 include!("cli/init.rs");
 include!("cli/analysis.rs");
+include!("cli/analysis/reporting.rs");
 include!("cli/analysis_receipt.rs");
 include!("cli/check.rs");
 include!("cli/baseline_compare.rs");
 include!("cli/reporting.rs");
+include!("cli/doctor/support.rs");
 include!("cli/doctor.rs");
 include!("cli/listing.rs");
+include!("cli/policy_cmd.rs");
+include!("cli/advice_cmd.rs");
+include!("cli/generation/server.rs");
 include!("cli/generation.rs");
 include!("cli/generation/artifacts.rs");
 include!("cli/generation/reference.rs");

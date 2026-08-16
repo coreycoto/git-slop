@@ -10,7 +10,7 @@ inputs:
   version:
     description: Git Slop release version to install, with or without a leading v.
     required: false
-    default: "0.15.0"
+    default: "0.16.0"
   release-repository:
     description: GitHub repository that owns the versioned release assets.
     required: false
@@ -104,7 +104,7 @@ inputs:
     required: false
     default: git-slop
   artifact-contents:
-    description: "Bounded artifact set: summary, report, or full."
+    description: "Bounded artifact set: summary, report, or full; full includes the portable interactive HTML report."
     required: false
     default: summary
   retention-days:
@@ -204,6 +204,9 @@ outputs:
   summary-path:
     description: Absolute path to the legacy-compatible summary.md.
     value: ${{ steps.analyze.outputs.summary-path }}
+  html-path:
+    description: Absolute path to the portable interactive report when artifact-contents is full; otherwise empty.
+    value: ${{ steps.analyze.outputs.html-path }}
   artifact-id:
     description: GitHub Actions artifact ID when upload-artifact is enabled.
     value: ${{ steps.upload.outputs.artifact-id }}
@@ -305,6 +308,7 @@ runs:
         GIT_SLOP_COMPRESSED_REPORT_PATH: ${{ steps.analyze.outputs.compressed-report-path }}
         GIT_SLOP_REPORT_YAML_PATH: ${{ steps.analyze.outputs.report-yaml-path }}
         GIT_SLOP_SUMMARY_PATH: ${{ steps.analyze.outputs.summary-path }}
+        GIT_SLOP_HTML_PATH: ${{ steps.analyze.outputs.html-path }}
         GIT_SLOP_COMPARISON_PATH: ${{ steps.analyze.outputs.comparison-path }}
         GIT_SLOP_COMPARISON_ERROR_PATH: ${{ steps.analyze.outputs.comparison-error-path }}
       run: node "${{ github.action_path }}/action/runner.mjs" artifacts

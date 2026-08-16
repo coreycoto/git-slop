@@ -1,0 +1,19 @@
+schema_version: 1
+id: com.example.strict-verification
+name: Strict verification example
+description: Requires focused tests and repository-wide gates for advised changes.
+version: 1.0.0
+license: CC0-1.0
+min_git_slop_version: 0.16.0
+entrypoints: [policies/verification.md]
+applicability: [advise, plan]
+tests: [tests/verification.yaml]
+rules:
+  - id: com.example.strict-verification.focused-tests
+    text: Every implementation candidate must identify focused tests for changed behavior and preserve the repository-wide validation gate.
+    applicability: [advise, plan]
+    severity: error
+    consequence: revise
+    required_evidence: [verification, guidance]
+    insufficient_evidence: abstain
+    remediation: Identify focused tests and the canonical full validation command.

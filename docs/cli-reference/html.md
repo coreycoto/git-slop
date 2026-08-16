@@ -18,6 +18,9 @@ Usage: git-slop html [OPTIONS]
 | `--require-current` | `flag` | `-` | - | Fail when the report does not match current HEAD, worktree, config, scope, or analyzer |
 | `--output` | `OUTPUT` | `-` | - | Destination. Defaults beside the selected report |
 | `--include-local-paths` | `flag` | `-` | - | Embed the local source report path in the otherwise portable HTML file |
+| `--serve` | `flag` | `-` | - | Serve the report temporarily over a loopback-only HTTP endpoint |
+| `--open` | `flag` | `-` | - | Open the temporary loopback URL in the system browser |
+| `--serve-seconds` | `SERVE_SECONDS` | `120` | - | Maximum lifetime of the temporary loopback server |
 
 **Example**
 

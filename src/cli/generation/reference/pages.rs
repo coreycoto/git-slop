@@ -18,7 +18,10 @@ fn reference_bundle_page(
 
     markdown_command_body(command, path, &mut page);
     page.push_str("## Subcommands\n\n");
-    for subcommand in command.get_subcommands() {
+    for subcommand in command
+        .get_subcommands()
+        .filter(|subcommand| !subcommand.is_hide_set())
+    {
         let subcommand_name = subcommand.get_name();
         let subcommand_path = format!("{path} {subcommand_name}");
         let filename = format!("{name}-{subcommand_name}.md");

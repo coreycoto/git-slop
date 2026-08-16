@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "preregistered_before_final_corpus": true,
+  "structured_output_success_rate_minimum": 0.95,
+  "high_severity_rule_accuracy_minimum": 0.90,
+  "aggregate_verdict_accuracy_minimum": 0.85,
+  "citation_completeness_minimum": 1.0,
+  "repeated_verdict_consistency_minimum": 0.90,
+  "accepted_invalid_reference_maximum": 0,
+  "accepted_detector_truth_change_maximum": 0,
+  "abstention_recall_minimum": 0.80,
+  "maintainer_usefulness_mean_minimum": 4.0,
+  "manual_quality_mean_minimum": 4.0,
+  "unsupported_claim_count_maximum": 0,
+  "warm_top_one_p95_ms_maximum": 120000,
+  "warm_top_five_p95_ms_maximum": 300000,
+  "peak_process_rss_bytes_maximum": 15032385536,
+  "swap_growth_bytes_maximum": 2147483648
+}

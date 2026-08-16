@@ -132,6 +132,8 @@ pub fn humanize_reason_code(reason: &str) -> String {
         "high_token_cost" => "is near the configured context budget".to_string(),
         "high_revision_frequency" => "changes frequently".to_string(),
         "high_relative_churn" => "has high churn relative to its size".to_string(),
+        "old_file" => "has not been substantially refreshed recently".to_string(),
+        "old_and_volatile" => "is older and still changes substantially".to_string(),
         other => other.replace('_', " "),
     }
 }

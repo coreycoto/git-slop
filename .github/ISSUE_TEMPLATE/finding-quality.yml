@@ -10,7 +10,7 @@ body:
     id: version
     attributes:
       label: Git Slop version
-      placeholder: 0.11.5
+      placeholder: 0.x.y
     validations: {required: true}
   - type: input
     id: config_digest

@@ -4,12 +4,15 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
         args.report.as_deref(),
         args.require_current,
     )?;
-    let output = args.output.unwrap_or_else(|| {
+    let output = args
+        .output
+        .map(|path| resolve_repo_path(repo_root, &path))
+        .unwrap_or_else(|| {
         report_path
             .parent()
             .map_or_else(|| config::latest_dir(repo_root), Path::to_path_buf)
             .join("report.html")
-    });
+        });
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -63,6 +66,9 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
     let source_report = args
         .include_local_paths
         .then(|| relative_display(&report_path, repo_root));
+    let freshness = (!repo_root.as_os_str().is_empty())
+        .then(|| crate::freshness::evaluate(repo_root, &loaded).ok())
+        .flatten();
     let payload = serde_json::to_string(&json!({
         "schema_version": loaded.get("schema_version"),
         "generated_at": loaded.get("generated_at"),
@@ -114,6 +120,7 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
             }
         },
         "source_report": source_report
+        ,"freshness": freshness
     }))?
     .replace("</", "<\\/");
     let csp_nonce = &hex::encode(sha2::Sha256::digest(payload.as_bytes()))[..24];
@@ -140,6 +147,7 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
   <main id="report-main" class="shell">
     <section class="report-card" aria-labelledby="report-heading">
       <h2 id="report-heading" class="sr">Report explorer</h2>
+      <p id="freshness" class="notice" role="status"></p>
       <p id="truncation" class="notice" role="status"></p>
       <p id="selection-status" class="sr" role="status" aria-live="polite"></p>
       <section class="overview" aria-labelledby="overview-heading">
@@ -189,6 +197,9 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
           <label for="severity">Review severity</label>
           <select id="severity"><option value="">All severities</option></select>
         </div>
+        <div class="control control-action">
+          <button id="reset-filters" type="button">Reset filters</button>
+        </div>
       </div>
       <div class="results-toolbar">
         <div>
@@ -222,10 +233,7 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
         </div>
         <p id="detail-summary" class="detail-summary"></p>
         <dl id="detail-metrics" class="metric-grid"></dl>
-        <div class="detail-section">
-          <h3>Supporting reasons</h3>
-          <ul id="detail-reasons"></ul>
-        </div>
+        <div id="detail-evidence"></div>
         <div class="detail-section">
           <h3>Next commands</h3>
           <div id="detail-commands" class="command-list"></div>
@@ -255,5 +263,9 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
     );
     config::write_text_atomically(&output, html, false)?;
     println!("Wrote local HTML report to {}.", output.display());
+    if args.serve {
+        let html = fs::read_to_string(&output)?;
+        serve_report(&html, args.serve_seconds, args.open)?;
+    }
     Ok(0)
 }

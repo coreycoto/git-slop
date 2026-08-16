@@ -23,6 +23,7 @@ pub const DEFAULT_SLOP_GITIGNORE: &str = concat!(
     "/scan.lock.owner\n",
     "/prompt-packs/\n",
     "/diagnostic-bundle.json\n",
+    "/advice/\n",
     "/config.yaml.bak\n",
     "/.gitignore.bak\n",
 );
@@ -82,6 +83,52 @@ pub fn runs_dir(repo_root: &Path) -> PathBuf {
 
 pub fn cache_dir(repo_root: &Path) -> PathBuf {
     slop_dir(repo_root).join("cache")
+}
+
+/// Resolve the state root used by an ordinary `find` invocation.
+///
+/// Before adoption, ordinary scans are Git-private and cacheable. State
+/// inspection and retention commands must follow the same decision instead of
+/// pretending that the inactive `.slop/` root is authoritative.
+pub fn active_state_dir(repo_root: &Path) -> Result<PathBuf> {
+    if adoption_status(repo_root).ready() {
+        return Ok(slop_dir(repo_root));
+    }
+    let git_private = git_runtime_dir(repo_root)?.join("ephemeral");
+    let persistent = slop_dir(repo_root);
+    let marker = git_runtime_dir(repo_root)?.join("active-state");
+    if let Ok(selected) = fs::read_to_string(marker) {
+        match selected.trim() {
+            "persistent" if persistent.exists() => return Ok(persistent),
+            "git-private" if git_private.exists() => return Ok(git_private),
+            _ => {}
+        }
+    }
+    if git_private.exists() {
+        return Ok(git_private);
+    }
+    if persistent.join("latest").exists()
+        || persistent.join("runs").exists()
+        || persistent.join("cache").exists()
+    {
+        return Ok(persistent);
+    }
+    Ok(git_private)
+}
+
+pub fn mark_active_state(repo_root: &Path, persistent: bool) -> Result<()> {
+    let runtime = git_runtime_dir(repo_root)?;
+    fs::create_dir_all(&runtime)?;
+    write_text_atomically(
+        &runtime.join("active-state"),
+        if persistent {
+            "persistent\n"
+        } else {
+            "git-private\n"
+        },
+        false,
+    )?;
+    Ok(())
 }
 
 pub fn default_config() -> Value {

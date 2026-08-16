@@ -1,3 +1,4 @@
+pub mod advisor_benchmark;
 pub mod codex;
 pub mod crates_io;
 pub mod developer;
@@ -6,6 +7,7 @@ pub mod homebrew;
 pub mod issue_forms;
 pub mod manifest;
 pub mod release;
+pub mod release_status;
 pub mod repository;
 pub mod sbom;
 pub mod workflows;

@@ -5,8 +5,10 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use git_slop_xtask::{
     codex, crates_io, developer, distribution, finish_validation, homebrew, issue_forms, manifest,
-    release, repository, sbom, workflows,
+    release, release_status, repository, sbom, workflows,
 };
+
+mod advisor_cli;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -23,9 +25,17 @@ struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "the private Clap maintainer CLI keeps benchmark inputs explicit and is parsed once"
+)]
 enum Command {
     /// Check local contributor prerequisites and print actionable installation guidance.
-    Doctor,
+    Doctor {
+        /// Select human progress or one machine-readable terminal receipt.
+        #[arg(long, value_enum, default_value_t = ReceiptFormat::Text)]
+        format: ReceiptFormat,
+    },
 
     /// Run the complete cross-platform local validation matrix.
     Ci {
@@ -45,6 +55,9 @@ enum Command {
         /// Print selected and skipped gates without running them.
         #[arg(long)]
         dry_run: bool,
+        /// Select human progress or one machine-readable terminal receipt.
+        #[arg(long, value_enum, default_value_t = ReceiptFormat::Text)]
+        format: ReceiptFormat,
     },
 
     /// Validate every repository-owned maintainer contract.
@@ -86,6 +99,21 @@ enum Command {
         #[arg(long)]
         check_only: bool,
     },
+
+    /// Inspect draft readiness, public immutability, and downstream receiver state.
+    ReleaseStatus {
+        #[arg(long)]
+        version: String,
+        /// Select human output or one machine-readable receipt.
+        #[arg(long, value_enum, default_value_t = ReceiptFormat::Text)]
+        format: ReceiptFormat,
+    },
+
+    /// Run the privacy-safe local Safeguard quality and performance matrix.
+    AdvisorBenchmark(advisor_cli::BenchmarkArgs),
+
+    /// Apply reviewed manual ratings to a completed advisor benchmark without rerunning inference.
+    AdvisorBenchmarkFinalize(advisor_cli::FinalizeArgs),
 
     /// Verify a downloaded crates.io package and write canonical source metadata.
     VerifyCrate {
@@ -145,6 +173,12 @@ enum CiFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ReceiptFormat {
+    Text,
+    Json,
+}
+
 fn main() {
     if let Err(error) = run(Cli::parse()) {
         eprintln!("error: {error:#}");
@@ -161,15 +195,22 @@ fn run(cli: Cli) -> Result<()> {
     })?;
 
     match cli.command {
-        Command::Doctor => developer::doctor(&repo_root),
+        Command::Doctor { format } => developer::doctor(&repo_root, format == ReceiptFormat::Json),
         Command::Ci { quiet, format } => developer::ci(
             &repo_root,
             quiet || format == CiFormat::Json,
             format == CiFormat::Json,
         ),
-        Command::VerifyChanged { base, dry_run } => {
-            developer::verify_changed(&repo_root, base.as_deref(), dry_run)
-        }
+        Command::VerifyChanged {
+            base,
+            dry_run,
+            format,
+        } => developer::verify_changed(
+            &repo_root,
+            base.as_deref(),
+            dry_run,
+            format == ReceiptFormat::Json,
+        ),
         Command::Validate { require_codex_cli } => {
             let mut errors = codex::validate(&repo_root, require_codex_cli);
             errors.extend(workflows::validate(&repo_root));
@@ -219,6 +260,11 @@ fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
+        Command::ReleaseStatus { version, format } => {
+            release_status::inspect(&repo_root, &version, format == ReceiptFormat::Json)
+        }
+        Command::AdvisorBenchmark(args) => args.run(repo_root),
+        Command::AdvisorBenchmarkFinalize(args) => args.run(&repo_root),
         Command::VerifyCrate {
             crate_file,
             version,

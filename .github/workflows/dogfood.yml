@@ -58,6 +58,9 @@ jobs:
       - name: Build release binary
         run: cargo build -p git-slop --release --locked
 
+      - name: Verify committed adoption metadata
+        run: target/release/git-slop init --check
+
       - name: Run detector
         shell: bash
         run: |

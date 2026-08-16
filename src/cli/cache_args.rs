@@ -1,6 +1,6 @@
 #[derive(Debug, Args)]
 struct CacheArgs {
-    /// Mutable state directory. Defaults to .slop, matching find.
+    /// Mutable state directory. Defaults to the same active root as find.
     #[arg(long, value_name = "PATH", global = true)]
     state_dir: Option<PathBuf>,
     #[command(subcommand)]

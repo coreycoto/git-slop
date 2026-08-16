@@ -78,6 +78,6 @@ body:
     attributes:
       label: Quarter milestone target
       description: Optional. Use only when this issue is explicitly committed for a quarter.
-      placeholder: 2026 Q2
+      placeholder: YYYY QN
     validations:
       required: false

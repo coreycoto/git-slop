@@ -4,7 +4,10 @@ fn reference_bundle() -> (String, std::collections::BTreeMap<String, String>) {
     markdown_command_body(&command, "git-slop", &mut index);
     index.push_str("## Commands\n\n");
     let mut pages = std::collections::BTreeMap::new();
-    for subcommand in command.get_subcommands() {
+    for subcommand in command
+        .get_subcommands()
+        .filter(|subcommand| !subcommand.is_hide_set())
+    {
         let name = subcommand.get_name();
         let path = format!("git-slop {name}");
         let filename = format!("{name}.md");

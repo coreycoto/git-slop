@@ -35,22 +35,28 @@ brew install coreycoto/tap/git-slop
 Then run Git Slop inside any Git repository:
 
 ```bash
-git slop init
 git slop find
 git slop explain --top 5
 ```
 
-`init` creates a repo-owned configuration and ignore rules. `find` performs the
-analysis once and prints the concise health view; the other commands read the
-generated report without rescoring it. Use `git slop health --format markdown`
-when you want to re-render the full dashboard. Run from a full-history checkout
-when age, churn, coupling, and stewardship evidence matter.
+`find` performs the analysis once, prints the concise health view, and keeps its
+first-run state under Git-private storage when the repository has not adopted
+Git Slop. The other commands discover that report without a path and without
+rescoring it. Use `git slop health --format markdown` when you want to re-render
+the full dashboard. Run from a full-history checkout when age, churn, coupling,
+and stewardship evidence matter.
 
-For a no-adoption first look, keep state and output under Git-private storage:
+When the team wants durable repo-owned configuration and report state, adopt it
+explicitly:
 
 ```bash
-git slop find --ephemeral
+git slop init
+git add .slop/config.yaml .slop/.gitignore
+git slop find
 ```
+
+`--ephemeral` remains available for an explicitly disposable scan even after
+adoption; it is not needed for the ordinary no-adoption first look.
 
 The health dashboard points to the next useful command. After reviewing a
 finding, ask Git Slop for a bounded maintenance proposal:
@@ -62,6 +68,19 @@ git slop plan --path src/example.rs
 
 A plan is evidence for human review. It does not edit code, invoke a model, or
 mutate Git or GitHub.
+
+When a separately operated local Safeguard endpoint is available, the optional
+advisor can evaluate those deterministic candidates against inspectable policy
+packs without changing detector truth:
+
+```bash
+git slop policy show core
+git slop advise --top 1 --context-only --format json
+```
+
+Model inference is always explicit. See [Policy Packs](docs/policy-packs.md),
+the [Policy-Guided Advisor](docs/advisor.md), and the
+[privacy-safe Safeguard benchmark](docs/benchmarks/safeguard-v1.md).
 
 ## What Git Slop Makes Visible
 
@@ -103,8 +122,8 @@ the judgment.
 
 ## Report Bundle
 
-Every successful `find` writes a compact three-file bundle to `.slop/latest/`
-and an immutable timestamped copy under `.slop/runs/`:
+Every successful `find` writes three required files plus optional YAML to
+`.slop/latest/` and an immutable timestamped copy under `.slop/runs/`:
 
 | Artifact | Purpose |
 | --- | --- |
@@ -119,7 +138,7 @@ Routine generated output stays untracked. Commit `.slop/config.yaml` and
 
 ## Install
 
-The examples below pin the 0.15.0 release identity. Use each command only after
+The examples below pin the 0.16.0 release identity. Use each command only after
 that exact version is published on the requested distribution surface;
 documentation or a source tag is not proof that every surface is available.
 
@@ -135,7 +154,7 @@ brew install coreycoto/tap/git-slop
 ### Cargo (Crates.io)
 
 ```bash
-cargo install git-slop --version 0.15.0 --locked
+cargo install git-slop --version 0.16.0 --locked
 ```
 
 ### Scoop (Windows)
@@ -167,7 +186,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.15.0
+  - uses: coreycoto/git-slop@v0.16.0
 ```
 
 The Action is advisory by default. It verifies the native release, writes the
@@ -186,6 +205,8 @@ comments are explicit opt-ins. See [GitHub Action](docs/github-action.md).
 | `git slop show` | Inspect one file or folder record |
 | `git slop explain` | Explain a path, relationship, cluster, or the top findings |
 | `git slop plan` | Propose bounded maintenance slices from reviewed evidence |
+| `git slop policy` | Author, validate, install, lock, inspect, test, or remove data-only policy packs |
+| `git slop advise` | Optionally evaluate deterministic candidates with locked policies and an explicit local Safeguard endpoint |
 | `git slop check` | Apply the stable detector gate |
 | `git slop compare` | Compare two existing reports without rerunning analysis |
 | `git slop baseline` | Create, inspect, update, validate, or safely remove named baselines |
@@ -214,16 +235,21 @@ explicit scope. The repository also ships a portable [Git Slop Agent
 Plugin](plugins/git-slop/README.md) for installation, reporting, review,
 planning, and adoption workflows.
 
+The optional advisor is separate: it sends only bounded, provenance-rich
+context to an explicitly configured endpoint, validates every reference, and
+writes non-mutating artifacts outside the canonical report bundle.
+
 Start with `git slop doctor`; see [Troubleshooting](docs/troubleshooting.md),
 [Configuration Recipes](docs/config-recipes.md), the neutral [Worked
-Example](docs/worked-example.md), and the [0.15.0 release notes](CHANGELOG.md).
+Example](docs/worked-example.md), and the [0.16.0 release notes](CHANGELOG.md).
 
 ## Trust Boundaries
 
-The local Git Slop CLI does not:
+The deterministic Git Slop commands do not:
 
 - send repository data to a hosted service
-- use an LLM to score files or change detector truth
+- use an LLM to score files or change detector truth; `advise` is an explicit
+  separate evaluator and remains advisory
 - claim to detect AI authorship
 - assign an overall code-quality grade
 - treat a finding as proof that code is wrong
@@ -231,8 +257,8 @@ The local Git Slop CLI does not:
 - make autonomous refactoring decisions
 
 These constraints are product architecture, not disclaimers. Read the
-[Vision](docs/vision.md) for the deeper thesis and planned policy-guided advice
-layer. Distribution verification begins from the independent roots documented
+[Vision](docs/vision.md) for the deeper thesis and policy-guided advice
+boundary. Distribution verification begins from the independent roots documented
 in the [release trust graph](docs/release-trust.md).
 
 ## Documentation
@@ -249,6 +275,8 @@ in the [release trust graph](docs/release-trust.md).
 - [.slop Directory Policy](docs/slop-directory.md)
 - [Scoring Model](docs/scoring-model.md)
 - [Architecture](docs/architecture.md)
+- [Policy Packs](docs/policy-packs.md)
+- [Policy-Guided Advisor](docs/advisor.md)
 - [GitHub Action](docs/github-action.md)
 - [Release Checklist](docs/release-checklist.md)
 - [Release Trust Graph](docs/release-trust.md)

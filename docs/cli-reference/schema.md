@@ -16,7 +16,7 @@ Usage: git-slop schema [OPTIONS] <CONTRACT>
 
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
-| `contract` | `CONTRACT` | `-` | required; values: report, config, compare, explain, plan, sarif, health, check, doctor, build-info, release-manifest, list, show, prompt-manifest, error, find-estimate, cache-status, cache-prune, baseline, prune, compare-ndjson | Machine contract whose immutable schema should be printed |
+| `contract` | `CONTRACT` | `-` | required; values: report, config, compare, explain, plan, sarif, health, check, doctor, build-info, release-manifest, list, show, prompt-manifest, error, find-estimate, cache-status, cache-prune, baseline, prune, compare-ndjson, policy-pack, policy-lock, advice-input, advice-response, advice, advisor-corpus, advisor-ratings, advisor-benchmark | Machine contract whose immutable schema should be printed |
 | `--output` | `OUTPUT` | `-` | - | Destination file. Defaults to stdout |
 
 **Example**

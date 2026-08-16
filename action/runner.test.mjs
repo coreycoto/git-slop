@@ -62,6 +62,12 @@ if (args[0] === "find") {
 if (args[0] === "report" && args[1] === "validate") {
   process.exit(process.env.FAKE_VALIDATE_FAIL === "true" ? 2 : 0);
 }
+if (args[0] === "html") {
+  const outputIndex = args.indexOf("--output");
+  const output = args[outputIndex + 1];
+  fs.writeFileSync(output, "<!doctype html><title>Git Slop fixture</title>\\n");
+  process.exit(0);
+}
 if (args[0] === "health") {
   const counter = path.join(process.cwd(), ".health-count");
   fs.writeFileSync(counter, String(Number(fs.existsSync(counter) ? fs.readFileSync(counter, "utf8") : "0") + 1));
@@ -172,6 +178,39 @@ test("safe defaults analyze once and select only health.md", () => {
   assert.doesNotMatch(artifactOutput, /report\.json/u);
 });
 
+test("full artifacts include a newly generated portable HTML report", () => {
+  const state = fixture();
+  const analysis = run("analyze", {
+    GITHUB_OUTPUT: state.output,
+    GITHUB_STEP_SUMMARY: state.summary,
+    GITHUB_WORKSPACE: state.repository,
+    GIT_SLOP_BINARY: state.fakeBinary,
+    GIT_SLOP_WORKING_DIRECTORY: ".",
+    GIT_SLOP_ARTIFACT_CONTENTS: "full",
+  });
+  assert.equal(analysis.status, 0, analysis.stderr);
+  const actual = outputs(state.output);
+  assert.equal(actual["artifact-contents"], "full");
+  assert.ok(actual["html-path"].endsWith("report.html"));
+  assert.match(readFileSync(actual["html-path"], "utf8"), /Git Slop fixture/u);
+
+  writeFileSync(state.output, "");
+  const artifacts = run("artifacts", {
+    GITHUB_OUTPUT: state.output,
+    GIT_SLOP_ARTIFACT_CONTENTS: "full",
+    GIT_SLOP_HEALTH_PATH: actual["health-path"],
+    GIT_SLOP_REPORT_PATH: actual["report-path"],
+    GIT_SLOP_REPORT_YAML_PATH: actual["report-yaml-path"],
+    GIT_SLOP_SUMMARY_PATH: actual["summary-path"],
+    GIT_SLOP_HTML_PATH: actual["html-path"],
+  });
+  assert.equal(artifacts.status, 0, artifacts.stderr);
+  const selected = readFileSync(state.output, "utf8");
+  assert.match(selected, /report\.html/u);
+  assert.match(selected, /report\.json/u);
+  assert.match(selected, /summary\.md/u);
+});
+
 test("mode presets derive policy and enforcement without changing advanced inputs", () => {
   for (const [mode, expectedPolicy, expectedEnforcement] of [
     ["advisory", "advisory", "absolute"],
@@ -189,6 +228,10 @@ test("mode presets derive policy and enforcement without changing advanced input
       GIT_SLOP_ENFORCEMENT: "regression",
     });
     assert.equal(analysis.status, 0, analysis.stderr);
+    assert.match(
+      analysis.stdout,
+      /::warning title=Git Slop Action deprecation::Outputs finding-count/u,
+    );
     const actual = outputs(state.output);
     assert.equal(actual.mode, mode);
     assert.equal(actual.policy, expectedPolicy);
@@ -395,6 +438,7 @@ test("analysis failure cannot publish stale report-sized artifacts", () => {
   assert.equal(actual["report-path"], "");
   assert.equal(actual["report-yaml-path"], "");
   assert.equal(actual["summary-path"], "");
+  assert.equal(actual["html-path"], "");
 });
 
 test("advisory passes and enforce preserves the policy result", () => {

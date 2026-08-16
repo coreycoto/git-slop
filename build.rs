@@ -89,11 +89,57 @@ fn packaged_identity() -> Result<Option<(String, bool)>, String> {
     Ok(Some((revision.to_owned(), dirty)))
 }
 
+fn workspace_identity() -> Result<Option<(String, bool)>, String> {
+    if !Path::new(".git").exists() {
+        return Ok(None);
+    }
+    let revision = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .map_err(|error| format!("unable to inspect workspace revision: {error}"))?;
+    if !revision.status.success() {
+        return Ok(None);
+    }
+    let revision = String::from_utf8(revision.stdout)
+        .map_err(|error| format!("workspace revision was not UTF-8: {error}"))?;
+    let revision = revision.trim().to_owned();
+    if !valid_revision(&revision) {
+        return Err("workspace revision must be a full lowercase commit id".into());
+    }
+    let status = Command::new("git")
+        .args(["status", "--porcelain=v1", "--untracked-files=normal"])
+        .output()
+        .map_err(|error| format!("unable to inspect workspace state: {error}"))?;
+    if !status.status.success() {
+        return Err("git status failed while recording workspace provenance".into());
+    }
+    Ok(Some((revision, !status.stdout.is_empty())))
+}
+
+fn track_workspace_git_state() {
+    for name in ["HEAD", "index"] {
+        let Ok(output) = Command::new("git")
+            .args(["rev-parse", "--path-format=absolute", "--git-path", name])
+            .output()
+        else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+        let Ok(path) = String::from_utf8(output.stdout) else {
+            continue;
+        };
+        println!("cargo::rerun-if-changed={}", path.trim());
+    }
+}
+
 fn main() {
     println!("cargo::rerun-if-env-changed=GIT_SLOP_SOURCE_REVISION");
     println!("cargo::rerun-if-env-changed=GIT_SLOP_SOURCE_DIRTY");
     println!("cargo::rerun-if-env-changed=GIT_SLOP_CRATE_SHA256");
     println!("cargo::rerun-if-changed=.cargo_vcs_info.json");
+    track_workspace_git_state();
 
     let explicit = explicit_identity()
         .unwrap_or_else(|error| panic!("invalid git-slop build provenance: {error}"));
@@ -108,6 +154,10 @@ fn main() {
         .and_then(|identity| match identity {
             Some(identity) => Ok(Some(identity)),
             None => packaged_identity(),
+        })
+        .and_then(|identity| match identity {
+            Some(identity) => Ok(Some(identity)),
+            None => workspace_identity(),
         })
         .unwrap_or_else(|error| panic!("invalid git-slop build provenance: {error}"));
     let (revision, dirty) = identity

@@ -263,7 +263,11 @@ fn run_prune(repo_root: &Path, args: PruneArgs) -> Result<i32> {
     let max_bytes = args
         .max_bytes
         .unwrap_or_else(|| config::pointer_u64(&loaded, "/output/retention_bytes", 2_147_483_648));
-    let root = config::runs_dir(repo_root);
+    let state_root = match args.state_dir {
+        Some(path) => resolve_repo_path(repo_root, &path),
+        None => config::active_state_dir(repo_root)?,
+    };
+    let root = state_root.join("runs");
     if !root.exists() {
         let payload = json!({
             "schema_version": 1,
@@ -378,16 +382,10 @@ fn directory_size(path: &Path) -> Result<u64> {
 }
 
 fn run_cache(repo_root: &Path, args: CacheArgs) -> Result<i32> {
-    let state_root = args.state_dir.map_or_else(
-        || config::slop_dir(repo_root),
-        |path| {
-            if path.is_absolute() {
-                path
-            } else {
-                repo_root.join(path)
-            }
-        },
-    );
+    let state_root = match args.state_dir {
+        Some(path) => resolve_repo_path(repo_root, &path),
+        None => config::active_state_dir(repo_root)?,
+    };
     let (payload, format) = match args.command {
         CacheCommand::Status { format } => (crate::cache::status(&state_root)?, format),
         CacheCommand::Prune {

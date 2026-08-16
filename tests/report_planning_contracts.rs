@@ -85,6 +85,7 @@ fn local_folder_explain_matches_the_native_text_golden() {
         report_path,
         "--path",
         HISTORICAL_FOLDER_PATH,
+        "--verbose",
     ]));
 
     assert_text_golden(&golden, &actual);
@@ -173,7 +174,14 @@ fn large_repo_top_explain_matches_the_text_golden_and_defaults_to_five() {
     let golden = fixture("large_repo_top_explain.txt");
     let report_path = report.to_str().expect("report fixture path");
 
-    let actual = stdout(run_cli(&["explain", "--report", report_path, "--top", "5"]));
+    let actual = stdout(run_cli(&[
+        "explain",
+        "--report",
+        report_path,
+        "--top",
+        "5",
+        "--verbose",
+    ]));
     assert_text_golden(&golden, &actual);
     assert_eq!(actual.matches("Interpretation boundary").count(), 1);
 
