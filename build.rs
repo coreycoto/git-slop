@@ -118,14 +118,19 @@ fn workspace_identity() -> Result<Option<(String, bool)>, String> {
 
 fn track_workspace_git_state() {
     for name in ["HEAD", "index"] {
-        if let Ok(output) = Command::new("git")
+        let Ok(output) = Command::new("git")
             .args(["rev-parse", "--path-format=absolute", "--git-path", name])
             .output()
-            && output.status.success()
-            && let Ok(path) = String::from_utf8(output.stdout)
-        {
-            println!("cargo::rerun-if-changed={}", path.trim());
+        else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
         }
+        let Ok(path) = String::from_utf8(output.stdout) else {
+            continue;
+        };
+        println!("cargo::rerun-if-changed={}", path.trim());
     }
 }
 
