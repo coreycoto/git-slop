@@ -4,6 +4,8 @@ fn machine_contract(path: &str) -> Option<&'static str> {
         "git-slop show" => Some("`show-1`"),
         "git-slop explain" => Some("`explain-2`"),
         "git-slop plan" => Some("`plan-2`"),
+        "git-slop advise" => Some("`advice-input-1` for context-only output; `advice-1` for validated advice"),
+        "git-slop policy lock" => Some("`policy-lock-1`"),
         "git-slop check" => Some("`check-1`"),
         "git-slop compare" => Some("`compare-1`; NDJSON streaming uses `compare-ndjson-1`"),
         path if path.starts_with("git-slop baseline") => Some("`baseline-1`"),
@@ -30,6 +32,16 @@ fn command_example(path: &str) -> &'static str {
         "git-slop show" => "git slop show src/lib.rs",
         "git-slop explain" => "git slop explain --path src/lib.rs",
         "git-slop plan" => "git slop plan --path src/lib.rs",
+        "git-slop policy" => "git slop policy list",
+        "git-slop policy init" => "git slop policy init ./team-policy",
+        "git-slop policy validate" => "git slop policy validate ./team-policy",
+        "git-slop policy test" => "git slop policy test ./team-policy",
+        "git-slop policy install" => "git slop policy install ./team-policy --select",
+        "git-slop policy lock" => "git slop policy lock --format json",
+        "git-slop policy list" => "git slop policy list --format json",
+        "git-slop policy show" => "git slop policy show core --format json",
+        "git-slop policy remove" => "git slop policy remove com.example.team-policy --unselect",
+        "git-slop advise" => "git slop advise --top 1 --context-only --format json",
         "git-slop check" => "git slop check --require-current",
         "git-slop compare" => "git slop compare --baseline main --fail-on-regression",
         "git-slop baseline" => "git slop baseline list",
@@ -93,7 +105,10 @@ fn markdown_command_body(command: &clap::Command, path: &str, output: &mut Strin
     if let Some(contract) = machine_contract(path) {
         output.push_str(&format!("**Machine contract:** {contract}.\n\n"));
     }
-    let arguments = command.get_arguments().collect::<Vec<_>>();
+    let arguments = command
+        .get_arguments()
+        .filter(|argument| !argument.is_hide_set())
+        .collect::<Vec<_>>();
     if !arguments.is_empty() {
         output.push_str("| Argument | Value | Default | Constraints | Description |\n| --- | --- | --- | --- | --- |\n");
         for argument in arguments {
@@ -190,7 +205,10 @@ fn markdown_command_body(command: &clap::Command, path: &str, output: &mut Strin
 
 fn markdown_command_tree(command: &clap::Command, path: &str, output: &mut String) {
     markdown_command_body(command, path, output);
-    for subcommand in command.get_subcommands() {
+    for subcommand in command
+        .get_subcommands()
+        .filter(|subcommand| !subcommand.is_hide_set())
+    {
         markdown_command_tree(
             subcommand,
             &format!("{path} {}", subcommand.get_name()),

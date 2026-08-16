@@ -8,11 +8,15 @@ that cannot consume the surfaces below.
 
 ## Fast local task
 
-Use a disposable Git-private scan when evaluating a repository before adoption:
+Use the ordinary first scan when evaluating a repository before adoption; it
+automatically selects reusable Git-private state:
 
 ```bash
-git slop find --ephemeral
+git slop find
 ```
+
+Use `git slop find --ephemeral` only when the scan itself must be disposable
+and must bypass cache reads and writes.
 
 For an adopted repository, a VS Code task can run the normal detector without
 embedding output parsing in the editor:

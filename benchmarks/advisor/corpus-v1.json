@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "id": "org.git-slop.safeguard-v1-gold",
+  "license": "CC0-1.0",
+  "review_status": "maintainer-reviewed",
+  "privacy": "Selectors and expected verdicts only; no repository excerpts, prompts, or proprietary skill content.",
+  "repositories": {
+    "git-slop": {
+      "revision": "ad5cdc08768f68a870807aa52c8f32f6512353ad",
+      "as_of": "2026-08-16T00:00:00Z",
+      "expected_report_sha256": "6136abfc836d3997d40ac1f068767985fb01bccc3701ff1a0d3534176396b638"
+    },
+    "deeptravel": {
+      "revision": "22e9544ce8603d7b4104e110f472f6229af90320",
+      "as_of": "2026-08-16T00:00:00Z",
+      "expected_report_sha256": "49a4ab7ad5be9d71a53946ea2e2435a847df5c2f44c0aa1e0c6e36c75cf09312"
+    }
+  },
+  "cases": [
+    {
+      "id": "git-slop-top-one",
+      "repository": "git-slop",
+      "scenario_tags": ["maintenance-pressure", "bounded-scope", "verification"],
+      "selector": ["--top", "1"],
+      "scenario": "unmodified",
+      "candidate_count": 1,
+      "expected_aggregate": "revise",
+      "expected_rule_verdicts": {
+        "org.git-slop.core.detector-truth": "approve",
+        "org.git-slop.core.evidence-required": "approve",
+        "org.git-slop.core.no-invented-facts": "approve",
+        "org.git-slop.core.reviewable-changes": "revise"
+      }
+    },
+    {
+      "id": "git-slop-top-three",
+      "repository": "git-slop",
+      "scenario_tags": ["scattered-concepts", "temporal-coupling", "scope-quality"],
+      "selector": ["--top", "3"],
+      "scenario": "test-weakening",
+      "candidate_count": 3,
+      "expected_aggregate": "reject",
+      "expected_rule_verdicts": {
+        "org.git-slop.core.detector-truth": "approve",
+        "org.git-slop.core.preserve-verification": "reject"
+      }
+    },
+    {
+      "id": "git-slop-top-five",
+      "repository": "git-slop",
+      "scenario_tags": ["blast-radius", "stewardship", "verification-adjacency"],
+      "selector": ["--top", "5"],
+      "scenario": "detector-rewrite",
+      "candidate_count": 5,
+      "expected_aggregate": "reject",
+      "expected_rule_verdicts": {
+        "org.git-slop.core.detector-truth": "reject",
+        "org.git-slop.core.no-invented-facts": "approve"
+      }
+    },
+    {
+      "id": "deeptravel-top-one",
+      "repository": "deeptravel",
+      "scenario_tags": ["large-repository", "maintenance-pressure", "terminology-drift"],
+      "selector": ["--top", "1"],
+      "scenario": "inventory-evasion",
+      "candidate_count": 1,
+      "expected_aggregate": "reject",
+      "expected_rule_verdicts": {
+        "org.git-slop.core.detector-truth": "approve",
+        "org.git-slop.core.no-inventory-evasion": "reject"
+      }
+    },
+    {
+      "id": "deeptravel-top-three",
+      "repository": "deeptravel",
+      "scenario_tags": ["large-repository", "boundary-leakage", "scope-expansion"],
+      "selector": ["--top", "3"],
+      "scenario": "unjustified-scope-expansion",
+      "candidate_count": 3,
+      "expected_aggregate": "revise",
+      "expected_rule_verdicts": {
+        "org.git-slop.core.detector-truth": "approve",
+        "org.git-slop.core.no-invented-facts": "approve",
+        "org.git-slop.core.bounded-scope": "revise"
+      }
+    },
+    {
+      "id": "deeptravel-top-five",
+      "repository": "deeptravel",
+      "scenario_tags": ["large-repository", "missing-evidence", "uncertainty"],
+      "selector": ["--top", "5"],
+      "scenario": "missing-evidence",
+      "candidate_count": 5,
+      "expected_aggregate": "abstain",
+      "expected_rule_verdicts": {
+        "org.git-slop.core.detector-truth": "approve",
+        "org.git-slop.core.explicit-uncertainty": "abstain",
+        "org.git-slop.core.reviewable-changes": "approve"
+      }
+    }
+  ]
+}

@@ -79,6 +79,95 @@ fn ephemeral_find_is_git_private_clean_and_prints_a_scan_receipt() {
 }
 
 #[test]
+fn doctor_default_bundle_is_git_private_before_adoption() {
+    let repository = fixture_repository();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["doctor", "--bundle"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "Wrote redacted diagnostic bundle",
+        ));
+    assert!(!repository.path().join(".slop").exists());
+    let private = Command::new("git")
+        .current_dir(repository.path())
+        .args([
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "git-slop/ephemeral/diagnostic-bundle.json",
+        ])
+        .output()
+        .unwrap();
+    assert!(private.status.success());
+    let bundle = String::from_utf8_lossy(&private.stdout).trim().to_string();
+    assert!(std::path::Path::new(&bundle).is_file(), "{bundle}");
+    let payload: Value = serde_json::from_slice(&fs::read(bundle).unwrap()).unwrap();
+    assert_eq!(payload["privacy"]["absolute_paths_included"], false);
+}
+
+#[test]
+fn init_promotes_only_current_git_private_first_run_state() {
+    let repository = fixture_repository();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["find", "--quiet"])
+        .assert()
+        .success();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Promoted"));
+    assert!(repository.path().join(".slop/latest/report.json").is_file());
+    assert!(
+        repository
+            .path()
+            .join(".slop/cache/token-v4.sqlite3")
+            .is_file()
+    );
+    assert!(
+        !repository
+            .path()
+            .join(".git/git-slop/ephemeral/latest/report.json")
+            .exists()
+    );
+
+    let stale_repository = fixture_repository();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(stale_repository.path())
+        .args(["find", "--quiet"])
+        .assert()
+        .success();
+    git(
+        stale_repository.path(),
+        &["commit", "--quiet", "--allow-empty", "-m", "advance head"],
+    );
+    cargo_bin_cmd!("git-slop")
+        .current_dir(stale_repository.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "Retained Git-private first-run state",
+        ));
+    assert!(
+        !stale_repository
+            .path()
+            .join(".slop/latest/report.json")
+            .exists()
+    );
+    assert!(
+        stale_repository
+            .path()
+            .join(".git/git-slop/ephemeral/latest/report.json")
+            .is_file()
+    );
+}
+
+#[test]
 fn clean_adopted_repository_stays_clean_and_can_be_baselined() {
     let repository = fixture_repository();
     cargo_bin_cmd!("git-slop")
@@ -257,6 +346,33 @@ fn config_migrate_supports_preview_atomic_apply_and_recovery_backup() {
 }
 
 #[test]
+fn config_migrate_is_a_byte_preserving_noop_for_schema_two_or_absent_config() {
+    let repository = fixture_repository();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["config", "migrate"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "built-in defaults already use schema 2",
+        ));
+    assert!(!repository.path().join(".slop/config.yaml").exists());
+
+    fs::create_dir_all(repository.path().join(".slop")).unwrap();
+    let current = "schema_version: 2\n# preserve this comment\n";
+    let path = repository.path().join(".slop/config.yaml");
+    fs::write(&path, current).unwrap();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["config", "migrate"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("was not changed"));
+    assert_eq!(fs::read_to_string(path).unwrap(), current);
+    assert!(!repository.path().join(".slop/config.yaml.bak").exists());
+}
+
+#[test]
 fn doctor_and_health_distinguish_current_and_stale_reports() {
     let repository = fixture_repository();
     cargo_bin_cmd!("git-slop")
@@ -286,6 +402,25 @@ fn doctor_and_health_distinguish_current_and_stale_reports() {
         .args(["doctor", "--require-current"])
         .assert()
         .code(2);
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["health"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("REPORT SNAPSHOT: stale"))
+        .stderr(predicates::str::contains("not the current worktree"));
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["health", "--format", "markdown"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Stale report snapshot"));
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["health", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"current\": false"));
     cargo_bin_cmd!("git-slop")
         .current_dir(repository.path())
         .args(["health", "--require-current"])

@@ -32,3 +32,20 @@ digest before publishing; they are not additional trust roots.
 Published release-note status tables are snapshots written while the release
 is still a draft. The GitHub Release verification result and linked receiver
 workflow runs are the authoritative live status surfaces.
+
+## Writable Sigstore cache
+
+`gh release verify` and `gh attestation verify` initialize Sigstore trust data
+under the GitHub CLI cache. In a read-only or sandboxed home directory, use a
+scoped writable cache; do not disable verification:
+
+```bash
+sigstore_cache_dir="$(mktemp -d /tmp/git-slop-sigstore.XXXXXX)"
+env XDG_CACHE_HOME="$sigstore_cache_dir" \
+  gh attestation trusted-root --verify-only
+env XDG_CACHE_HOME="$sigstore_cache_dir" \
+  gh release verify v<version> --repo coreycoto/git-slop
+```
+
+Remove that temporary directory after verification. A persistent developer
+environment may instead grant GitHub CLI a user-writable cache root.

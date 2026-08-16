@@ -118,8 +118,10 @@ been published and verified. Verify a published binary with
 `git-slop build-info --format json`.
 
 Product guidance should treat `.slop/latest/`, `.slop/runs/`, `.slop/cache/`,
-prompt packs, SARIF exports, plan JSON, and compare JSON as generated artifacts
-unless a repository intentionally curates them as fixtures outside `.slop/`.
+`.slop/advice/`, Git-private first-run state, prompt packs, SARIF exports, plan
+JSON, and compare JSON as generated artifacts unless a repository intentionally
+curates them as fixtures outside `.slop/`. A first scan does not require
+adoption; run `init` only when durable configuration and state are intended.
 The GitHub Action uploads only an allowlisted subset, with `health.md` as its
 default artifact.
 The portable Agent Plugin layout can be installed by clients that support

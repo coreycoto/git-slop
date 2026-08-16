@@ -46,6 +46,7 @@ function reportPathsFromOutput(outputRoot) {
     compressedGzipPath: join(latest, "report.json.gz"),
     compressedZstdPath: join(latest, "report.json.zst"),
     healthPath: join(latest, "health.md"),
+    htmlPath: join(latest, "report.html"),
     reportPath: join(latest, "report.json"),
     reportYamlPath: join(latest, "report.yaml"),
     summaryPath: join(latest, "summary.md"),
@@ -198,6 +199,7 @@ function analyze() {
     compressedGzipPath,
     compressedZstdPath,
     healthPath,
+    htmlPath,
     reportPath,
     reportYamlPath,
     summaryPath,
@@ -227,6 +229,7 @@ function analyze() {
       compressedGzipPath,
       compressedZstdPath,
       healthPath,
+      htmlPath,
       reportPath,
       reportYamlPath,
       summaryPath,
@@ -282,6 +285,13 @@ function analyze() {
       throw new Error(
         `generated report failed immediate validation with status ${validation.status}: ${validation.stderr.trim()}`,
       );
+    }
+    if (inputs.artifactContents === "full") {
+      const html = run(binary, ["html", "--report", reportPath, "--output", htmlPath], cwd, "pipe");
+      if (html.status !== 0 || !existsSync(htmlPath)) {
+        analysisExitCode = 2;
+        throw new Error(`portable HTML generation failed with status ${html.status}: ${html.stderr.trim()}`);
+      }
     }
   } catch (error) {
     failureMessage = error instanceof Error ? error.message : String(error);
@@ -447,6 +457,9 @@ function analyze() {
   setOutput("regression-count", regressionCount);
   setOutput("baseline-status", baselineStatus);
   setOutput("baseline-compatible", baselineStatus === "compatible");
+  console.log(
+    "::warning title=Git Slop Action deprecation::Outputs finding-count, policy-finding-count, and baseline-compatible are deprecated; migrate to selected-policy-finding-count and baseline-status before the next breaking release (not before 2026-11-01).",
+  );
   setOutput("comparison-path", comparisonPath);
   setOutput("comparison-error-path", comparisonErrorPath);
   setOutput("analysis-error-path", existsSync(analysisErrorPath) ? analysisErrorPath : "");
@@ -455,6 +468,7 @@ function analyze() {
   setOutput("compressed-report-path", reportGenerated && compressedReportPath && existsSync(compressedReportPath) ? compressedReportPath : "");
   setOutput("report-yaml-path", reportGenerated && existsSync(reportYamlPath) ? reportYamlPath : "");
   setOutput("summary-path", reportGenerated && existsSync(summaryPath) ? summaryPath : "");
+  setOutput("html-path", reportGenerated && existsSync(htmlPath) ? htmlPath : "");
   setOutput("working-directory", cwd || fallbackCwd);
   setOutput("policy", safeInputs.policy);
   setOutput("mode", safeInputs.mode || "advanced");

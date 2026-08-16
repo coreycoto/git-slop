@@ -95,10 +95,10 @@
     contextBand: document.getElementById("context-band"),
     count: document.getElementById("count"),
     detailCommands: document.getElementById("detail-commands"),
+    detailEvidence: document.getElementById("detail-evidence"),
     detailMetrics: document.getElementById("detail-metrics"),
     detailPanel: document.getElementById("detail-panel"),
     detailRaw: document.getElementById("detail-raw"),
-    detailReasons: document.getElementById("detail-reasons"),
     detailSummary: document.getElementById("detail-summary"),
     detailTitle: document.getElementById("detail-title"),
     first: document.getElementById("first"),
@@ -112,6 +112,7 @@
     previous: document.getElementById("previous"),
     profile: document.getElementById("profile"),
     query: document.getElementById("query"),
+    resetFilters: document.getElementById("reset-filters"),
     rows: document.getElementById("rows"),
     selectionStatus: document.getElementById("selection-status"),
     severity: document.getElementById("severity"),
@@ -121,7 +122,8 @@
   };
   const defaultView = model.defaultView(recordsByView);
   let view = Object.hasOwn(viewNames, params.get("view")) ? params.get("view") : defaultView;
-  let page = Math.max(0, Number.parseInt(params.get("page") ?? "0", 10) || 0);
+  const requestedPage = Number.parseInt(params.get("page") ?? "1", 10) || 1;
+  let page = Math.max(0, requestedPage - 1);
   let pageSize = [25, 100, 250].includes(Number(params.get("size")))
     ? Number(params.get("size")) : 100;
   let pageCount = 1;
@@ -137,11 +139,16 @@
   elements.query.value = params.get("q") ?? "";
   document.getElementById("descriptor").textContent = `${report.repo?.repo_name ?? "repository"} · ${report.generated_at ?? "unknown time"}`;
   document.getElementById("schema-badge").textContent = `Schema ${report.schema_version ?? "unknown"}`;
+  const freshness = report.freshness;
+  document.getElementById("freshness").textContent = freshness && !freshness.current
+    ? `This is a report snapshot and does not match the current repository (${(freshness.reasons ?? []).map((reason) => reason.code ?? reason).join(", ") || freshness.status || "stale"}). Regenerate with git slop find before acting.`
+    : "";
   document.getElementById("evidence-summary").textContent = JSON.stringify({
     config_digests: report.config_digests,
     completeness: report.evidence_completeness,
     collections: report.collection_metadata,
     embedded: report.embedded_evidence,
+    freshness: report.freshness,
     source_report: report.source_report,
   }, null, 2);
 
@@ -218,7 +225,7 @@
       severity: elements.severity.value, sort: sortState[view].key,
       dir: sortState[view].ascending ? "asc" : "desc",
       size: pageSize === 100 ? "" : String(pageSize),
-      page: page === 0 ? "" : String(page), record: selectedIdentity,
+      page: page === 0 ? "" : String(page + 1), record: selectedIdentity,
     };
     Object.entries(values).forEach(([key, value]) => {
       if (value !== "") url.searchParams.set(key, value);
@@ -317,21 +324,30 @@
       relationships: ["kind", "evidence_score", "evidence_lower_bound", "confidence", "support_count"],
       clusters: ["kind", "member_count", "evidence_score", "candidate_type"],
     }[view];
-    const reasons = [...(record.reason_codes ?? []), ...(record.member_paths ?? []),
-      ...(record.source_relationship_ids ?? [])];
-    if (view === "relationships") reasons.push(record.source_path, record.target_path);
-    const commands = [];
+    const evidence = {
+      "Reasons": [...(record.reason_codes ?? []), ...(record.reasons ?? [])],
+      "Related paths": [...(record.member_paths ?? [])],
+      "Relationships": [...(record.source_relationship_ids ?? [])],
+      "Clusters": [...(record.cluster_ids ?? [])],
+    };
+    if (view === "relationships") evidence["Related paths"].push(record.source_path, record.target_path);
+    const commands = [record.next_command, record.next_action]
+      .filter((command) => typeof command === "string" && command.startsWith("git slop "));
     if (path) {
       commands.push(`git slop explain --path ${shellQuote(path)}`);
       commands.push(`git slop plan --path ${shellQuote(path)}`);
     }
     if (view === "relationships" && record.id) {
       commands.unshift(`git slop explain --relationship ${shellQuote(record.id)}`);
+      commands.push(`git slop plan --relationship ${shellQuote(record.id)}`);
     }
     if (view === "clusters" && record.id) {
       commands.unshift(`git slop explain --cluster ${shellQuote(record.id)}`);
+      commands.push(`git slop plan --cluster ${shellQuote(record.id)}`);
     }
-    return { commands, metricKeys, reasons: reasons.filter(Boolean), summary: summaries[view], title };
+    return {
+      commands: [...new Set(commands)], evidence, metricKeys, summary: summaries[view], title,
+    };
   }
 
   function selectRecord(record, button, { focus = true, updateUrl = true } = {}) {
@@ -344,10 +360,12 @@
     elements.detailSummary.textContent = content.summary;
     elements.detailMetrics.innerHTML = content.metricKeys.map((key) =>
       `<div class="metric"><dt>${escapeHtml(humanizeCode(key))}</dt><dd>${escapeHtml(displayValue(valueFor(record, key), key))}</dd></div>`).join("");
-    elements.detailReasons.innerHTML = content.reasons.length
-      ? content.reasons.map((reason) => `<li>${String(reason).includes("/")
-        ? pathButton(reason) : escapeHtml(humanizeCode(reason))}</li>`).join("")
-      : "<li>No additional reasons were reported.</li>";
+    elements.detailEvidence.innerHTML = Object.entries(content.evidence)
+      .filter(([, values]) => values.filter(Boolean).length)
+      .map(([label, values]) => `<div class="detail-section"><h3>${escapeHtml(label)}</h3><ul>${values.filter(Boolean).map((value) =>
+        label === "Related paths" ? `<li>${pathButton(value)}</li>`
+          : `<li>${escapeHtml(label === "Reasons" ? humanizeCode(value) : value)}</li>`).join("")}</ul></div>`)
+      .join("") || "<div class=\"detail-section\"><h3>Supporting evidence</h3><p class=\"muted\">No additional evidence was reported.</p></div>";
     elements.detailCommands.innerHTML = content.commands.length
       ? content.commands.map((command) => `<div class="command-row"><code>${escapeHtml(command)}</code><button type="button" data-copy="${escapeHtml(command)}">Copy</button></div>`).join("")
       : "<span class=\"muted\">No path-specific command is available for this record.</span>";
@@ -418,13 +436,16 @@
       const direction = active ? (sortState[view].ascending ? "ascending" : "descending") : "none";
       return `<th scope="col" aria-sort="${direction}"><button type="button" data-key="${escapeHtml(key)}">${escapeHtml(label)}</button></th>`;
     }).join("");
+    const emptyMessage = source.length === 0
+      ? `No ${viewNames[view].toLocaleLowerCase()} were reported. Run git slop find to refresh repository evidence.`
+      : `No ${viewNames[view].toLocaleLowerCase()} match the active search and filters. Reset filters to review the complete collection.`;
     elements.rows.innerHTML = visible.length
       ? visible.map((record) => {
         const identity = recordIdentity(view, record);
         return `<tr id="${stableDomId(identity)}">${activeColumns.map((column, index) =>
           `<td>${renderCell(record, column[0], index)}</td>`).join("")}</tr>`;
       }).join("")
-      : `<tr><td class="empty-row" colspan="${activeColumns.length}">No records match these filters.</td></tr>`;
+      : `<tr><td class="empty-row" colspan="${activeColumns.length}">${escapeHtml(emptyMessage)}</td></tr>`;
     const metadata = viewMetadata();
     elements.count.textContent = `${selected.length.toLocaleString()} filtered · ${metadata.embedded.toLocaleString()} embedded of ${metadata.total.toLocaleString()} total · page ${page + 1} of ${pageCount}`;
     elements.first.disabled = page === 0;
@@ -457,6 +478,15 @@
     [elements.profile, elements.classification, elements.language, elements.contextBand,
       elements.slopBand, elements.severity].forEach((select) => { select.value = ""; });
   }
+
+  elements.resetFilters.addEventListener("click", () => {
+    clearSelection();
+    resetFilters();
+    elements.query.value = "";
+    page = 0;
+    render();
+    elements.query.focus();
+  });
 
   function openPath(path) {
     clearSelection();

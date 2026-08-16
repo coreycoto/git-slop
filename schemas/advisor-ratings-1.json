@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.16.0/schemas/advisor-ratings-1.json",
+  "title": "Git Slop advisor maintainer ratings schema 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "reviewer_count", "cases"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "reviewer_count": {"type": "integer", "minimum": 1, "maximum": 20},
+    "cases": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z0-9][a-z0-9-]*$"},
+      "additionalProperties": {"$ref": "#/$defs/rating"}
+    }
+  },
+  "$defs": {
+    "score": {"type": "number", "minimum": 1, "maximum": 5},
+    "rating": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recommendation_usefulness", "fact_interpretation_separation", "scope_quality", "verification_quality", "actionability", "unsupported_claim_count"],
+      "properties": {
+        "recommendation_usefulness": {"$ref": "#/$defs/score"},
+        "fact_interpretation_separation": {"$ref": "#/$defs/score"},
+        "scope_quality": {"$ref": "#/$defs/score"},
+        "verification_quality": {"$ref": "#/$defs/score"},
+        "actionability": {"$ref": "#/$defs/score"},
+        "unsupported_claim_count": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

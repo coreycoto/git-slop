@@ -23,6 +23,7 @@ Usage: git-slop explain [OPTIONS]
 | `--relationship` | `RELATIONSHIP` | `-` | exclusive group: path, cluster, relationship, top | Relationship identifier |
 | `--top` | `TOP` | `-` | exclusive group: path, cluster, relationship, top | Explain the top N hotspots from the action queue |
 | `--format` | `FORMAT` | `text` | values: text, json, yaml | Output format |
+| `--verbose` | `flag` | `-` | - | Include raw normalized metrics, provenance, and bounded supporting evidence in text output |
 | `--prompt-pack` | `PROMPT_PACK` | `-` | - | Write a deterministic local-model prompt pack to this directory |
 | `--force` | `flag` | `-` | - | Atomically replace an existing prompt-pack directory |
 | `--include-repository-context` | `flag` | `-` | - | Include bounded local source/test excerpts, guidance, and verification hints |

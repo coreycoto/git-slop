@@ -64,12 +64,13 @@ export function artifacts() {
   const reportPath = (process.env.GIT_SLOP_REPORT_PATH || "").trim();
   const reportYamlPath = (process.env.GIT_SLOP_REPORT_YAML_PATH || "").trim();
   const summaryPath = (process.env.GIT_SLOP_SUMMARY_PATH || "").trim();
+  const htmlPath = (process.env.GIT_SLOP_HTML_PATH || "").trim();
   const comparisonPath = (process.env.GIT_SLOP_COMPARISON_PATH || "").trim();
   const comparisonErrorPath = (process.env.GIT_SLOP_COMPARISON_ERROR_PATH || "").trim();
   const allowed = {
     summary: [healthPath, analysisErrorPath, comparisonErrorPath],
     report: [healthPath, reportPath, compressedReportPath, analysisErrorPath, comparisonPath, comparisonErrorPath],
-    full: [healthPath, summaryPath, reportPath, compressedReportPath, reportYamlPath, analysisErrorPath, comparisonPath, comparisonErrorPath],
+    full: [healthPath, summaryPath, htmlPath, reportPath, compressedReportPath, reportYamlPath, analysisErrorPath, comparisonPath, comparisonErrorPath],
   };
   const paths = allowed[mode].filter((candidate) => candidate && existsSync(candidate));
   if (!paths.includes(healthPath)) throw new Error("bounded artifact selection requires health.md");

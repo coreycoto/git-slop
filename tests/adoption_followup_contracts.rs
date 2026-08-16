@@ -150,9 +150,34 @@ fn cache_prune_requires_explicit_yes_before_removing_entries() {
     let repository = fixture_repository();
     cargo_bin_cmd!("git-slop")
         .current_dir(repository.path())
+        .args(["find", "--quiet"])
+        .assert()
+        .success();
+    let private_cache = cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["cache", "status", "--format", "json"])
+        .output()
+        .expect("private cache status");
+    let private_cache: Value = serde_json::from_slice(&private_cache.stdout).unwrap();
+    assert!(private_cache["entries"].as_u64().unwrap_or_default() > 0);
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["prune", "--keep", "0", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"dry_run\": true"))
+        .stdout(predicates::str::contains("\"runs\": 1"));
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
         .args(["find", "--quiet", "--persist-unadopted"])
         .assert()
         .success();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["doctor", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"storage\": \"durable\""));
     let status = cargo_bin_cmd!("git-slop")
         .current_dir(repository.path())
         .args(["cache", "status", "--format", "json"])

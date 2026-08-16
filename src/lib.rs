@@ -1,5 +1,6 @@
 #![recursion_limit = "512"]
 
+pub(crate) mod advice;
 mod analyze;
 pub(crate) mod baseline;
 pub(crate) mod build_info;
@@ -15,6 +16,7 @@ pub(crate) mod history;
 pub(crate) mod inventory;
 mod model;
 pub(crate) mod overlays;
+pub(crate) mod policy;
 pub(crate) mod report;
 pub(crate) mod report_ops;
 pub(crate) mod scoring;

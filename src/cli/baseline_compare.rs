@@ -453,7 +453,8 @@ fn run_baseline(repo_root: &Path, args: BaselineArgs) -> Result<i32> {
 }
 
 fn run_compare(repo_root: &Path, args: CompareArgs) -> Result<i32> {
-    let head_report = report_or_missing(Path::new(""), Some(&args.head))?.0;
+    let head_path = resolve_repo_path(repo_root, &args.head);
+    let head_report = report_or_missing(Path::new(""), Some(&head_path))?.0;
     let inferred_scope = args.scope.clone().or_else(|| {
         head_report
             .pointer("/scope/path")
@@ -485,7 +486,7 @@ fn run_compare(repo_root: &Path, args: CompareArgs) -> Result<i32> {
     let base_path = args
         .base
         .as_deref()
-        .map(Path::to_path_buf)
+        .map(|path| resolve_repo_path(repo_root, path))
         .or_else(|| materialized.as_ref().map(|value| value.report_path.clone()))
         .or(named_baseline_path)
         .expect("Clap requires --base, --base-ref, or --baseline");
@@ -539,7 +540,7 @@ fn run_compare(repo_root: &Path, args: CompareArgs) -> Result<i32> {
         &base_report,
         &head_report,
         Some(&base_descriptor),
-        Some(&local_descriptor(&args.head)),
+        Some(&local_descriptor(&head_path)),
         top,
         args.force,
         args.allow_incomplete_evidence,

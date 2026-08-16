@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use git_slop_xtask::{
-    codex, crates_io, developer, distribution, finish_validation, homebrew, issue_forms, manifest,
-    release, repository, sbom, workflows,
+    advisor_benchmark, codex, crates_io, developer, distribution, finish_validation, homebrew,
+    issue_forms, manifest, release, release_status, repository, sbom, workflows,
 };
 
 #[derive(Debug, Parser)]
@@ -23,9 +23,17 @@ struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "the private Clap maintainer CLI keeps benchmark inputs explicit and is parsed once"
+)]
 enum Command {
     /// Check local contributor prerequisites and print actionable installation guidance.
-    Doctor,
+    Doctor {
+        /// Select human progress or one machine-readable terminal receipt.
+        #[arg(long, value_enum, default_value_t = ReceiptFormat::Text)]
+        format: ReceiptFormat,
+    },
 
     /// Run the complete cross-platform local validation matrix.
     Ci {
@@ -45,6 +53,9 @@ enum Command {
         /// Print selected and skipped gates without running them.
         #[arg(long)]
         dry_run: bool,
+        /// Select human progress or one machine-readable terminal receipt.
+        #[arg(long, value_enum, default_value_t = ReceiptFormat::Text)]
+        format: ReceiptFormat,
     },
 
     /// Validate every repository-owned maintainer contract.
@@ -85,6 +96,86 @@ enum Command {
         /// Validate only the Cargo version and candidate HEAD identity.
         #[arg(long)]
         check_only: bool,
+    },
+
+    /// Inspect draft readiness, public immutability, and downstream receiver state.
+    ReleaseStatus {
+        #[arg(long)]
+        version: String,
+        /// Select human output or one machine-readable receipt.
+        #[arg(long, value_enum, default_value_t = ReceiptFormat::Text)]
+        format: ReceiptFormat,
+    },
+
+    /// Run the privacy-safe local Safeguard quality and performance matrix.
+    AdvisorBenchmark {
+        /// Release-mode git-slop binary to benchmark.
+        #[arg(long, default_value = "target/release/git-slop")]
+        binary: PathBuf,
+        /// Reviewed corpus file.
+        #[arg(long, default_value = "benchmarks/advisor/corpus-v1.json")]
+        corpus: PathBuf,
+        /// Preregistered decision thresholds.
+        #[arg(long, default_value = "benchmarks/advisor/thresholds-v1.json")]
+        thresholds: PathBuf,
+        /// Repository mapping in KEY=PATH form; repeat for every corpus repository.
+        #[arg(long = "repository", required = true)]
+        repositories: Vec<String>,
+        /// Local provider adapter used for the benchmark.
+        #[arg(long, value_parser = ["ollama", "openai-compatible"], default_value = "ollama")]
+        provider: String,
+        /// Loopback provider endpoint; defaults to the selected provider's local endpoint.
+        #[arg(long)]
+        endpoint: Option<String>,
+        /// Runtime-specific served model name.
+        #[arg(long, default_value = "gpt-oss-safeguard:20b")]
+        runtime_model: String,
+        /// Exact local runtime name and version.
+        #[arg(long)]
+        runtime_label: String,
+        /// Exact model digest or immutable revision.
+        #[arg(long)]
+        model_digest: String,
+        /// Exact model quantization reported by the local runtime.
+        #[arg(long, default_value = "not-applicable")]
+        model_quantization: String,
+        /// Ignored output directory for aggregate results and the decision report.
+        #[arg(long, default_value = "benchmark-results/advisor")]
+        output_dir: PathBuf,
+        /// Repetitions per matrix cell.
+        #[arg(long, default_value_t = 3)]
+        repetitions: usize,
+        /// Run low/medium/high reasoning across 2K/4K/8K token targets.
+        #[arg(long)]
+        full_matrix: bool,
+        /// Generate fresh deterministic reports and privacy-safe fingerprints without inference.
+        #[arg(long)]
+        prepare_only: bool,
+        /// Optional JSON map of anonymous case IDs to maintainer usefulness ratings from 1 through 5.
+        #[arg(long)]
+        ratings: Option<PathBuf>,
+        /// Explicit private directory outside the repository for one review artifact per case and effort.
+        #[arg(long)]
+        review_output_dir: Option<PathBuf>,
+        /// Stop this Ollama model before the first sample to measure a real cold load.
+        #[arg(long)]
+        ollama_cold_model: Option<String>,
+    },
+
+    /// Apply reviewed manual ratings to a completed advisor benchmark without rerunning inference.
+    AdvisorBenchmarkFinalize {
+        /// Reviewed corpus file used by the completed benchmark.
+        #[arg(long, default_value = "benchmarks/advisor/corpus-v1.json")]
+        corpus: PathBuf,
+        /// Preregistered thresholds used by the completed benchmark.
+        #[arg(long, default_value = "benchmarks/advisor/thresholds-v1.json")]
+        thresholds: PathBuf,
+        /// Completed machine-readable benchmark results.
+        #[arg(long, default_value = "benchmark-results/advisor/results.json")]
+        results: PathBuf,
+        /// Completed private maintainer ratings covering every anonymous corpus case.
+        #[arg(long)]
+        ratings: PathBuf,
     },
 
     /// Verify a downloaded crates.io package and write canonical source metadata.
@@ -145,6 +236,12 @@ enum CiFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ReceiptFormat {
+    Text,
+    Json,
+}
+
 fn main() {
     if let Err(error) = run(Cli::parse()) {
         eprintln!("error: {error:#}");
@@ -161,15 +258,22 @@ fn run(cli: Cli) -> Result<()> {
     })?;
 
     match cli.command {
-        Command::Doctor => developer::doctor(&repo_root),
+        Command::Doctor { format } => developer::doctor(&repo_root, format == ReceiptFormat::Json),
         Command::Ci { quiet, format } => developer::ci(
             &repo_root,
             quiet || format == CiFormat::Json,
             format == CiFormat::Json,
         ),
-        Command::VerifyChanged { base, dry_run } => {
-            developer::verify_changed(&repo_root, base.as_deref(), dry_run)
-        }
+        Command::VerifyChanged {
+            base,
+            dry_run,
+            format,
+        } => developer::verify_changed(
+            &repo_root,
+            base.as_deref(),
+            dry_run,
+            format == ReceiptFormat::Json,
+        ),
         Command::Validate { require_codex_cli } => {
             let mut errors = codex::validate(&repo_root, require_codex_cli);
             errors.extend(workflows::validate(&repo_root));
@@ -217,6 +321,72 @@ fn run(cli: Cli) -> Result<()> {
             for message in prepared.messages {
                 println!("{message}");
             }
+            Ok(())
+        }
+        Command::ReleaseStatus { version, format } => {
+            release_status::inspect(&repo_root, &version, format == ReceiptFormat::Json)
+        }
+        Command::AdvisorBenchmark {
+            binary,
+            corpus,
+            thresholds,
+            repositories,
+            provider,
+            endpoint,
+            runtime_model,
+            runtime_label,
+            model_digest,
+            model_quantization,
+            output_dir,
+            repetitions,
+            full_matrix,
+            prepare_only,
+            ratings,
+            review_output_dir,
+            ollama_cold_model,
+        } => {
+            let (results, decision) = advisor_benchmark::run(&advisor_benchmark::Options {
+                repo_root,
+                binary,
+                corpus,
+                thresholds,
+                repositories,
+                endpoint: endpoint.unwrap_or_else(|| {
+                    if provider == "ollama" {
+                        "http://127.0.0.1:11434/api/chat".to_string()
+                    } else {
+                        "http://127.0.0.1:11434/v1/chat/completions".to_string()
+                    }
+                }),
+                provider,
+                runtime_model,
+                runtime_label,
+                model_digest,
+                model_quantization,
+                output_dir,
+                repetitions,
+                full_matrix,
+                prepare_only,
+                ratings,
+                review_output_dir,
+                ollama_cold_model,
+            })?;
+            println!("Wrote advisor benchmark results: {}", results.display());
+            println!("Wrote advisor benchmark decision: {}", decision.display());
+            Ok(())
+        }
+        Command::AdvisorBenchmarkFinalize {
+            corpus,
+            thresholds,
+            results,
+            ratings,
+        } => {
+            let decision =
+                advisor_benchmark::finalize(&repo_root, &corpus, &thresholds, &results, &ratings)?;
+            println!(
+                "Finalized advisor benchmark decision: {}",
+                decision.display()
+            );
             Ok(())
         }
         Command::VerifyCrate {

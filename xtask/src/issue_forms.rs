@@ -18,6 +18,18 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
     for (filename, expected_title, expected_label) in FORMS {
         let path = template_root.join(filename);
         let label = format!(".github/ISSUE_TEMPLATE/{filename}");
+        if let Ok(text) = fs::read_to_string(&path) {
+            if let Some(literal) = shipped_version_literal(&text) {
+                errors.push(format!(
+                    "{label} must use version-neutral examples such as 0.x.y, not {literal:?}."
+                ));
+            }
+            if let Some(literal) = concrete_quarter_literal(&text) {
+                errors.push(format!(
+                    "{label} must use the quarter placeholder YYYY QN, not {literal:?}."
+                ));
+            }
+        }
         let Some(payload) = load_mapping(&path, &label, &mut errors) else {
             continue;
         };
@@ -143,6 +155,33 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
     errors
 }
 
+fn shipped_version_literal(text: &str) -> Option<&str> {
+    text.split(|character: char| !(character.is_ascii_alphanumeric() || character == '.'))
+        .find(|token| {
+            let parts = token.split('.').collect::<Vec<_>>();
+            parts.len() == 3
+                && parts.iter().all(|part| {
+                    !part.is_empty() && part.chars().all(|value| value.is_ascii_digit())
+                })
+        })
+}
+
+fn concrete_quarter_literal(text: &str) -> Option<String> {
+    let words = text
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    words.windows(2).find_map(|pair| {
+        let year = pair[0];
+        let quarter = pair[1];
+        (year.len() == 4
+            && year.starts_with("20")
+            && year.chars().all(|value| value.is_ascii_digit())
+            && matches!(quarter, "Q1" | "Q2" | "Q3" | "Q4"))
+        .then(|| format!("{year} {quarter}"))
+    })
+}
+
 fn load_mapping(path: &Path, label: &str, errors: &mut Vec<String>) -> Option<Mapping> {
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
@@ -212,5 +251,19 @@ mod tests {
                 .iter()
                 .any(|error| error.contains("must define at least one contact link"))
         );
+    }
+
+    #[test]
+    fn rejects_shipped_versions_and_concrete_quarters() {
+        assert_eq!(
+            shipped_version_literal("placeholder: 0.15.0"),
+            Some("0.15.0")
+        );
+        assert_eq!(
+            concrete_quarter_literal("placeholder: 2026 Q2").as_deref(),
+            Some("2026 Q2")
+        );
+        assert_eq!(shipped_version_literal("placeholder: 0.x.y"), None);
+        assert_eq!(concrete_quarter_literal("placeholder: YYYY QN"), None);
     }
 }

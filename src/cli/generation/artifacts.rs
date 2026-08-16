@@ -31,6 +31,14 @@ enum SchemaContract {
     Baseline,
     Prune,
     CompareNdjson,
+    PolicyPack,
+    PolicyLock,
+    AdviceInput,
+    AdviceResponse,
+    Advice,
+    AdvisorCorpus,
+    AdvisorRatings,
+    AdvisorBenchmark,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

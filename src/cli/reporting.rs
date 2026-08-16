@@ -1,7 +1,10 @@
-fn run_report(args: ReportArgs) -> Result<i32> {
+fn run_report(repo_root: &Path, args: ReportArgs) -> Result<i32> {
     match args.command {
         ReportCommand::Validate { path, report, allow_legacy, format } => {
-            let path = path.or(report).expect("Clap requires a report path");
+            let path = resolve_repo_path(
+                repo_root,
+                &path.or(report).expect("Clap requires a report path"),
+            );
             match report::load_report_with_legacy(&path, allow_legacy) {
                 Ok(value) => {
                     let payload = json!({
@@ -40,6 +43,8 @@ fn run_report(args: ReportArgs) -> Result<i32> {
             }
         }
         ReportCommand::Migrate { path, output } => {
+            let path = resolve_repo_path(repo_root, &path);
+            let output = resolve_repo_path(repo_root, &output);
             let source = fs::read_to_string(&path)
                 .with_context(|| format!("failed to read {}", path.display()))?;
             let value: Value = serde_json::from_str(&source)
@@ -134,12 +139,26 @@ fn run_health(repo_root: &Path, args: HealthArgs) -> Result<i32> {
         object.insert("health".to_string(), health_value);
     }
     match args.format {
-        HealthFormat::Text => print_text(&report::render_terminal(&loaded)),
+        HealthFormat::Text => {
+            if let Some(freshness) = freshness.as_ref().filter(|value| !value.current) {
+                println!(
+                    "REPORT SNAPSHOT: stale ({}); repository values below describe the analyzed snapshot, not the current worktree.\n",
+                    freshness.reason_codes()
+                );
+            }
+            print_text(&report::render_terminal(&loaded));
+        }
         HealthFormat::Markdown => {
-            let rendered = match health::render_health_from_report(&loaded) {
+            let mut rendered = match health::render_health_from_report(&loaded) {
                 Ok(rendered) => rendered,
                 Err(error) => return usage_error(error),
             };
+            if let Some(freshness) = freshness.as_ref().filter(|value| !value.current) {
+                rendered = format!(
+                    "> **Stale report snapshot:** {}. Repository values describe the analyzed snapshot, not the current worktree.\n\n{rendered}",
+                    freshness.reason_codes()
+                );
+            }
             print_text(&rendered);
         }
         HealthFormat::Github => {
@@ -237,6 +256,19 @@ fn run_config(repo_root: &Path, args: ConfigArgs) -> Result<i32> {
             print_text(&serde_yaml::to_string(&diff)?);
         }
         ConfigCommand::Migrate { dry_run, no_backup } => {
+            let path = config::config_path(repo_root);
+            if !path.exists() {
+                println!(
+                    "No repository configuration to migrate; built-in defaults already use schema 2."
+                );
+                return Ok(0);
+            }
+            let source = fs::read_to_string(&path)?;
+            let declared: Value = serde_yaml::from_str(&source)?;
+            if declared.get("schema_version").and_then(Value::as_i64) == Some(2) {
+                println!("Configuration is already schema 2; {} was not changed.", path.display());
+                return Ok(0);
+            }
             let effective = load_config_contract(repo_root)?;
             let mut diff = diff_values(&effective, &config::default_config());
             if let Some(object) = diff.as_object_mut() {
@@ -246,20 +278,20 @@ fn run_config(repo_root: &Path, args: ConfigArgs) -> Result<i32> {
             if dry_run {
                 println!(
                     "# Preview only; {} was not changed.",
-                    config::config_path(repo_root).display()
+                    path.display()
                 );
                 print_text(&rendered);
                 return Ok(0);
             }
             config::ensure_state_dirs(repo_root)?;
             let backup = config::write_text_atomically(
-                &config::config_path(repo_root),
+                &path,
                 rendered,
                 !no_backup,
             )?;
             println!(
                 "Migrated {} to schema 2.",
-                config::config_path(repo_root).display()
+                path.display()
             );
             if let Some(backup) = backup {
                 println!("Recovery backup: {}.", backup.display());

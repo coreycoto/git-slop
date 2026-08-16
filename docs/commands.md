@@ -3,11 +3,12 @@
 Git Slop commands are local-first and deterministic. A typical workflow is:
 
 ```text
-doctor/config -> init -> find -> health/show/explain -> plan -> compare/check
+doctor/config -> find -> health/show/explain -> plan -> compare/check
 ```
 
 `find` runs the detector. The other analysis commands consume existing report
-artifacts without rescoring detector truth.
+artifacts without rescoring detector truth. `init` is an optional adoption step
+for a team that wants repo-owned configuration and durable `.slop/` state.
 
 The installed executable is `git-slop`. When it is on `PATH`, Git can also run
 it as `git slop`.
@@ -15,14 +16,13 @@ it as `git slop`.
 ## Core Workflow
 
 ```bash
-git-slop init
-git-slop init --check
 git-slop find
 git-slop health
 git-slop show README.md
 git-slop explain --top 5
 git-slop plan --path src
 git-slop check
+git-slop init --check
 git-slop version
 git-slop build-info --format json
 git-slop doctor --bundle

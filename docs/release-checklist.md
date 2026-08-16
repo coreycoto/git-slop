@@ -83,6 +83,12 @@ scope is wrong.
 - Update `Cargo.toml`, `Cargo.lock`, the Action's default `version`, examples,
   and generated release-note inputs to the same stable version.
 - Confirm there is no prerelease suffix or leading zero.
+- For a release that introduces or materially changes the policy-guided
+  advisor, run the complete pinned Safeguard matrix in
+  [the V1 benchmark protocol](benchmarks/safeguard-v1.md). Require a `ship`
+  recommendation, all automatic gates, and all maintainer-rating gates before
+  declaring that advisor ready. A prepare-only, unpinned, partial, mock, or
+  model-unavailable result is not release evidence.
 - Confirm `action.yml` remains the only root Action metadata file and its
   Marketplace name, description, branding, inputs, and outputs are current.
 - Confirm the nested Actions in `action.yml` and release workflows are pinned
@@ -111,6 +117,12 @@ cargo xtask validate
 node --test action/*.test.mjs
 cargo publish -p git-slop --dry-run --locked
 ```
+
+If `gh release verify` or `gh attestation verify` cannot refresh its
+Sigstore/TUF cache because the home cache is read-only, scope `XDG_CACHE_HOME`
+to a newly created private temporary directory for that command. Never disable
+attestation verification or reuse an untrusted shared cache to work around a
+write-permission error.
 
 Do not create or push the release tag manually. The workflow deliberately
 creates it only after crates.io has accepted and served the exact candidate
@@ -287,7 +299,8 @@ inventory for the Formula and SBOMs; publisher and receiver workflows derive
 their expected filenames from it instead of duplicating those filenames.
 GitHub's release asset digests, the manifest's target matrix and source
 provenance, the exact tag commit, the crate checksum, and the Action installer
-must all verify before
+must all verify before inspecting or publishing the draft.
+
 Inspect the draft and workflow summary:
 
 ```bash

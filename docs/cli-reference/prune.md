@@ -16,6 +16,7 @@ Usage: git-slop prune [OPTIONS]
 
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
+| `--state-dir` | `PATH` | `-` | - | Mutable state directory. Defaults to the same active root as find |
 | `--keep` | `KEEP` | `-` | - | Number of newest run snapshots to retain; defaults to output.retention_runs |
 | `--max-bytes` | `MAX_BYTES` | `-` | - | Maximum total bytes retained; defaults to output.retention_bytes |
 | `--dry-run` | `flag` | `-` | conflicts: --yes | Explicitly request preview behavior (preview is already the default) |

@@ -22,3 +22,4 @@ docs/plans/
 
 # Generated agent and governance artifacts
 .artifacts/
+benchmark-results/

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.16.0 - 2026-08-15
+
+This release completes the 43-finding user and developer experience audit:
+safer unadopted state, clearer snapshot semantics, a decision-ready portable
+report and Action artifact, machine-verifiable maintainer workflows, focused
+module boundaries, and an optional policy-guided local advisor that cannot
+alter deterministic detector truth.
+
+See the [complete numbered 0.16.0 release notes](docs/releases/0.16.0.md).
+
 ## 0.15.0 - 2026-08-15
 
 This release completes the 18-finding user and developer experience audit:

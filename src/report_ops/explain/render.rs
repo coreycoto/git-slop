@@ -421,6 +421,97 @@ fn render_top_explain(payload: &Value) -> String {
     format!("{}\n", lines.join("\n"))
 }
 
+pub fn render_explain_summary_text(payload: &Value) -> String {
+    if string(value_at(payload, &["selector", "kind"])) == "top" {
+        let items = array_at(payload, &["items"]);
+        if items.is_empty() {
+            return "Explain: no matching hotspots\n\nNo action-queue hotspots were present in this report.\n".to_string();
+        }
+        let mut lines = vec!["Why these hotspots matter".to_string(), String::new()];
+        for (index, item) in items.iter().enumerate() {
+            let target = item.get("target").unwrap_or(&Value::Null);
+            lines.push(format!(
+                "{}. {} — {}",
+                index + 1,
+                string(target.get("path")),
+                string_or(
+                    value_at(item, &["evidence_summary", "interpretation"]),
+                    "This path combines enough repository cost signals to merit review."
+                )
+            ));
+        }
+        lines.push(String::new());
+        lines.push(
+            "Use `git slop explain --path <path> --verbose` for normalized metrics and provenance."
+                .to_string(),
+        );
+        lines.push(String::new());
+        lines.push(string(payload.get("boundary_note")));
+        return format!("{}\n", lines.join("\n"));
+    }
+
+    let target = payload.get("target").unwrap_or(&Value::Null);
+    let kind = string(target.get("kind"));
+    let label = if kind == "path" {
+        string(target.get("path"))
+    } else {
+        string(target.get("id"))
+    };
+    let interpretation = string_or(
+        value_at(payload, &["evidence_summary", "interpretation"]),
+        "The report found structural evidence worth a bounded maintainer review.",
+    );
+    let mut lines = vec![
+        format!("Why this matters: {label}"),
+        String::new(),
+        interpretation,
+        String::new(),
+        "What the report observed".to_string(),
+    ];
+    match kind.as_str() {
+        "path" => lines.push(format!(
+            "- Maintenance pressure is {} and context load is {}.",
+            string_or(target.get("slop_band"), "not classified"),
+            string_or(target.get("context_band"), "not classified")
+        )),
+        "relationship" => lines.push(format!(
+            "- {} and {} have a {} relationship supported by repository history or structure.",
+            string(target.get("source_path")),
+            string(target.get("target_path")),
+            string_or(target.get("relationship_kind"), "recorded")
+        )),
+        "cluster" => lines.push(format!(
+            "- The {} cluster groups {} related paths for joint review.",
+            string_or(target.get("cluster_kind"), "recorded"),
+            string_array(target.get("member_paths")).len()
+        )),
+        _ => {
+            lines.push("- The selected report record has bounded supporting evidence.".to_string())
+        }
+    }
+    lines.push(String::new());
+    lines.push("Suggested next step".to_string());
+    match kind.as_str() {
+        "path" => lines.push(format!(
+            "- Draft a bounded proposal: git slop plan --path {}",
+            shell_quote(&label)
+        )),
+        "relationship" => lines.push(format!(
+            "- Draft a bounded proposal: git slop plan --relationship {}",
+            shell_quote(&label)
+        )),
+        "cluster" => lines.push(format!(
+            "- Draft a bounded proposal: git slop plan --cluster {}",
+            shell_quote(&label)
+        )),
+        _ => {}
+    }
+    lines.push("- Show raw evidence: rerun this command with `--verbose`.".to_string());
+    lines.push(String::new());
+    lines.push(string(payload.get("boundary_note")));
+    format!("{}\n", lines.join("\n"))
+}
+
 pub fn render_explain_text(payload: &Value) -> String {
     if string(value_at(payload, &["selector", "kind"])) == "top" {
         return render_top_explain(payload);

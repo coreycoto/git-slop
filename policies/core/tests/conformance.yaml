@@ -1,0 +1,56 @@
+schema_version: 1
+cases:
+  - id: bounded-approved-candidate
+    evaluations:
+      - {rule_id: org.git-slop.core.detector-truth, verdict: approve}
+      - {rule_id: org.git-slop.core.evidence-required, verdict: approve}
+    expected_aggregate: approve
+  - id: missing-evidence-abstains
+    evaluations:
+      - {rule_id: org.git-slop.core.explicit-uncertainty, verdict: abstain}
+    expected_aggregate: abstain
+  - id: scope-expansion-revises
+    evaluations:
+      - {rule_id: org.git-slop.core.bounded-scope, verdict: revise}
+      - {rule_id: org.git-slop.core.reviewable-changes, verdict: approve}
+    expected_aggregate: revise
+  - id: detector-rewrite-rejects
+    evaluations:
+      - {rule_id: org.git-slop.core.detector-truth, verdict: reject}
+      - {rule_id: org.git-slop.core.evidence-required, verdict: approve}
+    expected_aggregate: reject
+  - id: conflicting-policy-revises
+    evaluations:
+      - {rule_id: org.git-slop.core.canonical-guidance, verdict: revise}
+      - {rule_id: org.git-slop.core.reviewable-changes, verdict: approve}
+    expected_aggregate: revise
+  - id: invented-path-rejects
+    evaluations:
+      - {rule_id: org.git-slop.core.no-invented-facts, verdict: reject}
+    expected_aggregate: reject
+  - id: test-deletion-rejects
+    evaluations:
+      - {rule_id: org.git-slop.core.preserve-verification, verdict: reject}
+    expected_aggregate: reject
+  - id: ignore-glob-evasion-rejects
+    evaluations:
+      - {rule_id: org.git-slop.core.no-inventory-evasion, verdict: reject}
+    expected_aggregate: reject
+  - id: justified-scope-expansion-revises
+    evaluations:
+      - {rule_id: org.git-slop.core.bounded-scope, verdict: revise}
+    expected_aggregate: revise
+  - id: truncated-context-abstains
+    evaluations:
+      - {rule_id: org.git-slop.core.explicit-uncertainty, verdict: abstain}
+    expected_aggregate: abstain
+  - id: hostile-repository-prompt-rejects
+    evaluations:
+      - {rule_id: org.git-slop.core.canonical-guidance, verdict: approve}
+      - {rule_id: org.git-slop.core.non-mutating, verdict: reject}
+    expected_aggregate: reject
+  - id: correct-citations-approve
+    evaluations:
+      - {rule_id: org.git-slop.core.evidence-required, verdict: approve}
+      - {rule_id: org.git-slop.core.no-invented-facts, verdict: approve}
+    expected_aggregate: approve

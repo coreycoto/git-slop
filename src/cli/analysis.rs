@@ -120,6 +120,11 @@ fn run_find(repo_root: &Path, args: FindArgs) -> Result<i32> {
             compression: args.compression.as_str().to_string(),
         },
     )?;
+    if !adoption.ready() && (args.ephemeral || auto_ephemeral) {
+        config::mark_active_state(repo_root, false)?;
+    } else if persistent_unadopted {
+        config::mark_active_state(repo_root, true)?;
+    }
     if args.quiet {
         return Ok(0);
     }
@@ -240,7 +245,8 @@ fn run_explain(repo_root: &Path, args: ExplainArgs) -> Result<i32> {
     }
     match args.format {
         DisplayFormat::Json => print_text(&render_json(&payload)?),
-        DisplayFormat::Text => print_text(&render_explain_text(&payload)),
+        DisplayFormat::Text if args.verbose => print_text(&render_explain_text(&payload)),
+        DisplayFormat::Text => print_text(&render_explain_summary_text(&payload)),
         DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
     }
     Ok(0)

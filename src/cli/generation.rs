@@ -1,15 +1,84 @@
+fn open_report_url(url: &str) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", ""]);
+        command
+    };
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let mut command = std::process::Command::new("xdg-open");
+    let status = command.arg(url).status()?;
+    if !status.success() {
+        bail!("failed to open the report URL with the system browser");
+    }
+    Ok(())
+}
+
+fn serve_report(html: &str, seconds: u64, open: bool) -> Result<()> {
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
+    listener.set_nonblocking(true)?;
+    let address = listener.local_addr()?;
+    let url = format!("http://{address}/");
+    println!("Serving the local report at {url}");
+    println!("Loopback only; press Ctrl-C to stop, or wait {seconds} second(s).");
+    if open {
+        open_report_url(&url)?;
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+    while std::time::Instant::now() < deadline {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                // A client that connects and never finishes a request must not keep the
+                // temporary server alive past its advertised lifetime.
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                let connection_timeout = remaining
+                    .min(std::time::Duration::from_secs(2))
+                    .max(std::time::Duration::from_millis(100));
+                stream.set_read_timeout(Some(connection_timeout))?;
+                stream.set_write_timeout(Some(connection_timeout))?;
+                let mut request = [0_u8; 2048];
+                let read = stream.read(&mut request).unwrap_or_default();
+                let request = String::from_utf8_lossy(&request[..read]);
+                let body = if request.starts_with("GET / ") { html } else { "Not found" };
+                let status = if request.starts_with("GET / ") {
+                    "200 OK"
+                } else {
+                    "404 Not Found"
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )?;
+                stream.flush()?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    println!("Stopped the temporary report server.");
+    Ok(())
+}
+
 fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
     let (loaded, report_path) = report_or_missing_with_currentness(
         repo_root,
         args.report.as_deref(),
         args.require_current,
     )?;
-    let output = args.output.unwrap_or_else(|| {
+    let output = args
+        .output
+        .map(|path| resolve_repo_path(repo_root, &path))
+        .unwrap_or_else(|| {
         report_path
             .parent()
             .map_or_else(|| config::latest_dir(repo_root), Path::to_path_buf)
             .join("report.html")
-    });
+        });
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -63,6 +132,9 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
     let source_report = args
         .include_local_paths
         .then(|| relative_display(&report_path, repo_root));
+    let freshness = (!repo_root.as_os_str().is_empty())
+        .then(|| crate::freshness::evaluate(repo_root, &loaded).ok())
+        .flatten();
     let payload = serde_json::to_string(&json!({
         "schema_version": loaded.get("schema_version"),
         "generated_at": loaded.get("generated_at"),
@@ -114,6 +186,7 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
             }
         },
         "source_report": source_report
+        ,"freshness": freshness
     }))?
     .replace("</", "<\\/");
     let csp_nonce = &hex::encode(sha2::Sha256::digest(payload.as_bytes()))[..24];
@@ -140,6 +213,7 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
   <main id="report-main" class="shell">
     <section class="report-card" aria-labelledby="report-heading">
       <h2 id="report-heading" class="sr">Report explorer</h2>
+      <p id="freshness" class="notice" role="status"></p>
       <p id="truncation" class="notice" role="status"></p>
       <p id="selection-status" class="sr" role="status" aria-live="polite"></p>
       <section class="overview" aria-labelledby="overview-heading">
@@ -189,6 +263,9 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
           <label for="severity">Review severity</label>
           <select id="severity"><option value="">All severities</option></select>
         </div>
+        <div class="control control-action">
+          <button id="reset-filters" type="button">Reset filters</button>
+        </div>
       </div>
       <div class="results-toolbar">
         <div>
@@ -222,10 +299,7 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
         </div>
         <p id="detail-summary" class="detail-summary"></p>
         <dl id="detail-metrics" class="metric-grid"></dl>
-        <div class="detail-section">
-          <h3>Supporting reasons</h3>
-          <ul id="detail-reasons"></ul>
-        </div>
+        <div id="detail-evidence"></div>
         <div class="detail-section">
           <h3>Next commands</h3>
           <div id="detail-commands" class="command-list"></div>
@@ -255,5 +329,9 @@ fn run_html(repo_root: &Path, args: HtmlArgs) -> Result<i32> {
     );
     config::write_text_atomically(&output, html, false)?;
     println!("Wrote local HTML report to {}.", output.display());
+    if args.serve {
+        let html = fs::read_to_string(&output)?;
+        serve_report(&html, args.serve_seconds, args.open)?;
+    }
     Ok(0)
 }

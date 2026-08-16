@@ -3,7 +3,7 @@
 Git Slop is distributed as one `git-slop` executable. When it is on `PATH`, Git
 also accepts `git slop`.
 
-The examples below pin 0.15.0. Confirm that the requested distribution surface
+The examples below pin 0.16.0. Confirm that the requested distribution surface
 publishes that exact version before installing it; documentation on `main` does
 not itself prove availability.
 
@@ -49,7 +49,7 @@ archives. After the exact crate and GitHub Release are public, install the
 pinned version without compiling it locally:
 
 ```bash
-cargo binstall git-slop@0.15.0
+cargo binstall git-slop@0.16.0
 git-slop version
 git-slop build-info --format json
 ```
@@ -65,7 +65,7 @@ Update to another explicitly reviewed version by changing the pin and using
 `--force`; uninstall through Cargo's shared binary registry:
 
 ```bash
-cargo binstall --force git-slop@0.15.0
+cargo binstall --force git-slop@0.16.0
 cargo uninstall git-slop
 ```
 
@@ -77,7 +77,7 @@ manifest lives in the separate, public
 repository and consumes the existing Windows release archives; it is not an
 additional `git-slop` release asset.
 
-After the bucket lists 0.15.0, install it from PowerShell:
+After the bucket lists 0.16.0, install it from PowerShell:
 
 ```powershell
 scoop bucket add coreycoto https://github.com/coreycoto/scoop-bucket
@@ -143,8 +143,22 @@ also available from `git slop schema release-manifest`.
 Verify the release record itself before downloading assets:
 
 ```bash
-gh release verify v0.15.0 --repo coreycoto/git-slop
+gh release verify v0.16.0 --repo coreycoto/git-slop
 ```
+
+GitHub CLI release and artifact verification may refresh Sigstore/TUF trust
+metadata through its cache. In a sandbox or read-only home directory, give the
+single verification command a private writable cache instead of changing a
+global home directory or skipping verification:
+
+```bash
+verification_cache="$(mktemp -d)"
+XDG_CACHE_HOME="$verification_cache" \
+  gh release verify v0.16.0 --repo coreycoto/git-slop
+```
+
+Remove that temporary directory after verification. Do not share it across
+untrusted jobs, commit it, or treat a cache workaround as an attestation bypass.
 
 The direct-install guides also cover safe updates, shell activation, and
 uninstallation without removing unrelated user configuration.
@@ -173,16 +187,16 @@ PowerShell and Nushell use `git-slop completions powershell` and
 `git-slop completions nushell` respectively.
 
 GitHub also publishes artifact attestations for every native archive. The
-schema-3 manifest contains these exact commands; for `v0.15.0` they are:
+schema-3 manifest contains these exact commands; for `v0.16.0` they are:
 
 ```bash
-gh attestation verify git-slop-v0.15.0-aarch64-apple-darwin.tar.gz --repo coreycoto/git-slop
-gh attestation verify git-slop-v0.15.0-aarch64-pc-windows-msvc.zip --repo coreycoto/git-slop
-gh attestation verify git-slop-v0.15.0-aarch64-unknown-linux-gnu.tar.gz --repo coreycoto/git-slop
-gh attestation verify git-slop-v0.15.0-x86_64-apple-darwin.tar.gz --repo coreycoto/git-slop
-gh attestation verify git-slop-v0.15.0-x86_64-pc-windows-msvc.zip --repo coreycoto/git-slop
-gh attestation verify git-slop-v0.15.0-x86_64-unknown-linux-gnu.tar.gz --repo coreycoto/git-slop
-gh attestation verify git-slop-v0.15.0-x86_64-unknown-linux-musl.tar.gz --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.16.0-aarch64-apple-darwin.tar.gz --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.16.0-aarch64-pc-windows-msvc.zip --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.16.0-aarch64-unknown-linux-gnu.tar.gz --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.16.0-x86_64-apple-darwin.tar.gz --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.16.0-x86_64-pc-windows-msvc.zip --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.16.0-x86_64-unknown-linux-gnu.tar.gz --repo coreycoto/git-slop
+gh attestation verify git-slop-v0.16.0-x86_64-unknown-linux-musl.tar.gz --repo coreycoto/git-slop
 ```
 
 Release tags through `v0.10.1` are lightweight tags whose target commit is
@@ -212,19 +226,19 @@ and explains why the manifest is not a circular root.
 Install the canonical crates.io package directly:
 
 ```bash
-cargo install git-slop --version 0.15.0 --locked
+cargo install git-slop --version 0.16.0 --locked
 git-slop build-info --format json
 ```
 
 Update and uninstall explicitly:
 
 ```bash
-cargo install git-slop --version 0.15.0 --locked --force
+cargo install git-slop --version 0.16.0 --locked --force
 cargo uninstall git-slop
 ```
 
-For a verified 0.15.0 release, `source_revision` is the full commit named by
-`v0.15.0` and `source_dirty` is `false`. A local source build can report `null`
+For a verified 0.16.0 release, `source_revision` is the full commit named by
+`v0.16.0` and `source_dirty` is `false`. A local source build can report `null`
 for provenance it cannot prove; that is not equivalent to a release build.
 
 CI jobs should prefer the repository's GitHub Action or a checksummed prebuilt

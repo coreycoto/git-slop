@@ -1,6 +1,6 @@
 [package]
 name = "git-slop"
-version = "0.15.0"
+version = "0.16.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A deterministic repository token-defragmenter for humans and AI agents."
@@ -26,6 +26,11 @@ include = [
     "/man/git-slop.1",
     "/schemas/*.json",
     "/schemas/README.md",
+    "/policies/**/*.yaml",
+    "/policies/**/*.md",
+    "/examples/policies/**/*",
+    "/benchmarks/advisor/*.json",
+    "/benchmarks/advisor/README.md",
     "/tests/*.rs",
     "/tests/fixtures/reports/*",
 ]

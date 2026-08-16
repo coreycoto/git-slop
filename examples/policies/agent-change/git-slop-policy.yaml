@@ -1,0 +1,27 @@
+schema_version: 1
+id: com.example.agent-change
+name: Agent change example
+description: Keeps agent recommendations narrow, guidance-aware, and explicit about generated files.
+version: 1.0.0
+license: CC0-1.0
+min_git_slop_version: 0.16.0
+entrypoints: [policies/agent-change.md]
+applicability: [advise, plan]
+tests: [tests/agent-change.yaml]
+rules:
+  - id: com.example.agent-change.generated-boundaries
+    text: Recommendations must change an authoritative generator instead of a generated projection when provenance identifies one.
+    applicability: [advise, plan]
+    severity: error
+    consequence: revise
+    required_evidence: [candidate, guidance]
+    insufficient_evidence: abstain
+    remediation: Redirect scope to the cited generator and retain regeneration checks.
+  - id: com.example.agent-change.explicit-command
+    text: Verification commands must come from supplied repository guidance or deterministic plan evidence.
+    applicability: [advise]
+    severity: warning
+    consequence: revise
+    required_evidence: [verification, guidance]
+    insufficient_evidence: abstain
+    remediation: Cite an existing command or request maintainer guidance.

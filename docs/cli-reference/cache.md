@@ -14,7 +14,7 @@ Usage: git-slop cache [OPTIONS] <COMMAND>
 
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
-| `--state-dir` | `PATH` | `-` | global | Mutable state directory. Defaults to .slop, matching find |
+| `--state-dir` | `PATH` | `-` | global | Mutable state directory. Defaults to the same active root as find |
 
 **Example**
 

@@ -16,7 +16,7 @@ Usage: git-slop doctor [OPTIONS]
 
 | Argument | Value | Default | Constraints | Description |
 | --- | --- | --- | --- | --- |
-| `--bundle` | `BUNDLE` | `-` | - | Write a privacy-safe diagnostic JSON bundle |
+| `--bundle` | `BUNDLE` | `-` | - | Write a privacy-safe diagnostic JSON bundle; defaults to the active state root |
 | `--format` | `FORMAT` | `text` | values: text, json | Output format |
 | `--scope` | `SCOPE` | `-` | - | Estimate only this repo-relative scope |
 | `--require-current` | `flag` | `-` | - | Return exit 2 when the latest report is valid but stale |

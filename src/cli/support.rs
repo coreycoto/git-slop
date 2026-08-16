@@ -47,6 +47,14 @@ fn default_report_locations(repo_root: &Path) -> Vec<PathBuf> {
     locations
 }
 
+fn resolve_repo_path(repo_root: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() || repo_root.as_os_str().is_empty() {
+        path.to_path_buf()
+    } else {
+        repo_root.join(path)
+    }
+}
+
 fn load_report_at(path: &Path) -> Result<Option<Value>> {
     if !path.exists() {
         return Ok(None);
@@ -59,14 +67,14 @@ fn load_default_report(
     explicit_report: Option<&Path>,
 ) -> Result<Option<(Value, PathBuf)>> {
     let path = explicit_report
-        .map(Path::to_path_buf)
+        .map(|path| resolve_repo_path(repo_root, path))
         .unwrap_or_else(|| default_report_path(repo_root));
     Ok(load_report_at(&path)?.map(|report| (report, path)))
 }
 
 fn report_or_missing(repo_root: &Path, explicit_report: Option<&Path>) -> Result<(Value, PathBuf)> {
     let fallback = explicit_report
-        .map(Path::to_path_buf)
+        .map(|path| resolve_repo_path(repo_root, path))
         .unwrap_or_else(|| default_report_path(repo_root));
     let loaded = load_default_report(repo_root, explicit_report).map_err(|error| {
         ClassifiedError::new(ErrorKind::Contract, "report_invalid", format!("{error:#}"))
@@ -76,7 +84,7 @@ fn report_or_missing(repo_root: &Path, explicit_report: Option<&Path>) -> Result
     let loaded = loaded.ok_or_else(|| -> anyhow::Error {
         let searched = explicit_report.map_or_else(
             || default_report_locations(repo_root),
-            |path| vec![path.to_path_buf()],
+            |path| vec![resolve_repo_path(repo_root, path)],
         );
         let searched_display = searched
             .iter()
@@ -97,7 +105,7 @@ fn report_or_missing(repo_root: &Path, explicit_report: Option<&Path>) -> Result
     if explicit_report.is_none() && !repo_root.as_os_str().is_empty() {
         match crate::freshness::evaluate(repo_root, &loaded.0) {
             Ok(freshness) if !freshness.current => eprintln!(
-                "git-slop: warning: latest report is stale ({}); run `git slop find`.",
+                "git-slop: warning: values below are from a stale report snapshot ({}), not the current worktree; run `git slop find`.",
                 freshness.reason_codes()
             ),
             Err(error) => eprintln!(

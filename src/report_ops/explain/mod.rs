@@ -2,7 +2,7 @@ use super::*;
 
 mod render;
 
-pub use render::render_explain_text;
+pub use render::{render_explain_summary_text, render_explain_text};
 
 fn build_path_explain(report: &Value, target_path: &str) -> Result<Value> {
     let target_path = normalized_path(target_path);
