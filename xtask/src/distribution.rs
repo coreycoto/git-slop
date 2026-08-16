@@ -14,9 +14,129 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
     validate_action_documentation(repo_root, &mut errors);
     validate_release_documentation(repo_root, &mut errors);
     validate_document_consistency(repo_root, &mut errors);
+    validate_advisor_release_gate(repo_root, &mut errors);
     validate_scoop_boundary(repo_root, &mut errors);
     validate_removed_runtime_surfaces(repo_root, &mut errors);
     errors
+}
+
+fn validate_advisor_release_gate(repo_root: &Path, errors: &mut Vec<String>) {
+    let relative = "benchmarks/advisor/release-gate.json";
+    let gate = match fs::read(repo_root.join(relative))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+    {
+        Some(gate) => gate,
+        None => {
+            errors.push(format!("{relative} must contain valid JSON."));
+            return;
+        }
+    };
+    let recommendation = gate.get("recommendation").and_then(|value| value.as_str());
+    let enabled = gate
+        .get("public_inference_enabled")
+        .and_then(|value| value.as_bool());
+    if gate.get("schema_version").and_then(|value| value.as_u64()) != Some(1)
+        || !matches!(recommendation, Some("ship" | "adjust" | "defer"))
+        || enabled.is_none()
+    {
+        errors.push(format!(
+            "{relative} must define schema 1, a ship/adjust/defer recommendation, and public_inference_enabled."
+        ));
+    }
+    if enabled == Some(true) && recommendation != Some("ship") {
+        errors.push(format!(
+            "{relative} must fail closed: public inference requires a ship recommendation."
+        ));
+    }
+    if gate.get("canonical_model").and_then(|value| value.as_str())
+        != Some("openai/gpt-oss-safeguard-20b")
+    {
+        errors.push(format!(
+            "{relative} must retain the benchmarked canonical Safeguard identity."
+        ));
+    }
+    let model_size = gate
+        .get("minimum_model_size_bytes")
+        .and_then(|value| value.as_u64())
+        .unwrap_or_default();
+    let estimated_peak = gate
+        .get("minimum_estimated_peak_memory_bytes")
+        .and_then(|value| value.as_u64())
+        .unwrap_or_default();
+    let physical = gate
+        .get("minimum_physical_memory_bytes")
+        .and_then(|value| value.as_u64())
+        .unwrap_or_default();
+    let reserve = gate
+        .get("minimum_available_memory_reserve_bytes")
+        .and_then(|value| value.as_u64())
+        .unwrap_or_default();
+    let swap_growth = gate
+        .get("maximum_swap_growth_bytes")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(u64::MAX);
+    if model_size < 13_793_441_254
+        || estimated_peak < model_size
+        || physical < 24 * 1024 * 1024 * 1024
+        || reserve < 4 * 1024 * 1024 * 1024
+        || swap_growth > 256 * 1024 * 1024
+    {
+        errors.push(format!(
+            "{relative} weakens the checked-in model, memory, reserve, or swap safety floor."
+        ));
+    }
+    let Some(decision_relative) = gate.get("decision_record").and_then(|value| value.as_str())
+    else {
+        errors.push(format!("{relative} must name its decision record."));
+        return;
+    };
+    if decision_relative.starts_with('/') || decision_relative.contains("..") {
+        errors.push(format!("{relative} decision_record must be repo-relative."));
+        return;
+    }
+    let decision = fs::read_to_string(repo_root.join(decision_relative)).unwrap_or_default();
+    let expected = format!(
+        "Recommendation: **{}**",
+        recommendation.unwrap_or("invalid")
+    );
+    if !decision.contains(&expected) {
+        errors.push(format!(
+            "{relative} recommendation must match {decision_relative}."
+        ));
+    }
+    let benchmark_source = fs::read_to_string(repo_root.join("xtask/src/advisor_benchmark/run.rs"))
+        .unwrap_or_default();
+    if benchmark_source.contains("Command::new(\"ollama\")")
+        || benchmark_source.contains("ollama_cold_model")
+    {
+        errors.push(
+            "Advisor benchmark tooling must not start, stop, install, or otherwise manage Ollama."
+                .into(),
+        );
+    }
+    let manifest = fs::read_to_string(repo_root.join("Cargo.toml")).unwrap_or_default();
+    let advisor_source =
+        fs::read_to_string(repo_root.join("src/cli/advice_cmd.rs")).unwrap_or_default();
+    if !manifest.contains("default = []")
+        || !manifest.contains("advisor-inference-benchmark = []")
+        || !advisor_source.contains("cfg!(feature = \"advisor-inference-benchmark\")")
+    {
+        errors.push(
+            "Public releases must keep inference behind the non-default advisor-inference-benchmark feature."
+                .into(),
+        );
+    }
+    let advisor_docs = fs::read_to_string(repo_root.join("docs/advisor.md")).unwrap_or_default();
+    if recommendation == Some("defer")
+        && (!advisor_docs.contains("Public inference status: **disabled**")
+            || !advisor_docs.contains("provider-free context"))
+    {
+        errors.push(
+            "docs/advisor.md must disclose the deferred gate and provider-free context path."
+                .into(),
+        );
+    }
 }
 
 include!("distribution/document_consistency.rs");

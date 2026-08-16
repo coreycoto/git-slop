@@ -14,6 +14,47 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
         .expect("cluster fixture");
     let context_path = outputs.path().join("advice-input.json");
 
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args([
+            "advise",
+            "--top",
+            "1",
+            "--context-only",
+            "--format",
+            "markdown",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "provider-independent context requires --format json",
+        ));
+    assert!(!repository.path().join(".slop/advice").exists());
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["advise", "--top", "1", "--ephemeral"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"schema_version\": 1"));
+    assert!(!repository.path().join(".slop/advice").exists());
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["advise", "--top", "1", "--infer"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("model inference is disabled"));
+    assert!(!repository.path().join(".slop/advice").exists());
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["advise", "--top", "1", "--timeout-seconds", "1"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--infer"));
+    assert!(!repository.path().join(".slop/advice").exists());
+
     for (selector, value) in [
         ("--path", "src/left.rs"),
         ("--relationship", relationship.as_str()),
@@ -180,16 +221,22 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
     let rendered = outputs.path().join("rendered-advice.json");
     cargo_bin_cmd!("git-slop")
         .current_dir(repository.path())
+        .env("GIT_SLOP_ADVISOR_BENCHMARK", "1")
         .args([
             "advise",
             "--top",
             "1",
+            "--infer",
             "--provider",
             "mock",
             "--mock-response",
         ])
         .arg(&mock_path)
         .args([
+            "--model",
+            "openai/gpt-oss-safeguard-20b",
+            "--runtime-model",
+            "contract-test-model",
             "--runtime-label",
             "contract-test",
             "--model-digest",

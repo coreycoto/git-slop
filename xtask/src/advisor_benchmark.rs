@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -21,17 +22,21 @@ pub struct Options {
     pub repositories: Vec<String>,
     pub provider: String,
     pub endpoint: String,
+    pub model: String,
     pub runtime_model: String,
     pub runtime_label: String,
     pub model_digest: String,
     pub model_quantization: String,
+    pub model_size_bytes: Option<u64>,
+    pub estimated_peak_memory_bytes: Option<u64>,
+    pub confirm_dedicated_host: bool,
+    pub initial_runtime_state: String,
     pub output_dir: PathBuf,
     pub repetitions: usize,
     pub full_matrix: bool,
     pub prepare_only: bool,
     pub ratings: Option<PathBuf>,
     pub review_output_dir: Option<PathBuf>,
-    pub ollama_cold_model: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

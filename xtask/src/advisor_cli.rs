@@ -18,15 +18,18 @@ pub struct BenchmarkArgs {
     /// Repository mapping in KEY=PATH form; repeat for every corpus repository.
     #[arg(long = "repository", required = true)]
     repositories: Vec<String>,
-    /// Provider adapter used by the separately provisioned benchmark host.
-    #[arg(long, value_parser = ["ollama", "openai-compatible"], default_value = "ollama")]
-    provider: String,
-    /// Provider endpoint; defaults to the selected adapter's loopback endpoint.
+    /// Explicit provider adapter used by the separately provisioned benchmark host.
+    #[arg(long, value_parser = ["ollama", "openai-compatible"])]
+    provider: Option<String>,
+    /// Explicit loopback provider endpoint on the separately provisioned host.
     #[arg(long)]
     endpoint: Option<String>,
-    /// Runtime-specific served model name.
-    #[arg(long, default_value = "gpt-oss-safeguard:20b")]
-    runtime_model: String,
+    /// Explicit canonical model identity.
+    #[arg(long)]
+    model: Option<String>,
+    /// Explicit runtime-specific served model name.
+    #[arg(long)]
+    runtime_model: Option<String>,
     /// Exact runtime name and version.
     #[arg(long)]
     runtime_label: String,
@@ -34,8 +37,20 @@ pub struct BenchmarkArgs {
     #[arg(long)]
     model_digest: String,
     /// Exact model quantization reported by the runtime.
-    #[arg(long, default_value = "not-applicable")]
-    model_quantization: String,
+    #[arg(long)]
+    model_quantization: Option<String>,
+    /// Exact model artifact size in bytes.
+    #[arg(long)]
+    model_size_bytes: Option<u64>,
+    /// Conservative peak memory estimate for model loading and the 16K context.
+    #[arg(long)]
+    estimated_peak_memory_bytes: Option<u64>,
+    /// Confirm this is a dedicated, adequately resourced benchmark host.
+    #[arg(long)]
+    confirm_dedicated_host: bool,
+    /// Explicit provider state before the first sample; the harness never changes it.
+    #[arg(long, value_parser = ["cold", "warm"])]
+    initial_runtime_state: Option<String>,
     /// Ignored output directory for aggregate results and the decision report.
     #[arg(long, default_value = "benchmark-results/advisor")]
     output_dir: PathBuf,
@@ -54,20 +69,33 @@ pub struct BenchmarkArgs {
     /// Explicit private directory outside the repository for one review artifact per case and effort.
     #[arg(long)]
     review_output_dir: Option<PathBuf>,
-    /// Stop this Ollama model before the first sample to measure a real cold load.
-    #[arg(long)]
-    ollama_cold_model: Option<String>,
 }
 
 impl BenchmarkArgs {
     pub fn run(self, repo_root: PathBuf) -> Result<()> {
-        let endpoint = self.endpoint.unwrap_or_else(|| {
-            if self.provider == "ollama" {
-                "http://127.0.0.1:11434/api/chat".to_string()
+        let required = |value: Option<String>, flag: &str| -> Result<String> {
+            value.ok_or_else(|| anyhow::anyhow!("inference runs require explicit {flag}"))
+        };
+        let (provider, endpoint, model, runtime_model, model_quantization, initial_runtime_state) =
+            if self.prepare_only {
+                (
+                    "not-applicable".to_string(),
+                    "not-applicable".to_string(),
+                    "not-applicable".to_string(),
+                    "not-applicable".to_string(),
+                    "not-applicable".to_string(),
+                    "not-applicable".to_string(),
+                )
             } else {
-                "http://127.0.0.1:11434/v1/chat/completions".to_string()
-            }
-        });
+                (
+                    required(self.provider, "--provider")?,
+                    required(self.endpoint, "--endpoint")?,
+                    required(self.model, "--model")?,
+                    required(self.runtime_model, "--runtime-model")?,
+                    required(self.model_quantization, "--model-quantization")?,
+                    required(self.initial_runtime_state, "--initial-runtime-state")?,
+                )
+            };
         let (results, decision) = advisor_benchmark::run(&advisor_benchmark::Options {
             repo_root,
             binary: self.binary,
@@ -75,18 +103,22 @@ impl BenchmarkArgs {
             thresholds: self.thresholds,
             repositories: self.repositories,
             endpoint,
-            provider: self.provider,
-            runtime_model: self.runtime_model,
+            provider,
+            model,
+            runtime_model,
             runtime_label: self.runtime_label,
             model_digest: self.model_digest,
-            model_quantization: self.model_quantization,
+            model_quantization,
+            model_size_bytes: self.model_size_bytes,
+            estimated_peak_memory_bytes: self.estimated_peak_memory_bytes,
+            confirm_dedicated_host: self.confirm_dedicated_host,
+            initial_runtime_state,
             output_dir: self.output_dir,
             repetitions: self.repetitions,
             full_matrix: self.full_matrix,
             prepare_only: self.prepare_only,
             ratings: self.ratings,
             review_output_dir: self.review_output_dir,
-            ollama_cold_model: self.ollama_cold_model,
         })?;
         println!("Wrote advisor benchmark results: {}", results.display());
         println!("Wrote advisor benchmark decision: {}", decision.display());

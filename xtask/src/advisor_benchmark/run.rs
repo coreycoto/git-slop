@@ -63,11 +63,125 @@ fn write_review_artifact(directory: &Path, name: &str, bytes: &[u8]) -> Result<(
     Ok(())
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BenchmarkReleaseGate {
+    schema_version: u64,
+    recommendation: String,
+    public_inference_enabled: bool,
+    canonical_model: String,
+    minimum_model_size_bytes: u64,
+    minimum_estimated_peak_memory_bytes: u64,
+    minimum_physical_memory_bytes: u64,
+    minimum_available_memory_reserve_bytes: u64,
+    maximum_swap_growth_bytes: u64,
+    decision_record: String,
+}
+
+fn validate_benchmark_capacity(
+    gate: &BenchmarkReleaseGate,
+    model_size: u64,
+    estimated_peak: u64,
+    physical: u64,
+    available: u64,
+    swap: u64,
+) -> Result<BenchmarkWatchdog> {
+    if model_size < gate.minimum_model_size_bytes {
+        bail!(
+            "--model-size-bytes is {model_size}; the pinned canonical artifact requires at least {} bytes",
+            gate.minimum_model_size_bytes
+        );
+    }
+    if estimated_peak < gate.minimum_estimated_peak_memory_bytes
+        || estimated_peak < model_size
+    {
+        bail!(
+            "--estimated-peak-memory-bytes must be at least {} and no smaller than the model artifact",
+            gate.minimum_estimated_peak_memory_bytes
+        );
+    }
+    let required_available = estimated_peak
+        .checked_add(gate.minimum_available_memory_reserve_bytes)
+        .ok_or_else(|| anyhow::anyhow!("benchmark memory requirement overflow"))?;
+    let required_physical = gate.minimum_physical_memory_bytes.max(required_available);
+    if physical < required_physical {
+        bail!(
+            "benchmark host has {physical} bytes of physical memory but requires at least {required_physical}; do not run on this host"
+        );
+    }
+    if available < required_available {
+        bail!(
+            "benchmark host has {available} bytes available but requires at least {required_available}; free capacity or use another dedicated host"
+        );
+    }
+    Ok(BenchmarkWatchdog {
+        minimum_available_memory_bytes: gate.minimum_available_memory_reserve_bytes,
+        maximum_swap_growth_bytes: gate.maximum_swap_growth_bytes,
+        initial_swap_used_bytes: swap,
+    })
+}
+
+fn benchmark_safety_preflight(options: &Options) -> Result<BenchmarkWatchdog> {
+    if !options.confirm_dedicated_host {
+        bail!(
+            "inference requires --confirm-dedicated-host; never run this matrix on a personal or capacity-constrained workstation"
+        );
+    }
+    let gate_path = options
+        .repo_root
+        .join("benchmarks/advisor/release-gate.json");
+    let gate: BenchmarkReleaseGate = serde_json::from_slice(&fs::read(&gate_path)?)?;
+    if gate.schema_version != 1
+        || (gate.public_inference_enabled && gate.recommendation != "ship")
+    {
+        bail!("advisor release gate is invalid: {}", gate_path.display());
+    }
+    if options.model != gate.canonical_model {
+        bail!(
+            "--model must explicitly equal the release-gated canonical model {}",
+            gate.canonical_model
+        );
+    }
+    let model_size = options
+        .model_size_bytes
+        .ok_or_else(|| anyhow::anyhow!("inference requires explicit --model-size-bytes"))?;
+    let estimated_peak = options.estimated_peak_memory_bytes.ok_or_else(|| {
+        anyhow::anyhow!("inference requires explicit --estimated-peak-memory-bytes")
+    })?;
+    let required_available = estimated_peak
+        .checked_add(gate.minimum_available_memory_reserve_bytes)
+        .ok_or_else(|| anyhow::anyhow!("benchmark memory requirement overflow"))?;
+    let physical = system_physical_memory_bytes()
+        .ok_or_else(|| anyhow::anyhow!("unable to measure physical memory; refusing inference"))?;
+    let available = system_available_memory_bytes()
+        .ok_or_else(|| anyhow::anyhow!("unable to measure available memory; refusing inference"))?;
+    let swap = swap_used_bytes()
+        .ok_or_else(|| anyhow::anyhow!("unable to measure swap use; refusing inference"))?;
+    let watchdog = validate_benchmark_capacity(
+        &gate,
+        model_size,
+        estimated_peak,
+        physical,
+        available,
+        swap,
+    )?;
+    eprintln!(
+        "Advisor benchmark safety contract: dedicated-host-confirmed=true; model={} bytes; estimated peak={estimated_peak} bytes; required available={required_available} bytes; physical={physical} bytes; available={available} bytes; swap={swap} bytes; maximum swap growth={} bytes; release recommendation={}; decision={}",
+        model_size,
+        gate.maximum_swap_growth_bytes,
+        gate.recommendation,
+        gate.decision_record,
+    );
+    Ok(watchdog)
+}
+
 pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
     if options.repetitions == 0 || options.repetitions > 20 {
         bail!("--repetitions must be between 1 and 20");
     }
-    if !["ollama", "openai-compatible"].contains(&options.provider.as_str()) {
+    if !options.prepare_only
+        && !["ollama", "openai-compatible"].contains(&options.provider.as_str())
+    {
         bail!("the benchmark provider must be ollama or openai-compatible");
     }
     let authority = options
@@ -82,9 +196,12 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
             || value == "[::1]"
             || value.starts_with("[::1]:")
     });
-    if !loopback {
+    if !options.prepare_only && !loopback {
         bail!("the benchmark harness requires a loopback endpoint");
     }
+    let watchdog = (!options.prepare_only)
+        .then(|| benchmark_safety_preflight(options))
+        .transpose()?;
     let binary = resolve(&options.repo_root, &options.binary);
     if !binary.is_file() {
         bail!(
@@ -176,14 +293,6 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
         for effort in efforts {
             for context in contexts {
                 for repetition in 1..=options.repetitions {
-                    if first {
-                        if let Some(model) = &options.ollama_cold_model {
-                            let status = Command::new("ollama").args(["stop", model]).status()?;
-                            if !status.success() {
-                                bail!("ollama cold-start reset failed for {model}");
-                            }
-                        }
-                    }
                     let artifact_path = std::env::temp_dir().join(format!(
                         "git-slop-advisor-benchmark-{}-{}-{}-{}.json",
                         std::process::id(),
@@ -196,6 +305,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         "--repo".to_string(),
                         repository.display().to_string(),
                         "advise".to_string(),
+                        "--infer".to_string(),
                     ];
                     args.extend(case.selector.iter().cloned());
                     args.extend([
@@ -208,12 +318,25 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         options.provider.clone(),
                         "--endpoint".to_string(),
                         options.endpoint.clone(),
+                        "--model".to_string(),
+                        options.model.clone(),
                         "--runtime-model".to_string(),
                         options.runtime_model.clone(),
                         "--runtime-label".to_string(),
                         options.runtime_label.clone(),
                         "--model-digest".to_string(),
                         options.model_digest.clone(),
+                        "--model-size-bytes".to_string(),
+                        options
+                            .model_size_bytes
+                            .expect("inference preflight requires model size")
+                            .to_string(),
+                        "--estimated-peak-memory-bytes".to_string(),
+                        options
+                            .estimated_peak_memory_bytes
+                            .expect("inference preflight requires peak estimate")
+                            .to_string(),
+                        "--confirm-resources".to_string(),
                         "--reasoning".to_string(),
                         (*effort).to_string(),
                         "--max-context-tokens".to_string(),
@@ -232,7 +355,13 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                     let swap_before = swap_used_bytes();
                     let available_before = system_available_memory_bytes();
                     let wall = Instant::now();
-                    let (output, rss) = timed_output(&binary, &args, repository)?;
+                    let monitored = timed_output(
+                        &binary,
+                        &args,
+                        repository,
+                        watchdog.expect("inference preflight returns watchdog limits"),
+                    )?;
+                    let output = monitored.output;
                     let elapsed = wall.elapsed().as_millis();
                     let available_after = system_available_memory_bytes();
                     let swap_after = swap_used_bytes();
@@ -304,26 +433,36 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         context_token_limit: *context,
                         output_token_limit,
                         repetition,
-                        phase: if first { "cold" } else { "warm" },
+                        phase: if first && options.initial_runtime_state == "cold" {
+                            "cold"
+                        } else {
+                            "warm"
+                        },
                         status: if sample_valid { "valid" } else { "failed" },
                         exit_code: output.status.code(),
                         total_elapsed_ms: elapsed,
-                        peak_process_rss_bytes: rss,
+                        peak_process_rss_bytes: monitored.peak_process_rss_bytes,
                         system_available_memory_before_bytes: available_before,
                         system_available_memory_after_bytes: available_after,
-                        system_available_memory_minimum_bytes: match (
+                        system_available_memory_minimum_bytes: [
+                            monitored.minimum_available_memory_bytes,
                             available_before,
                             available_after,
-                        ) {
-                            (Some(before), Some(after)) => Some(before.min(after)),
-                            (Some(value), None) | (None, Some(value)) => Some(value),
-                            (None, None) => None,
-                        },
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .min(),
                         swap_before_bytes: swap_before,
                         swap_after_bytes: swap_after,
-                        swap_growth_bytes: swap_before
-                            .zip(swap_after)
-                            .map(|(before, after)| after.saturating_sub(before)),
+                        swap_growth_bytes: [
+                            monitored.maximum_swap_growth_bytes,
+                            swap_before
+                                .zip(swap_after)
+                                .map(|(before, after)| after.saturating_sub(before)),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .max(),
                         context_elapsed_ms: artifact
                             .as_ref()
                             .and_then(|value| u64_at(value, "/timing/context_elapsed_ms")),
@@ -357,7 +496,9 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         }),
                         citation_complete: artifact.as_ref().is_some_and(citations_complete),
                         retry_count: 0,
-                        failure_category: if artifact.is_none() {
+                        failure_category: if let Some(reason) = monitored.termination_reason {
+                            Some(reason.to_string())
+                        } else if artifact.is_none() {
                             Some(classify_failure(&output.stderr, false))
                         } else if !sample_valid {
                             Some(if actual_candidate_count == Some(case.candidate_count) {
@@ -370,6 +511,23 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         },
                     });
                     first = false;
+                    if monitored.termination_reason.is_some() {
+                        eprintln!(
+                            "Stopping the advisor matrix immediately after the continuous resource watchdog aborted a sample."
+                        );
+                        return write_outputs(
+                            options,
+                            &OutputInputs {
+                                corpus: &corpus,
+                                reports: &reports,
+                                thresholds: &thresholds,
+                            },
+                            started,
+                            &samples,
+                            None,
+                            monitored.termination_reason,
+                        );
+                    }
                     consecutive_provider_failures = if is_provider_runtime_failure(
                         samples
                             .last()

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.16.1 - 2026-08-16
+
+This patch makes the policy advisor fail closed: provider-free context is the
+default, public inference is disabled by the recorded `defer` decision, no
+Ollama or provider identity is implicit, and the separately controlled
+benchmark now requires dedicated-host capacity evidence and continuous
+resource protection.
+
+See the [complete numbered 0.16.1 release notes](docs/releases/0.16.1.md).
+
 ## 0.16.0 - 2026-08-15
 
 This release completes the 43-finding user and developer experience audit:

@@ -14,7 +14,7 @@ token, applies a 16 MiB download bound, checks its SHA-256 against the manifest,
 and verifies the package's embedded clean VCS revision. Native archives and
 their manifest entries are each limited to 128 MiB.
 
-The examples below pin `v0.16.0`. Use them only after its verified GitHub
+The examples below pin `v0.16.1`. Use them only after its verified GitHub
 Release is public and the Marketplace listing resolves; a source tag or
 documentation on `main` is not an availability proof.
 
@@ -49,7 +49,7 @@ jobs:
 
       - name: Analyze repository health
         id: git-slop
-        uses: coreycoto/git-slop@v0.16.0
+        uses: coreycoto/git-slop@v0.16.1
 ```
 
 The default is advisory:
@@ -144,7 +144,7 @@ publishes the report and job summary before it evaluates the gate:
 
 ```yaml
       - name: Analyze and enforce repository health
-        uses: coreycoto/git-slop@v0.16.0
+        uses: coreycoto/git-slop@v0.16.1
         with:
           policy: enforce
 ```
@@ -195,7 +195,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.16.0
+  - uses: coreycoto/git-slop@v0.16.1
     with:
       mode: regression
       baseline-ref: ${{ github.event.pull_request.base.sha }}
@@ -211,7 +211,7 @@ fetching the base revision.
 Scope inventory while retaining repository-wide Git evidence:
 
 ```yaml
-  - uses: coreycoto/git-slop@v0.16.0
+  - uses: coreycoto/git-slop@v0.16.1
     with:
       scope: packages/api
       report-profile: compact
@@ -235,7 +235,7 @@ steps:
     with:
       fetch-depth: 0
       persist-credentials: false
-  - uses: coreycoto/git-slop@v0.16.0
+  - uses: coreycoto/git-slop@v0.16.1
     with:
       mode: advisory
       pr-comment: "false"
@@ -266,7 +266,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: coreycoto/git-slop@v0.16.0
+      - uses: coreycoto/git-slop@v0.16.1
         with:
           mode: advisory
           artifact-contents: report
@@ -323,7 +323,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.16.0
+  - uses: coreycoto/git-slop@v0.16.1
     with:
       pr-comment: "true"
 ```
@@ -336,7 +336,7 @@ report remains in the job summary and artifact.
 
 | Input | Default | Purpose |
 | --- | --- | --- |
-| `version` | `0.16.0` | Prebuilt release version to download and verify after that release is public |
+| `version` | `0.16.1` | Prebuilt release version to download and verify after that release is public |
 | `mode` | empty | Simple preset: `advisory`, `absolute`, or `regression`; when set, it overrides `policy` and `enforcement` only |
 | `release-repository` | `coreycoto/git-slop` | Repository containing release assets |
 | `target` | empty | Compatible release target override |
@@ -419,7 +419,7 @@ The Action will be published from this repository's verified stable GitHub
 Release under the **Code quality** and **Continuous integration** categories.
 That first listing requires a maintainer to select GitHub's Marketplace checkbox
 in the draft-release UI, confirm the categories and agreement, and complete
-2FA. Marketplace and direct `uses: coreycoto/git-slop@v0.16.0` installation then
+2FA. Marketplace and direct `uses: coreycoto/git-slop@v0.16.1` installation then
 resolve the same root `action.yml` and release provenance. For
 higher-assurance consumers, pin the Action itself to the full release commit
 SHA; the Action's own nested dependencies are already pinned to full commit

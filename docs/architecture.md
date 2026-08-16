@@ -270,11 +270,14 @@ The CLI exposes:
 two. Prompt packs are explicit local outputs from `explain` and `plan`.
 
 `policy` manages bounded data-only policy sources and an offline user cache.
-`advise` reuses deterministic `explain` and `plan` evidence, adds bounded
-tracked excerpts, and invokes only an explicitly configured out-of-process
-provider. Its context cache and validated artifacts live under the active
-state root's `advice/` namespace, never `.slop/latest/`. The provider module is
-not linked to any model runtime and the detector path never imports it.
+`advise` reuses deterministic `explain` and `plan` evidence and adds bounded
+tracked excerpts. Its public default emits provider-free JSON context; the
+checked-in `defer` gate disables provider invocation outside the maintainer
+benchmark. Any future inference requires explicit provider identity, a
+loopback endpoint, capacity evidence, and a separately provisioned host. Its
+context cache and validated artifacts live under the active state root's
+`advice/` namespace, never `.slop/latest/`. The provider module is not linked
+to any model runtime and neither it nor the benchmark manages Ollama.
 
 The advice boundary has five ordered trust zones: immutable system/output
 instructions, non-disableable core policy, selected third-party policy,

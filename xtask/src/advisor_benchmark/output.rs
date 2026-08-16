@@ -204,8 +204,12 @@ fn write_outputs(
             "corpus_sha256": sha256(&fs::read(resolve(&options.repo_root, &options.corpus))?),
             "thresholds_sha256": sha256(&fs::read(resolve(&options.repo_root, &options.thresholds))?),
             "provider": options.provider, "runtime_label": options.runtime_label, "runtime_model": options.runtime_model,
-            "model": "openai/gpt-oss-safeguard-20b", "model_digest": options.model_digest,
+            "model": options.model, "model_digest": options.model_digest,
             "model_quantization": options.model_quantization,
+            "model_size_bytes": options.model_size_bytes,
+            "estimated_peak_memory_bytes": options.estimated_peak_memory_bytes,
+            "dedicated_host_confirmed": options.confirm_dedicated_host,
+            "initial_runtime_state": options.initial_runtime_state,
             "runtime_context_tokens": BENCHMARK_RUNTIME_CONTEXT_TOKENS,
             "request_timeout_seconds": BENCHMARK_TIMEOUT_SECONDS,
             "endpoint_classification": "loopback",
@@ -224,7 +228,7 @@ fn write_outputs(
     if !matrix_completed {
         result.as_object_mut().expect("benchmark result is an object").insert(
             "next_step".to_string(),
-            json!("Reduce local runtime memory pressure or compare another existing Apple Silicon runtime, then rerun the pinned matrix from clean checkouts."),
+            json!("Do not retry on this host. Inspect the resource-watchdog result, recover the runtime separately, and use a different adequately resourced dedicated host."),
         );
     }
     let output_dir = resolve(&options.repo_root, &options.output_dir);

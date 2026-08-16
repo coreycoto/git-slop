@@ -89,6 +89,17 @@ scope is wrong.
   recommendation, all automatic gates, and all maintainer-rating gates before
   declaring that advisor ready. A prepare-only, unpinned, partial, mock, or
   model-unavailable result is not release evidence.
+- Treat `benchmarks/advisor/release-gate.json` as the executable advisor
+  release decision. `cargo xtask check-distribution` must reject public
+  inference unless that gate and its decision record both say `ship`.
+  `release-prepare` runs that check before packaging. A `defer` or `adjust`
+  release may ship provider-free context only; it must keep public inference
+  disabled.
+- Run inference benchmarks only on an explicitly confirmed, separately
+  provisioned host that passes the model-size, peak-memory, available-memory,
+  and swap preflight. The harness must not install, start, stop, or unload
+  Ollama. A resource-watchdog abort is terminal for that host and must not be
+  retried as part of the same release decision.
 - Confirm `action.yml` remains the only root Action metadata file and its
   Marketplace name, description, branding, inputs, and outputs are current.
 - Confirm the nested Actions in `action.yml` and release workflows are pinned

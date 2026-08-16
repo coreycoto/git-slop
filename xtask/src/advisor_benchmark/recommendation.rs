@@ -128,10 +128,13 @@ fn recommended_configuration(
         let latency = top_five_p95.unwrap_or(u64::MAX);
         let value = json!({
             "provider": options.provider,
+            "model": options.model,
             "runtime_label": options.runtime_label,
             "runtime_model": options.runtime_model,
             "model_digest": options.model_digest,
             "model_quantization": options.model_quantization,
+            "model_size_bytes": options.model_size_bytes,
+            "estimated_peak_memory_bytes": options.estimated_peak_memory_bytes,
             "reasoning_effort": effort,
             "max_context_tokens": 8_192,
             "capacity_strategy": {"top_one_minimum_tokens": 2_048, "top_three_minimum_tokens": 4_096, "top_five_minimum_tokens": 8_192},

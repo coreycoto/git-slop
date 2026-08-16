@@ -5,6 +5,11 @@ existing current report. The deterministic detector remains authoritative:
 `find`, default `health`, `check`, `explain`, and `plan` never start a model,
 read advice, install policies, or change behavior based on model output.
 
+> Public inference status: **disabled**. The checked-in benchmark recommendation
+> is `defer` after the reference model exhausted a 16-GB M2 Air. The supported
+> product path is provider-free context. Inference research is confined to the
+> capacity-gated maintainer benchmark on a separately provisioned host.
+
 ## Flow and trust zones
 
 ```text
@@ -12,7 +17,8 @@ current schema-5 report
   -> deterministic explain and plan candidate slices
   -> bounded tracked guidance/source/test excerpts
   -> built-in plus selected locked policies
-  -> explicit local provider endpoint
+  -> provider-free context.json (supported public boundary)
+  -> optional release-gated maintainer benchmark provider
   -> strict schema-1 provider response
   -> reference validation and deterministic verdict aggregation
   -> separate advice.json and advice.md artifacts
@@ -42,6 +48,11 @@ git slop advise --cluster <cluster-id> --context-only --format json
 git slop advise --top 5 --context-only --format json
 ```
 
+`--context-only --format json` remains the explicit spelling. Both options are
+now the defaults when `--infer` is absent, so `git slop advise --top 5` produces
+the same provider-independent JSON. No provider configuration is read and no
+network connection is attempted.
+
 `--top` preserves intervention ranking first and fills any remaining requested
 slots from the report's ranked health refactor candidates. It never promotes
 ordinary observations into plan candidates.
@@ -63,63 +74,54 @@ that compaction as truncation and adds `candidate-context` to missing evidence;
 the model must abstain or revise when the compact input cannot support a
 verdict.
 
-`--runtime-context-tokens` controls the provider's total input-plus-output
-window. It defaults to the configured input and output token budgets combined
-and is sent as native Ollama `num_ctx`, preventing Ollama's smaller default
-window from silently truncating an 8K advice input.
+Within the separately controlled benchmark, `--runtime-context-tokens` controls
+the provider's total input-plus-output window. It defaults to the configured
+input and output token budgets combined and is sent as native Ollama `num_ctx`,
+preventing a smaller runtime default from silently truncating an 8K advice
+input.
 
-## Local Safeguard provider
+## Experimental inference gate
 
 V1 accepts only the canonical reference identity
 `openai/gpt-oss-safeguard-20b`. The public binary contains no model weights or
 inference engine and never downloads, starts, updates, or discovers a model.
-An explicitly configured OpenAI-compatible chat-completions server performs
-non-streaming inference. The reference adapter keeps system, developer, and
-user trust zones separate and uses strict JSON-schema output.
+The embedded [release gate](../benchmarks/advisor/release-gate.json) records the
+current `defer` decision and keeps public inference disabled. `--infer` fails
+before report access, context-cache writes, or provider contact unless the
+binary was explicitly built with the non-default
+`advisor-inference-benchmark` feature and the command is running inside the
+maintainer benchmark harness. Official release binaries never enable that
+feature. The release tooling validates that only a complete `ship` decision
+can enable the public boundary.
 
-Ollama publishes a 20B Safeguard model and an OpenAI-compatible API. After
-separately installing it and reviewing its approximately 14 GB model-storage
-requirement, start the model using the official runtime instructions, then run:
+The benchmark has no provider, endpoint, model, or runtime-model defaults. It
+requires an explicit canonical model, immutable digest, artifact size,
+conservative peak-memory estimate, runtime state, and dedicated-host
+confirmation. Before provider contact it measures physical and available
+memory plus swap, enforces at least 24 GiB of physical memory and 24 GiB of
+available capacity for the current model estimate, and prints the complete
+resource contract. A continuous watchdog closes the request when the 8-GiB
+available-memory reserve or 256-MiB swap-growth boundary is crossed.
 
-```sh
-git slop advise --top 1 \
-  --endpoint http://127.0.0.1:11434/v1/chat/completions \
-  --runtime-model gpt-oss-safeguard:20b \
-  --runtime-label ollama \
-  --model-digest <immutable-local-model-digest> \
-  --reasoning medium
-```
+Git Slop never manages the provider runtime. In particular, neither the public
+CLI nor the benchmark runs `ollama serve`, `ollama pull`, `ollama stop`, package
+installation, or model deletion. Runtime provisioning and recovery remain an
+operator responsibility outside Git Slop. The benchmark's explicit
+`--initial-runtime-state` only records whether that separately controlled
+runtime was already warm; it does not change the state.
 
-The runtime alias is separate from the canonical reference identity and is
-recorded in provenance. The request uses system, developer, and user roles,
-the strict published response schema, a bounded output token count, and no
-streaming. See the [official OpenAI Safeguard guide](https://cookbook.openai.com/articles/gpt-oss-safeguard-guide)
-and [official Ollama model page](https://ollama.com/library/gpt-oss-safeguard).
+Only loopback `http://` endpoints are accepted. Remote endpoints are refused
+because V1 has no authenticated TLS transport; there is no `--allow-remote`
+escape hatch. Endpoint credentials, queries, fragments, whitespace, and header
+injection are rejected. A short zero-data TCP probe has its own connection
+timeout before any repository context is sent. Model loading and generation
+share a separately displayed total timeout, emit phase progress, and can be
+cancelled with Ctrl-C.
 
-For reproducible local performance measurements, the optional native Ollama
-adapter sends the same trust-zone messages and strict schema to `/api/chat` and
-records Ollama's load, prompt-evaluation, and generation timings:
-
-```sh
-git slop advise --top 1 \
-  --provider ollama \
-  --endpoint http://127.0.0.1:11434/api/chat \
-  --runtime-model gpt-oss-safeguard:20b \
-  --runtime-label 'ollama <exact-version>' \
-  --model-digest <immutable-local-model-digest>
-```
-
-Provider choice never changes detector behavior. The benchmark uses the native
-adapter by default so prompt and generation rates are measured rather than
-inferred from total wall time; use `--provider openai-compatible` to exercise
-the portable compatibility boundary instead.
-
-Loopback is the default privacy boundary. A non-loopback host fails unless
-`--allow-remote` is explicit, and V1 accepts only plain `http://`; therefore a
-remote opt-in is suitable only on a separately secured trusted network. The
-endpoint cannot contain embedded credentials, a query, or a fragment. Git Slop
-does not log full model input or chain-of-thought. Markdown contains concise
-policy rationales only.
+See the [official OpenAI Safeguard guide](https://cookbook.openai.com/articles/gpt-oss-safeguard-guide),
+the [benchmark protocol](benchmarks/safeguard-v1.md), and the [resource-safety
+and recovery guide](troubleshooting/advisor-resource-safety.md). Do not run the
+reference model on a 16-GB M2 Air.
 
 ## Validated outputs
 

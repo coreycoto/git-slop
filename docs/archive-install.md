@@ -14,7 +14,7 @@ Windows users should follow the
 Set `target` to the supported archive target for the host, then run:
 
 ```bash
-release=v0.16.0
+release=v0.16.1
 target=x86_64-unknown-linux-gnu
 version="${release#v}"
 archive="git-slop-${release}-${target}.tar.gz"

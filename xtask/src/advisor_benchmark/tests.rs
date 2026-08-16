@@ -80,17 +80,21 @@ mod tests {
             repositories: Vec::new(),
             provider: "ollama".to_string(),
             endpoint: "http://127.0.0.1:11434/api/chat".to_string(),
+            model: "openai/gpt-oss-safeguard-20b".to_string(),
             runtime_model: "gpt-oss-safeguard:20b".to_string(),
             runtime_label: "test".to_string(),
             model_digest: "not-applicable".to_string(),
             model_quantization: "not-applicable".to_string(),
+            model_size_bytes: None,
+            estimated_peak_memory_bytes: None,
+            confirm_dedicated_host: false,
+            initial_runtime_state: "not-applicable".to_string(),
             output_dir: PathBuf::new(),
             repetitions: 3,
             full_matrix: false,
             prepare_only: true,
             ratings: None,
             review_output_dir: None,
-            ollama_cold_model: None,
         };
         assert!(!release_matrix_complete(&options));
         options.full_matrix = true;
@@ -98,6 +102,25 @@ mod tests {
         assert!(!release_matrix_complete(&options));
         options.repetitions = 3;
         assert!(release_matrix_complete(&options));
+    }
+
+    #[test]
+    fn dedicated_benchmark_rejects_the_recorded_sixteen_gib_capacity() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let gate: BenchmarkReleaseGate = serde_json::from_slice(
+            &fs::read(root.join("benchmarks/advisor/release-gate.json")).unwrap(),
+        )
+        .unwrap();
+        let error = validate_benchmark_capacity(
+            &gate,
+            13_793_441_254,
+            17_179_869_184,
+            16 * 1024 * 1024 * 1024,
+            15 * 1024 * 1024 * 1024,
+            0,
+        )
+        .expect_err("16 GiB benchmark host must fail");
+        assert!(error.to_string().contains("do not run on this host"));
     }
 
     #[test]

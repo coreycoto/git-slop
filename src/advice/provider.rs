@@ -50,7 +50,7 @@ pub struct ProviderConfig {
     pub model: String,
     pub runtime_model: String,
     pub reasoning_effort: ReasoningEffort,
-    pub allow_remote: bool,
+    pub connect_timeout: Duration,
     pub timeout: Duration,
     pub max_response_bytes: usize,
     pub max_output_tokens: usize,
@@ -58,6 +58,8 @@ pub struct ProviderConfig {
     pub runtime_label: Option<String>,
     pub model_digest: Option<String>,
     pub mock_response: Option<PathBuf>,
+    pub resource_guard: Option<super::RuntimeResourceGuard>,
+    pub resource_preflight: Option<super::ResourcePreflight>,
 }
 
 #[derive(Debug)]
@@ -74,7 +76,7 @@ struct HttpEndpoint {
     classification: &'static str,
 }
 
-fn parse_endpoint(value: &str, allow_remote: bool) -> Result<HttpEndpoint> {
+fn parse_endpoint(value: &str) -> Result<HttpEndpoint> {
     let Some(rest) = value.strip_prefix("http://") else {
         bail!("provider_endpoint_unsupported: V1 requires an explicit http:// endpoint");
     };
@@ -121,16 +123,16 @@ fn parse_endpoint(value: &str, allow_remote: bool) -> Result<HttpEndpoint> {
         || host
             .parse::<IpAddr>()
             .is_ok_and(|address| address.is_loopback());
-    if !local && !allow_remote {
+    if !local {
         bail!(
-            "provider_remote_disabled: endpoint host {host:?} is not loopback; pass --allow-remote only after reviewing repository-data exposure"
+            "provider_remote_unsupported: endpoint host {host:?} is not loopback. Advisor V1 has no authenticated TLS transport, so remote endpoints are refused"
         );
     }
     Ok(HttpEndpoint {
         host,
         port,
         path,
-        classification: if local { "loopback" } else { "remote-opt-in" },
+        classification: "loopback",
     })
 }
 
@@ -205,7 +207,7 @@ mod tests {
             model: "openai/gpt-oss-safeguard-20b".to_string(),
             runtime_model: "gpt-oss-safeguard:20b".to_string(),
             reasoning_effort: ReasoningEffort::Medium,
-            allow_remote: false,
+            connect_timeout: Duration::from_secs(1),
             timeout: Duration::from_secs(10),
             max_response_bytes: 65_536,
             max_output_tokens: 1_024,
@@ -213,24 +215,20 @@ mod tests {
             runtime_label: Some("ollama".to_string()),
             model_digest: Some("sha256:fixture".to_string()),
             mock_response: None,
+            resource_guard: None,
+            resource_preflight: None,
         }
     }
 
     #[test]
     fn endpoint_boundary_is_loopback_by_default_and_rejects_header_injection() {
-        let local = parse_endpoint("http://localhost:11434/v1/chat/completions", false)
+        let local = parse_endpoint("http://localhost:11434/v1/chat/completions")
             .expect("loopback endpoint");
         assert_eq!(local.classification, "loopback");
-        assert!(parse_endpoint("http://example.com/v1/chat/completions", false).is_err());
-        assert_eq!(
-            parse_endpoint("http://example.com/v1/chat/completions", true)
-                .expect("explicit remote")
-                .classification,
-            "remote-opt-in"
-        );
-        assert!(parse_endpoint("http://localhost\r\nX-Test: unsafe/path", false).is_err());
-        assert!(parse_endpoint("https://localhost/v1/chat/completions", false).is_err());
-        assert!(parse_endpoint("http://[::1]evil/v1/chat/completions", false).is_err());
+        assert!(parse_endpoint("http://example.com/v1/chat/completions").is_err());
+        assert!(parse_endpoint("http://localhost\r\nX-Test: unsafe/path").is_err());
+        assert!(parse_endpoint("https://localhost/v1/chat/completions").is_err());
+        assert!(parse_endpoint("http://[::1]evil/v1/chat/completions").is_err());
     }
 
     #[test]
@@ -404,12 +402,7 @@ fn decode_chunked(mut body: &[u8], maximum: usize) -> Result<Vec<u8>> {
     Ok(decoded)
 }
 
-fn http_post(
-    endpoint: &HttpEndpoint,
-    body: &[u8],
-    timeout: Duration,
-    maximum: usize,
-) -> Result<Vec<u8>> {
+fn connect_endpoint(endpoint: &HttpEndpoint, timeout: Duration) -> Result<TcpStream> {
     let addresses = (endpoint.host.as_str(), endpoint.port)
         .to_socket_addrs()
         .context("provider_unavailable: endpoint resolution failed")?
@@ -433,7 +426,7 @@ fn http_post(
             Err(error) => last_error = Some(error),
         }
     }
-    let mut stream = stream.ok_or_else(|| {
+    stream.ok_or_else(|| {
         anyhow::anyhow!(
             "provider_unavailable: {}",
             last_error.map_or_else(
@@ -441,8 +434,30 @@ fn http_post(
                 |error| error.to_string()
             )
         )
-    })?;
-    stream.set_read_timeout(Some(timeout))?;
+    })
+}
+
+pub fn probe(config: &ProviderConfig) -> Result<()> {
+    if config.kind == ProviderKind::Mock {
+        return Ok(());
+    }
+    let endpoint = parse_endpoint(&config.endpoint)?;
+    let _stream = connect_endpoint(&endpoint, config.connect_timeout)?;
+    Ok(())
+}
+
+fn http_post(
+    endpoint: &HttpEndpoint,
+    body: &[u8],
+    connect_timeout: Duration,
+    timeout: Duration,
+    maximum: usize,
+    resource_guard: Option<super::RuntimeResourceGuard>,
+) -> Result<Vec<u8>> {
+    let mut stream = connect_endpoint(endpoint, connect_timeout)?;
+    let started = Instant::now();
+    let poll_timeout = timeout.min(Duration::from_millis(250));
+    stream.set_read_timeout(Some(poll_timeout))?;
     stream.set_write_timeout(Some(timeout))?;
     let request = format!(
         "POST {} HTTP/1.1\r\nHost: {}:{}\r\nContent-Type: application/json\r\nAccept: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -458,12 +473,36 @@ fn http_post(
         .write_all(body)
         .context("provider_timeout: request body could not be written")?;
     let mut response = Vec::new();
-    stream
-        .take(u64::try_from(maximum.saturating_add(65_537)).unwrap_or(u64::MAX))
-        .read_to_end(&mut response)
-        .context("provider_timeout: response was not received before the deadline")?;
-    if response.len() > maximum.saturating_add(65_536) {
-        bail!("provider_response_too_large: response exceeds configured bounds");
+    let response_limit = maximum.saturating_add(65_536);
+    loop {
+        if let Some(guard) = resource_guard {
+            super::resources::enforce_resource_guard(guard)?;
+        }
+        if started.elapsed() >= timeout {
+            bail!(
+                "provider_timeout: model loading and generation did not finish within {} seconds",
+                timeout.as_secs_f64()
+            );
+        }
+        let mut chunk = [0_u8; 8192];
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => {
+                if response.len().saturating_add(read) > response_limit {
+                    bail!("provider_response_too_large: response exceeds configured bounds");
+                }
+                response.extend_from_slice(&chunk[..read]);
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(error) => {
+                return Err(error)
+                    .context("provider_unavailable: response connection failed before completion");
+            }
+        }
     }
     let header_end = response
         .windows(4)
@@ -608,15 +647,23 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
                     "context_window_tokens": config.context_window_tokens,
                     "runtime_label": config.runtime_label,
                     "model_digest": config.model_digest,
+                    "resource_preflight": config.resource_preflight,
                 }),
                 elapsed_ms: started.elapsed().as_millis(),
             })
         }
         ProviderKind::OpenaiCompatible => {
-            let endpoint = parse_endpoint(&config.endpoint, config.allow_remote)?;
+            let endpoint = parse_endpoint(&config.endpoint)?;
             let request = openai_request_payload(input, config)?;
             let body = serde_json::to_vec(&request)?;
-            let raw = http_post(&endpoint, &body, config.timeout, config.max_response_bytes)?;
+            let raw = http_post(
+                &endpoint,
+                &body,
+                config.connect_timeout,
+                config.timeout,
+                config.max_response_bytes,
+                config.resource_guard,
+            )?;
             let envelope: Value = serde_json::from_slice(&raw)
                 .context("provider_response_invalid: endpoint returned malformed JSON")?;
             let response = response_content(&envelope)?;
@@ -631,12 +678,14 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
                     "endpoint": config.endpoint,
                     "endpoint_classification": endpoint.classification,
                     "reasoning_effort": config.reasoning_effort,
+                    "connect_timeout_ms": config.connect_timeout.as_millis(),
                     "timeout_ms": config.timeout.as_millis(),
                     "max_response_bytes": config.max_response_bytes,
                     "max_output_tokens": config.max_output_tokens,
                     "context_window_tokens": config.context_window_tokens,
                     "runtime_label": config.runtime_label,
                     "model_digest": config.model_digest,
+                    "resource_preflight": config.resource_preflight,
                     "usage": envelope.get("usage").cloned().unwrap_or(Value::Null),
                     "runtime_timings": {
                         "total_duration": envelope.get("total_duration").cloned().unwrap_or(Value::Null),
@@ -651,10 +700,17 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
             })
         }
         ProviderKind::Ollama => {
-            let endpoint = parse_endpoint(&config.endpoint, config.allow_remote)?;
+            let endpoint = parse_endpoint(&config.endpoint)?;
             let request = ollama_request_payload(input, config)?;
             let body = serde_json::to_vec(&request)?;
-            let raw = http_post(&endpoint, &body, config.timeout, config.max_response_bytes)?;
+            let raw = http_post(
+                &endpoint,
+                &body,
+                config.connect_timeout,
+                config.timeout,
+                config.max_response_bytes,
+                config.resource_guard,
+            )?;
             let envelope: Value = serde_json::from_slice(&raw)
                 .context("provider_response_invalid: endpoint returned malformed JSON")?;
             let response = ollama_response_content(&envelope)?;
@@ -669,12 +725,14 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
                     "endpoint": config.endpoint,
                     "endpoint_classification": endpoint.classification,
                     "reasoning_effort": config.reasoning_effort,
+                    "connect_timeout_ms": config.connect_timeout.as_millis(),
                     "timeout_ms": config.timeout.as_millis(),
                     "max_response_bytes": config.max_response_bytes,
                     "max_output_tokens": config.max_output_tokens,
                     "context_window_tokens": config.context_window_tokens,
                     "runtime_label": config.runtime_label,
                     "model_digest": config.model_digest,
+                    "resource_preflight": config.resource_preflight,
                     "usage": {
                         "prompt_tokens": envelope.get("prompt_eval_count").cloned().unwrap_or(Value::Null),
                         "completion_tokens": envelope.get("eval_count").cloned().unwrap_or(Value::Null),

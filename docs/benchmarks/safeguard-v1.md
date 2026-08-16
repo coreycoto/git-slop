@@ -29,7 +29,8 @@ rationales, proprietary skill text, or local results.
 
 Create the two clean checkouts by the normal Git mechanism appropriate to your
 access. Do not point the harness at an active or dirty development checkout.
-Build the candidate binary and prepare deterministic report fingerprints first:
+Build the ordinary provider-free candidate binary and prepare deterministic
+report fingerprints first:
 
 ```sh
 cargo build --release --locked
@@ -45,15 +46,36 @@ Review the selected plan candidates privately. Pin the emitted report SHA-256
 values in the corpus only after that review. An unpinned corpus can run, but it
 cannot receive a `ship` recommendation.
 
+Build the inference lane only on the dedicated benchmark host with the
+non-default feature:
+
+```sh
+cargo build --release --locked --features advisor-inference-benchmark
+```
+
+Official release binaries never enable that feature.
+
 ## Runtime and model identity
 
 V1 evaluates only the canonical `openai/gpt-oss-safeguard-20b` model. The
-runtime alias defaults to `gpt-oss-safeguard:20b` for Ollama; record the exact
-runtime version, immutable local model digest, and runtime-reported
-quantization. Git Slop neither downloads nor starts model weights. Follow the
+benchmark has no provider, endpoint, canonical-model, or runtime-model
+defaults. Record each explicitly along with the exact runtime version,
+immutable model digest, model artifact size, conservative peak-memory
+estimate, and runtime-reported quantization. Git Slop neither downloads nor
+starts model weights. Follow the
 [official Safeguard guide](https://cookbook.openai.com/articles/gpt-oss-safeguard-guide)
 and the [official Ollama model page](https://ollama.com/library/gpt-oss-safeguard)
-to provision a loopback native or OpenAI-compatible endpoint separately.
+to provision a loopback native or OpenAI-compatible endpoint separately on a
+dedicated host. Do not provision it on the recorded 16-GB M2 Air.
+
+Before preparing repository context or contacting a provider, the inference
+lane requires `--confirm-dedicated-host`, measures physical and available
+memory and swap, validates the supplied model and peak-memory sizes against the
+checked-in release gate, and prints the complete capacity contract. A
+continuous 250-ms watchdog aborts the client request if available memory drops
+below the reserve, swap grows past the fixed limit, or either measurement
+becomes unavailable. A resource abort terminates the matrix immediately and is
+not retried.
 
 ## Preregistered matrix
 
@@ -79,19 +101,26 @@ retry loop and writes a schema-valid `incomplete` result with the partial,
 privacy-safe measurements and a `defer` recommendation. Malformed-but-returned
 model output remains part of the quality matrix and does not trigger this
 runtime fail-fast boundary.
-The first sample is a cold start when `--ollama-cold-model` is supplied; all
-later samples are warm. Run:
+The harness never starts, stops, installs, unloads, or otherwise manages a
+provider runtime. The operator must set `--initial-runtime-state cold` or
+`warm` to record the separately verified state before the first sample; all
+later samples are treated as warm. Run only on the dedicated host:
 
 ```sh
 cargo xtask advisor-benchmark \
   --repository git-slop=/absolute/path/to/clean/git-slop \
   --repository deeptravel=/absolute/path/to/clean/deeptravel \
+  --confirm-dedicated-host \
+  --initial-runtime-state cold \
+  --provider ollama \
+  --endpoint http://127.0.0.1:11434/api/chat \
+  --model openai/gpt-oss-safeguard-20b \
+  --runtime-model gpt-oss-safeguard:20b \
   --runtime-label 'ollama <exact-version>' \
   --model-digest '<immutable-model-digest>' \
   --model-quantization '<runtime-reported-quantization>' \
-  --runtime-model gpt-oss-safeguard:20b \
-  --provider ollama \
-  --ollama-cold-model gpt-oss-safeguard:20b \
+  --model-size-bytes '<verified-model-bytes>' \
+  --estimated-peak-memory-bytes '<conservative-peak-bytes>' \
   --full-matrix \
   --repetitions 3 \
   --review-output-dir /absolute/private/path/to/review-artifacts
@@ -133,11 +162,12 @@ agreement, citation completeness, abstention, and repeated-verdict consistency.
 Manual ratings cover the dimensions that cannot be inferred from schema
 validity.
 
-The harness defaults to Ollama's native `/api/chat` adapter because the native
-response exposes nanosecond load, prompt-evaluation, and generation timings.
-The public OpenAI-compatible adapter remains a separately tested portable path;
-run the same matrix with `--provider openai-compatible --endpoint
-http://127.0.0.1:11434/v1/chat/completions` when comparing that boundary.
+Ollama's native `/api/chat` adapter can expose nanosecond load,
+prompt-evaluation, and generation timings, but it is never selected
+automatically. The OpenAI-compatible adapter remains a separately tested
+portable path; select either provider and its exact loopback endpoint
+explicitly. Remote endpoints are refused because V1 has no authenticated TLS
+transport.
 
 The harness selects a recommended runtime, reasoning effort, and 8,192-token
 default only from configurations that cover every case and pass the registered
@@ -152,4 +182,7 @@ this gate.
 
 The first target-hardware run is recorded in the
 [M2 Air decision](safeguard-v1-m2-air-decision.md). Its fail-closed `defer`
-applies to a default advisor configuration, not to ordinary Git Slop releases.
+disables public inference but does not affect provider-free context or ordinary
+Git Slop detector releases. `cargo xtask check-distribution`, and therefore
+release preparation, rejects any attempt to enable public inference unless the
+checked-in recommendation is `ship`.
