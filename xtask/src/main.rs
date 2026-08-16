@@ -4,9 +4,11 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use git_slop_xtask::{
-    advisor_benchmark, codex, crates_io, developer, distribution, finish_validation, homebrew,
-    issue_forms, manifest, release, release_status, repository, sbom, workflows,
+    codex, crates_io, developer, distribution, finish_validation, homebrew, issue_forms, manifest,
+    release, release_status, repository, sbom, workflows,
 };
+
+mod advisor_cli;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -108,75 +110,10 @@ enum Command {
     },
 
     /// Run the privacy-safe local Safeguard quality and performance matrix.
-    AdvisorBenchmark {
-        /// Release-mode git-slop binary to benchmark.
-        #[arg(long, default_value = "target/release/git-slop")]
-        binary: PathBuf,
-        /// Reviewed corpus file.
-        #[arg(long, default_value = "benchmarks/advisor/corpus-v1.json")]
-        corpus: PathBuf,
-        /// Preregistered decision thresholds.
-        #[arg(long, default_value = "benchmarks/advisor/thresholds-v1.json")]
-        thresholds: PathBuf,
-        /// Repository mapping in KEY=PATH form; repeat for every corpus repository.
-        #[arg(long = "repository", required = true)]
-        repositories: Vec<String>,
-        /// Local provider adapter used for the benchmark.
-        #[arg(long, value_parser = ["ollama", "openai-compatible"], default_value = "ollama")]
-        provider: String,
-        /// Loopback provider endpoint; defaults to the selected provider's local endpoint.
-        #[arg(long)]
-        endpoint: Option<String>,
-        /// Runtime-specific served model name.
-        #[arg(long, default_value = "gpt-oss-safeguard:20b")]
-        runtime_model: String,
-        /// Exact local runtime name and version.
-        #[arg(long)]
-        runtime_label: String,
-        /// Exact model digest or immutable revision.
-        #[arg(long)]
-        model_digest: String,
-        /// Exact model quantization reported by the local runtime.
-        #[arg(long, default_value = "not-applicable")]
-        model_quantization: String,
-        /// Ignored output directory for aggregate results and the decision report.
-        #[arg(long, default_value = "benchmark-results/advisor")]
-        output_dir: PathBuf,
-        /// Repetitions per matrix cell.
-        #[arg(long, default_value_t = 3)]
-        repetitions: usize,
-        /// Run low/medium/high reasoning across 2K/4K/8K token targets.
-        #[arg(long)]
-        full_matrix: bool,
-        /// Generate fresh deterministic reports and privacy-safe fingerprints without inference.
-        #[arg(long)]
-        prepare_only: bool,
-        /// Optional JSON map of anonymous case IDs to maintainer usefulness ratings from 1 through 5.
-        #[arg(long)]
-        ratings: Option<PathBuf>,
-        /// Explicit private directory outside the repository for one review artifact per case and effort.
-        #[arg(long)]
-        review_output_dir: Option<PathBuf>,
-        /// Stop this Ollama model before the first sample to measure a real cold load.
-        #[arg(long)]
-        ollama_cold_model: Option<String>,
-    },
+    AdvisorBenchmark(advisor_cli::BenchmarkArgs),
 
     /// Apply reviewed manual ratings to a completed advisor benchmark without rerunning inference.
-    AdvisorBenchmarkFinalize {
-        /// Reviewed corpus file used by the completed benchmark.
-        #[arg(long, default_value = "benchmarks/advisor/corpus-v1.json")]
-        corpus: PathBuf,
-        /// Preregistered thresholds used by the completed benchmark.
-        #[arg(long, default_value = "benchmarks/advisor/thresholds-v1.json")]
-        thresholds: PathBuf,
-        /// Completed machine-readable benchmark results.
-        #[arg(long, default_value = "benchmark-results/advisor/results.json")]
-        results: PathBuf,
-        /// Completed private maintainer ratings covering every anonymous corpus case.
-        #[arg(long)]
-        ratings: PathBuf,
-    },
+    AdvisorBenchmarkFinalize(advisor_cli::FinalizeArgs),
 
     /// Verify a downloaded crates.io package and write canonical source metadata.
     VerifyCrate {
@@ -326,69 +263,8 @@ fn run(cli: Cli) -> Result<()> {
         Command::ReleaseStatus { version, format } => {
             release_status::inspect(&repo_root, &version, format == ReceiptFormat::Json)
         }
-        Command::AdvisorBenchmark {
-            binary,
-            corpus,
-            thresholds,
-            repositories,
-            provider,
-            endpoint,
-            runtime_model,
-            runtime_label,
-            model_digest,
-            model_quantization,
-            output_dir,
-            repetitions,
-            full_matrix,
-            prepare_only,
-            ratings,
-            review_output_dir,
-            ollama_cold_model,
-        } => {
-            let (results, decision) = advisor_benchmark::run(&advisor_benchmark::Options {
-                repo_root,
-                binary,
-                corpus,
-                thresholds,
-                repositories,
-                endpoint: endpoint.unwrap_or_else(|| {
-                    if provider == "ollama" {
-                        "http://127.0.0.1:11434/api/chat".to_string()
-                    } else {
-                        "http://127.0.0.1:11434/v1/chat/completions".to_string()
-                    }
-                }),
-                provider,
-                runtime_model,
-                runtime_label,
-                model_digest,
-                model_quantization,
-                output_dir,
-                repetitions,
-                full_matrix,
-                prepare_only,
-                ratings,
-                review_output_dir,
-                ollama_cold_model,
-            })?;
-            println!("Wrote advisor benchmark results: {}", results.display());
-            println!("Wrote advisor benchmark decision: {}", decision.display());
-            Ok(())
-        }
-        Command::AdvisorBenchmarkFinalize {
-            corpus,
-            thresholds,
-            results,
-            ratings,
-        } => {
-            let decision =
-                advisor_benchmark::finalize(&repo_root, &corpus, &thresholds, &results, &ratings)?;
-            println!(
-                "Finalized advisor benchmark decision: {}",
-                decision.display()
-            );
-            Ok(())
-        }
+        Command::AdvisorBenchmark(args) => args.run(repo_root),
+        Command::AdvisorBenchmarkFinalize(args) => args.run(&repo_root),
         Command::VerifyCrate {
             crate_file,
             version,

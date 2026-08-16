@@ -1,38 +1,3 @@
-fn writable_cache_probe(target: &Path) -> Value {
-    let mut probe_root = target;
-    while !probe_root.exists() {
-        let Some(parent) = probe_root.parent() else {
-            return json!({"status":"blocked","writable":false,"detail":"no existing parent directory is available"});
-        };
-        probe_root = parent;
-    }
-    if !probe_root.is_dir() {
-        return json!({"status":"blocked","writable":false,"detail":"the cache path or its nearest existing parent is not a directory"});
-    }
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let probe = probe_root.join(format!(
-        ".git-slop-write-probe-{}-{nonce}",
-        std::process::id()
-    ));
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&probe)
-    {
-        Ok(file) => {
-            drop(file);
-            match fs::remove_file(&probe) {
-                Ok(()) => json!({"status":"writable","writable":true}),
-                Err(error) => json!({"status":"blocked","writable":false,"detail":format!("write probe succeeded but cleanup failed: {error}")}),
-            }
-        }
-        Err(error) => json!({"status":"blocked","writable":false,"detail":format!("write probe failed: {error}")}),
-    }
-}
-
 fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     let repo = git::repo_metadata(repo_root)?;
     let config_result = config::load(repo_root);
@@ -145,17 +110,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             json!({"status":"unavailable","writable":false,"detail":format!("policy cache could not be resolved: {error}")})
         });
     let detector_cache_writable = detector_cache["writable"].as_bool() == Some(true);
-    let bundle_path = args.bundle.as_ref().map(|output| {
-        if output == Path::new("__git_slop_active_state_bundle__") {
-            config::active_state_dir(repo_root)
-                .unwrap_or_else(|_| config::slop_dir(repo_root))
-                .join("diagnostic-bundle.json")
-        } else if output.is_absolute() {
-            output.clone()
-        } else {
-            repo_root.join(output)
-        }
-    });
+    let bundle_path = doctor_bundle_path(repo_root, args.bundle.as_deref());
     let mut diagnostics = Vec::new();
     if adoption_status == "not_adopted" {
         diagnostics.push(json!({"code":"repository_not_adopted","severity":"notice","detail":"Repository adoption files are absent; defaults and Git-private state remain ready for ordinary scans.","optional_command":optional_adoption_command}));
@@ -313,34 +268,8 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             println!("- recovery: run `git slop find` to produce a current latest report");
         }
     }
-    if let Some(output) = bundle_path {
-        if let Some(parent) = output.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let config_digest = config_result
-            .as_ref()
-            .ok()
-            .and_then(|value| serde_json::to_vec(value).ok())
-            .map(|bytes| hex::encode(sha2::Sha256::digest(bytes)));
-        let payload = json!({
-            "schema_version": 1,
-            "git_slop_version": VERSION,
-            "repository": {"name": repo.repo_name, "shallow": repo.is_shallow, "detached": repo.detached_head, "clean": repo.worktree_clean, "staged": repo.staged_change_count, "modified": repo.modified_tracked_file_count, "untracked_count": repo.untracked_file_count},
-            "adoption": adoption_payload,
-            "config_digest": config_digest,
-            "report_status": report_status,
-            "report_freshness": report_freshness,
-            "diagnostics": diagnostics,
-            "estimate": estimate,
-            "cache_writability": {"detector_state_writable": detector_cache_writable, "policy_packs_writable": policy_cache["writable"]},
-            "privacy": {"source_included": false, "raw_tokens_included": false, "absolute_paths_included": false, "author_identities_included": false, "credentials_included": false}
-        });
-        config::write_text_atomically(&output, render_json(&payload)?, false)?;
-        if matches!(args.format, DoctorFormat::Json) {
-            eprintln!("Wrote redacted diagnostic bundle to {}.", output.display());
-        } else {
-            println!("Wrote redacted diagnostic bundle to {}.", output.display());
-        }
+    if let Some(output) = bundle_path.as_deref() {
+        write_doctor_bundle(output, args.format, &config_result, &diagnostic, &repo)?;
     }
     Ok(if config_result.is_err()
         || report_status == "invalid"
