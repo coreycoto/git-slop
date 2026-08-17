@@ -376,7 +376,7 @@ fn run_gate(repo_root: &Path, gate: Gate, quiet: bool) -> Result<()> {
             let mut errors = crate::codex::validate(repo_root, false);
             errors.extend(crate::workflows::validate(repo_root));
             errors.extend(crate::issue_forms::validate(repo_root));
-            errors.extend(crate::repository::validate_overlays(repo_root));
+            errors.extend(crate::repository::validate(repo_root));
             errors.extend(crate::distribution::validate(repo_root));
             if quiet {
                 if errors.is_empty() {

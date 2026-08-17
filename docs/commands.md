@@ -39,6 +39,7 @@ git-slop init --check
 git-slop init --repair
 git-slop init --repair --gitignore-only
 git-slop init --force
+git-slop init --format json
 ```
 
 `--check` is read-only and exits 1 when adoption metadata needs repair.
@@ -47,7 +48,12 @@ configuration. `--gitignore-only` limits check, repair, or force to the ignore
 contract, so it never creates or replaces `config.yaml`. Existing generated
 config files are kept unless `--force` is supplied; forced replacements are
 atomic and keep ignored `.bak` recovery copies. `doctor` prints the exact safe
-repair command when it detects adoption drift.
+repair command when it detects adoption drift. JSON output validates against
+`init-1` and includes the operation mode and status, per-path actions, changed
+paths, state promotion, recovery guidance, and next actions. Requesting JSON
+also makes parser and runtime errors JSON. Staging guidance includes every
+repository-owned adoption or policy file that exists under `.slop`, including
+`policies.yaml` and `policy-lock.json`.
 
 ### Find
 
@@ -163,6 +169,10 @@ git-slop cache prune --dry-run --format json
 git-slop completions zsh
 git-slop html --output .slop/latest/report.html
 ```
+
+`doctor --format json` reports separate typed provider-free and inference
+states. Its advisor decision URL is pinned to the running Git Slop version and
+works without a local source checkout.
 
 Global `--repo <path>` avoids changing directories. Diagnostic bundles exclude
 source, raw tokens, credentials, absolute paths, and author identities.

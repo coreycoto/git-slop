@@ -230,6 +230,9 @@ fn validate_version_alignment(repo_root: &Path, errors: &mut Vec<String>) {
     }
 
     validate_lock_version(repo_root, &version, errors);
+    if let Err(error) = crate::release::validate_release_inventory(repo_root, &version) {
+        errors.push(format!("Release inventory is invalid: {error}"));
+    }
     validate_action_default(repo_root, &version, errors);
     validate_installer_fallback(repo_root, &version, errors);
     validate_release_workflow_default(repo_root, &version, errors);

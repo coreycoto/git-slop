@@ -9,7 +9,15 @@ Schema `$id` values identify the release that introduced each contract, not the
 currently running binary. Contract filenames and `schema_version` are the stable
 identities; compatible later releases intentionally retain the introduction URL.
 
+[`index.json`](index.json) is the authoritative routing catalog. It maps every
+packaged schema to its product category, lifecycle, and `git slop schema`
+command when the running binary exposes that contract. The pinned validator
+fails when a schema is missing, duplicated, misidentified, unrouted, or differs
+from the exact runtime bytes.
+
 - `config-2.json`: `.slop/config.yaml` after YAML-to-JSON conversion
+- `init-1.json`: strict `git slop init --format json` adoption, mutation,
+  promotion, staging, rollback, and next-action receipt
 - `report-5.json`: canonical normalized `report.json`
 - `report-4.json`: legacy migration input retained for cross-version readers
 - `compare-1.json`: native `git slop compare --format json`
@@ -25,7 +33,10 @@ identities; compatible later releases intentionally retain the introduction URL.
   deterministic selected-pack resolution contracts
 - `advice-input-1.json`, `advice-response-1.json`, and `advice-1.json`:
   provider-independent context, strict provider response, and validated
-  non-mutating advice artifact contracts
+  non-mutating advice artifact contracts. Context builder 2 preserves
+  investigation-versus-implementation disposition, embeds stable policy rule
+  IDs, deduplicates excerpt paths with role/reason arrays, and exposes
+  structured truncation evidence
 - `advisor-corpus-1.json`, `advisor-ratings-1.json`, `advisor-ratings-2.json`,
   `advisor-review-artifact-1.json`, `advisor-review-manifest-1.json`,
   `advisor-operation-receipt-1.json`, `advisor-thresholds-1.json`,

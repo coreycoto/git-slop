@@ -83,6 +83,14 @@ data into a content-addressed user cache. It never fetches a network source.
 missing, incompatible, or unlocked selected content fails instead of falling
 back. Set `GIT_SLOP_POLICY_HOME` when a reproducible isolated cache is needed.
 
+Every mutating policy command returns a durable `mutation` receipt in text or
+JSON. It distinguishes user-cache and repository mutations, lists changed and
+repository-owned paths, states whether a commit is required, and provides
+rollback or explicit unselect guidance. Selection changes invalidate an
+existing lock and direct the user to relock before staging. Commit guidance
+enumerates both `.slop/policies.yaml` and `.slop/policy-lock.json` whenever the
+selection and lock form one repository change.
+
 Remove a selected pack explicitly:
 
 ```sh

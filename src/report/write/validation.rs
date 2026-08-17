@@ -1136,3 +1136,66 @@ pub fn validation_violations(report: &Value) -> Vec<Value> {
         .filter_map(|issue| serde_json::to_value(issue).ok())
         .collect()
 }
+
+#[cfg(test)]
+mod validation_tests {
+    use super::*;
+
+    fn fixture() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../tests/fixtures/reports/large_repo_top_report.json"
+        ))
+        .expect("canonical report fixture")
+    }
+
+    #[test]
+    fn validation_diagnostics_keep_stable_codes_and_exact_nested_pointers() {
+        let mut report = fixture();
+        report["unexpected_root"] = json!(true);
+        report["files"][0]["costs"]["load"]["unexpected_load"] = json!(1);
+
+        let issues = validation_issues(&report);
+        assert!(issues.iter().any(|issue| {
+            issue.code == "unknown_field" && issue.pointer == "/unexpected_root"
+        }));
+        assert!(issues.iter().any(|issue| {
+            issue.code == "unknown_field"
+                && issue.pointer == "/files/0/costs/load/unexpected_load"
+        }));
+        for pointer in [
+            "/unexpected_root",
+            "/files/0/costs/load/unexpected_load",
+        ] {
+            assert_eq!(
+                issues.iter().filter(|issue| issue.pointer == pointer).count(),
+                1,
+                "new diagnostic {pointer} must not be duplicated by schema validation"
+            );
+        }
+
+        let violations = validation_violations(&report);
+        assert!(violations.iter().all(|violation| {
+            violation.get("code").is_some()
+                && violation.get("pointer").is_some()
+                && violation.get("message").is_some()
+        }));
+    }
+
+    #[test]
+    fn root_and_required_field_failures_are_machine_actionable() {
+        let root_issue = validation_issues(&json!([]));
+        assert_eq!(root_issue.len(), 1);
+        assert_eq!(root_issue[0].code, "type_mismatch");
+        assert_eq!(root_issue[0].pointer, "");
+
+        let mut report = fixture();
+        report.as_object_mut().unwrap().remove("schema_version");
+        let issues = validation_issues(&report);
+        assert!(issues.iter().any(|issue| {
+            issue.code == "required_field_missing" && issue.pointer == "/schema_version"
+        }));
+        assert!(issues.iter().any(|issue| {
+            issue.code == "unsupported_schema_version" && issue.pointer == "/schema_version"
+        }));
+    }
+}

@@ -131,20 +131,39 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     let advisor_gate = crate::advice::release_gate();
     let advisor_gate_valid = advisor_gate.is_ok();
     let advisor_payload = match &advisor_gate {
-        Ok(gate) => json!({
-            "status": "available",
-            "default_mode": "provider_free_json",
-            "provider_free_context_available": true,
-            "model_required_for_ordinary_use": false,
-            "public_inference_enabled": gate.public_inference_enabled,
-            "recommendation": gate.recommendation,
-            "decision_record": gate.decision_record,
-            "benchmark_feature_compiled": cfg!(feature = "advisor-inference-benchmark"),
-            "state": advice_state.clone(),
-        }),
+        Ok(gate) => {
+            let inference_status = if gate.public_inference_enabled {
+                "enabled"
+            } else if gate.recommendation == "defer" {
+                "deferred"
+            } else {
+                "disabled"
+            };
+            json!({
+                "status": "available",
+                "provider_free_status": "available",
+                "inference_status": inference_status,
+                "default_mode": "provider_free_markdown",
+                "machine_context_mode": "provider_free_json",
+                "provider_free_context_available": true,
+                "model_required_for_ordinary_use": false,
+                "public_inference_enabled": gate.public_inference_enabled,
+                "recommendation": gate.recommendation,
+                "decision_record": gate.decision_record,
+                "decision_record_url": format!(
+                    "https://github.com/coreycoto/git-slop/blob/v{VERSION}/{}",
+                    gate.decision_record
+                ),
+                "benchmark_feature_compiled": cfg!(feature = "advisor-inference-benchmark"),
+                "state": advice_state.clone(),
+            })
+        }
         Err(error) => json!({
             "status": "invalid_release_gate",
-            "default_mode": "provider_free_json",
+            "provider_free_status": "available",
+            "inference_status": "unavailable",
+            "default_mode": "provider_free_markdown",
+            "machine_context_mode": "provider_free_json",
             "provider_free_context_available": true,
             "model_required_for_ordinary_use": false,
             "public_inference_enabled": false,
@@ -310,16 +329,20 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             policy_cache["status"].as_str().unwrap_or("unknown")
         );
         println!(
-            "- advisor: provider-free context available; model required for ordinary use=no; public inference={} ({})",
-            if advisor_payload["public_inference_enabled"].as_bool() == Some(true) {
-                "enabled"
-            } else {
-                "disabled"
-            },
+            "- advisor: provider-free={}; inference={}; model required for ordinary use=no ({})",
+            advisor_payload["provider_free_status"]
+                .as_str()
+                .unwrap_or("unavailable"),
+            advisor_payload["inference_status"]
+                .as_str()
+                .unwrap_or("unavailable"),
             advisor_payload["recommendation"]
                 .as_str()
                 .unwrap_or("invalid release gate")
         );
+        if let Some(url) = advisor_payload["decision_record_url"].as_str() {
+            println!("- advisor decision: {url}");
+        }
         println!(
             "- advisor state: {}; retained runs={} ({} bytes); private permissions={}",
             advice_state["status"].as_str().unwrap_or("invalid"),

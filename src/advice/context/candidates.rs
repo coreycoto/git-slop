@@ -164,9 +164,24 @@ fn build_candidates(plans: &[Value]) -> Result<Vec<Value>> {
                         (false, false) => "unavailable",
                     }
                 });
+            let intervention_supported = evidence
+                .pointer("/anchor/intervention_supported")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let disposition = if intervention_supported {
+                "implementable"
+            } else {
+                "investigate"
+            };
+            let implementation_sequence = if intervention_supported {
+                json!(["baseline", "change", "verify", "compare"])
+            } else {
+                json!(["baseline", "investigate", "establish_evidence", "verify"])
+            };
             candidates.push(json!({
                 "id": candidate_id,
                 "source_plan_slice_id": source_id,
+                "disposition": disposition,
                 "observed_facts": {
                     "scope_paths": slice.get("scope_paths").cloned().unwrap_or_else(|| json!([])),
                     "out_of_scope_paths": slice.get("out_of_scope_paths").cloned().unwrap_or_else(|| json!([])),
@@ -176,6 +191,7 @@ fn build_candidates(plans: &[Value]) -> Result<Vec<Value>> {
                     },
                     "evidence": {
                         "anchor": evidence.get("anchor").cloned().unwrap_or(Value::Null),
+                        "intervention_supported": intervention_supported,
                         "finding_ids": evidence.get("finding_ids").cloned().unwrap_or_else(|| json!([])),
                         "relationship_ids": evidence.get("relationship_ids").cloned().unwrap_or_else(|| json!([])),
                         "cluster_ids": evidence.get("cluster_ids").cloned().unwrap_or_else(|| json!([])),
@@ -195,18 +211,17 @@ fn build_candidates(plans: &[Value]) -> Result<Vec<Value>> {
                 },
                 "interpretation": {
                     "title": slice.get("title").cloned().unwrap_or(Value::Null),
-                    "objective": "Apply and verify the bounded slice.",
+                    "objective": slice.get("objective").cloned().unwrap_or_else(|| if intervention_supported {
+                        json!("Apply and verify the bounded slice.")
+                    } else {
+                        json!("Investigate the bounded slice without mutating source until intervention evidence is established.")
+                    }),
                     "rationale": slice.get("rationale").cloned().unwrap_or(Value::Null),
                     "assumptions": assumptions,
-                    "abandonment_condition": "Abstain if evidence is insufficient.",
-                    "rollback": "Revert the bounded change.",
+                    "abandonment_condition": slice.get("abandonment_condition").cloned().unwrap_or_else(|| json!("Abstain if evidence is insufficient.")),
+                    "rollback": slice.get("rollback").cloned().unwrap_or_else(|| json!("Revert the bounded change.")),
                 },
-                "implementation_sequence": [
-                    "baseline",
-                    "change",
-                    "verify",
-                    "compare"
-                ],
+                "implementation_sequence": implementation_sequence,
             }));
         }
     }

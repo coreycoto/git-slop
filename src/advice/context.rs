@@ -133,4 +133,71 @@ mod tests {
             2
         );
     }
+
+    #[test]
+    fn investigation_candidates_preserve_plan_semantics_without_mutation_language() {
+        let plans = vec![json!({
+            "selector": {"kind": "path", "value": "README.md"},
+            "proposed_slices": [{
+                "id": "slice-investigate",
+                "title": "Investigate README.md",
+                "scope_paths": ["README.md"],
+                "out_of_scope_paths": [],
+                "objective": "Investigate README.md; do not mutate source without intervention evidence.",
+                "rationale": "The report contains no supported intervention signal.",
+                "assumptions": [],
+                "boundaries": {"existing_path_cap": {"maximum": 1}, "new_path_cap": {"maximum": 0}},
+                "evidence": {"anchor": {"intervention_supported": false, "reason_codes": []}},
+                "verification": {"classes": [], "concrete_targets": [], "discovered_commands": [], "required_checks": []},
+                "expected_outcome": {"required": ["Record whether evidence exists."]},
+                "abandonment_condition": "Stop if investigation would require a mutation.",
+                "rollback": "No rollback is required for a read-only investigation."
+            }]
+        })];
+        let candidates = build_candidates(&plans).expect("investigation candidate");
+        let candidate = &candidates[0];
+        assert_eq!(candidate["disposition"], "investigate");
+        assert_eq!(
+            candidate["observed_facts"]["evidence"]["intervention_supported"],
+            false
+        );
+        assert_eq!(
+            candidate["interpretation"]["objective"],
+            plans[0]["proposed_slices"][0]["objective"]
+        );
+        assert_eq!(
+            candidate["interpretation"]["abandonment_condition"],
+            plans[0]["proposed_slices"][0]["abandonment_condition"]
+        );
+        assert_eq!(
+            candidate["implementation_sequence"],
+            json!(["baseline", "investigate", "establish_evidence", "verify"])
+        );
+    }
+
+    #[test]
+    fn excerpt_selection_merges_roles_reasons_and_required_state_by_path() {
+        let mut selections = Vec::new();
+        add_excerpt_selection(
+            &mut selections,
+            "guidance",
+            "README.md".to_string(),
+            "canonical_repository_guidance",
+            false,
+        );
+        add_excerpt_selection(
+            &mut selections,
+            "source",
+            "README.md".to_string(),
+            "candidate_scope_path",
+            true,
+        );
+        assert_eq!(selections.len(), 1);
+        assert_eq!(selections[0].roles, ["guidance", "source"]);
+        assert_eq!(
+            selections[0].reasons,
+            ["canonical_repository_guidance", "candidate_scope_path"]
+        );
+        assert!(selections[0].required);
+    }
 }

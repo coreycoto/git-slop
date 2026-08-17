@@ -7,7 +7,7 @@
   "required": ["schema_version", "context_builder_version", "context_digest", "report", "selector", "candidates", "policies", "repository_excerpts", "reference_index", "missing_evidence", "limits", "trust_zones"],
   "properties": {
     "schema_version": {"const": 1},
-    "context_builder_version": {"const": 1},
+    "context_builder_version": {"const": 2},
     "context_digest": {"$ref": "#/$defs/digest"},
     "report": {
       "type": "object", "additionalProperties": false,
@@ -21,7 +21,7 @@
       "type": "object", "additionalProperties": false, "required": ["kind", "value"],
       "properties": {"kind": {"enum": ["path", "relationship", "cluster", "top"]}, "value": {"type": ["string", "integer"]}}
     },
-    "candidates": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object", "required": ["id", "source_plan_slice_id", "observed_facts", "interpretation", "implementation_sequence"], "properties": {"id": {"type": "string", "pattern": "^candidate-[a-f0-9]{16}$"}, "source_plan_slice_id": {"type": "string", "minLength": 1}, "implementation_sequence": {"type": "array", "minItems": 1}}}},
+    "candidates": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object", "required": ["id", "source_plan_slice_id", "disposition", "observed_facts", "interpretation", "implementation_sequence"], "properties": {"id": {"type": "string", "pattern": "^candidate-[a-f0-9]{16}$"}, "source_plan_slice_id": {"type": "string", "minLength": 1}, "disposition": {"enum": ["implementable", "investigate"]}, "implementation_sequence": {"type": "array", "minItems": 1}}}},
     "policies": {
       "type": "object",
       "additionalProperties": false,
@@ -61,8 +61,9 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["text", "consequence", "evidence"],
+            "required": ["id", "text", "consequence", "evidence"],
             "properties": {
+              "id": {"type": "string", "minLength": 1},
               "text": {"type": "string", "minLength": 1},
               "severity": {"enum": ["warning", "error"]},
               "consequence": {"enum": ["approve", "abstain", "revise", "reject"]},
@@ -77,13 +78,14 @@
     "repository_excerpts": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/excerpt"}},
     "reference_index": {"$ref": "#/$defs/references"},
     "missing_evidence": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "reason"], "properties": {"path": {"type": "string"}, "reason": {"enum": ["context_file_limit", "context_byte_budget", "context_token_budget"]}}}},
-    "limits": {"type": "object", "additionalProperties": false, "required": ["maximum_context_bytes", "maximum_context_tokens", "estimated_context_tokens", "per_excerpt_bytes", "maximum_files", "remaining_bytes", "truncated"], "properties": {"maximum_context_bytes": {"type": "integer", "minimum": 16384, "maximum": 1048576}, "maximum_context_tokens": {"type": "integer", "minimum": 2048, "maximum": 32768}, "estimated_context_tokens": {"type": "integer", "minimum": 0}, "per_excerpt_bytes": {"type": "integer", "minimum": 512, "maximum": 16384}, "maximum_files": {"const": 20}, "remaining_bytes": {"type": "integer", "minimum": 0}, "truncated": {"type": "boolean"}}},
+    "limits": {"type": "object", "additionalProperties": false, "required": ["maximum_context_bytes", "maximum_context_tokens", "estimated_context_tokens", "per_excerpt_bytes", "maximum_files", "remaining_bytes", "truncated", "truncation"], "properties": {"maximum_context_bytes": {"type": "integer", "minimum": 16384, "maximum": 1048576}, "maximum_context_tokens": {"type": "integer", "minimum": 2048, "maximum": 32768}, "estimated_context_tokens": {"type": "integer", "minimum": 0}, "per_excerpt_bytes": {"type": "integer", "minimum": 512, "maximum": 16384}, "maximum_files": {"const": 20}, "remaining_bytes": {"type": "integer", "minimum": 0}, "truncated": {"type": "boolean"}, "truncation": {"$ref": "#/$defs/truncation"}}},
     "trust_zones": {"type": "object", "additionalProperties": false, "required": ["system", "core_policy", "third_party_policy", "candidate_context", "repository_content"], "properties": {"system": {"type": "string"}, "core_policy": {"type": "object"}, "third_party_policy": {"type": "object"}, "candidate_context": {"type": "string"}, "repository_content": {"type": "string"}}}
   },
   "$defs": {
     "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "stringSet": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "references": {"type": "object", "additionalProperties": false, "required": ["candidates", "paths", "findings", "relationships", "clusters", "excerpts", "policies", "verification"], "properties": {"candidates": {"$ref": "#/$defs/stringSet"}, "paths": {"$ref": "#/$defs/stringSet"}, "findings": {"$ref": "#/$defs/stringSet"}, "relationships": {"$ref": "#/$defs/stringSet"}, "clusters": {"$ref": "#/$defs/stringSet"}, "excerpts": {"$ref": "#/$defs/stringSet"}, "policies": {"$ref": "#/$defs/stringSet"}, "verification": {"$ref": "#/$defs/stringSet"}}},
-    "excerpt": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "path", "selection_reason", "line_range", "content_sha256", "excerpt_sha256", "original_bytes", "returned_bytes", "truncated", "text", "trust"], "properties": {"id": {"type": "string", "pattern": "^excerpt-[a-f0-9]{16}$"}, "kind": {"enum": ["guidance", "source", "test"]}, "path": {"type": "string", "minLength": 1}, "selection_reason": {"type": "string", "minLength": 1}, "line_range": {"type": "object", "additionalProperties": false, "required": ["start", "end"], "properties": {"start": {"type": "integer", "minimum": 1}, "end": {"type": "integer", "minimum": 1}}}, "content_sha256": {"$ref": "#/$defs/digest"}, "excerpt_sha256": {"$ref": "#/$defs/digest"}, "original_bytes": {"type": "integer", "minimum": 0}, "returned_bytes": {"type": "integer", "minimum": 0}, "truncated": {"type": "boolean"}, "text": {"type": "string"}, "trust": {"const": "untrusted_repository_content"}}}
+    "excerpt": {"type": "object", "additionalProperties": false, "required": ["id", "roles", "path", "selection_reasons", "line_range", "content_sha256", "excerpt_sha256", "original_bytes", "returned_bytes", "truncated", "text", "trust"], "properties": {"id": {"type": "string", "pattern": "^excerpt-[a-f0-9]{16}$"}, "roles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["guidance", "source", "test"]}}, "path": {"type": "string", "minLength": 1}, "selection_reasons": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}, "line_range": {"type": "object", "additionalProperties": false, "required": ["start", "end"], "properties": {"start": {"type": "integer", "minimum": 1}, "end": {"type": "integer", "minimum": 1}}}, "content_sha256": {"$ref": "#/$defs/digest"}, "excerpt_sha256": {"$ref": "#/$defs/digest"}, "original_bytes": {"type": "integer", "minimum": 0}, "returned_bytes": {"type": "integer", "minimum": 0}, "truncated": {"type": "boolean"}, "truncation_reason": {"enum": ["per_excerpt_bytes", "context_token_budget"]}, "text": {"type": "string"}, "trust": {"const": "untrusted_repository_content"}}},
+    "truncation": {"type": "object", "additionalProperties": false, "required": ["occurred", "reasons", "excerpt_count", "omitted_count", "candidate_details_compacted", "excerpts", "omissions"], "properties": {"occurred": {"type": "boolean"}, "reasons": {"type": "array", "uniqueItems": true, "items": {"enum": ["per_excerpt_bytes", "context_file_limit", "context_byte_budget", "context_token_budget", "candidate_details_compacted"]}}, "excerpt_count": {"type": "integer", "minimum": 0}, "omitted_count": {"type": "integer", "minimum": 0}, "candidate_details_compacted": {"type": "boolean"}, "excerpts": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "reason", "original_bytes", "returned_bytes"], "properties": {"path": {"type": "string", "minLength": 1}, "reason": {"enum": ["per_excerpt_bytes", "context_token_budget"]}, "original_bytes": {"type": "integer", "minimum": 0}, "returned_bytes": {"type": "integer", "minimum": 0}}}}, "omissions": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "reason"], "properties": {"path": {"type": "string"}, "reason": {"enum": ["context_file_limit", "context_byte_budget", "context_token_budget"]}}}}}}
   }
 }

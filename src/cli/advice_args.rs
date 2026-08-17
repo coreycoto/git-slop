@@ -62,7 +62,7 @@ struct AdviseArgs {
     /// Evaluate only this already-locked pack or rule in addition to all core invariants.
     #[arg(long = "policy", action = clap::ArgAction::Append, conflicts_with = "validate_artifact")]
     policies: Vec<String>,
-    /// Emit byte-stable provider-independent advice input without model inference.
+    /// Emit provider-independent context without model inference; defaults to full JSON.
     #[arg(long, conflicts_with = "validate_artifact")]
     context_only: bool,
     /// Explicitly request experimental model inference after every safety gate passes.
@@ -137,7 +137,7 @@ struct AdviseArgs {
     /// Structured mock response used only with --provider mock.
     #[arg(long, hide = true, requires = "infer", conflicts_with = "validate_artifact")]
     mock_response: Option<PathBuf>,
-    /// Render context as JSON or validated advice as Markdown/JSON. Context defaults to JSON.
+    /// Render provider-free context or validated advice as Markdown/JSON.
     #[arg(long, value_enum)]
     format: Option<AdviceFormat>,
     /// Also write the selected rendering to this repo-relative or absolute path.

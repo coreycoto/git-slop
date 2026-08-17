@@ -12,6 +12,7 @@ struct SchemaArgs {
 enum SchemaContract {
     Report,
     Config,
+    Init,
     Compare,
     Explain,
     Plan,

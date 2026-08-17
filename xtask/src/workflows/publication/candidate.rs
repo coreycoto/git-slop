@@ -92,7 +92,7 @@ fn validate_candidate_job(candidate: Option<&YamlValue>, errors: &mut Vec<String
             return;
         };
         for required in [
-            "cargo xtask release-prepare --version \"$VERSION\" --check-only",
+            "cargo xtask release-prepare --version \"$VERSION\" --check-only --require-release-date",
             "cargo xtask validate",
             "node --test action/*.test.mjs",
             "cargo publish -p git-slop --dry-run --locked",

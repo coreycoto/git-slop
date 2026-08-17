@@ -237,6 +237,15 @@ struct InitArgs {
     /// Limit initialization, repair, force, or check to .slop/.gitignore.
     #[arg(long)]
     gitignore_only: bool,
+    /// Output format. JSON also makes parser and runtime errors machine-readable.
+    #[arg(long, value_enum, default_value_t = InitFormat::Text)]
+    format: InitFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum InitFormat {
+    Text,
+    Json,
 }
 
 #[derive(Debug, Args)]

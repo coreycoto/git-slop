@@ -3,6 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "description": "Pinned validator used by packaged-contract release qualification.",
+  "scripts": {
+    "test": "node test.mjs ../../schemas"
+  },
   "dependencies": {
     "ajv-cli": "5.0.0",
     "ajv-formats": "3.0.1"

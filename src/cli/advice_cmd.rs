@@ -19,6 +19,90 @@ fn advice_render(value: &Value, markdown: Option<&str>, format: AdviceFormat) ->
     }
 }
 
+fn provider_free_context_markdown(input: &Value) -> String {
+    let candidates = input["candidates"].as_array().map_or(&[][..], Vec::as_slice);
+    let implementable = candidates
+        .iter()
+        .filter(|candidate| candidate["disposition"] == "implementable")
+        .count();
+    let investigate = candidates.len().saturating_sub(implementable);
+    let policy_count = input
+        .pointer("/policies/rules")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let excerpt_count = input["repository_excerpts"]
+        .as_array()
+        .map_or(0, Vec::len);
+    let missing_count = input["missing_evidence"].as_array().map_or(0, Vec::len);
+    let truncated = input
+        .pointer("/limits/truncation/occurred")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let selector_kind = input
+        .pointer("/selector/kind")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let selector_value = input
+        .pointer("/selector/value")
+        .map(|value| match value {
+            Value::String(value) => value.clone(),
+            _ => value.to_string(),
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+    let digest = input
+        .get("context_digest")
+        .and_then(Value::as_str)
+        .unwrap_or("unavailable");
+    let tokens = input
+        .pointer("/limits/estimated_context_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let mut output = format!(
+        "# Git Slop provider-free advice context\n\n\
+         Status: **ready for human review; no model or provider was configured or contacted**\n\n\
+         - Selector: `{selector_kind}` = `{}`\n\
+         - Candidates: {} ({implementable} implementable, {investigate} investigate)\n\
+         - Applicable policy rules: {policy_count}\n\
+         - Repository excerpts: {excerpt_count}\n\
+         - Missing evidence: {missing_count}\n\
+         - Context truncated: {}\n\
+         - Estimated tokens: {tokens}\n\
+         - Context digest: `{digest}`\n\n\
+         ## Candidates\n\n",
+        crate::text::visible_controls(&selector_value),
+        candidates.len(),
+        if truncated { "yes" } else { "no" },
+    );
+    for candidate in candidates {
+        let disposition = candidate["disposition"].as_str().unwrap_or("investigate");
+        let title = candidate
+            .pointer("/interpretation/title")
+            .and_then(Value::as_str)
+            .unwrap_or("Untitled candidate");
+        let objective = candidate
+            .pointer("/interpretation/objective")
+            .and_then(Value::as_str)
+            .unwrap_or("Review the supplied evidence.");
+        output.push_str(&format!(
+            "- **{}** — {}\n  - {}\n",
+            disposition,
+            crate::text::visible_controls(title),
+            crate::text::visible_controls(objective),
+        ));
+    }
+    output.push_str(
+        "\n## Next step\n\nRerun with `--context-only --format json` to inspect or export the complete byte-stable machine context. Provider-free context is advisory and does not mutate source.\n",
+    );
+    output
+}
+
+fn context_render(input: &Value, format: AdviceFormat) -> Result<String> {
+    match format {
+        AdviceFormat::Json => Ok(serde_json::to_string_pretty(input)? + "\n"),
+        AdviceFormat::Markdown => Ok(provider_free_context_markdown(input)),
+    }
+}
+
 fn classify_advisor_error(
     error: anyhow::Error,
     fallback_code: &'static str,
@@ -286,20 +370,11 @@ fn run_advise(repo_root: &Path, args: AdviseArgs) -> Result<i32> {
     }
     let context_mode =
         args.context_only || (!args.infer && args.validate_artifact.is_none());
-    let format = args.format.unwrap_or(if context_mode {
+    let format = args.format.unwrap_or(if context_mode && args.context_only {
         AdviceFormat::Json
     } else {
         AdviceFormat::Markdown
     });
-    if context_mode && format != AdviceFormat::Json {
-        return Err(ClassifiedError::new(
-            ErrorKind::Contract,
-            "context_only_requires_json",
-            "provider-independent context requires --format json; omit --format to select JSON automatically",
-        )
-        .at("/format")
-        .into());
-    }
 
     let gate = if args.infer {
         let gate = crate::advice::release_gate()?;
@@ -380,7 +455,7 @@ fn run_advise(repo_root: &Path, args: AdviseArgs) -> Result<i32> {
     )?;
     let context_elapsed_ms = context_started.elapsed().as_millis();
     if context_mode {
-        let rendered = serde_json::to_string_pretty(&input)? + "\n";
+        let rendered = context_render(&input, format)?;
         if let Some(output) = args.output.as_deref() {
             write_generated_output(Some(&resolve_repo_path(repo_root, output)), rendered.as_bytes())?;
         } else {

@@ -34,6 +34,60 @@ fn lock_path(repo_root: &Path) -> PathBuf {
     repo_root.join(".slop/policy-lock.json")
 }
 
+fn receipt_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn repository_policy_stage_paths(repo_root: &Path, include_lock: bool) -> Vec<String> {
+    let mut paths = Vec::new();
+    if selection_path(repo_root).is_file() {
+        paths.push(".slop/policies.yaml".to_string());
+    }
+    if include_lock || lock_path(repo_root).is_file() {
+        paths.push(".slop/policy-lock.json".to_string());
+    }
+    paths
+}
+
+struct MutationReceipt<'a> {
+    class: &'a str,
+    changed_paths: Vec<String>,
+    repository_changed_paths: Vec<String>,
+    stage_paths: Vec<String>,
+    rollback_command: Option<String>,
+    rollback_guidance: String,
+    unselect_command: Option<String>,
+    next_actions: Vec<String>,
+}
+
+fn mutation_payload(receipt: MutationReceipt<'_>) -> Value {
+    let commit_required = !receipt.repository_changed_paths.is_empty();
+    let stage_command = (!receipt.stage_paths.is_empty())
+        .then(|| format!("git add {}", receipt.stage_paths.join(" ")));
+    json!({
+        "class": receipt.class,
+        "durable": !receipt.changed_paths.is_empty(),
+        "changed_paths": receipt.changed_paths,
+        "repository_changed_paths": receipt.repository_changed_paths,
+        "rollback": {
+            "command": receipt.rollback_command,
+            "guidance": receipt.rollback_guidance,
+        },
+        "unselect_command": receipt.unselect_command,
+        "commit": {
+            "required": commit_required,
+            "paths": receipt.stage_paths,
+            "command": stage_command,
+            "guidance": if commit_required {
+                "Review and commit every listed repository-owned policy path."
+            } else {
+                "No repository file changed; no commit is required."
+            },
+        },
+        "next_actions": receipt.next_actions,
+    })
+}
+
 fn read_selection(repo_root: &Path) -> Result<PolicySelection> {
     let path = selection_path(repo_root);
     if !path.exists() {
@@ -153,22 +207,85 @@ pub fn validate_pack_reference(target: &str, path: Option<&Path>) -> Result<Poli
 
 pub fn install_pack(repo_root: &Path, source: &Path, select: bool) -> Result<PolicyCommandOutput> {
     let pack = load_and_validate_pack(source)?;
+    let previously_installed_digest = store::installed(&pack.manifest.id)
+        .ok()
+        .map(|installed| installed.content_digest);
+    let cache_home = store::policy_home()?;
+    let cache_entry = cache_home.join(&pack.content_digest);
+    let cache_entry_existed = cache_entry.exists();
+    let mut selection = read_selection(repo_root)?;
+    let selection_changed = select && !selection.packs.contains(&pack.manifest.id);
     let destination = store::install(&pack)?;
-    if select {
-        let mut selection = read_selection(repo_root)?;
-        if !selection.packs.contains(&pack.manifest.id) {
-            selection.packs.push(pack.manifest.id.clone());
-            selection.packs.sort();
-            write_selection(repo_root, &selection)?;
-        }
+    let mut changed_paths = vec![receipt_path(&cache_home.join("index.json"))];
+    if !cache_entry_existed {
+        changed_paths.push(receipt_path(&destination));
     }
+    let mut repository_changed_paths = Vec::new();
+    let mut lock_invalidated = false;
+    if selection_changed {
+        selection.packs.push(pack.manifest.id.clone());
+        selection.packs.sort();
+        write_selection(repo_root, &selection)?;
+        repository_changed_paths.push(".slop/policies.yaml".to_string());
+        changed_paths.push(".slop/policies.yaml".to_string());
+    }
+    let selected = selection.packs.contains(&pack.manifest.id);
+    let selected_content_changed =
+        selected && previously_installed_digest.as_deref() != Some(pack.content_digest.as_str());
+    let lock = lock_path(repo_root);
+    if (selection_changed || selected_content_changed) && lock.exists() {
+        fs::remove_file(&lock)?;
+        lock_invalidated = true;
+        repository_changed_paths.push(".slop/policy-lock.json".to_string());
+        changed_paths.push(".slop/policy-lock.json".to_string());
+    }
+    let rollback_command = if selected {
+        format!("git slop policy remove {} --unselect", pack.manifest.id)
+    } else {
+        format!("git slop policy remove {}", pack.manifest.id)
+    };
+    let unselect_command =
+        selected.then(|| format!("git slop policy remove {} --unselect", pack.manifest.id));
+    let mut next_actions = Vec::new();
+    if selection_changed || lock_invalidated {
+        next_actions.push("git slop policy lock".to_string());
+        next_actions
+            .push("review and commit .slop/policies.yaml and .slop/policy-lock.json".to_string());
+    } else {
+        next_actions.push(format!("git slop policy show {}", pack.manifest.id));
+    }
+    let stage_paths = if selection_changed || lock_invalidated {
+        repository_policy_stage_paths(repo_root, true)
+    } else {
+        Vec::new()
+    };
+    let mutation = mutation_payload(MutationReceipt {
+        class: if selection_changed {
+            "user_cache_install_and_repository_selection"
+        } else if lock_invalidated {
+            "user_cache_install_and_repository_lock_invalidation"
+        } else {
+            "user_cache_install"
+        },
+        changed_paths,
+        repository_changed_paths,
+        stage_paths,
+        rollback_command: Some(rollback_command),
+        rollback_guidance: "Remove the installed pack explicitly; if selected, --unselect also updates repository policy state and invalidates its lock.".to_string(),
+        unselect_command,
+        next_actions,
+    });
     Ok(json!({
         "schema_version": 1,
         "command": "policy install",
         "status": "installed",
-        "selected": select,
+        "selected": selected,
+        "selection_requested": select,
+        "selection_changed": selection_changed,
+        "lock_invalidated": lock_invalidated,
         "cache_path": destination,
         "pack": pack_payload(&pack),
+        "mutation": mutation,
     }))
 }
 
@@ -320,12 +437,26 @@ pub fn lock_selected_packs(repo_root: &Path) -> Result<PolicyCommandOutput> {
     };
     let value = serde_json::to_value(&lock)?;
     crate::report::write_json_atomically(&lock_path(repo_root), &value)?;
+    let mutation = mutation_payload(MutationReceipt {
+        class: "repository_policy_lock",
+        changed_paths: vec![".slop/policy-lock.json".to_string()],
+        repository_changed_paths: vec![".slop/policy-lock.json".to_string()],
+        stage_paths: repository_policy_stage_paths(repo_root, true),
+        rollback_command: None,
+        rollback_guidance: "Restore the prior lock from version control, or remove a newly created lock after review.".to_string(),
+        unselect_command: None,
+        next_actions: vec![
+            "review .slop/policies.yaml and .slop/policy-lock.json".to_string(),
+            "commit the listed repository-owned policy paths".to_string(),
+        ],
+    });
     Ok(json!({
         "schema_version": 1,
         "command": "policy lock",
         "status": "locked",
         "path": lock_path(repo_root),
         "lock": lock,
+        "mutation": mutation,
     }))
 }
 
@@ -414,6 +545,9 @@ pub fn remove_pack(repo_root: &Path, id: &str, unselect: bool) -> Result<PolicyC
         bail!("the built-in core policy pack cannot be removed");
     }
     let mut selection = read_selection(repo_root)?;
+    let selection_changed = selection.packs.contains(&id.to_string()) && unselect;
+    let mut lock_invalidated = false;
+    let mut repository_changed_paths = Vec::new();
     if selection.packs.contains(&id.to_string()) {
         if !unselect {
             bail!(
@@ -422,17 +556,65 @@ pub fn remove_pack(repo_root: &Path, id: &str, unselect: bool) -> Result<PolicyC
         }
         selection.packs.retain(|selected| selected != id);
         write_selection(repo_root, &selection)?;
+        repository_changed_paths.push(".slop/policies.yaml".to_string());
         let lock = lock_path(repo_root);
         if lock.exists() {
             fs::remove_file(lock)?;
+            lock_invalidated = true;
+            repository_changed_paths.push(".slop/policy-lock.json".to_string());
         }
     }
     let removed = store::remove(id)?;
+    let mut changed_paths = repository_changed_paths.clone();
+    if removed.removed {
+        changed_paths.push(receipt_path(&store::policy_home()?.join("index.json")));
+        if removed.content_removed {
+            if let Some(path) = &removed.cache_path {
+                changed_paths.push(receipt_path(path));
+            }
+        }
+    }
+    let remaining_selected_packs = !selection.packs.is_empty();
+    let stage_paths = if selection_changed {
+        repository_policy_stage_paths(repo_root, lock_invalidated)
+    } else {
+        Vec::new()
+    };
+    let mutation = mutation_payload(MutationReceipt {
+        class: if selection_changed {
+            "user_cache_removal_and_repository_unselection"
+        } else {
+            "user_cache_removal"
+        },
+        changed_paths,
+        repository_changed_paths,
+        stage_paths,
+        rollback_command: None,
+        rollback_guidance: "Reinstall only from the original reviewed local policy-pack source; Git Slop does not reacquire removed packs from a network.".to_string(),
+        unselect_command: None,
+        next_actions: if selection_changed && remaining_selected_packs {
+            vec![
+                "git slop policy lock".to_string(),
+                "review and commit .slop/policies.yaml and .slop/policy-lock.json".to_string(),
+            ]
+        } else if selection_changed {
+            vec![
+                "review and stage .slop/policies.yaml and the invalidated policy lock".to_string(),
+                "commit the listed repository-owned policy paths".to_string(),
+            ]
+        } else {
+            vec!["git slop policy list".to_string()]
+        },
+    });
     Ok(json!({
         "schema_version": 1,
         "command": "policy remove",
-        "status": if removed { "removed" } else { "not-installed" },
+        "status": if removed.removed { "removed" } else { "not-installed" },
         "pack_id": id,
         "unselected": unselect,
+        "selection_changed": selection_changed,
+        "lock_invalidated": lock_invalidated,
+        "cache_path": removed.cache_path,
+        "mutation": mutation,
     }))
 }

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.16.1 - 2026-08-16
+## 0.16.1 - Unreleased
 
 This patch makes the policy advisor fail closed: provider-free context is the
 default, public inference is disabled by the recorded `defer` decision, no
@@ -17,6 +17,26 @@ provider transport from policy-response logic. A third follow-up defers every
 provider connection until local validation is complete, redacts transport and
 provenance diagnostics, makes the benchmark result contract strict, and makes
 benchmark finalization recompute evidence before rollback-safe paired writes.
+The final advisor hardening series adds bounded child supervision, private and
+crash-durable evidence, blinded multi-review finalization, typed decision
+derivation, decision-ready human output, and exact-head Dogfood qualification.
+Release preparation now keeps the changelog explicitly unreleased until the
+publication commit, validates a declared contiguous improvement inventory, and
+normalizes loopback transport failures consistently across macOS and Linux.
+Provider-free context now preserves investigation semantics, deduplicates
+evidence, embeds policy identities, explains every truncation, and presents a
+concise human receipt while retaining explicit machine JSON. Adoption and
+policy mutations now emit complete machine receipts and staging guidance, while
+`doctor` exposes typed advisor state and a version-pinned decision URL.
+The public backlog now closes completed provider-free work and confines every
+remaining live-model acceptance gate to a separately provisioned eligible host,
+with local 16-GB M2/Ollama execution explicitly prohibited. Maintainer modules
+now separate advice artifacts, provider adaptation, and benchmark orchestration
+into focused files, while adjacent contract tests and an authoritative schema
+routing catalog make high-risk validation paths easier to change safely.
+Dependency automation now isolates tokenizer upgrades and SemVer-major changes,
+protects the Rust 1.85 floor, and routes generated release-workflow Actions
+through their owning source fragments.
 
 See the [complete numbered 0.16.1 release notes](docs/releases/0.16.1.md).
 

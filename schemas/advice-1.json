@@ -107,7 +107,7 @@
     "limits": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["maximum_context_bytes", "maximum_context_tokens", "estimated_context_tokens", "per_excerpt_bytes", "maximum_files", "remaining_bytes", "truncated"],
+      "required": ["maximum_context_bytes", "maximum_context_tokens", "estimated_context_tokens", "per_excerpt_bytes", "maximum_files", "remaining_bytes", "truncated", "truncation"],
       "properties": {
         "maximum_context_bytes": {"type": "integer", "minimum": 16384, "maximum": 1048576},
         "maximum_context_tokens": {"type": "integer", "minimum": 2048, "maximum": 32768},
@@ -115,7 +115,22 @@
         "per_excerpt_bytes": {"type": "integer", "minimum": 512, "maximum": 16384},
         "maximum_files": {"const": 20},
         "remaining_bytes": {"type": "integer", "minimum": 0},
-        "truncated": {"type": "boolean"}
+        "truncated": {"type": "boolean"},
+        "truncation": {"$ref": "#/$defs/truncation"}
+      }
+    },
+    "truncation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["occurred", "reasons", "excerpt_count", "omitted_count", "candidate_details_compacted", "excerpts", "omissions"],
+      "properties": {
+        "occurred": {"type": "boolean"},
+        "reasons": {"type": "array", "uniqueItems": true, "items": {"enum": ["per_excerpt_bytes", "context_file_limit", "context_byte_budget", "context_token_budget", "candidate_details_compacted"]}},
+        "excerpt_count": {"type": "integer", "minimum": 0},
+        "omitted_count": {"type": "integer", "minimum": 0},
+        "candidate_details_compacted": {"type": "boolean"},
+        "excerpts": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "reason", "original_bytes", "returned_bytes"], "properties": {"path": {"type": "string", "minLength": 1}, "reason": {"enum": ["per_excerpt_bytes", "context_token_budget"]}, "original_bytes": {"type": "integer", "minimum": 0}, "returned_bytes": {"type": "integer", "minimum": 0}}}},
+        "omissions": {"type": "array", "items": {"$ref": "#/$defs/missingEvidence"}}
       }
     },
     "context": {
@@ -123,7 +138,7 @@
       "additionalProperties": false,
       "required": ["builder_version", "digest", "limits", "missing_evidence", "reference_index"],
       "properties": {
-        "builder_version": {"const": 1},
+        "builder_version": {"const": 2},
         "digest": {"$ref": "#/$defs/digest"},
         "limits": {"$ref": "#/$defs/limits"},
         "missing_evidence": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/missingEvidence"}},

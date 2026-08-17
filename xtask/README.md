@@ -16,6 +16,7 @@ cargo xtask generate-release-workflow --check
 cargo xtask check-issue-forms
 cargo xtask check-distribution
 cargo xtask release-prepare --version 0.16.1 --check-only
+cargo xtask release-prepare --version 0.16.1 --check-only --require-release-date
 cargo xtask release-prepare --version 0.16.1
 cargo xtask release-status --version 0.16.1 --format json
 cargo xtask advisor-capacity --help
@@ -41,11 +42,23 @@ cargo xtask homebrew-formula \
 fragment, run `cargo xtask generate-release-workflow`, and validate the exact
 generated workflow before review.
 
+Dependabot groups routine Cargo minor and patch updates, but keeps
+`tiktoken-rs` independent because its pre-1.0 releases can change tokenizer
+behavior or the supported Rust floor. It ignores
+`Homebrew/actions/setup-homebrew` because that pin lives in a release-workflow
+source fragment; update the fragment and regenerate the workflow as one change.
+
 The validation commands are read-only. `release-prepare` accepts an exact
 candidate `HEAD` before its future tag exists, runs local Rust quality,
 packaging, and crates.io dry-run gates, and performs no publication. It never
 creates or pushes a tag, publishes a crate, mutates a GitHub release, renders a
 formula, or writes another repository.
+
+Local preparation accepts an `Unreleased` changelog heading. The protected
+publication workflow adds `--require-release-date` and fails before crate
+publication unless the exact candidate commit has a `YYYY-MM-DD` heading. The
+same validation checks the release note's declared improvement total,
+contiguous numbering, version heading, and changelog link.
 
 `ci --quiet` suppresses successful gate subprocess output while retaining a
 useful failure. `ci --format json` implies quiet mode and emits one terminal

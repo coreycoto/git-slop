@@ -98,6 +98,10 @@ enum Command {
         /// Validate only the Cargo version and candidate HEAD identity.
         #[arg(long)]
         check_only: bool,
+
+        /// Require a publication date; used by the protected release workflow.
+        #[arg(long, requires = "check_only")]
+        require_release_date: bool,
     },
 
     /// Inspect draft readiness, public immutability, and downstream receiver state.
@@ -218,7 +222,7 @@ fn run(cli: Cli) -> Result<()> {
             let mut errors = codex::validate(&repo_root, require_codex_cli);
             errors.extend(workflows::validate(&repo_root));
             errors.extend(issue_forms::validate(&repo_root));
-            errors.extend(repository::validate_overlays(&repo_root));
+            errors.extend(repository::validate(&repo_root));
             errors.extend(distribution::validate(&repo_root));
             finish_validation("Repository", errors)
         }
@@ -246,9 +250,14 @@ fn run(cli: Cli) -> Result<()> {
         Command::ReleasePrepare {
             version,
             check_only,
+            require_release_date,
         } => {
             if check_only {
-                let state = release::validate_release_state(&repo_root, &version)?;
+                let state = if require_release_date {
+                    release::validate_publishable_release_state(&repo_root, &version)?
+                } else {
+                    release::validate_release_state(&repo_root, &version)?
+                };
                 println!(
                     "Verified release candidate HEAD {} for future tag {}.",
                     state.revision, state.tag

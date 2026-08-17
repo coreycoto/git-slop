@@ -31,7 +31,9 @@ fn write_with_deadline(
             monitor.enforce()?;
         }
         let remaining = remaining_timeout(started, timeout, "request transmission")?;
-        stream.set_write_timeout(Some(remaining.min(PROVIDER_IO_POLL_INTERVAL)))?;
+        stream
+            .set_write_timeout(Some(remaining.min(PROVIDER_IO_POLL_INTERVAL)))
+            .context("provider_unavailable: request socket setup failed")?;
         match stream.write(bytes) {
             Ok(0) => bail!("provider_unavailable: provider closed while receiving the request"),
             Ok(written) => bytes = &bytes[written..],
@@ -138,7 +140,9 @@ impl Endpoint {
             resource_guard.map(crate::advice::resources::RuntimeResourceMonitor::start);
         let started = Instant::now();
         let poll_timeout = timeout.min(PROVIDER_IO_POLL_INTERVAL);
-        stream.set_read_timeout(Some(poll_timeout))?;
+        stream
+            .set_read_timeout(Some(poll_timeout))
+            .context("provider_unavailable: response socket setup failed")?;
         let request = format!(
             "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nAccept: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             self.path,
