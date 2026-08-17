@@ -98,13 +98,13 @@ impl RuntimeResourceMonitor {
                 "provider_resource_guard_unavailable: memory or swap use could not be measured; the request was aborted"
             );
         }
-        if let Some(available) = state.available_memory_bytes
-            && available < self.guard.minimum_available_memory_bytes
-        {
-            bail!(
-                "provider_resource_guard_triggered: available memory fell to {available} bytes, below the {}-byte safety reserve; the request was aborted",
-                self.guard.minimum_available_memory_bytes
-            );
+        if let Some(available) = state.available_memory_bytes {
+            if available < self.guard.minimum_available_memory_bytes {
+                bail!(
+                    "provider_resource_guard_triggered: available memory fell to {available} bytes, below the {}-byte safety reserve; the request was aborted",
+                    self.guard.minimum_available_memory_bytes
+                );
+            }
         }
         if let Some(swap) = state.swap_used_bytes {
             let growth = swap.saturating_sub(self.guard.initial_swap_used_bytes);
