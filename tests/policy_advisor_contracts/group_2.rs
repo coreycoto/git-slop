@@ -44,13 +44,17 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
             "--top",
             "1",
             "--context-only",
+            "--ephemeral",
             "--format",
             "markdown",
         ])
         .assert()
-        .code(2)
-        .stderr(predicate::str::contains(
-            "provider-independent context requires --format json",
+        .success()
+        .stdout(predicate::str::contains(
+            "# Git Slop provider-free advice context",
+        ))
+        .stdout(predicate::str::contains(
+            "no model or provider was configured or contacted",
         ));
     assert!(!repository.path().join(".slop/advice").exists());
 
@@ -59,7 +63,11 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
         .args(["advise", "--top", "1", "--ephemeral"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 1"));
+        .stdout(predicate::str::contains(
+            "# Git Slop provider-free advice context",
+        ))
+        .stdout(predicate::str::contains("## Candidates"))
+        .stdout(predicate::str::contains("--context-only --format json"));
     assert!(!repository.path().join(".slop/advice").exists());
 
     cargo_bin_cmd!("git-slop")
@@ -103,6 +111,7 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
             .success();
         let input = read_json(&context_path);
         assert_eq!(input["schema_version"], 1);
+        assert_eq!(input["context_builder_version"], 2);
         assert!(
             input["limits"]["estimated_context_tokens"]
                 .as_u64()
@@ -112,6 +121,37 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
             input["reference_index"]["candidates"]
                 .as_array()
                 .is_some_and(|ids| !ids.is_empty())
+        );
+        assert!(input["candidates"].as_array().is_some_and(|candidates| {
+            candidates.iter().all(|candidate| {
+                matches!(
+                    candidate["disposition"].as_str(),
+                    Some("implementable" | "investigate")
+                )
+            })
+        }));
+        assert!(input["policies"]["rules"].as_array().is_some_and(|rules| {
+            rules.iter().all(|rule| {
+                rule["id"].as_str().is_some_and(|id| {
+                    input["reference_index"]["policies"]
+                        .as_array()
+                        .is_some_and(|ids| ids.iter().any(|value| value.as_str() == Some(id)))
+                })
+            })
+        }));
+        let paths = input["repository_excerpts"]
+            .as_array()
+            .expect("repository excerpts")
+            .iter()
+            .map(|excerpt| excerpt["path"].as_str().expect("excerpt path"))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            paths.len(),
+            input["repository_excerpts"]
+                .as_array()
+                .expect("repository excerpts")
+                .len(),
+            "provider-free context must contain one excerpt per path"
         );
     }
 
@@ -199,6 +239,21 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
             <= 2048
     );
     assert_eq!(bounded["limits"]["truncated"], true);
+    assert_eq!(bounded["limits"]["truncation"]["occurred"], true);
+    assert!(
+        bounded["limits"]["truncation"]["reasons"]
+            .as_array()
+            .is_some_and(|reasons| !reasons.is_empty())
+    );
+    assert!(
+        bounded["limits"]["truncation"]["excerpts"]
+            .as_array()
+            .is_some_and(|excerpts| excerpts.iter().all(|excerpt| {
+                excerpt["path"].as_str().is_some()
+                    && excerpt["original_bytes"].as_u64().is_some()
+                    && excerpt["returned_bytes"].as_u64().is_some()
+            }))
+    );
     let excerpt_ids = bounded["repository_excerpts"]
         .as_array()
         .expect("bounded excerpts")

@@ -22,14 +22,14 @@ Usage: git-slop advise [OPTIONS]
 | `--cluster` | `CLUSTER` | `-` | conflicts: --validate-artifact; exclusive group: path, cluster, relationship, top | Cluster identifier |
 | `--top` | `TOP` | `-` | conflicts: --validate-artifact; exclusive group: path, cluster, relationship, top | Evaluate the top N deterministic interventions, then health refactor candidates |
 | `--policy` | `POLICIES` | `-` | conflicts: --validate-artifact | Evaluate only this already-locked pack or rule in addition to all core invariants |
-| `--context-only` | `flag` | `-` | conflicts: --validate-artifact | Emit byte-stable provider-independent advice input without model inference |
+| `--context-only` | `flag` | `-` | conflicts: --validate-artifact | Emit provider-independent context without model inference; defaults to full JSON |
 | `--ephemeral` | `flag` | `-` | conflicts: --validate-artifact | Avoid context-cache and advice-state writes; useful for disposable benchmarks |
 | `--validate-artifact` | `VALIDATE_ARTIFACT` | `-` | - | Validate and render an existing advice artifact against the current selected report |
 | `--max-context-bytes` | `MAX_CONTEXT_BYTES` | `131072` | conflicts: --validate-artifact | Maximum provider-independent context size in bytes |
 | `--max-context-tokens` | `MAX_CONTEXT_TOKENS` | `8192` | conflicts: --validate-artifact | Maximum estimated o200k_harmony input tokens |
 | `--excerpt-bytes` | `EXCERPT_BYTES` | `4096` | conflicts: --validate-artifact | Maximum bytes included from each repository file |
 | `--max-slices` | `MAX_SLICES` | `3` | conflicts: --validate-artifact | Maximum plan slices generated for one non-top selector |
-| `--format` | `FORMAT` | `-` | values: markdown, json | Render context as JSON or validated advice as Markdown/JSON. Context defaults to JSON |
+| `--format` | `FORMAT` | `-` | values: markdown, json | Render provider-free context or validated advice as Markdown/JSON |
 | `--output` | `OUTPUT` | `-` | - | Also write the selected rendering to this repo-relative or absolute path |
 
 **Example**

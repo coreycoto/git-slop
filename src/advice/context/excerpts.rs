@@ -74,8 +74,8 @@ fn excerpt(
     report: &Value,
     repo_root: &Path,
     path: &str,
-    kind: &str,
-    reason: &str,
+    roles: &[String],
+    selection_reasons: &[String],
     maximum: usize,
 ) -> Result<Value> {
     if !is_tracked(repo_root, path) {
@@ -109,13 +109,13 @@ fn excerpt(
     let line_count = returned.lines().count().max(1);
     let excerpt_id = format!(
         "excerpt-{}",
-        &sha256(format!("{kind}\0{path}\0{digest}\0{}", returned.len()))[..16]
+        &sha256(format!("{path}\0{digest}\0{}", returned.len()))[..16]
     );
-    Ok(json!({
+    let mut value = json!({
         "id": excerpt_id,
-        "kind": kind,
+        "roles": roles,
         "path": path,
-        "selection_reason": reason,
+        "selection_reasons": selection_reasons,
         "line_range": {"start": 1, "end": line_count},
         "content_sha256": digest,
         "excerpt_sha256": sha256(returned.as_bytes()),
@@ -124,7 +124,11 @@ fn excerpt(
         "truncated": truncated,
         "text": returned,
         "trust": "untrusted_repository_content",
-    }))
+    });
+    if truncated {
+        value["truncation_reason"] = json!("per_excerpt_bytes");
+    }
+    Ok(value)
 }
 
 fn collect_reference_ids(value: &Value, key: &str, target: &mut BTreeSet<String>) {

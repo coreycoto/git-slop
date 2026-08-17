@@ -25,7 +25,10 @@ identities; compatible later releases intentionally retain the introduction URL.
   deterministic selected-pack resolution contracts
 - `advice-input-1.json`, `advice-response-1.json`, and `advice-1.json`:
   provider-independent context, strict provider response, and validated
-  non-mutating advice artifact contracts
+  non-mutating advice artifact contracts. Context builder 2 preserves
+  investigation-versus-implementation disposition, embeds stable policy rule
+  IDs, deduplicates excerpt paths with role/reason arrays, and exposes
+  structured truncation evidence
 - `advisor-corpus-1.json`, `advisor-ratings-1.json`, `advisor-ratings-2.json`,
   `advisor-review-artifact-1.json`, `advisor-review-manifest-1.json`,
   `advisor-operation-receipt-1.json`, `advisor-thresholds-1.json`,

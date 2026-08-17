@@ -25,15 +25,21 @@ current schema-5 report
 ```
 
 System/output instructions, the non-disableable core pack, third-party policy,
-candidate facts, and untrusted repository excerpts remain distinct. Files must
+candidate facts, and untrusted repository excerpts remain distinct. Every
+compact policy rule carries its stable rule ID alongside its text, consequence,
+and evidence contract. Files must
 be tracked regular UTF-8 files inside the worktree, may not traverse symlinks,
 and are checked against report content digests when available. Every excerpt
-records its selection reason, line range, source and excerpt digests, byte
-counts, and truncation status. Context selection is deterministic and bounded
-by files, bytes, and an `o200k_harmony` token estimate.
+records all selection roles and reasons, line range, source and excerpt digests,
+byte counts, and truncation status. A path selected as both guidance and source
+appears once with both roles. Context selection is deterministic and bounded by
+files, bytes, and an `o200k_harmony` token estimate.
 
 Candidate interpretations remain structurally separate from observed report
-facts. Candidate and excerpt IDs are content-derived. The context digest is
+facts. Each candidate has a typed `implementable` or `investigate` disposition.
+Investigation candidates preserve the plan's read-only objective, abandonment,
+rollback, and evidence-establishment sequence instead of inventing mutation
+instructions. Candidate and excerpt IDs are content-derived. The context digest is
 computed over the complete provider-independent input except its own digest
 and the derived token-count field; both are recomputable. Identical inputs
 therefore produce identical compact JSON bytes in the content-addressed
@@ -48,11 +54,13 @@ git slop advise --cluster <cluster-id> --context-only --format json
 git slop advise --top 5 --context-only --format json
 ```
 
-`--context-only --format json` remains the explicit spelling. Both options are
-now the defaults when `--infer` is absent, so `git slop advise --top 5` produces
-the same provider-independent JSON. No provider configuration is read and no
-network connection is attempted. Provider-free construction does not evaluate
-the inference release gate.
+`--context-only --format json` is the explicit full machine-context spelling;
+`--context-only` alone also defaults to JSON. The ordinary
+`git slop advise --top 5` command now prints a concise Markdown receipt with
+candidate dispositions, counts, truncation state, digest, and a command for the
+complete JSON. `--format markdown` requests that receipt explicitly. No
+provider configuration is read and no network connection is attempted.
+Provider-free construction does not evaluate the inference release gate.
 
 Stable `git slop advise --help` shows only provider-free context construction
 and artifact validation. The disabled inference, provider, model, resource,
@@ -73,7 +81,10 @@ Use `--max-context-tokens`, `--max-context-bytes`, `--excerpt-bytes`, and
 `--max-slices` to make the boundary smaller. Missing, stale, untracked,
 ignored, binary, undecodable, escaping, or oversized required evidence fails
 before inference. Optional unavailable guidance is skipped and budget
-omissions are recorded as missing evidence.
+omissions are recorded as missing evidence. `limits.truncation` separately
+records every truncation reason, affected path, original and returned byte
+counts, omissions, and whether candidate detail was compacted; the legacy
+`limits.truncated` boolean remains a quick compatibility signal.
 
 At the minimum 2,048-token boundary, the builder first removes excerpts, then
 may compact redundant detail for one candidate while retaining every policy,

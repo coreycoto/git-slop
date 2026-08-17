@@ -21,4 +21,4 @@ pub use validate::{ValidatedResponse, validate_response};
 pub const ADVICE_INPUT_SCHEMA_VERSION: u64 = 1;
 pub const ADVICE_RESPONSE_SCHEMA_VERSION: u64 = 1;
 pub const ADVICE_SCHEMA_VERSION: u64 = 1;
-pub const CONTEXT_BUILDER_VERSION: u64 = 1;
+pub const CONTEXT_BUILDER_VERSION: u64 = 2;

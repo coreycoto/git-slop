@@ -23,6 +23,9 @@ derivation, decision-ready human output, and exact-head Dogfood qualification.
 Release preparation now keeps the changelog explicitly unreleased until the
 publication commit, validates a declared contiguous improvement inventory, and
 normalizes loopback transport failures consistently across macOS and Linux.
+Provider-free context now preserves investigation semantics, deduplicates
+evidence, embeds policy identities, explains every truncation, and presents a
+concise human receipt while retaining explicit machine JSON.
 
 See the [complete numbered 0.16.1 release notes](docs/releases/0.16.1.md).
 

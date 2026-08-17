@@ -12,10 +12,6 @@ fn refresh_excerpt(excerpt: &mut Value, maximum: usize) {
         return;
     };
     let returned = truncate_utf8(text, maximum).to_string();
-    let kind = excerpt
-        .get("kind")
-        .and_then(Value::as_str)
-        .unwrap_or("source");
     let path = excerpt
         .get("path")
         .and_then(Value::as_str)
@@ -26,17 +22,68 @@ fn refresh_excerpt(excerpt: &mut Value, maximum: usize) {
         .unwrap_or_default();
     let excerpt_id = format!(
         "excerpt-{}",
-        &sha256(format!(
-            "{kind}\0{path}\0{content_digest}\0{}",
-            returned.len()
-        ))[..16]
+        &sha256(format!("{path}\0{content_digest}\0{}", returned.len()))[..16]
     );
     excerpt["id"] = json!(excerpt_id);
     excerpt["line_range"]["end"] = json!(returned.lines().count().max(1));
     excerpt["excerpt_sha256"] = json!(sha256(returned.as_bytes()));
     excerpt["returned_bytes"] = json!(returned.len());
     excerpt["truncated"] = json!(true);
+    excerpt["truncation_reason"] = json!("context_token_budget");
     excerpt["text"] = json!(returned);
+}
+
+fn refresh_truncation_summary(input: &mut Value) {
+    let excerpts = input["repository_excerpts"]
+        .as_array()
+        .expect("repository excerpts are an array");
+    let mut reasons = BTreeSet::new();
+    let truncated_excerpts = excerpts
+        .iter()
+        .filter(|excerpt| excerpt.get("truncated").and_then(Value::as_bool) == Some(true))
+        .map(|excerpt| {
+            let reason = excerpt
+                .get("truncation_reason")
+                .and_then(Value::as_str)
+                .unwrap_or("per_excerpt_bytes");
+            reasons.insert(reason.to_string());
+            json!({
+                "path": excerpt.get("path").cloned().unwrap_or(Value::Null),
+                "reason": reason,
+                "original_bytes": excerpt.get("original_bytes").cloned().unwrap_or(Value::Null),
+                "returned_bytes": excerpt.get("returned_bytes").cloned().unwrap_or(Value::Null),
+            })
+        })
+        .collect::<Vec<_>>();
+    let omissions = input["missing_evidence"].clone();
+    for reason in omissions
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("reason").and_then(Value::as_str))
+    {
+        reasons.insert(reason.to_string());
+    }
+    let candidate_details_compacted = input
+        .pointer("/limits/truncation/candidate_details_compacted")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if candidate_details_compacted {
+        reasons.insert("candidate_details_compacted".to_string());
+    }
+    let occurred = !truncated_excerpts.is_empty()
+        || omissions.as_array().is_some_and(|items| !items.is_empty())
+        || candidate_details_compacted;
+    input["limits"]["truncated"] = json!(occurred);
+    input["limits"]["truncation"] = json!({
+        "occurred": occurred,
+        "reasons": reasons,
+        "excerpt_count": truncated_excerpts.len(),
+        "omitted_count": omissions.as_array().map_or(0, Vec::len),
+        "candidate_details_compacted": candidate_details_compacted,
+        "excerpts": truncated_excerpts,
+        "omissions": omissions,
+    });
 }
 
 fn refresh_excerpt_index(input: &mut Value) {
@@ -120,7 +167,8 @@ fn compact_single_candidate_details(input: &mut Value) -> bool {
         "candidate-context".to_string(),
         "context_token_budget",
     );
-    input["limits"]["truncated"] = json!(true);
+    input["limits"]["truncation"]["candidate_details_compacted"] = json!(true);
+    refresh_truncation_summary(input);
     true
 }
 
@@ -136,6 +184,7 @@ fn fit_token_budget(input: &mut Value, maximum: usize) -> Result<()> {
             .encode_ordinary(&serde_json::to_string(&provisional)?)
             .len();
         if tokens.saturating_add(TOKEN_ACCOUNTING_RESERVE) <= maximum {
+            refresh_truncation_summary(input);
             return Ok(());
         }
         let excess = tokens.saturating_sub(maximum);
@@ -159,8 +208,8 @@ fn fit_token_budget(input: &mut Value, maximum: usize) -> Result<()> {
                 .unwrap_or_default() as usize;
             input["limits"]["remaining_bytes"] =
                 json!(remaining.saturating_add(previous.saturating_sub(current)));
-            input["limits"]["truncated"] = json!(true);
             refresh_excerpt_index(input);
+            refresh_truncation_summary(input);
             continue;
         }
         let Some(removed) = excerpts.pop() else {
@@ -180,7 +229,7 @@ fn fit_token_budget(input: &mut Value, maximum: usize) -> Result<()> {
             .to_string();
         push_missing_evidence(input, path, "context_token_budget");
         refresh_excerpt_index(input);
-        input["limits"]["truncated"] = json!(true);
+        refresh_truncation_summary(input);
     }
     bail!("unable to fit deterministic advice input within its token budget")
 }
