@@ -161,3 +161,41 @@ pub(super) fn candidate_parent_share(report: &Value, candidate: &Value) -> Optio
         });
     (parent_tokens != 0).then(|| usize_field(candidate, "tokens") as f64 / parent_tokens as f64)
 }
+
+#[cfg(test)]
+mod support_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn github_links_reject_lookalike_hosts_and_encode_each_path_segment() {
+        let lookalike = json!({
+            "repo": {
+                "git_remote_url": "https://github.com.example.invalid/owner/repo.git",
+                "head_sha": "abc123"
+            }
+        });
+        assert!(github_blob_url(&lookalike, "src/lib.rs").is_none());
+
+        let github = json!({
+            "repo": {
+                "git_remote_url": "ssh://git@github.com/owner/repo.git",
+                "head_sha": "abc123"
+            }
+        });
+        assert_eq!(
+            github_blob_url(&github, "src/# review/file name.rs").as_deref(),
+            Some("https://github.com/owner/repo/blob/abc123/src/%23%20review/file%20name.rs")
+        );
+    }
+
+    #[test]
+    fn parent_share_uses_report_fallback_and_refuses_zero_denominators() {
+        let report = json!({"folders": [{"path": "src", "tokens": 400}]});
+        let candidate = json!({"path": "src/lib.rs", "tokens": 100});
+        assert_eq!(candidate_parent_share(&report, &candidate), Some(0.25));
+
+        let root = json!({"path": "lib.rs", "tokens": 100, "parent_tokens": 0});
+        assert_eq!(candidate_parent_share(&json!({"folders": []}), &root), None);
+    }
+}

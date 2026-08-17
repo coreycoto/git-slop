@@ -30,7 +30,10 @@ policy mutations now emit complete machine receipts and staging guidance, while
 `doctor` exposes typed advisor state and a version-pinned decision URL.
 The public backlog now closes completed provider-free work and confines every
 remaining live-model acceptance gate to a separately provisioned eligible host,
-with local 16-GB M2/Ollama execution explicitly prohibited.
+with local 16-GB M2/Ollama execution explicitly prohibited. Maintainer modules
+now separate advice artifacts, provider adaptation, and benchmark orchestration
+into focused files, while adjacent contract tests and an authoritative schema
+routing catalog make high-risk validation paths easier to change safely.
 
 See the [complete numbered 0.16.1 release notes](docs/releases/0.16.1.md).
 

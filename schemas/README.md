@@ -9,6 +9,12 @@ Schema `$id` values identify the release that introduced each contract, not the
 currently running binary. Contract filenames and `schema_version` are the stable
 identities; compatible later releases intentionally retain the introduction URL.
 
+[`index.json`](index.json) is the authoritative routing catalog. It maps every
+packaged schema to its product category, lifecycle, and `git slop schema`
+command when the running binary exposes that contract. The pinned validator
+fails when a schema is missing, duplicated, misidentified, unrouted, or differs
+from the exact runtime bytes.
+
 - `config-2.json`: `.slop/config.yaml` after YAML-to-JSON conversion
 - `init-1.json`: strict `git slop init --format json` adoption, mutation,
   promotion, staging, rollback, and next-action receipt

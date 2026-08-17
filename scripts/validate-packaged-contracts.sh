@@ -17,12 +17,13 @@ export NPM_CONFIG_FUND=false
 export NPM_CONFIG_UPDATE_NOTIFIER=false
 
 package_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-cp "$package_root/tools/schema-validator/package.json" "$package_root/tools/schema-validator/package-lock.json" "$contract_root/validator/"
+cp "$package_root/tools/schema-validator/package.json" "$package_root/tools/schema-validator/package-lock.json" "$package_root/tools/schema-validator/test.mjs" "$contract_root/validator/"
 (
   cd "$contract_root/validator"
   npm ci --ignore-scripts --no-audit --no-fund --loglevel=error
 )
 ajv="$contract_root/validator/node_modules/.bin/ajv"
+node "$contract_root/validator/test.mjs" "$schema_dir" "$binary"
 
 validate_json() {
   "$ajv" validate --spec=draft2020 --strict=false -c ajv-formats "$@"
@@ -35,9 +36,9 @@ worktree="$contract_root/worktree"
 git clone --quiet --no-hardlinks --no-tags "$source_worktree" "$worktree"
 test -z "$(git -C "$worktree" status --short --untracked-files=all)"
 
-for schema in report config compare explain plan sarif health check doctor build-info release-manifest list show prompt-manifest error find-estimate cache-status cache-prune baseline prune compare-ndjson; do
+while IFS= read -r schema; do
   "$binary" schema "$schema" > "$contract_root/$schema.schema.json"
-done
+done < <(jq -r '.contracts[] | select(.runtime_command != null) | .runtime_command' "$schema_dir/index.json")
 
 "$binary" build-info --format json > "$contract_root/build-info.json"
 for profile in compact standard full-evidence; do
