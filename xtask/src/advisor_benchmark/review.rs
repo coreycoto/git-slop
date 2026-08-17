@@ -1,10 +1,13 @@
-const REVIEW_PROTOCOL: &str = "blind-independent-multi-repeat-v1";
+use super::*;
+
+pub const REVIEW_PROTOCOL: &str = "blind-independent-multi-repeat-v1";
 const MINIMUM_REVIEWERS: usize = 2;
 const MINIMUM_REPETITIONS_PER_CASE: usize = 2;
 
 pub fn validate_operation_receipt(value: &Value) -> Result<()> {
-    let schema: Value =
-        serde_json::from_str(include_str!("../../../schemas/advisor-operation-receipt-1.json"))?;
+    let schema: Value = serde_json::from_str(include_str!(
+        "../../../schemas/advisor-operation-receipt-1.json"
+    ))?;
     let validator = jsonschema::draft202012::options()
         .build(&schema)
         .context("embedded advisor operation receipt schema is invalid")?;
@@ -20,7 +23,7 @@ pub fn validate_operation_receipt(value: &Value) -> Result<()> {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ReviewManifest {
+pub(super) struct ReviewManifest {
     schema_version: u64,
     status: String,
     protocol: String,
@@ -33,16 +36,16 @@ struct ReviewManifest {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ReviewManifestEntry {
-    review_id: String,
-    artifact_file: String,
-    review_artifact_sha256: String,
-    source_artifact_sha256: String,
-    sample_sha256: String,
-    case_id: String,
-    reasoning_effort: String,
-    context_token_limit: usize,
-    repetition: usize,
+pub(super) struct ReviewManifestEntry {
+    pub(super) review_id: String,
+    pub(super) artifact_file: String,
+    pub(super) review_artifact_sha256: String,
+    pub(super) source_artifact_sha256: String,
+    pub(super) sample_sha256: String,
+    pub(super) case_id: String,
+    pub(super) reasoning_effort: String,
+    pub(super) context_token_limit: usize,
+    pub(super) repetition: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,12 +76,12 @@ fn sample_evidence_sha256(sample: &Sample) -> Result<String> {
     Ok(sha256(&serde_json::to_vec(&value)?))
 }
 
-fn seal_sample(mut sample: Sample) -> Result<Sample> {
+pub(super) fn seal_sample(mut sample: Sample) -> Result<Sample> {
     sample.sample_sha256 = sample_evidence_sha256(&sample)?;
     Ok(sample)
 }
 
-fn verify_sample_digest(sample: &Sample) -> Result<()> {
+pub(super) fn verify_sample_digest(sample: &Sample) -> Result<()> {
     if sample.sample_sha256 != sample_evidence_sha256(sample)? {
         bail!(
             "benchmark sample {} has a stale sample_sha256",
@@ -113,8 +116,9 @@ fn blind_review_artifact(review_id: &str, sample: &Sample, artifact: &Value) -> 
 }
 
 fn validate_review_artifact(value: &Value) -> Result<()> {
-    let schema: Value =
-        serde_json::from_str(include_str!("../../../schemas/advisor-review-artifact-1.json"))?;
+    let schema: Value = serde_json::from_str(include_str!(
+        "../../../schemas/advisor-review-artifact-1.json"
+    ))?;
     let validator = jsonschema::draft202012::options()
         .build(&schema)
         .context("embedded advisor review artifact schema is invalid")?;
@@ -128,7 +132,7 @@ fn validate_review_artifact(value: &Value) -> Result<()> {
     Ok(())
 }
 
-fn record_review_artifact(
+pub(super) fn record_review_artifact(
     directory: &Path,
     entries: &mut Vec<ReviewManifestEntry>,
     sample: &Sample,
@@ -159,8 +163,9 @@ fn record_review_artifact(
 }
 
 fn validate_review_manifest(value: &Value) -> Result<()> {
-    let schema: Value =
-        serde_json::from_str(include_str!("../../../schemas/advisor-review-manifest-1.json"))?;
+    let schema: Value = serde_json::from_str(include_str!(
+        "../../../schemas/advisor-review-manifest-1.json"
+    ))?;
     let validator = jsonschema::draft202012::options()
         .build(&schema)
         .context("embedded advisor review manifest schema is invalid")?;
@@ -174,7 +179,7 @@ fn validate_review_manifest(value: &Value) -> Result<()> {
     Ok(())
 }
 
-fn write_review_manifests(
+pub(super) fn write_review_manifests(
     directory: &Path,
     entries: &[ReviewManifestEntry],
     results_path: &Path,
@@ -222,10 +227,13 @@ fn safe_review_member(name: &str) -> bool {
     let path = Path::new(name);
     !name.is_empty()
         && path.components().count() == 1
-        && matches!(path.components().next(), Some(std::path::Component::Normal(_)))
+        && matches!(
+            path.components().next(),
+            Some(std::path::Component::Normal(_))
+        )
 }
 
-fn load_review_manifest(
+pub(super) fn load_review_manifest(
     path: &Path,
     source_results_sha256: &str,
 ) -> Result<(ReviewManifest, String)> {
@@ -282,7 +290,10 @@ fn load_review_manifest(
         let artifact_path = parent.join(&entry.artifact_file);
         let artifact_metadata = fs::symlink_metadata(&artifact_path)?;
         if artifact_metadata.file_type().is_symlink() || !artifact_metadata.is_file() {
-            bail!("review artifact must be a regular file: {}", entry.artifact_file);
+            bail!(
+                "review artifact must be a regular file: {}",
+                entry.artifact_file
+            );
         }
         let artifact_bytes = read_bounded(
             &artifact_path,
@@ -304,7 +315,7 @@ fn load_review_manifest(
     Ok((manifest, sha256(&bytes)))
 }
 
-fn selected_review_ids(
+pub(super) fn selected_review_ids(
     result: &Value,
     samples: &[Sample],
     manifest: &ReviewManifest,
@@ -329,9 +340,7 @@ fn selected_review_ids(
     let selected_entries = manifest
         .entries
         .iter()
-        .filter(|entry| {
-            entry.reasoning_effort == effort && entry.context_token_limit == 8_192
-        })
+        .filter(|entry| entry.reasoning_effort == effort && entry.context_token_limit == 8_192)
         .collect::<Vec<_>>();
     if selected_entries.len() != selected_samples.len() {
         bail!("review manifest does not cover every valid selected benchmark sample");
@@ -344,10 +353,12 @@ fn selected_review_ids(
             .ok_or_else(|| anyhow::anyhow!("review manifest references an unknown sample"))?;
         if entry.case_id != sample.case_id
             || entry.repetition != sample.repetition
-            || entry.source_artifact_sha256
-                != sample.artifact_sha256.as_deref().unwrap_or_default()
+            || entry.source_artifact_sha256 != sample.artifact_sha256.as_deref().unwrap_or_default()
         {
-            bail!("review manifest sample evidence drifted for {}", entry.review_id);
+            bail!(
+                "review manifest sample evidence drifted for {}",
+                entry.review_id
+            );
         }
         by_case
             .entry(&entry.case_id)
@@ -389,9 +400,8 @@ fn validate_ratings(value: &Value) -> Result<()> {
 
 fn reviewer_scores(reviewer: &ReviewerRatings) -> ReviewerScores {
     let count = reviewer.ratings.len() as f64;
-    let mean = |select: fn(&CaseRating) -> f64| {
-        reviewer.ratings.values().map(select).sum::<f64>() / count
-    };
+    let mean =
+        |select: fn(&CaseRating) -> f64| reviewer.ratings.values().map(select).sum::<f64>() / count;
     let usefulness = mean(|rating| rating.recommendation_usefulness);
     let separation = mean(|rating| rating.fact_interpretation_separation);
     let scope = mean(|rating| rating.scope_quality);
@@ -415,7 +425,7 @@ fn reviewer_scores(reviewer: &ReviewerRatings) -> ReviewerScores {
     }
 }
 
-fn ratings(
+pub(super) fn ratings(
     path: &Path,
     source_results_sha256: &str,
     review_manifest_sha256: &str,
@@ -438,8 +448,7 @@ fn ratings(
         if !reviewer_ids.insert(reviewer.reviewer_id.as_str())
             || !reviewer.independent
             || !reviewer.blinded
-            || reviewer.ratings.keys().cloned().collect::<BTreeSet<_>>()
-                != *selected_review_ids
+            || reviewer.ratings.keys().cloned().collect::<BTreeSet<_>>() != *selected_review_ids
         {
             bail!(
                 "every independent blinded reviewer must rate every selected review artifact exactly"

@@ -18,6 +18,56 @@ const BENCHMARK_CHILD_DEADLINE_SECONDS: u64 = BENCHMARK_TIMEOUT_SECONDS + 60;
 const BENCHMARK_CONSECUTIVE_PROVIDER_FAILURE_LIMIT: usize = 2;
 const BENCHMARK_CHILD_OUTPUT_LIMIT_BYTES: usize = 8 * 1024 * 1024;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum BenchmarkStatus {
+    Complete,
+    Incomplete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Recommendation {
+    Ship,
+    Adjust,
+    Defer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BenchmarkTermination {
+    BenchmarkCheckpoint,
+    OperatorInterrupt,
+    BenchmarkChildDeadline,
+    BenchmarkChildOutputLimit,
+    ResourceGuardAvailableMemory,
+    ResourceGuardMeasurementUnavailable,
+    ResourceGuardSwapGrowth,
+    ProviderModelIdentityMissing,
+    ProviderModelMismatch,
+    ConsecutiveProviderRuntimeFailures,
+}
+
+impl BenchmarkTermination {
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "benchmark_checkpoint" => Ok(Self::BenchmarkCheckpoint),
+            "operator_interrupt" => Ok(Self::OperatorInterrupt),
+            "benchmark_child_deadline" => Ok(Self::BenchmarkChildDeadline),
+            "benchmark_child_output_limit" => Ok(Self::BenchmarkChildOutputLimit),
+            "resource_guard_available_memory" => Ok(Self::ResourceGuardAvailableMemory),
+            "resource_guard_measurement_unavailable" => {
+                Ok(Self::ResourceGuardMeasurementUnavailable)
+            }
+            "resource_guard_swap_growth" => Ok(Self::ResourceGuardSwapGrowth),
+            "provider_model_identity_missing" => Ok(Self::ProviderModelIdentityMissing),
+            "provider_model_mismatch" => Ok(Self::ProviderModelMismatch),
+            "consecutive_provider_runtime_failures" => Ok(Self::ConsecutiveProviderRuntimeFailures),
+            _ => bail!("unknown advisor benchmark termination state {value:?}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Options {
     pub repo_root: PathBuf,
@@ -288,19 +338,36 @@ fn parse_thresholds(bytes: &[u8]) -> Result<Thresholds> {
 
 include!("advisor_benchmark/corpus.rs");
 include!("advisor_benchmark/io.rs");
-include!("advisor_benchmark/system.rs");
+mod system;
+use system::*;
 include!("advisor_benchmark/provenance.rs");
 include!("advisor_benchmark/scoring.rs");
 include!("advisor_benchmark/artifact_validation.rs");
 include!("advisor_benchmark/evidence.rs");
 include!("advisor_benchmark/recommendation.rs");
 include!("advisor_benchmark/persistence.rs");
-include!("advisor_benchmark/review.rs");
+mod review;
+pub use review::{REVIEW_PROTOCOL, validate_operation_receipt};
+use review::{
+    ReviewManifestEntry, load_review_manifest, ratings, record_review_artifact, seal_sample,
+    selected_review_ids, verify_sample_digest, write_review_manifests,
+};
 include!("advisor_benchmark/decision.rs");
-include!("advisor_benchmark/aggregate.rs");
+mod derivation;
+use derivation::*;
+mod aggregate;
+use aggregate::{OutputInputs, write_outputs};
 include!("advisor_benchmark/preflight.rs");
-include!("advisor_benchmark/finalization.rs");
-include!("advisor_benchmark/run.rs");
+mod finalization;
+pub use finalization::finalize;
+mod run;
+use run::write_review_artifact;
+#[cfg(test)]
+use run::{
+    BenchmarkReleaseGate, benchmark_capacity_blockers, privacy_safe_benchmark_runtime_identifier,
+    validate_benchmark_capacity, validate_benchmark_gate,
+};
+pub use run::{check_capacity, run};
 
 fn release_matrix_complete(options: &Options) -> bool {
     options.full_matrix && options.repetitions >= 3

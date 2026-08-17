@@ -109,19 +109,113 @@ fn strings(value: Option<&Value>) -> Vec<String> {
         .collect()
 }
 
+fn html_code(value: &str) -> String {
+    let escaped = visible_controls(value)
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    format!("<code>{escaped}</code>")
+}
+
+fn citation_lines(citations: Option<&Value>) -> Vec<String> {
+    [
+        ("Candidates", "candidates"),
+        ("Paths", "paths"),
+        ("Findings", "findings"),
+        ("Relationships", "relationships"),
+        ("Clusters", "clusters"),
+        ("Excerpts", "excerpts"),
+        ("Policies", "policies"),
+        ("Verification", "verification"),
+    ]
+    .into_iter()
+    .filter_map(|(label, key)| {
+        let values = strings(citations.and_then(|value| value.get(key)));
+        (!values.is_empty()).then(|| {
+            format!(
+                "- {label}: {}",
+                values
+                    .iter()
+                    .map(|value| html_code(value))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
+    })
+    .collect()
+}
+
+fn disposition(verdict: &str) -> &'static str {
+    match verdict {
+        "approve" => "Proceed to bounded verification before adoption.",
+        "abstain" => "Pause and collect the missing evidence before deciding.",
+        "revise" => "Revise the proposal and re-evaluate it before adoption.",
+        "reject" => "Do not adopt the proposal as written.",
+        _ => "Review the evidence before taking action.",
+    }
+}
+
 pub fn render_advice_markdown(artifact: &Value) -> String {
+    let candidates = artifact
+        .pointer("/evaluation/candidate_evaluations")
+        .and_then(Value::as_array);
+    let mut verdict_counts = BTreeMap::from([
+        ("approve", 0usize),
+        ("abstain", 0usize),
+        ("revise", 0usize),
+        ("reject", 0usize),
+    ]);
+    let mut revision_count = 0usize;
+    let mut missing_evidence_count = 0usize;
+    let mut low_confidence_count = 0usize;
+    for candidate in candidates.into_iter().flatten() {
+        if let Some(count) = candidate
+            .get("aggregate_verdict")
+            .and_then(Value::as_str)
+            .and_then(|verdict| verdict_counts.get_mut(verdict))
+        {
+            *count += 1;
+        }
+        revision_count += candidate
+            .get("requested_revisions")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        missing_evidence_count += candidate
+            .get("missing_evidence")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        low_confidence_count +=
+            usize::from(candidate.get("confidence").and_then(Value::as_str) == Some("low"));
+    }
+    let aggregate = string(artifact.pointer("/evaluation/aggregate_verdict"), "unknown");
     let mut lines = vec![
         "# Git Slop policy-guided advice".to_string(),
         String::new(),
         format!(
             "> Aggregate verdict: **{}**. This output is advisory and cannot change detector truth or repository state.",
-            string(artifact.pointer("/evaluation/aggregate_verdict"), "unknown")
+            aggregate
         ),
         String::new(),
         string(
             artifact.pointer("/evaluation/summary"),
             "No summary supplied.",
         ),
+        String::new(),
+        "## Decision".to_string(),
+        String::new(),
+        format!("- Disposition: **{}**", disposition(&aggregate)),
+        format!(
+            "- Candidate verdicts: {} approve, {} abstain, {} revise, {} reject",
+            verdict_counts["approve"],
+            verdict_counts["abstain"],
+            verdict_counts["revise"],
+            verdict_counts["reject"]
+        ),
+        format!("- Required revision items: {revision_count}"),
+        format!("- Missing evidence items: {missing_evidence_count}"),
+        format!("- Low-confidence candidates: {low_confidence_count}"),
+        String::new(),
+        "> Private retention: this artifact can contain repository-derived evidence and provider rationale. Keep `.slop/advice` Git-private and inspect retained runs with `git slop prune --dry-run`.".to_string(),
         String::new(),
         "## Provenance".to_string(),
         String::new(),
@@ -173,6 +267,26 @@ pub fn render_advice_markdown(artifact: &Value) -> String {
             String::new(),
             string(candidate.get("rationale"), "No rationale supplied."),
             String::new(),
+            format!(
+                "- Confidence: **{}**",
+                string(candidate.get("confidence"), "unknown")
+            ),
+            format!(
+                "- Disposition: {}",
+                disposition(&string(candidate.get("aggregate_verdict"), "unknown"))
+            ),
+            String::new(),
+            "### Evidence citations".to_string(),
+            String::new(),
+        ]);
+        let candidate_citations = citation_lines(candidate.get("citations"));
+        if candidate_citations.is_empty() {
+            lines.push("- None supplied.".to_string());
+        } else {
+            lines.extend(candidate_citations);
+        }
+        lines.extend([
+            String::new(),
             "### Rule evaluations".to_string(),
             String::new(),
         ]);
@@ -188,34 +302,52 @@ pub fn render_advice_markdown(artifact: &Value) -> String {
                 string(rule.get("verdict"), "unknown"),
                 string(rule.get("rationale"), "No rationale supplied.")
             ));
+            lines.extend(
+                citation_lines(rule.get("citations"))
+                    .into_iter()
+                    .map(|line| format!("  {line}")),
+            );
         }
         let revisions = strings(candidate.get("requested_revisions"));
-        if !revisions.is_empty() {
-            lines.extend([
-                String::new(),
-                "### Requested revisions".to_string(),
-                String::new(),
-            ]);
+        lines.extend([
+            String::new(),
+            "### Requested revisions".to_string(),
+            String::new(),
+        ]);
+        if revisions.is_empty() {
+            lines.push("- None.".to_string());
+        } else {
             lines.extend(revisions.into_iter().map(|value| format!("- {value}")));
         }
-        if let Some(next) = candidate
-            .get("recommended_next_step")
-            .and_then(Value::as_str)
-        {
-            lines.extend([
-                String::new(),
-                "### Recommended next step".to_string(),
-                String::new(),
-                visible_controls(next),
-            ]);
+        lines.extend([
+            String::new(),
+            "### Recommended next step".to_string(),
+            String::new(),
+            candidate
+                .get("recommended_next_step")
+                .and_then(Value::as_str)
+                .map(visible_controls)
+                .unwrap_or_else(|| {
+                    "No next step was supplied; do not treat this candidate as adoption-ready."
+                        .to_string()
+                }),
+        ]);
+        let assumptions = strings(candidate.get("assumptions"));
+        lines.extend([String::new(), "### Assumptions".to_string(), String::new()]);
+        if assumptions.is_empty() {
+            lines.push("- None.".to_string());
+        } else {
+            lines.extend(assumptions.into_iter().map(|value| format!("- {value}")));
         }
         let missing = strings(candidate.get("missing_evidence"));
-        if !missing.is_empty() {
-            lines.extend([
-                String::new(),
-                "### Missing evidence".to_string(),
-                String::new(),
-            ]);
+        lines.extend([
+            String::new(),
+            "### Missing evidence".to_string(),
+            String::new(),
+        ]);
+        if missing.is_empty() {
+            lines.push("- None.".to_string());
+        } else {
             lines.extend(missing.into_iter().map(|value| format!("- {value}")));
         }
     }
@@ -731,4 +863,71 @@ pub fn state_status(state_root: &Path, current_report: Option<&Value>) -> Result
         "recovery_entries": recovery_entries,
         "retention_command": "git slop prune --dry-run"
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn human_advice_is_decision_ready_and_warns_about_private_retention() {
+        let artifact = json!({
+            "report": {"sha256": "report", "head_sha": "revision"},
+            "context": {"digest": "context"},
+            "policies": {"resolution_digest": "policies"},
+            "provider": {"provider": "mock", "model": "model", "endpoint_classification": "none"},
+            "evaluation": {
+                "aggregate_verdict": "revise",
+                "summary": "One bounded revision is required.",
+                "candidate_evaluations": [{
+                    "candidate_id": "candidate-0123456789abcdef",
+                    "aggregate_verdict": "revise",
+                    "rationale": "A cited test is missing.",
+                    "confidence": "low",
+                    "citations": {
+                        "candidates": ["candidate-0123456789abcdef"],
+                        "paths": ["src/lib.rs"], "findings": [], "relationships": [],
+                        "clusters": [], "excerpts": [], "policies": ["policy.test"],
+                        "verification": ["cargo test"]
+                    },
+                    "rule_evaluations": [{
+                        "rule_id": "policy.test", "verdict": "revise",
+                        "rationale": "Verification is required.",
+                        "citations": {
+                            "candidates": ["candidate-0123456789abcdef"],
+                            "paths": [], "findings": [], "relationships": [], "clusters": [],
+                            "excerpts": [], "policies": ["policy.test"], "verification": ["cargo test"]
+                        }
+                    }],
+                    "requested_revisions": ["Add the missing test."],
+                    "recommended_next_step": "Run the focused test after revising.",
+                    "assumptions": ["The cited path remains current."],
+                    "missing_evidence": ["Focused test result"]
+                }]
+            },
+            "validation": {"warnings": []},
+            "boundary": "Advice is advisory only."
+        });
+
+        let markdown = render_advice_markdown(&artifact);
+        for expected in [
+            "## Decision",
+            "Candidate verdicts: 0 approve, 0 abstain, 1 revise, 0 reject",
+            "Required revision items: 1",
+            "Missing evidence items: 1",
+            "Low-confidence candidates: 1",
+            "Private retention:",
+            "Confidence: **low**",
+            "### Evidence citations",
+            "<code>src/lib.rs</code>",
+            "### Assumptions",
+            "The cited path remains current.",
+            "### Recommended next step",
+        ] {
+            assert!(
+                markdown.contains(expected),
+                "missing {expected:?}\n{markdown}"
+            );
+        }
+    }
 }

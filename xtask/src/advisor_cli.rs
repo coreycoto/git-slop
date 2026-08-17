@@ -202,6 +202,7 @@ impl BenchmarkArgs {
             };
         let prepare_only = self.prepare_only;
         let format = self.format;
+        let review_output_dir = self.review_output_dir.clone();
         let (results, decision) = advisor_benchmark::run(&advisor_benchmark::Options {
             repo_root,
             binary: self.binary,
@@ -225,6 +226,25 @@ impl BenchmarkArgs {
             prepare_only: self.prepare_only,
             review_output_dir: self.review_output_dir,
         })?;
+        let review_evidence = if prepare_only {
+            serde_json::json!({
+                "status": "not_applicable",
+                "protocol": null,
+                "warning": "Provider-free preflight does not produce review evidence."
+            })
+        } else if review_output_dir.is_some() {
+            serde_json::json!({
+                "status": "retained",
+                "protocol": advisor_benchmark::REVIEW_PROTOCOL,
+                "warning": "Private blinded review evidence was retained outside the repository. Share only the blind index and review artifacts with reviewers; withhold review-manifest.json until ratings are complete, and never commit the directory."
+            })
+        } else {
+            serde_json::json!({
+                "status": "not_retained",
+                "protocol": null,
+                "warning": "No review evidence was retained, so this benchmark result cannot be finalized. A fresh authorized run with --review-output-dir is required."
+            })
+        };
         if format == OutputFormat::Json {
             let benchmark: serde_json::Value = serde_json::from_slice(&std::fs::read(&results)?)?;
             let benchmark_status = benchmark["status"]
@@ -243,6 +263,7 @@ impl BenchmarkArgs {
                 "operation_code": operation_code,
                 "status": "written",
                 "benchmark_status": benchmark_status,
+                "review_evidence": review_evidence,
                 "results_output": results,
                 "decision_output": decision
             });
@@ -251,6 +272,20 @@ impl BenchmarkArgs {
         } else {
             println!("Wrote advisor benchmark results: {}", results.display());
             println!("Wrote advisor benchmark decision: {}", decision.display());
+            println!(
+                "Review evidence: {}",
+                review_evidence["status"].as_str().unwrap_or("unknown")
+            );
+            println!(
+                "- {}",
+                review_evidence["warning"]
+                    .as_str()
+                    .unwrap_or("Review evidence state is unavailable.")
+            );
+            if let Some(directory) = review_output_dir {
+                println!("- Private directory: {}", directory.display());
+                println!("- Protocol: {}", advisor_benchmark::REVIEW_PROTOCOL);
+            }
         }
         Ok(())
     }

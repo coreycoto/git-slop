@@ -53,6 +53,10 @@ contracts live in the private standalone Rust workspace under `xtask/`. The
 root workspace excludes it, and the public `git-slop` package and native
 release archives do not contain it. Its committed `xtask/Cargo.lock` keeps
 maintainer validation reproducible independently of the public dependency graph.
+The advisor benchmark's orchestration, system supervision, review evidence,
+derivation, and finalization live in separate modules under
+`xtask/src/advisor_benchmark/`; keep its status and recommendation derivation in
+the shared engine rather than duplicating it at call sites.
 
 Reusable `agent_plugins` behavior tests, marketplace bootstrap tests, and
 clean-room plugin consumer smoke run in the `coreycoto/agent-plugins`

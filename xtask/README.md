@@ -64,6 +64,13 @@ refuses already finalized evidence before adding manual gates. It also requires
 the current decision report to match its JSON result and regenerates the report
 from the finalized result.
 
+Its implementation is split into real Rust modules under
+`src/advisor_benchmark/`: `run` owns orchestration, `system` owns bounded child
+execution and resource guards, `review` owns blinded evidence and ratings,
+`derivation` is the single decision engine, and `finalization` verifies and
+persists immutable reviewed results. Keep cross-module contracts typed instead
+of recreating string-state branches in the CLI.
+
 `advisor-capacity` is the provider-free first gate for proposed benchmark
 hardware. It reads only physical memory, available memory, and swap, never
 reads a report or contacts a provider, and emits a receipt that states both
@@ -82,6 +89,11 @@ distinct artifact path for every sample. Prepare-only, aggregate, interrupted,
 and finalized results must pass the strict published `advisor-benchmark-1`
 schema before `results.json` and `decision.md` are replaced as a rollback-safe
 pair.
+
+Focused no-provider tests run the child supervisor through success, nonzero
+exit, deadline, forced-kill, stdout-flood, and stderr-flood cases. They are the
+required regression matrix for lifecycle, byte-bound, and reap behavior; they
+must never start Ollama or another model runtime.
 
 After the protected workflow publishes the crate, `verify-crate` checks the
 downloaded `.crate` checksum, exact package archive boundary, Cargo package

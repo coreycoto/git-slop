@@ -204,6 +204,14 @@ separate context/provider/validation timing, per-rule evaluations, citations,
 uncertainty, validation warnings, and the non-mutation boundary. They do not
 retain the provider endpoint itself.
 
+The Markdown view starts with a decision summary: the aggregate disposition,
+candidate counts by verdict, required-revision and missing-evidence totals, and
+the number of low-confidence candidates. Each candidate then shows confidence,
+its disposition, cited evidence, rule results, requested revisions, next step,
+assumptions, and missing evidence. It also warns that repository-derived
+evidence and provider rationale are private retained state; use
+`git slop prune --dry-run` to review retention before removing anything.
+
 Advice state is owner-private (`0700` directories and `0600` files on Unix),
 written through fsynced temporary directories, and replaced under an exclusive
 write lock. An interrupted `latest` replacement is recovered before the next
@@ -233,6 +241,12 @@ mapping manifest. Finalization requires two independent reviewers, verifies
 the complete private evidence chain, previews by default, and writes new
 finalized outputs only with `--apply`; the completed source result remains
 immutable.
+
+Every benchmark terminal receipt reports review evidence as `not_applicable`,
+`not_retained`, or `retained` with an actionable warning. A retained result
+names the blinded-review protocol without exposing its private directory in
+machine-readable output; human output repeats the operator-supplied path and
+reminds maintainers which manifest must remain withheld.
 
 See the [Safeguard-only V1 benchmark](benchmarks/safeguard-v1.md) for the
 privacy-safe gold corpus, fixed matrix, measurements, and ship gate.

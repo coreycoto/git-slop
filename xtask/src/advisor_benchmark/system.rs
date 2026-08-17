@@ -1,3 +1,5 @@
+use super::*;
+
 fn command_text(program: &str, args: &[&str]) -> Option<String> {
     let output = command_output_bounded(
         Command::new(program).args(args),
@@ -33,7 +35,7 @@ fn mac_hardware_profile() -> Option<Value> {
         .cloned()
 }
 
-fn system_profile() -> Value {
+pub(super) fn system_profile() -> Value {
     let mac = mac_hardware_profile();
     let hardware_model = command_text("sysctl", &["-n", "hw.model"]).or_else(|| {
         mac.as_ref()
@@ -64,7 +66,7 @@ fn system_profile() -> Value {
     })
 }
 
-fn system_physical_memory_bytes() -> Option<u64> {
+pub(super) fn system_physical_memory_bytes() -> Option<u64> {
     if cfg!(target_os = "macos") {
         return command_text("sysctl", &["-n", "hw.memsize"])
             .and_then(|value| value.parse::<u64>().ok());
@@ -80,7 +82,7 @@ fn system_physical_memory_bytes() -> Option<u64> {
         .map(|kilobytes| kilobytes.saturating_mul(1024))
 }
 
-fn parse_size(value: &str) -> Option<u64> {
+pub(super) fn parse_size(value: &str) -> Option<u64> {
     let value = value.trim().trim_end_matches(',');
     let split = value
         .char_indices()
@@ -99,7 +101,7 @@ fn parse_size(value: &str) -> Option<u64> {
     Some((number * multiplier) as u64)
 }
 
-fn swap_used_bytes() -> Option<u64> {
+pub(super) fn swap_used_bytes() -> Option<u64> {
     if cfg!(target_os = "macos") {
         let output = command_text("sysctl", &["-n", "vm.swapusage"])?;
         let used = output
@@ -128,7 +130,7 @@ fn swap_used_bytes() -> Option<u64> {
     Some(total.saturating_sub(free))
 }
 
-fn system_available_memory_bytes() -> Option<u64> {
+pub(super) fn system_available_memory_bytes() -> Option<u64> {
     if cfg!(target_os = "macos") {
         let output = command_text("vm_stat", &[])?;
         let page_size = output
@@ -144,12 +146,9 @@ fn system_available_memory_bytes() -> Option<u64> {
             .lines()
             .filter_map(|line| {
                 let (name, value) = line.split_once(':')?;
-                matches!(
-                    name,
-                    "Pages free" | "Pages inactive" | "Pages speculative"
-                )
-                .then(|| value.trim().trim_end_matches('.').parse::<u64>().ok())
-                .flatten()
+                matches!(name, "Pages free" | "Pages inactive" | "Pages speculative")
+                    .then(|| value.trim().trim_end_matches('.').parse::<u64>().ok())
+                    .flatten()
             })
             .sum::<u64>();
         return (available_pages > 0).then_some(available_pages.saturating_mul(page_size));
@@ -176,7 +175,7 @@ fn structured_child_error_code(stderr: &[u8]) -> Option<String> {
     })
 }
 
-fn classify_failure(stderr: &[u8], artifact_present: bool) -> String {
+pub(super) fn classify_failure(stderr: &[u8], artifact_present: bool) -> String {
     let code = structured_child_error_code(stderr);
     let allowed = [
         "provider_response_too_large",
@@ -205,7 +204,7 @@ fn classify_failure(stderr: &[u8], artifact_present: bool) -> String {
     }
 }
 
-fn is_provider_runtime_failure(category: Option<&str>) -> bool {
+pub(super) fn is_provider_runtime_failure(category: Option<&str>) -> bool {
     matches!(
         category,
         Some(
@@ -219,7 +218,7 @@ fn is_provider_runtime_failure(category: Option<&str>) -> bool {
     )
 }
 
-fn is_terminal_provider_identity_failure(category: Option<&str>) -> bool {
+pub(super) fn is_terminal_provider_identity_failure(category: Option<&str>) -> bool {
     matches!(
         category,
         Some("provider_model_identity_missing" | "provider_model_mismatch")
@@ -227,23 +226,44 @@ fn is_terminal_provider_identity_failure(category: Option<&str>) -> bool {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct BenchmarkWatchdog {
-    minimum_available_memory_bytes: u64,
-    maximum_swap_growth_bytes: u64,
-    initial_swap_used_bytes: u64,
+pub(super) struct BenchmarkWatchdog {
+    pub(super) minimum_available_memory_bytes: u64,
+    pub(super) maximum_swap_growth_bytes: u64,
+    pub(super) initial_swap_used_bytes: u64,
 }
 
-struct MonitoredOutput {
-    output: Output,
-    peak_process_rss_bytes: Option<u64>,
-    minimum_available_memory_bytes: Option<u64>,
-    maximum_swap_growth_bytes: Option<u64>,
-    termination_reason: Option<&'static str>,
+pub(super) struct MonitoredOutput {
+    pub(super) output: Output,
+    pub(super) peak_process_rss_bytes: Option<u64>,
+    pub(super) minimum_available_memory_bytes: Option<u64>,
+    pub(super) maximum_swap_growth_bytes: Option<u64>,
+    pub(super) termination_reason: Option<&'static str>,
 }
 
-struct BoundedRead {
-    bytes: Vec<u8>,
-    truncated: bool,
+pub(super) struct BoundedRead {
+    pub(super) bytes: Vec<u8>,
+    pub(super) truncated: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ChildExecutionLimits {
+    pub(super) output_limit_bytes: usize,
+    pub(super) deadline: Duration,
+    pub(super) poll_interval: Duration,
+    pub(super) resource_monitor_stall_deadline: Option<Duration>,
+    pub(super) require_resource_measurements: bool,
+}
+
+impl ChildExecutionLimits {
+    fn production() -> Self {
+        Self {
+            output_limit_bytes: BENCHMARK_CHILD_OUTPUT_LIMIT_BYTES,
+            deadline: Duration::from_secs(BENCHMARK_CHILD_DEADLINE_SECONDS),
+            poll_interval: Duration::from_millis(250),
+            resource_monitor_stall_deadline: Some(Duration::from_secs(2)),
+            require_resource_measurements: true,
+        }
+    }
 }
 
 static INTERRUPT_HANDLER: Once = Once::new();
@@ -392,7 +412,7 @@ impl ResourceMonitor {
     }
 }
 
-fn drain_bounded<R: Read>(
+pub(super) fn drain_bounded<R: Read>(
     mut reader: R,
     limit: usize,
     output_limit_exceeded: Arc<AtomicBool>,
@@ -426,17 +446,42 @@ fn process_rss_bytes(pid: u32) -> Option<u64> {
     output
         .status
         .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).trim().parse::<u64>().ok())
+        .then(|| {
+            String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse::<u64>()
+                .ok()
+        })
         .flatten()
         .map(|kilobytes| kilobytes.saturating_mul(1024))
 }
 
-fn timed_output(
+pub(super) fn timed_output(
     binary: &Path,
     args: &[String],
     cwd: &Path,
     watchdog: BenchmarkWatchdog,
 ) -> Result<MonitoredOutput> {
+    timed_output_with_limits(
+        binary,
+        args,
+        cwd,
+        watchdog,
+        ChildExecutionLimits::production(),
+    )
+}
+
+pub(super) fn timed_output_with_limits(
+    binary: &Path,
+    args: &[String],
+    cwd: &Path,
+    watchdog: BenchmarkWatchdog,
+    limits: ChildExecutionLimits,
+) -> Result<MonitoredOutput> {
+    if limits.output_limit_bytes == 0 || limits.deadline.is_zero() || limits.poll_interval.is_zero()
+    {
+        bail!("benchmark child execution limits must be positive");
+    }
     install_interrupt_handler();
     let mut child = Command::new(binary);
     child
@@ -451,31 +496,25 @@ fn timed_output(
         child.process_group(0);
     }
     let mut child = ChildGuard::new(child.spawn()?);
-    let mut stdout = child.child
+    let mut stdout = child
+        .child
         .stdout
         .take()
         .ok_or_else(|| anyhow::anyhow!("benchmark child stdout pipe is unavailable"))?;
-    let mut stderr = child.child
+    let mut stderr = child
+        .child
         .stderr
         .take()
         .ok_or_else(|| anyhow::anyhow!("benchmark child stderr pipe is unavailable"))?;
     let output_limit_exceeded = Arc::new(AtomicBool::new(false));
     let stdout_limit = Arc::clone(&output_limit_exceeded);
     let stderr_limit = Arc::clone(&output_limit_exceeded);
-    let stdout_reader = thread::spawn(move || {
-        drain_bounded(
-            &mut stdout,
-            BENCHMARK_CHILD_OUTPUT_LIMIT_BYTES,
-            stdout_limit,
-        )
-    });
-    let stderr_reader = thread::spawn(move || {
-        drain_bounded(
-            &mut stderr,
-            BENCHMARK_CHILD_OUTPUT_LIMIT_BYTES,
-            stderr_limit,
-        )
-    });
+    let output_limit_bytes = limits.output_limit_bytes;
+    let stdout_reader =
+        thread::spawn(move || drain_bounded(&mut stdout, output_limit_bytes, stdout_limit));
+    let output_limit_bytes = limits.output_limit_bytes;
+    let stderr_reader =
+        thread::spawn(move || drain_bounded(&mut stderr, output_limit_bytes, stderr_limit));
     let monitor = ResourceMonitor::start(child.child.id(), watchdog.initial_swap_used_bytes);
     let started = Instant::now();
     let mut termination_reason = None;
@@ -486,19 +525,22 @@ fn timed_output(
         if BENCHMARK_INTERRUPTED.load(Ordering::Acquire) {
             termination_reason = Some("operator_interrupt");
         }
-        if started.elapsed() >= Duration::from_secs(BENCHMARK_CHILD_DEADLINE_SECONDS) {
+        if started.elapsed() >= limits.deadline {
             termination_reason.get_or_insert("benchmark_child_deadline");
         }
         if output_limit_exceeded.load(Ordering::Acquire) {
             termination_reason = Some("benchmark_child_output_limit");
         }
-        let elapsed_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        let heartbeat = monitor.heartbeat_ms.load(Ordering::Acquire);
-        if elapsed_ms > 2_000 && elapsed_ms.saturating_sub(heartbeat) > 2_000 {
-            termination_reason.get_or_insert("resource_guard_measurement_unavailable");
+        if let Some(stall_deadline) = limits.resource_monitor_stall_deadline {
+            let elapsed_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+            let heartbeat = monitor.heartbeat_ms.load(Ordering::Acquire);
+            let stall_ms = stall_deadline.as_millis().min(u64::MAX as u128) as u64;
+            if elapsed_ms > stall_ms && elapsed_ms.saturating_sub(heartbeat) > stall_ms {
+                termination_reason.get_or_insert("resource_guard_measurement_unavailable");
+            }
         }
         if let Ok(state) = monitor.snapshot.lock() {
-            if state.measurement_failed {
+            if limits.require_resource_measurements && state.measurement_failed {
                 termination_reason.get_or_insert("resource_guard_measurement_unavailable");
             }
             if state
@@ -518,7 +560,7 @@ fn timed_output(
             child.kill_group()?;
             break;
         }
-        thread::sleep(Duration::from_millis(250));
+        thread::sleep(limits.poll_interval);
     }
     monitor.stop();
     let status = child.wait()?;
@@ -549,8 +591,10 @@ fn timed_output(
     };
     if let Some(reason) = termination_reason {
         output.stderr.extend_from_slice(
-            format!("\nadvisor benchmark aborted by safety guard {reason}; provider connection closed\n")
-                .as_bytes(),
+            format!(
+                "\nadvisor benchmark aborted by safety guard {reason}; provider connection closed\n"
+            )
+            .as_bytes(),
         );
     }
     Ok(MonitoredOutput {

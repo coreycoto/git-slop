@@ -163,6 +163,12 @@ sample and source-artifact digests. Keep that mapping from reviewers until
 their independent ratings are complete. None of this private evidence may be
 committed or shared as public benchmark output.
 
+Terminal human output repeats the private path and sharing boundary after the
+run finishes. The JSON operation receipt instead exposes a strict
+`review_evidence` state and warning without leaking that path. A run without
+`--review-output-dir` is marked `not_retained` and cannot be finalized; it must
+not be mistaken for review-ready evidence.
+
 Each returned response must name the exact requested served model and report a
 normal stopped completion. The client accepts a complete `Content-Length` or
 chunked HTTP response without waiting for the loopback server to close a
@@ -205,6 +211,12 @@ requires exact per-reviewer coverage, recalculates aggregate and per-reviewer
 manual scores, verifies the existing decision report, and binds source-result,
 manifest, and ratings digests into new finalized outputs.
 
+Aggregation and finalization call the same derivation engine for every metric,
+gate, recommended configuration, typed result status, termination state, and
+`ship`/`adjust`/`defer` recommendation. Finalization compares the stored source
+against that recomputation before it considers ratings, so preview and apply
+cannot drift from the live benchmark decision rules.
+
 ## Measurements and decision
 
 `results.json` follows `advisor-benchmark-1`; `decision.md` is its human
@@ -223,6 +235,12 @@ agreement, citation completeness, abstention, and repeated-verdict consistency.
 Manual ratings cover the dimensions that cannot be inferred from schema
 validity. `--format json` emits a validated `advisor-operation-receipt` with a
 stable operation code for benchmark writes and finalization preview/apply.
+
+The no-provider test suite exercises the child supervisor as an end-to-end
+fault matrix: bounded success, ordinary nonzero exit, stalled child,
+TERM-resistant child, oversized stdout, and oversized stderr. It verifies the
+deadline/output termination codes, retained-byte ceilings, and prompt child
+reaping without provisioning or contacting a model runtime.
 
 Ollama's native `/api/chat` adapter can expose nanosecond load,
 prompt-evaluation, and generation timings, but it is never selected

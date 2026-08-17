@@ -17,6 +17,7 @@
     "review_manifest_sha256": {"$ref": "#/$defs/digest"},
     "manual_ratings_sha256": {"$ref": "#/$defs/digest"},
     "proposed_results_sha256": {"$ref": "#/$defs/digest"},
+    "review_evidence": {"$ref": "#/$defs/reviewEvidence"},
     "results_output": {"type": "string", "minLength": 1},
     "decision_output": {"type": "string", "minLength": 1}
   },
@@ -27,7 +28,7 @@
         "operation_code": {"enum": ["advisor_benchmark_preflight_written", "advisor_benchmark_incomplete_written", "advisor_benchmark_completed"]},
         "status": {"const": "written"}
       },
-      "required": ["benchmark_status"],
+      "required": ["benchmark_status", "review_evidence"],
       "not": {"anyOf": [{"required": ["apply"]}, {"required": ["source_results_sha256"]}, {"required": ["review_manifest_sha256"]}, {"required": ["manual_ratings_sha256"]}, {"required": ["proposed_results_sha256"]}]}
     },
     {
@@ -38,7 +39,7 @@
         "apply": {"const": false}
       },
       "required": ["apply", "recommendation", "source_results_sha256", "review_manifest_sha256", "manual_ratings_sha256", "proposed_results_sha256"],
-      "not": {"required": ["benchmark_status"]}
+      "not": {"anyOf": [{"required": ["benchmark_status"]}, {"required": ["review_evidence"]}]}
     },
     {
       "properties": {
@@ -48,10 +49,27 @@
         "apply": {"const": true}
       },
       "required": ["apply", "recommendation", "source_results_sha256", "review_manifest_sha256", "manual_ratings_sha256", "proposed_results_sha256"],
-      "not": {"required": ["benchmark_status"]}
+      "not": {"anyOf": [{"required": ["benchmark_status"]}, {"required": ["review_evidence"]}]}
     }
   ],
   "$defs": {
-    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reviewEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "protocol", "warning"],
+      "properties": {
+        "status": {"enum": ["not_applicable", "not_retained", "retained"]},
+        "protocol": {"enum": ["blind-independent-multi-repeat-v1", null]},
+        "warning": {"type": "string", "minLength": 1, "maxLength": 1000}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "retained"}}, "required": ["status"]},
+          "then": {"properties": {"protocol": {"const": "blind-independent-multi-repeat-v1"}}},
+          "else": {"properties": {"protocol": {"type": "null"}}}
+        }
+      ]
+    }
   }
 }

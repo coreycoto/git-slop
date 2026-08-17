@@ -296,6 +296,28 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
             .join(".slop/advice/latest/advice.md")
             .is_file()
     );
+    let advice_markdown = fs::read_to_string(
+        repository
+            .path()
+            .join(".slop/advice/latest/advice.md"),
+    )
+    .unwrap();
+    for expected in [
+        "## Decision",
+        "Candidate verdicts: 1 approve, 0 abstain, 0 revise, 0 reject",
+        "Required revision items: 0",
+        "Missing evidence items: 0",
+        "Private retention:",
+        "Confidence: **high**",
+        "### Evidence citations",
+        "### Recommended next step",
+        "### Assumptions",
+    ] {
+        assert!(
+            advice_markdown.contains(expected),
+            "persisted human advice is missing {expected:?}"
+        );
+    }
     assert!(!repository.path().join(".slop/latest/advice.json").exists());
 
     let mut stale_aggregate = artifact.clone();

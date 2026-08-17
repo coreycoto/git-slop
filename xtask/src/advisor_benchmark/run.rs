@@ -1,4 +1,6 @@
-fn privacy_safe_benchmark_runtime_identifier(value: &str) -> bool {
+use super::*;
+
+pub(super) fn privacy_safe_benchmark_runtime_identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 200
         && value
@@ -62,7 +64,7 @@ fn prepare_review_directory(options: &Options) -> Result<Option<PathBuf>> {
     Ok(Some(resolved))
 }
 
-fn write_review_artifact(directory: &Path, name: &str, bytes: &[u8]) -> Result<()> {
+pub(super) fn write_review_artifact(directory: &Path, name: &str, bytes: &[u8]) -> Result<()> {
     let path = directory.join(name);
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);
@@ -88,14 +90,7 @@ fn write_terminal_outputs(
     review_directory: Option<&Path>,
     review_entries: &[ReviewManifestEntry],
 ) -> Result<(PathBuf, PathBuf)> {
-    let paths = write_outputs(
-        options,
-        inputs,
-        started,
-        samples,
-        None,
-        termination_reason,
-    )?;
+    let paths = write_outputs(options, inputs, started, samples, None, termination_reason)?;
     if let Some(directory) = review_directory {
         write_review_manifests(
             directory,
@@ -109,21 +104,21 @@ fn write_terminal_outputs(
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct BenchmarkReleaseGate {
-    schema_version: u64,
-    recommendation: String,
-    public_inference_enabled: bool,
-    canonical_model: String,
-    minimum_model_size_bytes: u64,
-    minimum_estimated_peak_memory_bytes: u64,
-    minimum_physical_memory_bytes: u64,
-    minimum_available_memory_reserve_bytes: u64,
-    maximum_initial_swap_used_bytes: u64,
-    maximum_swap_growth_bytes: u64,
-    decision_record: String,
+pub(super) struct BenchmarkReleaseGate {
+    pub(super) schema_version: u64,
+    pub(super) recommendation: String,
+    pub(super) public_inference_enabled: bool,
+    pub(super) canonical_model: String,
+    pub(super) minimum_model_size_bytes: u64,
+    pub(super) minimum_estimated_peak_memory_bytes: u64,
+    pub(super) minimum_physical_memory_bytes: u64,
+    pub(super) minimum_available_memory_reserve_bytes: u64,
+    pub(super) maximum_initial_swap_used_bytes: u64,
+    pub(super) maximum_swap_growth_bytes: u64,
+    pub(super) decision_record: String,
 }
 
-fn validate_benchmark_gate(gate: &BenchmarkReleaseGate) -> Result<()> {
+pub(super) fn validate_benchmark_gate(gate: &BenchmarkReleaseGate) -> Result<()> {
     if gate.schema_version != 1
         || !matches!(gate.recommendation.as_str(), "ship" | "adjust" | "defer")
         || (gate.public_inference_enabled && gate.recommendation != "ship")
@@ -142,7 +137,7 @@ fn validate_benchmark_gate(gate: &BenchmarkReleaseGate) -> Result<()> {
     Ok(())
 }
 
-fn validate_benchmark_capacity(
+pub(super) fn validate_benchmark_capacity(
     gate: &BenchmarkReleaseGate,
     model_size: u64,
     estimated_peak: u64,
@@ -150,14 +145,8 @@ fn validate_benchmark_capacity(
     available: u64,
     swap: u64,
 ) -> Result<BenchmarkWatchdog> {
-    let (_, _, blockers) = benchmark_capacity_blockers(
-        gate,
-        model_size,
-        estimated_peak,
-        physical,
-        available,
-        swap,
-    )?;
+    let (_, _, blockers) =
+        benchmark_capacity_blockers(gate, model_size, estimated_peak, physical, available, swap)?;
     if !blockers.is_empty() {
         bail!(
             "{}",
@@ -175,7 +164,7 @@ fn validate_benchmark_capacity(
     })
 }
 
-fn benchmark_capacity_blockers(
+pub(super) fn benchmark_capacity_blockers(
     gate: &BenchmarkReleaseGate,
     model_size: u64,
     estimated_peak: u64,
@@ -297,14 +286,8 @@ fn benchmark_safety_preflight(options: &Options) -> Result<BenchmarkWatchdog> {
         .ok_or_else(|| anyhow::anyhow!("unable to measure available memory; refusing inference"))?;
     let swap = swap_used_bytes()
         .ok_or_else(|| anyhow::anyhow!("unable to measure swap use; refusing inference"))?;
-    let watchdog = validate_benchmark_capacity(
-        &gate,
-        model_size,
-        estimated_peak,
-        physical,
-        available,
-        swap,
-    )?;
+    let watchdog =
+        validate_benchmark_capacity(&gate, model_size, estimated_peak, physical, available, swap)?;
     eprintln!(
         "Advisor benchmark safety contract: dedicated-host-confirmed=true; model={} bytes; estimated peak={estimated_peak} bytes; required available={required_available} bytes; physical={physical} bytes; available={available} bytes; swap={swap} bytes; maximum initial swap={} bytes; maximum swap growth={} bytes; release recommendation={}; decision={}",
         model_size,
@@ -335,8 +318,9 @@ pub fn check_capacity(options: &CapacityCheckOptions) -> Result<CapacityCheck> {
     }
     let physical = system_physical_memory_bytes()
         .ok_or_else(|| anyhow::anyhow!("unable to measure physical memory; capacity is unknown"))?;
-    let available = system_available_memory_bytes()
-        .ok_or_else(|| anyhow::anyhow!("unable to measure available memory; capacity is unknown"))?;
+    let available = system_available_memory_bytes().ok_or_else(|| {
+        anyhow::anyhow!("unable to measure available memory; capacity is unknown")
+    })?;
     let swap = swap_used_bytes()
         .ok_or_else(|| anyhow::anyhow!("unable to measure swap use; capacity is unknown"))?;
     let (required_available, required_physical, blockers) = benchmark_capacity_blockers(
@@ -440,9 +424,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
             .next()
             .is_some_and(|byte| byte.is_ascii_alphanumeric())
         || options.runtime_label.chars().any(|character| {
-            !(character.is_ascii_alphanumeric()
-                || character == ' '
-                || "._+-()".contains(character))
+            !(character.is_ascii_alphanumeric() || character == ' ' || "._+-()".contains(character))
         })
     {
         bail!("--runtime-label must be a short privacy-safe runtime name and version");
@@ -450,12 +432,13 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
     if !privacy_safe_benchmark_runtime_identifier(&options.runtime_model) {
         bail!("--runtime-model must be a privacy-safe runtime identifier");
     }
-    let immutable_model_digest = options
-        .model_digest
-        .strip_prefix("sha256:")
-        .is_some_and(|digest| {
-            digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
-        });
+    let immutable_model_digest =
+        options
+            .model_digest
+            .strip_prefix("sha256:")
+            .is_some_and(|digest| {
+                digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+            });
     if (!options.prepare_only && !immutable_model_digest)
         || (options.prepare_only && options.model_digest != "not-applicable")
     {
@@ -509,10 +492,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                 for repetition in 1..=options.repetitions {
                     let artifact_path = sample_artifacts.join(format!(
                         "{}-{}-{}-{}.json",
-                        case.id,
-                        effort,
-                        context,
-                        repetition
+                        case.id, effort, context, repetition
                     ));
                     if artifact_path.exists() {
                         bail!(
@@ -600,13 +580,17 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok());
                     let assessment = artifact
                         .as_ref()
-                        .map(|artifact| assess_advice_artifact(artifact, report, case.candidate_count))
+                        .map(|artifact| {
+                            assess_advice_artifact(artifact, report, case.candidate_count)
+                        })
                         .transpose()?;
                     let actual_candidate_count = assessment
                         .as_ref()
                         .and_then(|assessment| assessment.actual_candidate_count);
                     let sample_valid = output.status.success()
-                        && assessment.as_ref().is_some_and(|assessment| assessment.valid);
+                        && assessment
+                            .as_ref()
+                            .is_some_and(|assessment| assessment.valid);
                     let invalid_references = assessment
                         .as_ref()
                         .map_or(0, |assessment| assessment.invalid_references);
@@ -786,9 +770,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                     let terminal_identity_failure = samples
                         .last()
                         .and_then(|sample| sample.failure_category.as_deref())
-                        .filter(|category| {
-                            is_terminal_provider_identity_failure(Some(category))
-                        });
+                        .filter(|category| is_terminal_provider_identity_failure(Some(category)));
                     if let Some(category) = terminal_identity_failure {
                         eprintln!(
                             "Stopping the advisor matrix after provider identity drift ({category}); do not retry or accept evidence from this runtime."
@@ -817,8 +799,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                     } else {
                         0
                     };
-                    if consecutive_provider_failures
-                        >= BENCHMARK_CONSECUTIVE_PROVIDER_FAILURE_LIMIT
+                    if consecutive_provider_failures >= BENCHMARK_CONSECUTIVE_PROVIDER_FAILURE_LIMIT
                     {
                         eprintln!(
                             "Stopping the advisor matrix after {consecutive_provider_failures} consecutive provider/runtime failures; writing a fail-closed incomplete result."
