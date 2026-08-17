@@ -66,8 +66,11 @@ Stable `git slop advise --help` shows only provider-free context construction
 and artifact validation. The disabled inference, provider, model, resource,
 timeout, and mock-response controls are hidden because they are not supported
 product workflows. `git slop doctor` independently reports that provider-free
-context is available, no model is required for ordinary use, and public
-inference is disabled.
+context is available, no model is required for ordinary use, and inference is
+deferred. Its JSON contract distinguishes provider-free availability from
+inference state and includes a version-pinned GitHub URL for the governing
+decision record, so an installed binary does not depend on a local
+documentation checkout.
 
 `--top` preserves intervention ranking first and fills any remaining requested
 slots from the report's ranked health refactor candidates. It never promotes

@@ -25,7 +25,9 @@ publication commit, validates a declared contiguous improvement inventory, and
 normalizes loopback transport failures consistently across macOS and Linux.
 Provider-free context now preserves investigation semantics, deduplicates
 evidence, embeds policy identities, explains every truncation, and presents a
-concise human receipt while retaining explicit machine JSON.
+concise human receipt while retaining explicit machine JSON. Adoption and
+policy mutations now emit complete machine receipts and staging guidance, while
+`doctor` exposes typed advisor state and a version-pinned decision URL.
 
 See the [complete numbered 0.16.1 release notes](docs/releases/0.16.1.md).
 

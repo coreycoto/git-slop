@@ -33,6 +33,104 @@ fn fixture_repository() -> tempfile::TempDir {
     root
 }
 
+fn assert_matches_schema(value: &Value, schema_name: &str) {
+    let schema: Value = serde_json::from_slice(
+        &fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("schemas")
+                .join(schema_name),
+        )
+        .expect("read schema"),
+    )
+    .expect("parse schema");
+    let validator = jsonschema::draft202012::options()
+        .should_validate_formats(true)
+        .build(&schema)
+        .expect("valid schema");
+    if let Some(error) = validator.iter_errors(value).next() {
+        panic!(
+            "value does not match {schema_name} at {}: {error}",
+            error.instance_path()
+        );
+    }
+}
+
+#[test]
+fn init_json_is_a_stable_receipt_and_stages_every_repository_owned_slop_file() {
+    let repository = fixture_repository();
+    fs::create_dir_all(repository.path().join(".slop")).unwrap();
+    fs::write(
+        repository.path().join(".slop/policies.yaml"),
+        "schema_version: 1\npacks: []\n",
+    )
+    .unwrap();
+    fs::write(repository.path().join(".slop/policy-lock.json"), "{}\n").unwrap();
+
+    let output = cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["init", "--format", "json"])
+        .output()
+        .expect("init JSON");
+    assert!(output.status.success());
+    let receipt: Value = serde_json::from_slice(&output.stdout).expect("receipt JSON");
+    assert_matches_schema(&receipt, "init-1.json");
+    assert_eq!(receipt["mode"], "initialize");
+    assert_eq!(receipt["status"], "initialized");
+    assert_eq!(
+        receipt["staging"]["paths"],
+        json!([
+            ".slop/config.yaml",
+            ".slop/.gitignore",
+            ".slop/policies.yaml",
+            ".slop/policy-lock.json"
+        ])
+    );
+    assert_eq!(
+        receipt["staging"]["command"],
+        "git add .slop/config.yaml .slop/.gitignore .slop/policies.yaml .slop/policy-lock.json"
+    );
+
+    let check = cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["init", "--check", "--format", "json"])
+        .output()
+        .expect("check JSON");
+    assert!(check.status.success());
+    let check: Value = serde_json::from_slice(&check.stdout).expect("check receipt");
+    assert_matches_schema(&check, "init-1.json");
+    assert_eq!(check["applied"], false);
+    assert_eq!(check["changed_paths"], json!([]));
+}
+
+#[test]
+fn init_json_format_has_parser_and_runtime_error_parity() {
+    let repository = fixture_repository();
+    let parser = cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["init", "--format", "json", "--unknown-option"])
+        .output()
+        .expect("parser error");
+    assert!(!parser.status.success());
+    let parser: Value = serde_json::from_slice(&parser.stderr).expect("parser error JSON");
+    assert_eq!(parser["error"]["code"], "parser_error");
+    assert_eq!(parser["error"]["command"], "init");
+
+    fs::write(
+        repository.path().join(".slop"),
+        "blocks the state directory\n",
+    )
+    .unwrap();
+    let runtime = cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["init", "--format", "json"])
+        .output()
+        .expect("runtime error");
+    assert!(!runtime.status.success());
+    let runtime: Value = serde_json::from_slice(&runtime.stderr).expect("runtime error JSON");
+    assert_eq!(runtime["error"]["command"], "init");
+    assert_eq!(runtime["error"]["kind"], "io");
+}
+
 #[test]
 fn ephemeral_find_is_git_private_clean_and_prints_a_scan_receipt() {
     let repository = fixture_repository();

@@ -1,0 +1,248 @@
+{
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.16.1/schemas/init-1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "actions": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "pattern": "^(skipped|written|replaced|kept|current|repaired \\(added [0-9]+\\))$",
+            "type": "string"
+          },
+          "path": {
+            "enum": [
+              ".slop/config.yaml",
+              ".slop/.gitignore"
+            ]
+          }
+        },
+        "required": [
+          "path",
+          "action"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "adoption": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "const": ".slop/config.yaml"
+            },
+            "status": {
+              "enum": [
+                "skipped",
+                "missing",
+                "valid",
+                "invalid"
+              ]
+            }
+          },
+          "required": [
+            "path",
+            "status"
+          ],
+          "type": "object"
+        },
+        "gitignore": {
+          "additionalProperties": false,
+          "properties": {
+            "missing_entries": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "path": {
+              "const": ".slop/.gitignore"
+            },
+            "status": {
+              "enum": [
+                "missing",
+                "current",
+                "repair_needed"
+              ]
+            }
+          },
+          "required": [
+            "path",
+            "status",
+            "missing_entries"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "config",
+        "gitignore"
+      ],
+      "type": "object"
+    },
+    "applied": {
+      "type": "boolean"
+    },
+    "backups": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "changed_paths": {
+      "items": {
+        "enum": [
+          ".slop/config.yaml",
+          ".slop/.gitignore"
+        ]
+      },
+      "uniqueItems": true,
+      "type": "array"
+    },
+    "command": {
+      "const": "init"
+    },
+    "durable_mutation": {
+      "type": "boolean"
+    },
+    "gitignore_only": {
+      "type": "boolean"
+    },
+    "mode": {
+      "enum": [
+        "check",
+        "initialize",
+        "repair",
+        "force"
+      ]
+    },
+    "mutation_class": {
+      "enum": [
+        "none",
+        "repository_adoption"
+      ]
+    },
+    "next_actions": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "promotion": {
+      "additionalProperties": false,
+      "properties": {
+        "moved_files": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "retained_files": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "not_applicable",
+            "no_state",
+            "stale_retained",
+            "promoted",
+            "promoted_with_conflicts",
+            "conflicts_retained"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "moved_files",
+        "retained_files"
+      ],
+      "type": "object"
+    },
+    "rollback": {
+      "additionalProperties": false,
+      "properties": {
+        "guidance": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "not_applicable",
+            "version_control_or_remove_new_files",
+            "backups_available"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "guidance"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "staging": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "paths": {
+          "items": {
+            "enum": [
+              ".slop/config.yaml",
+              ".slop/.gitignore",
+              ".slop/policies.yaml",
+              ".slop/policy-lock.json"
+            ]
+          },
+          "uniqueItems": true,
+          "type": "array"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "required",
+        "paths",
+        "command"
+      ],
+      "type": "object"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "repair_needed",
+        "initialized"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "command",
+    "mode",
+    "status",
+    "applied",
+    "gitignore_only",
+    "mutation_class",
+    "durable_mutation",
+    "actions",
+    "changed_paths",
+    "backups",
+    "adoption",
+    "promotion",
+    "staging",
+    "rollback",
+    "next_actions"
+  ],
+  "title": "Git Slop init receipt schema 1",
+  "type": "object"
+}

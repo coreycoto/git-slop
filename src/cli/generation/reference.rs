@@ -1,6 +1,7 @@
 fn machine_contract(path: &str) -> Option<&'static str> {
     match path {
         "git-slop find" => Some("schema 5 report (`git slop schema report`); `find --estimate-only` uses `find-estimate-1`"),
+        "git-slop init" => Some("`init-1` for JSON output"),
         "git-slop show" => Some("`show-1`"),
         "git-slop explain" => Some("`explain-2`"),
         "git-slop plan" => Some("`plan-2`"),

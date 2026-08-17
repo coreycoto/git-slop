@@ -27,22 +27,36 @@ fn policy_pack_lifecycle_is_offline_locked_and_inspectable() {
             .status
             .success()
     );
-    assert!(
-        command(&[
+    let install = command(&[
             "policy",
             "install",
             "team-policy",
             "--select",
             "--format",
             "json"
-        ])
-        .status
-        .success()
+        ]);
+    assert!(install.status.success());
+    let install: Value = serde_json::from_slice(&install.stdout).expect("install JSON");
+    assert_eq!(
+        install["mutation"]["class"],
+        "user_cache_install_and_repository_selection"
     );
-    assert!(
-        command(&["policy", "lock", "--format", "json"])
-            .status
-            .success()
+    assert_eq!(
+        install["mutation"]["repository_changed_paths"],
+        json!([".slop/policies.yaml"])
+    );
+    assert_eq!(
+        install["mutation"]["unselect_command"],
+        "git slop policy remove com.example.repository-policy --unselect"
+    );
+
+    let lock_output = command(&["policy", "lock", "--format", "json"]);
+    assert!(lock_output.status.success());
+    let lock_output: Value = serde_json::from_slice(&lock_output.stdout).expect("lock JSON");
+    assert_eq!(lock_output["mutation"]["class"], "repository_policy_lock");
+    assert_eq!(
+        lock_output["mutation"]["commit"]["paths"],
+        json!([".slop/policies.yaml", ".slop/policy-lock.json"])
     );
 
     let listed = command(&["policy", "list", "--format", "json"]);
@@ -95,17 +109,24 @@ fn policy_pack_lifecycle_is_offline_locked_and_inspectable() {
     ]);
     assert!(!tampered.status.success());
     assert!(String::from_utf8_lossy(&tampered.stderr).contains("no longer matches"));
-    assert!(
-        command(&[
+    let remove = command(&[
             "policy",
             "remove",
             "com.example.repository-policy",
             "--unselect",
             "--format",
             "json"
-        ])
-        .status
-        .success()
+        ]);
+    assert!(remove.status.success());
+    let remove: Value = serde_json::from_slice(&remove.stdout).expect("remove JSON");
+    assert_eq!(
+        remove["mutation"]["class"],
+        "user_cache_removal_and_repository_unselection"
+    );
+    assert_eq!(remove["lock_invalidated"], true);
+    assert_eq!(
+        remove["mutation"]["repository_changed_paths"],
+        json!([".slop/policies.yaml", ".slop/policy-lock.json"])
     );
     assert!(!repository.path().join(".slop/policy-lock.json").exists());
 }

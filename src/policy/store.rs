@@ -175,16 +175,27 @@ pub(super) fn all_installed() -> Result<Vec<ResolvedPack>> {
         .collect::<Result<Vec<_>>>()
 }
 
-pub(super) fn remove(id: &str) -> Result<bool> {
+pub(super) struct RemoveResult {
+    pub removed: bool,
+    pub cache_path: Option<PathBuf>,
+    pub content_removed: bool,
+}
+
+pub(super) fn remove(id: &str) -> Result<RemoveResult> {
     let home = policy_home()?;
     let mut index = read_index(&home)?;
     let Some(digest) = index.packs.remove(id) else {
-        return Ok(false);
+        return Ok(RemoveResult {
+            removed: false,
+            cache_path: None,
+            content_removed: false,
+        });
     };
     let still_referenced = index.packs.values().any(|candidate| candidate == &digest);
     write_index(&home, &index)?;
+    let path = home.join(&digest);
+    let mut content_removed = false;
     if !still_referenced {
-        let path = home.join(&digest);
         if path.exists() && fs::symlink_metadata(&path)?.file_type().is_symlink() {
             bail!(
                 "refusing to remove a symlinked policy cache entry: {}",
@@ -192,10 +203,15 @@ pub(super) fn remove(id: &str) -> Result<bool> {
             );
         }
         if path.is_dir() {
-            fs::remove_dir_all(path)?;
+            fs::remove_dir_all(&path)?;
+            content_removed = true;
         }
     }
-    Ok(true)
+    Ok(RemoveResult {
+        removed: true,
+        cache_path: Some(path),
+        content_removed,
+    })
 }
 
 #[cfg(test)]

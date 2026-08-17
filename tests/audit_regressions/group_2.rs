@@ -228,7 +228,18 @@ fn doctor_reports_detector_and_policy_cache_writability_separately() {
         String::from_utf8_lossy(&output.stderr)
     );
     let payload: Value = serde_json::from_slice(&output.stdout).expect("doctor JSON");
-    assert_eq!(payload["advisor"]["default_mode"], "provider_free_json");
+    assert_eq!(
+        payload["advisor"]["default_mode"],
+        "provider_free_markdown"
+    );
+    assert_eq!(payload["advisor"]["machine_context_mode"], "provider_free_json");
+    assert_eq!(payload["advisor"]["provider_free_status"], "available");
+    assert_eq!(payload["advisor"]["inference_status"], "deferred");
+    assert!(
+        payload["advisor"]["decision_record_url"]
+            .as_str()
+            .is_some_and(|url| url.contains("/blob/v0.16.1/docs/benchmarks/"))
+    );
     assert_eq!(
         payload["advisor"]["model_required_for_ordinary_use"],
         false

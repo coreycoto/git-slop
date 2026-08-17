@@ -41,6 +41,7 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
                 contract => {
                     let source = match contract {
                         SchemaContract::Compare => include_str!("../../schemas/compare-1.json"),
+                        SchemaContract::Init => include_str!("../../schemas/init-1.json"),
                         SchemaContract::Explain => include_str!("../../schemas/explain-2.json"),
                         SchemaContract::Plan => include_str!("../../schemas/plan-2.json"),
                         SchemaContract::Sarif => include_str!("../../schemas/sarif-1.json"),
@@ -207,7 +208,13 @@ pub fn run() -> i32 {
             return code;
         }
     };
-    let error_format = cli.error_format;
+    let error_format = if cli.error_format == ErrorFormat::Human
+        && matches!(cli.command, Command::Init(InitArgs { format: InitFormat::Json, .. }))
+    {
+        ErrorFormat::Json
+    } else {
+        cli.error_format
+    };
     let command_name = cli.command.name();
     let repo_root = if cli.repo.is_some() || command_requires_repository(&cli.command) {
         match git::resolve_repo_root_from(cli.repo.as_deref()) {
@@ -263,7 +270,7 @@ pub fn run() -> i32 {
 }
 
 fn requested_error_format(args: &[std::ffi::OsString]) -> ErrorFormat {
-    args.iter()
+    let explicit = args.iter()
         .filter_map(|arg| arg.to_str())
         .enumerate()
         .find_map(|(index, arg)| {
@@ -273,8 +280,22 @@ fn requested_error_format(args: &[std::ffi::OsString]) -> ErrorFormat {
                 arg.strip_prefix("--error-format=")
             }
         })
-        .filter(|value| *value == "json")
-        .map_or(ErrorFormat::Human, |_| ErrorFormat::Json)
+        .is_some_and(|value| value == "json");
+    let init_json = args.iter().filter_map(|arg| arg.to_str()).any(|arg| arg == "init")
+        && args
+            .iter()
+            .filter_map(|arg| arg.to_str())
+            .enumerate()
+            .any(|(index, arg)| {
+                arg == "--format=json"
+                    || (arg == "--format"
+                        && args.get(index + 1).and_then(|value| value.to_str()) == Some("json"))
+            });
+    if explicit || init_json {
+        ErrorFormat::Json
+    } else {
+        ErrorFormat::Human
+    }
 }
 
 fn parser_command_name(args: &[std::ffi::OsString]) -> Option<String> {

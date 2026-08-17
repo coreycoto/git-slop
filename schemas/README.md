@@ -10,6 +10,8 @@ currently running binary. Contract filenames and `schema_version` are the stable
 identities; compatible later releases intentionally retain the introduction URL.
 
 - `config-2.json`: `.slop/config.yaml` after YAML-to-JSON conversion
+- `init-1.json`: strict `git slop init --format json` adoption, mutation,
+  promotion, staging, rollback, and next-action receipt
 - `report-5.json`: canonical normalized `report.json`
 - `report-4.json`: legacy migration input retained for cross-version readers
 - `compare-1.json`: native `git slop compare --format json`
