@@ -389,7 +389,11 @@ mod tests {
         unavailable.endpoint = endpoint;
         let error = invoke(&json!({"schema_version": 1}), &unavailable)
             .expect_err("disconnected endpoint must fail");
-        assert!(format!("{error:#}").contains("provider_unavailable"));
+        let diagnostic = format!("{error:#}");
+        assert!(
+            diagnostic.contains("provider_unavailable"),
+            "unexpected provider diagnostic: {diagnostic}"
+        );
         handle.join().expect("disconnected server thread");
 
         let (endpoint, handle) = one_shot_server(

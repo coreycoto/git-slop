@@ -168,6 +168,9 @@ impl Endpoint {
             remaining_timeout(started, timeout, "model loading and generation")?;
             let mut chunk = [0_u8; 8192];
             match stream.read(&mut chunk) {
+                Ok(0) if response.is_empty() => {
+                    bail!("provider_unavailable: provider closed before sending a response");
+                }
                 Ok(0) => break,
                 Ok(read) => {
                     if response.len().saturating_add(read) > response_limit {
