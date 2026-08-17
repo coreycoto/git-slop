@@ -193,6 +193,7 @@ pub fn release_validation_commands() -> Vec<CommandSpec> {
                 "--locked",
             ],
         ),
+        CommandSpec::new("cargo", ["xtask", "check-distribution"]),
         CommandSpec::new("cargo", ["package", "-p", "git-slop", "--locked"]),
         CommandSpec::new(
             "cargo",
@@ -407,7 +408,8 @@ mod tests {
             commands[1],
             "cargo fmt --manifest-path xtask/Cargo.toml --all -- --check"
         );
-        assert_eq!(commands[6], "cargo package -p git-slop --locked");
-        assert_eq!(commands[7], "cargo publish -p git-slop --dry-run --locked");
+        assert_eq!(commands[6], "cargo xtask check-distribution");
+        assert_eq!(commands[7], "cargo package -p git-slop --locked");
+        assert_eq!(commands[8], "cargo publish -p git-slop --dry-run --locked");
     }
 }

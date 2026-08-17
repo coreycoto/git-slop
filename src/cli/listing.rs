@@ -254,6 +254,104 @@ fn run_list(repo_root: &Path, args: ListArgs) -> Result<i32> {
     Ok(0)
 }
 
+struct RunPrunePlan {
+    before_runs: usize,
+    before_bytes: u64,
+    selected: Vec<(PathBuf, u64)>,
+    retained_runs: usize,
+    retained_bytes: u64,
+}
+
+fn plan_run_prune(root: &Path, keep: usize, max_bytes: u64) -> Result<RunPrunePlan> {
+    let mut runs = if root.exists() {
+        fs::read_dir(root)?
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry.file_type().is_ok_and(|kind| kind.is_dir())
+                    && entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| !name.starts_with('.'))
+            })
+            .map(|entry| {
+                let path = entry.path();
+                let bytes = directory_size(&path)?;
+                Ok((path, bytes))
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        Vec::new()
+    };
+    runs.sort_by_key(|(path, _)| {
+        std::cmp::Reverse(path.file_name().map(ToOwned::to_owned).unwrap_or_default())
+    });
+    let before_bytes = runs.iter().map(|(_, bytes)| *bytes).sum::<u64>();
+    let before_runs = runs.len();
+    let mut retained_bytes = 0_u64;
+    let mut retained_runs = 0_usize;
+    let mut selected = Vec::new();
+    let mut retention_prefix_exhausted = false;
+    for (index, (path, bytes)) in runs.into_iter().enumerate() {
+        let retain_newest_even_if_oversized = index == 0 && keep > 0;
+        if !retention_prefix_exhausted
+            && (retain_newest_even_if_oversized
+                || (retained_runs < keep
+                    && retained_bytes.saturating_add(bytes) <= max_bytes))
+        {
+            retained_runs += 1;
+            retained_bytes = retained_bytes.saturating_add(bytes);
+        } else {
+            retention_prefix_exhausted = true;
+            selected.push((path, bytes));
+        }
+    }
+    Ok(RunPrunePlan {
+        before_runs,
+        before_bytes,
+        selected,
+        retained_runs,
+        retained_bytes,
+    })
+}
+
+fn prune_plan_payload(plan: &RunPrunePlan, dry_run: bool) -> Value {
+    let removed_bytes = plan.selected.iter().map(|(_, bytes)| *bytes).sum::<u64>();
+    json!({
+        "before": {"runs": plan.before_runs, "bytes": plan.before_bytes},
+        "selected": plan.selected.iter().map(|(path, bytes)| json!({"path": path, "bytes": bytes})).collect::<Vec<_>>(),
+        "removed": {"runs": plan.selected.len(), "bytes": removed_bytes},
+        "after": {"runs": plan.retained_runs, "bytes": plan.retained_bytes, "projected": dry_run}
+    })
+}
+
+fn apply_run_prune(plan: &RunPrunePlan, dry_run: bool) -> Result<()> {
+    if !dry_run {
+        for (path, _) in &plan.selected {
+            fs::remove_dir_all(path)?;
+        }
+    }
+    Ok(())
+}
+
+fn render_prune_plan(label: &str, plan: &RunPrunePlan, dry_run: bool) {
+    for (path, _) in &plan.selected {
+        println!(
+            "{} {label} {}",
+            if dry_run { "Would remove" } else { "Removing" },
+            path.display()
+        );
+    }
+    let removed_bytes = plan.selected.iter().map(|(_, bytes)| *bytes).sum::<u64>();
+    println!(
+        "{} {} old {label} snapshot(s) ({} bytes); retained {} ({} bytes).",
+        if dry_run { "Selected" } else { "Pruned" },
+        plan.selected.len(),
+        removed_bytes,
+        plan.retained_runs,
+        plan.retained_bytes
+    );
+}
+
 fn run_prune(repo_root: &Path, args: PruneArgs) -> Result<i32> {
     let dry_run = args.dry_run || !args.yes;
     let loaded = config::load(repo_root).unwrap_or_else(|_| config::default_config());
@@ -267,102 +365,34 @@ fn run_prune(repo_root: &Path, args: PruneArgs) -> Result<i32> {
         Some(path) => resolve_repo_path(repo_root, &path),
         None => config::active_state_dir(repo_root)?,
     };
-    let root = state_root.join("runs");
-    if !root.exists() {
-        let payload = json!({
-            "schema_version": 1,
-            "command": "prune",
-            "dry_run": dry_run,
-            "apply_flag": "--yes",
-            "limits": {"max_runs": keep, "max_bytes": max_bytes},
-            "before": {"runs": 0, "bytes": 0},
-            "selected": [],
-            "after": {"runs": 0, "bytes": 0}
-        });
-        match args.format {
-            DisplayFormat::Text => println!("No run snapshots to prune."),
-            DisplayFormat::Json => print_text(&render_json(&payload)?),
-            DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
-        }
-        return Ok(0);
-    }
-    let mut runs = fs::read_dir(&root)?
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .map(|entry| {
-            let bytes = directory_size(&entry.path())?;
-            Ok((entry, bytes))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    runs.sort_by_key(|(entry, _)| std::cmp::Reverse(entry.file_name()));
-    let before_bytes = runs.iter().map(|(_, bytes)| *bytes).sum::<u64>();
-    let before_runs = runs.len();
-    let mut retained_bytes = 0u64;
-    let mut retained_runs = 0usize;
-    let mut remove = Vec::new();
-    let mut retention_prefix_exhausted = false;
-    for (index, (entry, bytes)) in runs.into_iter().enumerate() {
-        let retain_newest_even_if_oversized = index == 0 && keep > 0;
-        if !retention_prefix_exhausted
-            && (retain_newest_even_if_oversized
-                || (retained_runs < keep
-                    && retained_bytes.saturating_add(bytes) <= max_bytes))
-        {
-            retained_runs += 1;
-            retained_bytes = retained_bytes.saturating_add(bytes);
-        } else {
-            retention_prefix_exhausted = true;
-            remove.push((entry, bytes));
-        }
-    }
-    let selected = remove
-        .iter()
-        .map(|(entry, bytes)| json!({"path": entry.path(), "bytes": bytes}))
-        .collect::<Vec<_>>();
-    if args.format == DisplayFormat::Text {
-        for (entry, _) in &remove {
-            println!(
-                "{} {}",
-                if dry_run {
-                    "Would remove"
-                } else {
-                    "Removing"
-                },
-                entry.path().display()
-            );
-        }
-    }
-    for (entry, _) in &remove {
-        if !dry_run {
-            fs::remove_dir_all(entry.path())?;
-        }
-    }
-    let removed_bytes = remove.iter().map(|(_, bytes)| *bytes).sum::<u64>();
+    let detector = plan_run_prune(&state_root.join("runs"), keep, max_bytes)?;
+    let advice = plan_run_prune(&state_root.join("advice/runs"), keep, max_bytes)?;
+    apply_run_prune(&detector, dry_run)?;
+    apply_run_prune(&advice, dry_run)?;
+    let detector_payload = prune_plan_payload(&detector, dry_run);
+    let advice_payload = prune_plan_payload(&advice, dry_run);
     let payload = json!({
         "schema_version": 1,
         "command": "prune",
         "dry_run": dry_run,
         "apply_flag": "--yes",
         "limits": {"max_runs": keep, "max_bytes": max_bytes},
-        "before": {"runs": before_runs, "bytes": before_bytes},
-        "selected": selected,
-        "removed": {"runs": remove.len(), "bytes": removed_bytes},
-        "after": {"runs": retained_runs, "bytes": retained_bytes, "projected": dry_run}
+        "before": detector_payload["before"],
+        "selected": detector_payload["selected"],
+        "removed": detector_payload["removed"],
+        "after": detector_payload["after"],
+        "advice": advice_payload
     });
     match args.format {
-        DisplayFormat::Text => println!(
-            "{} {} old run snapshot(s) ({} bytes); retained {} run(s) ({} bytes).",
-            if dry_run { "Selected" } else { "Pruned" },
-            remove.len(),
-            removed_bytes,
-            retained_runs,
-            retained_bytes
-        ),
+        DisplayFormat::Text => {
+            render_prune_plan("detector run", &detector, dry_run);
+            render_prune_plan("advice run", &advice, dry_run);
+            if dry_run && (!detector.selected.is_empty() || !advice.selected.is_empty()) {
+                println!("Preview only; re-run with --yes to apply these removals.");
+            }
+        }
         DisplayFormat::Json => print_text(&render_json(&payload)?),
         DisplayFormat::Yaml => print_text(&serde_yaml::to_string(&payload)?),
-    }
-    if dry_run && args.format == DisplayFormat::Text && !remove.is_empty() {
-        println!("Preview only; re-run with --yes to apply these removals.");
     }
     Ok(0)
 }

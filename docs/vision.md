@@ -166,11 +166,13 @@ requiring executable plugin code. They should be:
 - composable without overriding core invariants
 - offline-capable after explicit installation
 
-The first reference hypothesis is a local `openai/gpt-oss-safeguard-20b`
-adapter used as a policy evaluator: approve, revise, reject, or abstain with a
-cited rationale. That hypothesis must earn its place through quality, latency,
-memory, and hallucination-resistance benchmarks. Git Slop should not require a
-second general-purpose model unless evidence demonstrates a material gap.
+The first reference hypothesis is an `openai/gpt-oss-safeguard-20b` adapter
+used as a policy evaluator: approve, revise, reject, or abstain with a cited
+rationale. The recorded 16-GB M2 result is `defer`, so public inference remains
+disabled and future evaluation is confined to a capacity-gated dedicated host.
+That hypothesis must earn its place through quality, latency, memory, and
+hallucination-resistance benchmarks. Git Slop should not require a second
+general-purpose model unless evidence demonstrates a material gap.
 
 Regardless of provider, model output must remain advisory and separate from the
 canonical report. It cannot rewrite scores, weaken verification, invent paths,

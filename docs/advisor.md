@@ -5,6 +5,11 @@ existing current report. The deterministic detector remains authoritative:
 `find`, default `health`, `check`, `explain`, and `plan` never start a model,
 read advice, install policies, or change behavior based on model output.
 
+> Public inference status: **disabled**. The checked-in benchmark recommendation
+> is `defer` after the reference model exhausted a 16-GB M2 Air. The supported
+> product path is provider-free context. Inference research is confined to the
+> capacity-gated maintainer benchmark on a separately provisioned host.
+
 ## Flow and trust zones
 
 ```text
@@ -12,7 +17,8 @@ current schema-5 report
   -> deterministic explain and plan candidate slices
   -> bounded tracked guidance/source/test excerpts
   -> built-in plus selected locked policies
-  -> explicit local provider endpoint
+  -> provider-free context.json (supported public boundary)
+  -> optional release-gated maintainer benchmark provider
   -> strict schema-1 provider response
   -> reference validation and deterministic verdict aggregation
   -> separate advice.json and advice.md artifacts
@@ -42,6 +48,19 @@ git slop advise --cluster <cluster-id> --context-only --format json
 git slop advise --top 5 --context-only --format json
 ```
 
+`--context-only --format json` remains the explicit spelling. Both options are
+now the defaults when `--infer` is absent, so `git slop advise --top 5` produces
+the same provider-independent JSON. No provider configuration is read and no
+network connection is attempted. Provider-free construction does not evaluate
+the inference release gate.
+
+Stable `git slop advise --help` shows only provider-free context construction
+and artifact validation. The disabled inference, provider, model, resource,
+timeout, and mock-response controls are hidden because they are not supported
+product workflows. `git slop doctor` independently reports that provider-free
+context is available, no model is required for ordinary use, and public
+inference is disabled.
+
 `--top` preserves intervention ranking first and fills any remaining requested
 slots from the report's ranked health refactor candidates. It never promotes
 ordinary observations into plan candidates.
@@ -63,63 +82,99 @@ that compaction as truncation and adds `candidate-context` to missing evidence;
 the model must abstain or revise when the compact input cannot support a
 verdict.
 
-`--runtime-context-tokens` controls the provider's total input-plus-output
-window. It defaults to the configured input and output token budgets combined
-and is sent as native Ollama `num_ctx`, preventing Ollama's smaller default
-window from silently truncating an 8K advice input.
+Within the separately controlled benchmark, `--runtime-context-tokens` controls
+the provider's total input-plus-output window. It defaults to the configured
+input and output token budgets combined and is sent as native Ollama `num_ctx`,
+preventing a smaller runtime default from silently truncating an 8K advice
+input.
 
-## Local Safeguard provider
+## Experimental inference gate
 
 V1 accepts only the canonical reference identity
 `openai/gpt-oss-safeguard-20b`. The public binary contains no model weights or
 inference engine and never downloads, starts, updates, or discovers a model.
-An explicitly configured OpenAI-compatible chat-completions server performs
-non-streaming inference. The reference adapter keeps system, developer, and
-user trust zones separate and uses strict JSON-schema output.
+The embedded [release gate](../benchmarks/advisor/release-gate.json) records the
+current `defer` decision and keeps public inference disabled. `--infer` fails
+before report access, context-cache writes, or provider contact unless the
+binary was explicitly built with the non-default
+`advisor-inference-benchmark` feature and the command is running inside the
+maintainer benchmark harness. Official release binaries never enable that
+feature. The release tooling validates that only a complete `ship` decision
+can enable the public boundary.
 
-Ollama publishes a 20B Safeguard model and an OpenAI-compatible API. After
-separately installing it and reviewing its approximately 14 GB model-storage
-requirement, start the model using the official runtime instructions, then run:
+Even in that separately built benchmark lane, provider configuration and the
+zero-data probe occur only after report currentness, artifact mode, selected
+policies, and bounded context have passed local validation. A locally invalid
+request therefore cannot contact the configured loopback service.
+
+The benchmark has no provider, endpoint, model, or runtime-model defaults. It
+requires an explicit canonical model, immutable digest, artifact size,
+conservative peak-memory estimate, runtime state, and dedicated-host
+confirmation. Before provider contact it measures physical and available
+memory plus swap, enforces at least 24 GiB of physical memory and 24 GiB of
+available capacity for the current model estimate, rejects more than 256 MiB
+of swap already in use, and prints the complete resource contract. Those
+minimums are enforced in both the runtime and the private harness even if the
+checked-in gate is weakened. A continuous watchdog closes the request when the
+8-GiB available-memory reserve or 256-MiB swap-growth boundary is crossed.
+
+Maintainers must run the capacity-only preflight before preparing a report or
+provisioning a provider:
 
 ```sh
-git slop advise --top 1 \
-  --endpoint http://127.0.0.1:11434/v1/chat/completions \
-  --runtime-model gpt-oss-safeguard:20b \
-  --runtime-label ollama \
-  --model-digest <immutable-local-model-digest> \
-  --reasoning medium
+cargo xtask advisor-capacity \
+  --model openai/gpt-oss-safeguard-20b \
+  --model-size-bytes 13793441254 \
+  --estimated-peak-memory-bytes 17179869184 \
+  --format json
 ```
 
-The runtime alias is separate from the canonical reference identity and is
-recorded in provenance. The request uses system, developer, and user roles,
-the strict published response schema, a bounded output token count, and no
-streaming. See the [official OpenAI Safeguard guide](https://cookbook.openai.com/articles/gpt-oss-safeguard-guide)
-and [official Ollama model page](https://ollama.com/library/gpt-oss-safeguard).
+It reads only host memory and swap state. Its receipt records
+`provider_contacted: false` and `report_accessed: false`, and it exits nonzero
+when the host is ineligible. Every blocker is returned with a stable code,
+actual byte count, comparison direction, limit, and message instead of stopping
+at the first failure. `git slop schema advisor-capacity` prints the strict
+`advisor-capacity-1` receipt contract. This is therefore the only advisor
+capacity command that should be run on the recorded 16-GB M2 Air; do not use
+that machine for the full benchmark.
 
-For reproducible local performance measurements, the optional native Ollama
-adapter sends the same trust-zone messages and strict schema to `/api/chat` and
-records Ollama's load, prompt-evaluation, and generation timings:
+Git Slop never manages the provider runtime. In particular, neither the public
+CLI nor the benchmark runs `ollama serve`, `ollama pull`, `ollama stop`, package
+installation, or model deletion. Runtime provisioning and recovery remain an
+operator responsibility outside Git Slop. The benchmark's explicit
+`--initial-runtime-state` only records whether that separately controlled
+runtime was already warm; it does not change the state.
 
-```sh
-git slop advise --top 1 \
-  --provider ollama \
-  --endpoint http://127.0.0.1:11434/api/chat \
-  --runtime-model gpt-oss-safeguard:20b \
-  --runtime-label 'ollama <exact-version>' \
-  --model-digest <immutable-local-model-digest>
-```
+Only loopback `http://` endpoints are accepted. Remote endpoints are refused
+because V1 has no authenticated TLS transport; there is no `--allow-remote`
+escape hatch. Endpoint credentials, queries, fragments, whitespace, and header
+injection are rejected. A short zero-data TCP probe has its own connection
+timeout before any repository context is sent. That timeout is one deadline
+across every resolved loopback address, not a fresh allowance per address.
+Model loading and generation share a separately displayed total timeout, emit
+phase progress, and can be cancelled with Ctrl-C.
 
-Provider choice never changes detector behavior. The benchmark uses the native
-adapter by default so prompt and generation rates are measured rather than
-inferred from total wall time; use `--provider openai-compatible` to exercise
-the portable compatibility boundary instead.
+Provider responses must identify the exact requested served model and report a
+normal stopped completion (`finish_reason: stop` for OpenAI-compatible
+responses or `done: true` with `done_reason: stop` for native Ollama). The HTTP
+reader honors complete `Content-Length` and chunked framing without waiting for
+the provider to close a keep-alive connection, and rejects conflicting or
+ambiguous framing before response validation. It formats IPv6 loopback Host
+headers correctly, rejects invalid ports, oversized declared bodies,
+unsupported transfer/content encodings, non-JSON successful responses, and
+trailing chunk bytes before the provider envelope is accepted.
 
-Loopback is the default privacy boundary. A non-loopback host fails unless
-`--allow-remote` is explicit, and V1 accepts only plain `http://`; therefore a
-remote opt-in is suitable only on a separately secured trusted network. The
-endpoint cannot contain embedded credentials, a query, or a fragment. Git Slop
-does not log full model input or chain-of-thought. Markdown contains concise
-policy rationales only.
+Provider HTTP error bodies are intentionally excluded from diagnostics because
+they can echo prompts or repository content. Stored provenance does not retain
+endpoint paths or arbitrary response metadata: token usage is reduced to
+numeric prompt, completion, and total counts, while a system fingerprint is
+kept only when it is a bounded safe identifier. Runtime model and label values
+must also satisfy bounded privacy-safe identifier contracts before contact.
+
+See the [official OpenAI Safeguard guide](https://cookbook.openai.com/articles/gpt-oss-safeguard-guide),
+the [benchmark protocol](benchmarks/safeguard-v1.md), and the [resource-safety
+and recovery guide](troubleshooting/advisor-resource-safety.md). Do not run the
+reference model on a 16-GB M2 Air.
 
 ## Validated outputs
 
@@ -144,9 +199,26 @@ Successful runs write outside the canonical detector bundle:
 Before adoption, the same paths live in Git-private active state. Artifacts
 record report/revision/dirty-state digests, selector and candidates, context
 builder and digest, policy locks, provider/runtime/model identity, reasoning
-and size limits, token usage when returned, separate context/provider/
-validation timing, per-rule evaluations, citations, uncertainty, validation
-warnings, and the non-mutation boundary.
+and size limits, allowlisted token usage when returned, endpoint classification,
+separate context/provider/validation timing, per-rule evaluations, citations,
+uncertainty, validation warnings, and the non-mutation boundary. They do not
+retain the provider endpoint itself.
+
+The Markdown view starts with a decision summary: the aggregate disposition,
+candidate counts by verdict, required-revision and missing-evidence totals, and
+the number of low-confidence candidates. Each candidate then shows confidence,
+its disposition, cited evidence, rule results, requested revisions, next step,
+assumptions, and missing evidence. It also warns that repository-derived
+evidence and provider rationale are private retained state; use
+`git slop prune --dry-run` to review retention before removing anything.
+
+Advice state is owner-private (`0700` directories and `0600` files on Unix),
+written through fsynced temporary directories, and replaced under an exclusive
+write lock. An interrupted `latest` replacement is recovered before the next
+write; `git slop doctor` reports retained-run counts, permissions, stale
+artifacts, and any recovery entry. `git slop prune --dry-run` previews both
+detector and advice retention with the configured run and byte limits, while
+`--yes` removes only immutable historical runs and preserves `advice/latest`.
 
 Validate and render an existing artifact only against a current matching
 report:
@@ -155,9 +227,26 @@ report:
 git slop advise --validate-artifact .slop/advice/latest/advice.json
 ```
 
-A stale report or digest mismatch is rejected visibly. Advice exits successfully
-only after schema and reference validation, but it remains advisory: it cannot
+A stale report or digest mismatch is rejected visibly. Loading an artifact also
+rechecks candidate and policy identity, citations, policy completeness, warning
+parity, and every candidate and overall aggregate instead of trusting stored
+validation flags. Advice exits successfully only after schema and reference
+validation, but it remains advisory: it cannot
 edit files, Git, GitHub, configuration, policy selection, reports, or checks.
+
+Private benchmark results self-digest every sample and bind the source advice
+artifact. An explicitly requested review directory receives blinded
+multi-repetition artifacts, a reviewer-facing opaque index, and a withheld
+mapping manifest. Finalization requires two independent reviewers, verifies
+the complete private evidence chain, previews by default, and writes new
+finalized outputs only with `--apply`; the completed source result remains
+immutable.
+
+Every benchmark terminal receipt reports review evidence as `not_applicable`,
+`not_retained`, or `retained` with an actionable warning. A retained result
+names the blinded-review protocol without exposing its private directory in
+machine-readable output; human output repeats the operator-supplied path and
+reminds maintainers which manifest must remain withheld.
 
 See the [Safeguard-only V1 benchmark](benchmarks/safeguard-v1.md) for the
 privacy-safe gold corpus, fixed matrix, measurements, and ship gate.

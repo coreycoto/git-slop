@@ -79,6 +79,19 @@ mod tests {
     }
 
     #[test]
+    fn advisor_feature_gate_is_parsed_structurally() {
+        assert!(advisor_features_fail_closed(
+            "[features]\ndefault = []\nadvisor-inference-benchmark = []\n"
+        ));
+        assert!(!advisor_features_fail_closed(
+            "# default = []\n[features]\ndefault = [\"advisor-inference-benchmark\"]\nadvisor-inference-benchmark = []\n"
+        ));
+        assert!(!advisor_features_fail_closed(
+            "[features]\ndefault = []\n# advisor-inference-benchmark = []\n"
+        ));
+    }
+
+    #[test]
     fn version_alignment_covers_structured_and_documented_surfaces() {
         let temp = version_fixture();
         let mut errors = Vec::new();

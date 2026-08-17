@@ -119,7 +119,11 @@ fn chrono_like_rfc3339(value: &str) -> Option<()> {
 }
 
 fn git_output(root: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git").current_dir(root).args(args).output()?;
+    let output = command_output_bounded(
+        Command::new("git").current_dir(root).args(args),
+        1024 * 1024,
+        "benchmark Git inspection",
+    )?;
     if !output.status.success() {
         bail!("benchmark repository did not satisfy a required Git inspection");
     }
@@ -179,6 +183,8 @@ fn repository_map(values: &[String], corpus: &Corpus) -> Result<BTreeMap<String,
 struct PreparedReport {
     path: PathBuf,
     sha256: String,
+    raw_sha256: String,
+    canonical_sha256: String,
 }
 
 fn prepare_reports(
@@ -197,7 +203,7 @@ fn prepare_reports(
         let state = root.join("state");
         let output_root = root.join("reports");
         fs::create_dir_all(&root)?;
-        let output = Command::new(binary)
+        let status = Command::new(binary)
             .current_dir(repository)
             .args(["--repo", repository.to_string_lossy().as_ref(), "find"])
             .arg("--state-dir")
@@ -211,14 +217,17 @@ fn prepare_reports(
                 "--as-of",
                 &fixture.as_of,
             ])
-            .output()?;
-        if !output.status.success() {
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?;
+        if !status.success() {
             bail!("deterministic benchmark report generation failed for {key}");
         }
         let path = output_root.join("latest/report.json");
-        let bytes = fs::read(&path)
+        let bytes = read_bounded(&path, MAX_BENCHMARK_REPORT_BYTES, "benchmark report")
             .with_context(|| format!("benchmark report generation produced no report for {key}"))?;
         let digest = semantic_report_sha256(&bytes)?;
+        let report: Value = serde_json::from_slice(&bytes)?;
         if fixture
             .expected_report_sha256
             .as_ref()
@@ -231,6 +240,8 @@ fn prepare_reports(
             PreparedReport {
                 path,
                 sha256: digest,
+                raw_sha256: sha256(&bytes),
+                canonical_sha256: sha256(&serde_json::to_vec(&report)?),
             },
         );
     }

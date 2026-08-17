@@ -1,6 +1,6 @@
 .ie \n(.g .ds Aq \(aq
 .el .ds Aq '
-.TH git-slop 1  "git-slop 0.16.0"
+.TH git-slop 1  "git-slop 0.16.1"
 .SH NAME
 git\-slop \- Find the files that cost too much context.
 .SH SYNOPSIS
@@ -51,7 +51,7 @@ git\-slop\-policy(1)
 Manage declarative policy packs used only by the optional advisor
 .TP
 git\-slop\-advise(1)
-Evaluate deterministic plan candidates with locked policies and an explicit local model
+Build provider\-free policy context or validate an existing advice artifact
 .TP
 git\-slop\-check(1)
 Evaluate an existing report against CI thresholds
@@ -117,4 +117,4 @@ QUICK START:
   git slop html                       Build an interactive local report
   git slop init                       Adopt durable reports and ignore rules
 .SH VERSION
-v0.16.0
+v0.16.1

@@ -97,6 +97,8 @@ fn harden_scalar_contracts(schema: &mut Value) {
     schema["$defs"]["profile"] = json!({"enum":["agent_context","data_context"]});
     schema["$defs"]["context_band"] =
         json!({"enum":["compact","healthy","warning","critical"]});
+    schema["$defs"]["health_band"] =
+        json!({"enum":["compact","healthy","warning","budget_exceeded"]});
     schema["$defs"]["slop_band"] = json!({"enum":["low","moderate","high"]});
     schema["$defs"]["analysis_status"] = json!({"enum":[
         "analyzed","skipped","stable","experimental","not_applicable","legacy_unknown",
@@ -139,9 +141,8 @@ fn harden_scalar_contracts(schema: &mut Value) {
                 };
                 let replacement = match name.as_str() {
                     "profile" => Some(typed("#/$defs/profile")),
-                    "context_band" | "health_band" => {
-                        Some(typed("#/$defs/context_band"))
-                    }
+                    "context_band" => Some(typed("#/$defs/context_band")),
+                    "health_band" => Some(typed("#/$defs/health_band")),
                     "slop_band" => Some(typed("#/$defs/slop_band")),
                     "analysis_status" => Some(typed("#/$defs/analysis_status")),
                     "evidence_status" => Some(typed("#/$defs/evidence_status")),

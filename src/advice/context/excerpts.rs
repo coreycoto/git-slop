@@ -36,8 +36,10 @@ fn is_tracked(repo_root: &Path, relative: &str) -> bool {
     Command::new("git")
         .current_dir(repo_root)
         .args(["ls-files", "--error-unmatch", "--", relative])
-        .output()
-        .is_ok_and(|output| output.status.success())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 fn is_ignored(repo_root: &Path, relative: &str) -> bool {
@@ -83,10 +85,11 @@ fn excerpt(
         bail!("advice context path is ignored by repository policy: {path}");
     }
     let absolute = resolve_file(repo_root, path)?;
-    let bytes = fs::read(&absolute)?;
-    if bytes.len() > MAX_SOURCE_FILE_BYTES {
-        bail!("advice context file exceeds {MAX_SOURCE_FILE_BYTES} bytes: {path}");
-    }
+    let bytes = super::io::read_bounded(
+        &absolute,
+        MAX_SOURCE_FILE_BYTES,
+        "advice context file",
+    )?;
     if bytes.contains(&0) {
         bail!("binary advice context is not allowed: {path}");
     }

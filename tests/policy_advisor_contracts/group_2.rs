@@ -1,4 +1,27 @@
 #[test]
+fn stable_advise_help_exposes_only_provider_free_workflows() {
+    let output = cargo_bin_cmd!("git-slop")
+        .args(["advise", "--help"])
+        .output()
+        .expect("advise help");
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).expect("UTF-8 help");
+    assert!(help.contains("Build provider-free policy context"));
+    for hidden in [
+        "--infer",
+        "--provider",
+        "--endpoint",
+        "--model",
+        "--runtime-model",
+        "--confirm-resources",
+        "--timeout-seconds",
+        "--mock-response",
+    ] {
+        assert!(!help.contains(hidden), "stable help exposed {hidden}");
+    }
+}
+
+#[test]
 fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts() {
     let repository = repository();
     let outputs = TempDir::new().expect("advice outputs");
@@ -13,6 +36,49 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
     let cluster = first_nested_id(&report, "/overlays/organization_health/clusters")
         .expect("cluster fixture");
     let context_path = outputs.path().join("advice-input.json");
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args([
+            "advise",
+            "--top",
+            "1",
+            "--context-only",
+            "--format",
+            "markdown",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "provider-independent context requires --format json",
+        ));
+    assert!(!repository.path().join(".slop/advice").exists());
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["advise", "--top", "1", "--ephemeral"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"schema_version\": 1"));
+    assert!(!repository.path().join(".slop/advice").exists());
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["advise", "--top", "1", "--infer"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "model inference is unavailable in public releases",
+        ));
+    assert!(!repository.path().join(".slop/advice").exists());
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["advise", "--top", "1", "--timeout-seconds", "1"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--infer"));
+    assert!(!repository.path().join(".slop/advice").exists());
 
     for (selector, value) in [
         ("--path", "src/left.rs"),
@@ -180,16 +246,22 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
     let rendered = outputs.path().join("rendered-advice.json");
     cargo_bin_cmd!("git-slop")
         .current_dir(repository.path())
+        .env("GIT_SLOP_ADVISOR_BENCHMARK", "1")
         .args([
             "advise",
             "--top",
             "1",
+            "--infer",
             "--provider",
             "mock",
             "--mock-response",
         ])
         .arg(&mock_path)
         .args([
+            "--model",
+            "openai/gpt-oss-safeguard-20b",
+            "--runtime-model",
+            "contract-test-model",
             "--runtime-label",
             "contract-test",
             "--model-digest",
@@ -202,6 +274,7 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
         .assert()
         .success();
     let artifact = read_json(&rendered);
+    assert_matches_schema(&artifact, "advice-1.json");
     assert_eq!(artifact["schema_version"], 1);
     assert_eq!(artifact["evaluation"]["aggregate_verdict"], "approve");
     assert_eq!(artifact["validation"]["status"], "valid");
@@ -223,7 +296,127 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
             .join(".slop/advice/latest/advice.md")
             .is_file()
     );
+    let advice_markdown = fs::read_to_string(
+        repository
+            .path()
+            .join(".slop/advice/latest/advice.md"),
+    )
+    .unwrap();
+    for expected in [
+        "## Decision",
+        "Candidate verdicts: 1 approve, 0 abstain, 0 revise, 0 reject",
+        "Required revision items: 0",
+        "Missing evidence items: 0",
+        "Private retention:",
+        "Confidence: **high**",
+        "### Evidence citations",
+        "### Recommended next step",
+        "### Assumptions",
+    ] {
+        assert!(
+            advice_markdown.contains(expected),
+            "persisted human advice is missing {expected:?}"
+        );
+    }
     assert!(!repository.path().join(".slop/latest/advice.json").exists());
+
+    let mut stale_aggregate = artifact.clone();
+    stale_aggregate["evaluation"]["candidate_evaluations"][0]["aggregate_verdict"] =
+        json!("reject");
+    let stale_aggregate_path = outputs.path().join("stale-aggregate.json");
+    fs::write(
+        &stale_aggregate_path,
+        serde_json::to_vec_pretty(&stale_aggregate).unwrap(),
+    )
+    .unwrap();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["advise", "--validate-artifact"])
+        .arg(&stale_aggregate_path)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("stale aggregate verdict"));
+
+    let mut nested_drift = artifact.clone();
+    nested_drift["provider"]["unexpected"] = json!(true);
+    let nested_drift_path = outputs.path().join("nested-drift.json");
+    fs::write(
+        &nested_drift_path,
+        serde_json::to_vec_pretty(&nested_drift).unwrap(),
+    )
+    .unwrap();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["advise", "--validate-artifact"])
+        .arg(&nested_drift_path)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("does not match schema"));
+
+    let doctor = cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["doctor", "--format", "json"])
+        .output()
+        .expect("advisor doctor status");
+    assert!(doctor.status.success());
+    let doctor: Value = serde_json::from_slice(&doctor.stdout).unwrap();
+    assert_matches_schema(&doctor, "doctor-1.json");
+    assert_eq!(doctor["advisor"]["state"]["status"], "valid");
+    assert_eq!(doctor["advisor"]["state"]["retained_runs"], 1);
+    assert_eq!(
+        doctor["advisor"]["state"]["private_permissions"],
+        true
+    );
+
+    let preview = cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["prune", "--keep", "0", "--format", "json"])
+        .output()
+        .expect("advice prune preview");
+    assert!(preview.status.success());
+    let preview: Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_matches_schema(&preview, "prune-1.json");
+    assert_eq!(preview["advice"]["before"]["runs"], 1);
+    assert_eq!(preview["advice"]["removed"]["runs"], 1);
+    assert!(repository.path().join(".slop/advice/runs").exists());
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["prune", "--keep", "0", "--yes"])
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read_dir(repository.path().join(".slop/advice/runs"))
+            .unwrap()
+            .count(),
+        0
+    );
+    assert!(
+        repository
+            .path()
+            .join(".slop/advice/latest/advice.json")
+            .is_file()
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(repository.path().join(".slop/advice/latest"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(repository.path().join(".slop/advice/latest/advice.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
 
     fs::write(
         repository.path().join("src/left.rs"),
@@ -237,4 +430,57 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
         .assert()
         .code(2)
         .stderr(predicate::str::contains("stale"));
+}
+
+#[cfg(feature = "advisor-inference-benchmark")]
+#[test]
+fn advise_finishes_local_validation_before_provider_contact() {
+    let repository = repository();
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .expect("bind synthetic provider");
+    listener
+        .set_nonblocking(true)
+        .expect("set synthetic provider nonblocking");
+    let endpoint = format!(
+        "http://{}/v1/chat/completions",
+        listener.local_addr().expect("synthetic provider address")
+    );
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .env("GIT_SLOP_ADVISOR_BENCHMARK", "1")
+        .args([
+            "advise",
+            "--top",
+            "1",
+            "--infer",
+            "--provider",
+            "openai-compatible",
+            "--endpoint",
+            &endpoint,
+            "--model",
+            "openai/gpt-oss-safeguard-20b",
+            "--runtime-model",
+            "synthetic-runtime-model",
+            "--runtime-label",
+            "synthetic-runtime",
+            "--model-digest",
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "--model-size-bytes",
+            "13793441254",
+            "--estimated-peak-memory-bytes",
+            "17179869184",
+            "--confirm-resources",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("report"));
+
+    let accepted = listener.accept();
+    assert!(
+        accepted
+            .as_ref()
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::WouldBlock),
+        "provider was contacted before local report validation: {accepted:?}"
+    );
 }

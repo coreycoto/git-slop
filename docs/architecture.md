@@ -270,19 +270,41 @@ The CLI exposes:
 two. Prompt packs are explicit local outputs from `explain` and `plan`.
 
 `policy` manages bounded data-only policy sources and an offline user cache.
-`advise` reuses deterministic `explain` and `plan` evidence, adds bounded
-tracked excerpts, and invokes only an explicitly configured out-of-process
-provider. Its context cache and validated artifacts live under the active
-state root's `advice/` namespace, never `.slop/latest/`. The provider module is
-not linked to any model runtime and the detector path never imports it.
+`advise` reuses deterministic `explain` and `plan` evidence and adds bounded
+tracked excerpts. Its public default emits provider-free JSON context; the
+checked-in `defer` gate disables provider invocation outside the maintainer
+benchmark. Any future inference requires explicit provider identity, a
+loopback endpoint, capacity evidence, and a separately provisioned host. Its
+context cache and validated artifacts live under the active state root's
+`advice/` namespace, never `.slop/latest/`. The provider module is not linked
+to any model runtime and neither it nor the benchmark manages Ollama. `doctor`
+exposes this no-model product state, while the private `advisor-capacity` xtask
+can reject unsuitable hardware without reading a report or contacting a
+provider. Provider request/response framing is isolated in
+`src/advice/provider/http.rs`; policy-message construction, response identity,
+and completion validation remain in `src/advice/provider.rs`. Report, policy,
+and bounded-context checks complete before provider configuration or probing.
+Transport diagnostics discard response bodies, stored provenance omits endpoint
+paths and arbitrary response metadata, and one deadline covers every resolved
+loopback address.
 
 The advice boundary has five ordered trust zones: immutable system/output
 instructions, non-disableable core policy, selected third-party policy,
 deterministic candidates, and untrusted repository excerpts. Published schemas
 cover pack sources, locks, provider-independent input, provider responses, and
 validated artifacts. Git Slop validates the model response, checks every cited
-identifier against the input index, and recomputes aggregate verdicts before
+identifier against the input index, requires the exact served-model identity
+and a normal stopped completion, and recomputes aggregate verdicts before
 writing an artifact. No advice result is read by another command implicitly.
+The capacity-only receipt has its own strict published schema and returns all
+host blockers. Benchmark child pipes are continuously drained into fixed-size
+buffers so neither pipe backpressure nor unbounded retained output can bypass
+the safety monitor. The maintainer benchmark separates run, preparation,
+corpus-evidence binding, decision rendering, aggregation, persistence, and
+finalization modules. Every result passes the strict published schema before a
+rollback-safe paired result/decision write; finalization binds the exact matrix
+and repository fingerprints to the corpus, recomputes derived evidence from
+samples, requires the decision to match, and refuses a second finalization.
 
 The composite GitHub Action installs a checksummed prebuilt binary, runs `find`
 once, publishes `health.md` to the job summary, and then optionally renders

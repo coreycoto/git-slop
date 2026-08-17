@@ -1,45 +1,67 @@
 {
   "$id": "https://github.com/coreycoto/git-slop/blob/v0.11.6/schemas/prune-1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Git Slop run retention prune schema 1",
+  "type": "object",
   "additionalProperties": false,
+  "required": ["schema_version", "command", "dry_run", "apply_flag", "limits", "before", "selected", "removed", "after", "advice"],
   "properties": {
-    "after": {
-      "type": "object"
-    },
-    "before": {
-      "type": "object"
-    },
-    "command": {
-      "const": "prune"
-    },
-    "dry_run": {
-      "type": "boolean"
-    },
+    "schema_version": {"const": 1},
+    "command": {"const": "prune"},
+    "dry_run": {"type": "boolean"},
+    "apply_flag": {"const": "--yes"},
     "limits": {
-      "type": "object"
+      "type": "object", "additionalProperties": false,
+      "required": ["max_runs", "max_bytes"],
+      "properties": {
+        "max_runs": {"type": "integer", "minimum": 0},
+        "max_bytes": {"type": "integer", "minimum": 0}
+      }
     },
-    "removed": {
-      "type": "object"
-    },
-    "schema_version": {
-      "const": 1
-    },
-    "selected": {
-      "items": {
-        "type": "object"
-      },
-      "type": "array"
-    }
+    "before": {"$ref": "#/$defs/totals"},
+    "selected": {"$ref": "#/$defs/selection"},
+    "removed": {"$ref": "#/$defs/totals"},
+    "after": {"$ref": "#/$defs/after"},
+    "advice": {"$ref": "#/$defs/collection"}
   },
-  "required": [
-    "schema_version",
-    "command",
-    "dry_run",
-    "limits",
-    "before",
-    "selected",
-    "after"
-  ],
-  "title": "Git Slop report prune schema 1",
-  "type": "object"
+  "$defs": {
+    "totals": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runs", "bytes"],
+      "properties": {
+        "runs": {"type": "integer", "minimum": 0},
+        "bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "after": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runs", "bytes", "projected"],
+      "properties": {
+        "runs": {"type": "integer", "minimum": 0},
+        "bytes": {"type": "integer", "minimum": 0},
+        "projected": {"type": "boolean"}
+      }
+    },
+    "selection": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "bytes"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "bytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "collection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["before", "selected", "removed", "after"],
+      "properties": {
+        "before": {"$ref": "#/$defs/totals"},
+        "selected": {"$ref": "#/$defs/selection"},
+        "removed": {"$ref": "#/$defs/totals"},
+        "after": {"$ref": "#/$defs/after"}
+      }
+    }
+  }
 }

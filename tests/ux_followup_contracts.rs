@@ -270,7 +270,7 @@ fn generated_reference_uses_complete_command_paths() {
     let reference = String::from_utf8(output.stdout).expect("UTF-8 reference");
     assert!(reference.contains("Usage: git-slop cache prune"));
     assert!(reference.contains("Usage: git-slop baseline ensure"));
-    assert!(reference.contains("git slop advise --top 1 --context-only --format json"));
+    assert!(reference.contains("git slop advise --top 1"));
     assert!(!reference.contains("--evaluation-scenario"));
 }
 

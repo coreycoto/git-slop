@@ -62,10 +62,10 @@ could not be evaluated. The private review directory remained empty.
 
 ## Decision
 
-Do not publish a default Safeguard advisor configuration for this target. Keep
-the deterministic policy and context workflows, provider adapters, and
-explicit `advise` command available as optional surfaces, but require a future
-complete pinned matrix before recommending this model/runtime combination.
+Do not publish or enable Safeguard inference for this target. Keep the
+deterministic policy and provider-free context workflows public; retain provider
+adapters only behind the capacity-gated maintainer benchmark until a future
+complete pinned matrix produces `ship`.
 
 Do not retry inference on this 16-GB M2 Air. Any future model evaluation must
 use a separately provisioned, adequately resourced Apple Silicon host with the
@@ -73,6 +73,7 @@ same pinned model and corpus. It must rerun the complete matrix and manual
 review; this incomplete result cannot be finalized into `ship` or treated as
 model-quality evidence.
 
-This `defer` applies only to the optional advisor default. The V1 protocol does
-not require model weights for ordinary builds, tests, scans, or Git Slop
-releases, so it does not block version 0.16.0.
+This `defer` is now encoded in `benchmarks/advisor/release-gate.json`. It
+disables public inference and cannot be changed to enabled unless the
+checked-in recommendation is `ship`. The V1 protocol does not require model
+weights for provider-free context, ordinary builds, tests, scans, or releases.

@@ -53,8 +53,8 @@ enum Command {
     Plan(PlanArgs),
     /// Manage declarative policy packs used only by the optional advisor.
     Policy(PolicyArgs),
-    /// Evaluate deterministic plan candidates with locked policies and an explicit local model.
-    Advise(AdviseArgs),
+    /// Build provider-free policy context or validate an existing advice artifact.
+    Advise(Box<AdviseArgs>),
     /// Evaluate an existing report against CI thresholds.
     Check(CheckArgs),
     /// Compare two existing schema-5 reports without rerunning the detector.

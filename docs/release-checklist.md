@@ -89,6 +89,44 @@ scope is wrong.
   recommendation, all automatic gates, and all maintainer-rating gates before
   declaring that advisor ready. A prepare-only, unpinned, partial, mock, or
   model-unavailable result is not release evidence.
+- Treat `benchmarks/advisor/release-gate.json` as the executable advisor
+  release decision. `cargo xtask check-distribution` must reject public
+  inference unless that gate and its decision record both say `ship`.
+  `release-prepare` runs that check before packaging. A `defer` or `adjust`
+  release may ship provider-free context only; it must keep public inference
+  disabled.
+- Run inference benchmarks only on an explicitly confirmed, separately
+  provisioned host. First run `cargo xtask advisor-capacity` with the exact
+  model size and conservative peak estimate; its receipt must say
+  `provider_contacted: false`, `report_accessed: false`, and `eligible: true`,
+  contain no blockers, and validate against `git slop schema
+  advisor-capacity`.
+  Then require the full benchmark's model-size, peak-memory, physical-memory,
+  available-memory, initial-swap, and swap-growth gates. The harness must not
+  install, start, stop, or unload Ollama. A resource-watchdog abort is terminal
+  for that host and must not be retried as part of the same release decision.
+- Confirm the harness's 8-MiB per-stream child-output guard is recorded in the
+  result configuration; an output-limit abort is terminal for that matrix.
+- Confirm the provider response reports the exact requested served model and a
+  normal stopped completion for every sample; truncated or mismatched output is
+  a validation failure, not benchmark evidence. Missing or mismatched model
+  identity must terminate the matrix immediately.
+- Confirm the loopback HTTP client rejects invalid ports, unsupported transfer
+  or content encoding, oversized declared bodies, non-JSON success responses,
+  ambiguous framing, and trailing chunk bytes. Confirm its connection timeout
+  is one deadline across all resolved addresses and that HTTP error bodies do
+  not enter diagnostics.
+- Confirm provider configuration and probing follow all local report, policy,
+  and bounded-context validation; provider-free context must not evaluate the
+  release gate or contact a provider. Stored evidence must exclude endpoint
+  paths and arbitrary provider response metadata.
+- Validate prepare-only, completed, interrupted, and finalized results against
+  the strict `advisor-benchmark-1` schema. Apply ratings only through
+  `advisor-benchmark-finalize`; it must rederive the recommendation and every
+  automatic gate, bind every ordered matrix cell and repository fingerprint to
+  the pinned corpus, reject omissions, drift, and repeated finalization, and
+  require the decision report to match the JSON evidence before replacing
+  `results.json` and its regenerated `decision.md` as a rollback-safe pair.
 - Confirm `action.yml` remains the only root Action metadata file and its
   Marketplace name, description, branding, inputs, and outputs are current.
 - Confirm the nested Actions in `action.yml` and release workflows are pinned

@@ -112,7 +112,10 @@ enum Command {
     /// Run the privacy-safe local Safeguard quality and performance matrix.
     AdvisorBenchmark(advisor_cli::BenchmarkArgs),
 
-    /// Apply reviewed manual ratings to a completed advisor benchmark without rerunning inference.
+    /// Measure advisor host capacity without reading a report or contacting a provider.
+    AdvisorCapacity(advisor_cli::CapacityArgs),
+
+    /// Preview or write immutable reviewed advisor results without rerunning inference.
     AdvisorBenchmarkFinalize(advisor_cli::FinalizeArgs),
 
     /// Verify a downloaded crates.io package and write canonical source metadata.
@@ -264,6 +267,7 @@ fn run(cli: Cli) -> Result<()> {
             release_status::inspect(&repo_root, &version, format == ReceiptFormat::Json)
         }
         Command::AdvisorBenchmark(args) => args.run(repo_root),
+        Command::AdvisorCapacity(args) => args.run(repo_root),
         Command::AdvisorBenchmarkFinalize(args) => args.run(&repo_root),
         Command::VerifyCrate {
             crate_file,

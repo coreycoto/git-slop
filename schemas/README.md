@@ -26,8 +26,21 @@ identities; compatible later releases intentionally retain the introduction URL.
 - `advice-input-1.json`, `advice-response-1.json`, and `advice-1.json`:
   provider-independent context, strict provider response, and validated
   non-mutating advice artifact contracts
-- `advisor-corpus-1.json`, `advisor-ratings-1.json`, and
-  `advisor-benchmark-1.json`: reviewed benchmark inputs, bounded maintainer
-  ratings, and privacy-safe machine-readable performance/quality results
+- `advisor-corpus-1.json`, `advisor-ratings-1.json`, `advisor-ratings-2.json`,
+  `advisor-review-artifact-1.json`, `advisor-review-manifest-1.json`,
+  `advisor-operation-receipt-1.json`, `advisor-thresholds-1.json`,
+  `advisor-benchmark-1.json`, and `advisor-capacity-1.json`: reviewed benchmark
+  inputs, stable maintainer-operation receipts, blinded independent
+  multi-reviewer evidence, preregistered release thresholds, privacy-safe
+  machine-readable performance/quality results, and provider-free host
+  eligibility receipts. Ratings schema 1 remains available for shipped
+  contract compatibility; finalization requires schema 2.
+
+`advisor-benchmark-1.json` is strict at every nested object and distinguishes
+prepare-only, completed, interrupted, unfinalized, finalized, and shippable
+states. Maintainer tooling validates the exact schema before each output write;
+finalization binds the exact sample matrix and repository evidence to the
+pinned corpus, rederives automatic evidence, and binds the immutable source,
+private review manifest, and ratings digests.
 
 `build-info-1.json` remains published for consumers of releases through 0.11.x.

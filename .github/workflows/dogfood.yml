@@ -18,6 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Set up Rust
@@ -50,6 +51,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Set up Rust
@@ -101,9 +103,20 @@ jobs:
 
       - name: Enforce pull-request regressions
         if: github.event_name == 'pull_request' && steps.pr-baseline.outputs.enforce == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          set -euo pipefail
+          comparison="$RUNNER_TEMP/dogfood-comparison.json"
           target/release/git-slop compare --state-dir "$RUNNER_TEMP/dogfood-baselines" \
-            --baseline dogfood-pr-base --head .slop/latest/report.json --fail-on-regression
+            --baseline dogfood-pr-base --head .slop/latest/report.json \
+            --format json --detail full --limit 1000 >"$comparison"
+          scripts/verify-dogfood-regressions.sh \
+            config/github/dogfood-regression-acceptances.json \
+            "$comparison" .slop/latest/report.json "$BASE_SHA" "$HEAD_SHA"
+          target/release/git-slop compare --state-dir "$RUNNER_TEMP/dogfood-baselines" \
+            --baseline dogfood-pr-base --head .slop/latest/report.json
 
       - name: Preview first-adoption comparison
         if: github.event_name == 'pull_request' && steps.pr-baseline.outputs.enforce != 'true'

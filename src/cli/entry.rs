@@ -6,7 +6,7 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
         Command::Explain(args) => run_explain(repo_root, args),
         Command::Plan(args) => run_plan(repo_root, args),
         Command::Policy(args) => run_policy(repo_root, args),
-        Command::Advise(args) => run_advise(repo_root, args),
+        Command::Advise(args) => run_advise(repo_root, *args),
         Command::Check(args) => run_check(repo_root, args),
         Command::Compare(args) => run_compare(repo_root, args),
         Command::Baseline(args) => run_baseline(repo_root, args),
@@ -90,8 +90,26 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
                         SchemaContract::AdvisorRatings => {
                             include_str!("../../schemas/advisor-ratings-1.json")
                         }
+                        SchemaContract::AdvisorRatingsV2 => {
+                            include_str!("../../schemas/advisor-ratings-2.json")
+                        }
+                        SchemaContract::AdvisorReviewArtifact => {
+                            include_str!("../../schemas/advisor-review-artifact-1.json")
+                        }
+                        SchemaContract::AdvisorReviewManifest => {
+                            include_str!("../../schemas/advisor-review-manifest-1.json")
+                        }
+                        SchemaContract::AdvisorOperationReceipt => {
+                            include_str!("../../schemas/advisor-operation-receipt-1.json")
+                        }
+                        SchemaContract::AdvisorThresholds => {
+                            include_str!("../../schemas/advisor-thresholds-1.json")
+                        }
                         SchemaContract::AdvisorBenchmark => {
                             include_str!("../../schemas/advisor-benchmark-1.json")
+                        }
+                        SchemaContract::AdvisorCapacity => {
+                            include_str!("../../schemas/advisor-capacity-1.json")
                         }
                         SchemaContract::Report | SchemaContract::Config => unreachable!(),
                     };

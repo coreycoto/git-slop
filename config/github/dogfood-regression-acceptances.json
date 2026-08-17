@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "acceptances": [
+    {
+      "base_sha": "a28f73e97887184c05252c6947bb3fbcd324feae",
+      "rationale": "Reviewed advisor safety, evidence, and maintainer UX work intentionally expands existing contracts while the absolute repository policy remains green.",
+      "entries": [
+        {
+          "path": "docs/advisor.md",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "e9181b96558e8d5517443e239a1b53493aeeedd62f8270e7876afc0c740f36d9",
+          "maximum_slop_score": 25.3
+        },
+        {
+          "path": "docs/benchmarks/safeguard-v1.md",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "ce57e80e1b15fd5dac29ba69be6745357e4c74d7528dde6a3bf320adcb860e70",
+          "maximum_slop_score": 26.4
+        },
+        {
+          "path": "docs/cli-reference/schema.md",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "1d6e44550b4109c10a8fd68315ea3120ae5aa4225e08dc0be76fddee71ee06e1",
+          "maximum_slop_score": 9.1
+        },
+        {
+          "path": "docs/release-checklist.md",
+          "reason": "worse_band",
+          "severity": "warning",
+          "content_sha256": "396c391ebd9e9e9bf38cabeaca0ff0c690262109e9015afdbbbca1b3c7f132c3",
+          "maximum_slop_score": 67.0
+        },
+        {
+          "path": "schemas/README.md",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "a65131a1a78bb3b89cba0280c6fc6e0011eaac32f1bfd17e9128bd572a72d48f",
+          "maximum_slop_score": 14.6
+        },
+        {
+          "path": "schemas/advice-1.json",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "a1f04e715c8423ed12f24ca4bdab6de8146da6a8aaf2397e778f86099abc3dbf",
+          "maximum_slop_score": 26.9
+        },
+        {
+          "path": "schemas/advisor-benchmark-1.json",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "871bb590ee717c0d28d20786c8245764dc009b35867fd4e7937f9d5b6c1ea3de",
+          "maximum_slop_score": 48.0
+        },
+        {
+          "path": "schemas/doctor-1.json",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "547b0773dc907be48689be21cc89ac2c9b07b4a53060b5c8b6e43e7996903028",
+          "maximum_slop_score": 14.2
+        },
+        {
+          "path": "schemas/prune-1.json",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "ec0eb2334f539753523e18a34803eeb936c8216f2f8e713c378e5862e95137e2",
+          "maximum_slop_score": 13.3
+        },
+        {
+          "path": "src/advice/artifact.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "4a43fb32a3bbb75b10e480047f7434b74e232adf457f8ddbaef2ea0c155db87f",
+          "maximum_slop_score": 47.9
+        },
+        {
+          "path": "src/advice/provider.rs",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "bd78e872bae509af37a6cf0467c73306c1265eae8ef14acb7f5989be555d9ebf",
+          "maximum_slop_score": 47.4
+        },
+        {
+          "path": "src/cli/advice_cmd.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "ab8691ff646ae5efd06e35fdeb45f80db1dcf3178a2c1c9550b4ed0242ba694f",
+          "maximum_slop_score": 30.8
+        },
+        {
+          "path": "src/cli/doctor.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "4614d013f6864e86a91affc65d61cd408709f9bbd27c480843738dfdf9692f00",
+          "maximum_slop_score": 30.4
+        },
+        {
+          "path": "src/cli/entry.rs",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "64a04e3b5bcab5468d5dd99d855e7bff52c4922e987bec179c4573d8d002ef6a",
+          "maximum_slop_score": 25.2
+        },
+        {
+          "path": "src/cli/generation/artifacts.rs",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "498a795402d98e2e53ddecf3981500c2553f8c2627ca3f458706945230038d40",
+          "maximum_slop_score": 9.8
+        },
+        {
+          "path": "tests/audit_regressions/group_2.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "7cc507b0ad98a1a8dca720700bc9e21e2a747e977cc35e5eb679814366afb325",
+          "maximum_slop_score": 24.0
+        },
+        {
+          "path": "tests/policy_advisor_contracts/group_2.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "325dc6c88625beabd7604bad1b44ab046a975b9f75dc05024d1821ad14968203",
+          "maximum_slop_score": 27.3
+        },
+        {
+          "path": "xtask/Cargo.toml",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "e0d37031d8a46839a2af6ec05377bfb22217dcf6bbd73b1b53ad8f68ecb3d7e9",
+          "maximum_slop_score": 8.5
+        },
+        {
+          "path": "xtask/src/advisor_benchmark.rs",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "69610fbc6f66b7f7cfbb5ad4d183756858d21c19adcd6d3d460cb049c792ef1c",
+          "maximum_slop_score": 24.7
+        },
+        {
+          "path": "xtask/src/advisor_benchmark/run.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "6b21f4fdd47280f83f94e59c944d7467459b11ea781c33bdd363e721831407be",
+          "maximum_slop_score": 50.2
+        },
+        {
+          "path": "xtask/src/advisor_benchmark/system.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "8778240b76d740fb43aa80b3dc5a7a9d8ba69a95534a9480e1cbd4c302195423",
+          "maximum_slop_score": 33.9
+        },
+        {
+          "path": "xtask/src/advisor_benchmark/tests.rs",
+          "reason": "worse_band",
+          "severity": "warning",
+          "content_sha256": "d9d537ab78742274e0846c0dbfff24b0a3f02281ea3e348b12ef3c45d8994b58",
+          "maximum_slop_score": 57.7
+        },
+        {
+          "path": "xtask/src/advisor_cli.rs",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "e0d69546b0f3949c1dfba2d4873105657fbb71c218ec9c2e8d38bb209d058c32",
+          "maximum_slop_score": 24.6
+        },
+        {
+          "path": "xtask/src/distribution.rs",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "3b68326df1eddcec2de5498859ceb82eae35cec43267d368f244b3f9698e0388",
+          "maximum_slop_score": 46.9
+        },
+        {
+          "path": "xtask/src/release.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "3871f03c2eeeff5226d975578cf33c5b52cb30c1f9534768e5296647e5ea3606",
+          "maximum_slop_score": 28.3
+        },
+        {
+          "path": "xtask/src/workflows/ci.rs",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "a530a1c036968a72a6a4ded0a1d9168e0b402a6ec28980286e40b71ba3702df9",
+          "maximum_slop_score": 37.5
+        },
+        {
+          "path": "xtask/src/workflows/tests/repository_contracts.rs",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "d63343de2e27015e39b0b06ca01b3686567e51b27a2b02e6b4ce5ae9eae9b241",
+          "maximum_slop_score": 8.5
+        }
+      ]
+    }
+  ]
+}

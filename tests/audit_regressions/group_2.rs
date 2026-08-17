@@ -228,6 +228,12 @@ fn doctor_reports_detector_and_policy_cache_writability_separately() {
         String::from_utf8_lossy(&output.stderr)
     );
     let payload: Value = serde_json::from_slice(&output.stdout).expect("doctor JSON");
+    assert_eq!(payload["advisor"]["default_mode"], "provider_free_json");
+    assert_eq!(
+        payload["advisor"]["model_required_for_ordinary_use"],
+        false
+    );
+    assert_eq!(payload["advisor"]["public_inference_enabled"], false);
     assert_eq!(
         payload["cache_writability"]["detector_state"]["writable"],
         true
@@ -243,6 +249,122 @@ fn doctor_reports_detector_and_policy_cache_writability_separately() {
                 item["code"] == "policy_cache_not_writable" && item["severity"] == "warning"
             }))
     );
+}
+
+#[test]
+fn advisor_capacity_schema_is_strict_and_provider_free() {
+    let output = cargo_bin_cmd!("git-slop")
+        .args(["schema", "advisor-capacity"])
+        .output()
+        .expect("advisor capacity schema");
+    assert!(output.status.success());
+    let schema: Value = serde_json::from_slice(&output.stdout).expect("capacity schema JSON");
+    let validator = jsonschema::draft202012::options()
+        .build(&schema)
+        .expect("compiled capacity schema");
+    let mut receipt = json!({
+        "schema_version": 1,
+        "command": "advisor-capacity",
+        "eligible": false,
+        "provider_contacted": false,
+        "report_accessed": false,
+        "model": "openai/gpt-oss-safeguard-20b",
+        "model_size_bytes": 13793441254_u64,
+        "estimated_peak_memory_bytes": 17179869184_u64,
+        "required_available_memory_bytes": 25769803776_u64,
+        "required_physical_memory_bytes": 25769803776_u64,
+        "host": {
+            "physical_memory_bytes": 17179869184_u64,
+            "available_memory_bytes": 4294967296_u64,
+            "swap_used_bytes": 536870912_u64
+        },
+        "limits": {
+            "minimum_model_size_bytes": 13793441254_u64,
+            "minimum_estimated_peak_memory_bytes": 17179869184_u64,
+            "minimum_physical_memory_bytes": 25769803776_u64,
+            "minimum_available_memory_reserve_bytes": 8589934592_u64,
+            "maximum_initial_swap_used_bytes": 268435456_u64,
+            "maximum_swap_growth_bytes": 268435456_u64
+        },
+        "release": {
+            "recommendation": "defer",
+            "public_inference_enabled": false,
+            "decision_record": "docs/benchmarks/safeguard-v1-m2-air-decision.md"
+        },
+        "blockers": [{
+            "code": "physical_memory_below_required",
+            "message": "host is too small",
+            "actual_bytes": 17179869184_u64,
+            "comparison": "minimum",
+            "limit_bytes": 25769803776_u64
+        }]
+    });
+    assert!(validator.is_valid(&receipt));
+    receipt["provider_contacted"] = json!(true);
+    assert!(!validator.is_valid(&receipt));
+}
+
+#[test]
+fn advisor_benchmark_schema_rejects_nested_contract_drift() {
+    let schema: serde_json::Value = serde_json::from_slice(
+        &fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("schemas/advisor-benchmark-1.json"),
+        )
+        .expect("advisor benchmark schema"),
+    )
+    .expect("advisor benchmark schema JSON");
+    let validator = jsonschema::draft202012::options()
+        .should_validate_formats(true)
+        .build(&schema)
+        .expect("compiled advisor benchmark schema");
+    let digest = "a".repeat(64);
+    let mut receipt = json!({
+        "schema_version": 1,
+        "status": "incomplete",
+        "configuration": {
+            "corpus": "org.git-slop.safeguard-v1-gold",
+            "mode": "prepare-only",
+            "corpus_sha256": digest,
+            "thresholds_sha256": "b".repeat(64),
+            "harness_revision": "e".repeat(40),
+            "binary_sha256": "f".repeat(64),
+            "binary_source_revision": "e".repeat(40),
+            "binary_version": "0.16.1",
+            "binary_target": "aarch64-apple-darwin",
+            "binary_build_source": "workspace",
+            "binary_inference_feature_enabled": false
+        },
+        "system": {
+            "architecture": null,
+            "os_release": null,
+            "macos_version": null,
+            "hardware_model": null,
+            "physical_memory_bytes": null,
+            "cpu": null,
+            "privacy": "No username, home path, serial number, hardware UUID, repository path, source excerpt, prompt, or rationale is recorded."
+        },
+        "repositories": {
+            "fixture": {
+                "revision": "c".repeat(40),
+                "as_of": "2026-01-01T00:00:00Z",
+                "report_sha256": "d".repeat(64),
+                "matches_expected": true
+            }
+        },
+        "recommended_configuration": null,
+        "recommendation": "defer",
+        "next_step": "Pin the prepared report fingerprint."
+    });
+    assert!(validator.is_valid(&receipt));
+    receipt["configuration"]["unexpected"] = json!(true);
+    assert!(!validator.is_valid(&receipt));
+    receipt["configuration"]
+        .as_object_mut()
+        .expect("configuration object")
+        .remove("unexpected");
+    receipt["repositories"]["fixture"]["unexpected"] = json!(true);
+    assert!(!validator.is_valid(&receipt));
 }
 
 #[test]

@@ -19,7 +19,11 @@ pub fn build_input(
     let mut candidates = build_candidates(&plans)?;
     apply_evaluation_scenario(&mut candidates, options.evaluation_scenario)?;
     let (source_paths, test_paths) = collect_candidate_paths(&candidates);
-    let report_bytes = fs::read(report_path)?;
+    let report_bytes = super::io::read_bounded(
+        report_path,
+        super::io::MAX_ADVICE_REPORT_BYTES,
+        "advice report",
+    )?;
     let report_digest = sha256(&report_bytes);
     let canonical_report_digest = canonical_digest(report)?;
     let applicable_rules = policies
@@ -257,27 +261,74 @@ pub fn build_input(
     Ok(input)
 }
 
+fn validate_cached_input(path: &Path, input: &Value) -> Result<()> {
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("unable to inspect advice context cache entry {}", path.display()))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        bail!(
+            "advice context cache entry must be a regular file: {}",
+            path.display()
+        );
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    }
+    let existing_bytes = super::io::read_bounded(
+        path,
+        super::io::MAX_ADVICE_CONTEXT_CACHE_BYTES,
+        "advice context cache entry",
+    )?;
+    let existing: Value = serde_json::from_slice(&existing_bytes)?;
+    if existing != *input {
+        bail!(
+            "advice context cache digest collision at {}",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 pub fn cache_input(repo_root: &Path, input: &Value) -> Result<PathBuf> {
     let digest = input
         .get("context_digest")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow::anyhow!("advice input is missing context_digest"))?;
-    let root = crate::config::active_state_dir(repo_root)?.join("advice/context-cache");
-    fs::create_dir_all(&root)?;
+    let advice_root = crate::config::active_state_dir(repo_root)?.join("advice");
+    super::artifact::ensure_private_directory(&advice_root)?;
+    let root = advice_root.join("context-cache");
+    super::artifact::ensure_private_directory(&root)?;
     let path = root.join(format!("{digest}.json"));
     let bytes = serde_json::to_vec(input)?;
     if path.exists() {
-        let existing: Value = serde_json::from_slice(&fs::read(&path)?)?;
-        if existing != *input {
-            bail!(
-                "advice context cache digest collision at {}",
-                path.display()
-            );
+        validate_cached_input(&path, input)?;
+        return Ok(path);
+    }
+
+    let mut temporary = tempfile::Builder::new()
+        .prefix(".advice-context-")
+        .tempfile_in(&root)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temporary
+            .as_file()
+            .set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    temporary.write_all(&bytes)?;
+    temporary.write_all(b"\n")?;
+    temporary.as_file().sync_all()?;
+    match temporary.persist_noclobber(&path) {
+        Ok(file) => {
+            file.sync_all()?;
+            super::artifact::sync_directory(&root)?;
         }
-    } else {
-        let temporary = root.join(format!(".{digest}-{}.tmp", std::process::id()));
-        fs::write(&temporary, [bytes, b"\n".to_vec()].concat())?;
-        fs::rename(&temporary, &path)?;
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+            drop(error.file);
+            validate_cached_input(&path, input)?;
+        }
+        Err(error) => return Err(error.error.into()),
     }
     Ok(path)
 }

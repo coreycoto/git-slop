@@ -592,10 +592,20 @@ fn normalize_legacy_scalar_contracts(value: &mut Value) {
         Value::Object(object) => {
             for (key, value) in object.iter_mut() {
                 match key.as_str() {
-                    "context_band" | "health_band" => {
+                    "context_band" => {
                         let canonical = match value.as_str() {
                             Some("compact" | "healthy" | "warning" | "critical") => None,
                             Some("refactor_required") => Some("critical"),
+                            _ => Some("compact"),
+                        };
+                        if let Some(canonical) = canonical {
+                            *value = json!(canonical);
+                        }
+                    }
+                    "health_band" => {
+                        let canonical = match value.as_str() {
+                            Some("compact" | "healthy" | "warning" | "budget_exceeded") => None,
+                            Some("refactor_required" | "critical") => Some("budget_exceeded"),
                             _ => Some("compact"),
                         };
                         if let Some(canonical) = canonical {
@@ -622,5 +632,23 @@ fn normalize_legacy_scalar_contracts(value: &mut Value) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+
+    #[test]
+    fn health_band_migration_preserves_budget_failures_separately_from_context() {
+        let mut value = json!({
+            "context_band": "budget_exceeded",
+            "health_band": "budget_exceeded",
+            "legacy": {"health_band": "critical"}
+        });
+        normalize_legacy_scalar_contracts(&mut value);
+        assert_eq!(value["context_band"], "compact");
+        assert_eq!(value["health_band"], "budget_exceeded");
+        assert_eq!(value["legacy"]["health_band"], "budget_exceeded");
     }
 }

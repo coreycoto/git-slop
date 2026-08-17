@@ -69,18 +69,28 @@ git slop plan --path src/example.rs
 A plan is evidence for human review. It does not edit code, invoke a model, or
 mutate Git or GitHub.
 
-When a separately operated local Safeguard endpoint is available, the optional
-advisor can evaluate those deterministic candidates against inspectable policy
-packs without changing detector truth:
+The advisor's stable surface builds deterministic, inspectable policy context
+without a model, model runtime, or network request:
 
 ```bash
+git slop doctor
 git slop policy show core
-git slop advise --top 1 --context-only --format json
+git slop advise --top 1
 ```
 
-Model inference is always explicit. See [Policy Packs](docs/policy-packs.md),
-the [Policy-Guided Advisor](docs/advisor.md), and the
-[privacy-safe Safeguard benchmark](docs/benchmarks/safeguard-v1.md).
+`doctor` reports that provider-free advisor context is available and that no
+model is required for ordinary use. Stable `advise --help` exposes only this
+provider-free workflow and artifact validation; disabled inference controls
+remain confined to the private maintainer harness.
+
+Public model inference is currently disabled by the checked-in `defer` release
+gate after the 20B Safeguard model exhausted a 16-GB M2 Air. Git Slop never
+installs, starts, stops, discovers, or downloads Ollama or model weights. Future
+inference work is confined to the explicitly confirmed, capacity-gated
+maintainer benchmark on a separately provisioned host. See [Policy
+Packs](docs/policy-packs.md), the [Policy-Guided Advisor](docs/advisor.md), the
+[resource-safety recovery guide](docs/troubleshooting/advisor-resource-safety.md),
+and the [privacy-safe Safeguard benchmark](docs/benchmarks/safeguard-v1.md).
 
 ## What Git Slop Makes Visible
 
@@ -138,7 +148,7 @@ Routine generated output stays untracked. Commit `.slop/config.yaml` and
 
 ## Install
 
-The examples below pin the 0.16.0 release identity. Use each command only after
+The examples below pin the 0.16.1 release identity. Use each command only after
 that exact version is published on the requested distribution surface;
 documentation or a source tag is not proof that every surface is available.
 
@@ -154,7 +164,7 @@ brew install coreycoto/tap/git-slop
 ### Cargo (Crates.io)
 
 ```bash
-cargo install git-slop --version 0.16.0 --locked
+cargo install git-slop --version 0.16.1 --locked
 ```
 
 ### Scoop (Windows)
@@ -186,7 +196,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.16.0
+  - uses: coreycoto/git-slop@v0.16.1
 ```
 
 The Action is advisory by default. It verifies the native release, writes the
@@ -206,7 +216,7 @@ comments are explicit opt-ins. See [GitHub Action](docs/github-action.md).
 | `git slop explain` | Explain a path, relationship, cluster, or the top findings |
 | `git slop plan` | Propose bounded maintenance slices from reviewed evidence |
 | `git slop policy` | Author, validate, install, lock, inspect, test, or remove data-only policy packs |
-| `git slop advise` | Optionally evaluate deterministic candidates with locked policies and an explicit local Safeguard endpoint |
+| `git slop advise` | Build provider-free policy context; experimental inference remains disabled by the release gate |
 | `git slop check` | Apply the stable detector gate |
 | `git slop compare` | Compare two existing reports without rerunning analysis |
 | `git slop baseline` | Create, inspect, update, validate, or safely remove named baselines |
@@ -214,7 +224,7 @@ comments are explicit opt-ins. See [GitHub Action](docs/github-action.md).
 | `git slop config` | Inspect, validate, migrate, or describe configuration |
 | `git slop doctor` | Diagnose repository readiness and resource estimates |
 | `git slop list` | List policy failures, interventions, observations, advisory health findings, relationships, clusters, or profiles |
-| `git slop prune` | Preview or remove retained immutable run snapshots |
+| `git slop prune` | Preview or remove retained detector and advice run snapshots |
 | `git slop cache` | Inspect or prune the packed token cache |
 | `git slop completions` | Generate completion source from the live command tree |
 | `git slop man` | Generate the roff manual from the live command tree |
@@ -235,21 +245,22 @@ explicit scope. The repository also ships a portable [Git Slop Agent
 Plugin](plugins/git-slop/README.md) for installation, reporting, review,
 planning, and adoption workflows.
 
-The optional advisor is separate: it sends only bounded, provenance-rich
-context to an explicitly configured endpoint, validates every reference, and
-writes non-mutating artifacts outside the canonical report bundle.
+The advisor is separate: its supported public path writes bounded,
+provenance-rich context without contacting an endpoint. Provider adapters and
+validated advice artifacts remain confined to the release-gated maintainer
+benchmark.
 
 Start with `git slop doctor`; see [Troubleshooting](docs/troubleshooting.md),
 [Configuration Recipes](docs/config-recipes.md), the neutral [Worked
-Example](docs/worked-example.md), and the [0.16.0 release notes](CHANGELOG.md).
+Example](docs/worked-example.md), and the [0.16.1 release notes](CHANGELOG.md).
 
 ## Trust Boundaries
 
 The deterministic Git Slop commands do not:
 
 - send repository data to a hosted service
-- use an LLM to score files or change detector truth; `advise` is an explicit
-  separate evaluator and remains advisory
+- use an LLM to score files or change detector truth; provider-free `advise`
+  context is deterministic, and experimental model evaluation is disabled
 - claim to detect AI authorship
 - assign an overall code-quality grade
 - treat a finding as proof that code is wrong

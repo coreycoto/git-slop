@@ -4,7 +4,7 @@ Use this PowerShell guide for a direct Windows archive installation. Use
 `aarch64-pc-windows-msvc` instead on Windows ARM64.
 
 ```powershell
-$Release = "v0.16.0"
+$Release = "v0.16.1"
 $Target = "x86_64-pc-windows-msvc"
 $Version = $Release.TrimStart("v")
 $Archive = "git-slop-$Release-$Target.zip"

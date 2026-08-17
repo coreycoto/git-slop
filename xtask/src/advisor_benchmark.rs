@@ -1,8 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Once};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -10,7 +14,59 @@ use serde_json::{Value, json};
 
 const BENCHMARK_RUNTIME_CONTEXT_TOKENS: usize = 16_384;
 const BENCHMARK_TIMEOUT_SECONDS: u64 = 600;
+const BENCHMARK_CHILD_DEADLINE_SECONDS: u64 = BENCHMARK_TIMEOUT_SECONDS + 60;
 const BENCHMARK_CONSECUTIVE_PROVIDER_FAILURE_LIMIT: usize = 2;
+const BENCHMARK_CHILD_OUTPUT_LIMIT_BYTES: usize = 8 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum BenchmarkStatus {
+    Complete,
+    Incomplete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Recommendation {
+    Ship,
+    Adjust,
+    Defer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BenchmarkTermination {
+    BenchmarkCheckpoint,
+    OperatorInterrupt,
+    BenchmarkChildDeadline,
+    BenchmarkChildOutputLimit,
+    ResourceGuardAvailableMemory,
+    ResourceGuardMeasurementUnavailable,
+    ResourceGuardSwapGrowth,
+    ProviderModelIdentityMissing,
+    ProviderModelMismatch,
+    ConsecutiveProviderRuntimeFailures,
+}
+
+impl BenchmarkTermination {
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "benchmark_checkpoint" => Ok(Self::BenchmarkCheckpoint),
+            "operator_interrupt" => Ok(Self::OperatorInterrupt),
+            "benchmark_child_deadline" => Ok(Self::BenchmarkChildDeadline),
+            "benchmark_child_output_limit" => Ok(Self::BenchmarkChildOutputLimit),
+            "resource_guard_available_memory" => Ok(Self::ResourceGuardAvailableMemory),
+            "resource_guard_measurement_unavailable" => {
+                Ok(Self::ResourceGuardMeasurementUnavailable)
+            }
+            "resource_guard_swap_growth" => Ok(Self::ResourceGuardSwapGrowth),
+            "provider_model_identity_missing" => Ok(Self::ProviderModelIdentityMissing),
+            "provider_model_mismatch" => Ok(Self::ProviderModelMismatch),
+            "consecutive_provider_runtime_failures" => Ok(Self::ConsecutiveProviderRuntimeFailures),
+            _ => bail!("unknown advisor benchmark termination state {value:?}"),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -21,17 +77,62 @@ pub struct Options {
     pub repositories: Vec<String>,
     pub provider: String,
     pub endpoint: String,
+    pub model: String,
     pub runtime_model: String,
     pub runtime_label: String,
     pub model_digest: String,
     pub model_quantization: String,
+    pub model_size_bytes: Option<u64>,
+    pub estimated_peak_memory_bytes: Option<u64>,
+    pub confirm_dedicated_host: bool,
+    pub initial_runtime_state: String,
     pub output_dir: PathBuf,
     pub repetitions: usize,
     pub full_matrix: bool,
     pub prepare_only: bool,
-    pub ratings: Option<PathBuf>,
     pub review_output_dir: Option<PathBuf>,
-    pub ollama_cold_model: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CapacityCheckOptions {
+    pub repo_root: PathBuf,
+    pub model: String,
+    pub model_size_bytes: u64,
+    pub estimated_peak_memory_bytes: u64,
+}
+
+pub struct CapacityCheck {
+    pub receipt: Value,
+    pub eligible: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct FinalizeOptions {
+    pub repo_root: PathBuf,
+    pub corpus: PathBuf,
+    pub thresholds: PathBuf,
+    pub results: PathBuf,
+    pub review_manifest: PathBuf,
+    pub ratings: PathBuf,
+    pub output: PathBuf,
+    pub decision_output: PathBuf,
+    pub apply: bool,
+}
+
+#[derive(Debug)]
+pub struct FinalizeOutcome {
+    pub receipt: Value,
+    pub results_path: PathBuf,
+    pub decision_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CapacityBlocker {
+    code: &'static str,
+    message: String,
+    actual_bytes: u64,
+    comparison: &'static str,
+    limit_bytes: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,7 +190,8 @@ struct Thresholds {
     swap_growth_bytes_maximum: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct Sample {
     case_id: String,
     repository: String,
@@ -98,12 +200,14 @@ struct Sample {
     candidate_count: usize,
     actual_candidate_count: Option<usize>,
     report_sha256: String,
+    artifact_sha256: Option<String>,
+    sample_sha256: String,
     reasoning_effort: String,
     context_token_limit: usize,
     output_token_limit: usize,
     repetition: usize,
-    phase: &'static str,
-    status: &'static str,
+    phase: String,
+    status: String,
     exit_code: Option<i32>,
     total_elapsed_ms: u128,
     peak_process_rss_bytes: Option<u64>,
@@ -136,15 +240,7 @@ struct Sample {
     failure_category: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RatingsFile {
-    schema_version: u64,
-    reviewer_count: usize,
-    cases: BTreeMap<String, CaseRating>,
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CaseRating {
     recommendation_usefulness: f64,
@@ -156,8 +252,9 @@ struct CaseRating {
 }
 
 #[derive(Debug, Serialize)]
-struct ManualScores {
-    reviewer_count: usize,
+struct ReviewerScores {
+    reviewer_id: String,
+    reviewed_artifact_count: usize,
     recommendation_usefulness_mean: f64,
     fact_interpretation_separation_mean: f64,
     scope_quality_mean: f64,
@@ -167,37 +264,110 @@ struct ManualScores {
     unsupported_claim_count: u64,
 }
 
+#[derive(Debug, Serialize)]
+struct ManualScores {
+    reviewer_count: usize,
+    reviewed_artifact_count: usize,
+    recommendation_usefulness_mean: f64,
+    fact_interpretation_separation_mean: f64,
+    scope_quality_mean: f64,
+    verification_quality_mean: f64,
+    actionability_mean: f64,
+    overall_quality_mean: f64,
+    unsupported_claim_count: u64,
+    reviewer_scores: Vec<ReviewerScores>,
+}
+
 struct TemporaryWorkspace {
-    path: PathBuf,
+    directory: tempfile::TempDir,
 }
 
 impl TemporaryWorkspace {
     fn new() -> Result<Self> {
-        let path = std::env::temp_dir().join(format!(
-            "git-slop-advisor-benchmark-{}-{}",
-            std::process::id(),
-            now_ms()
-        ));
-        if path.exists() {
-            bail!("refusing to reuse benchmark temporary workspace");
+        let directory = tempfile::Builder::new()
+            .prefix("git-slop-advisor-benchmark-")
+            .tempdir()
+            .context("unable to create a secure advisor benchmark workspace")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700))?;
         }
-        fs::create_dir(&path)?;
-        Ok(Self { path })
+        Ok(Self { directory })
+    }
+
+    fn path(&self) -> &Path {
+        self.directory.path()
     }
 }
 
-impl Drop for TemporaryWorkspace {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
+fn validate_benchmark_result(value: &Value) -> Result<()> {
+    let schema: Value =
+        serde_json::from_str(include_str!("../../schemas/advisor-benchmark-1.json"))?;
+    let validator = jsonschema::draft202012::options()
+        .should_validate_formats(true)
+        .build(&schema)
+        .context("embedded advisor benchmark schema is invalid")?;
+    if let Some(error) = validator.iter_errors(value).next() {
+        bail!(
+            "advisor benchmark result does not match schema 1 at {}: {}",
+            error.instance_path(),
+            error
+        );
     }
+    Ok(())
+}
+
+fn parse_thresholds(bytes: &[u8]) -> Result<Thresholds> {
+    let value: Value = serde_json::from_slice(bytes)?;
+    let schema: Value =
+        serde_json::from_str(include_str!("../../schemas/advisor-thresholds-1.json"))?;
+    let validator = jsonschema::draft202012::options()
+        .should_validate_formats(true)
+        .build(&schema)
+        .context("embedded advisor thresholds schema is invalid")?;
+    if let Some(error) = validator.iter_errors(&value).next() {
+        bail!(
+            "advisor thresholds do not match schema 1 at {}: {}",
+            error.instance_path(),
+            error
+        );
+    }
+    serde_json::from_value(value).context("advisor thresholds do not match the runtime contract")
 }
 
 include!("advisor_benchmark/corpus.rs");
-include!("advisor_benchmark/system.rs");
+include!("advisor_benchmark/io.rs");
+mod system;
+use system::*;
+include!("advisor_benchmark/provenance.rs");
 include!("advisor_benchmark/scoring.rs");
+include!("advisor_benchmark/artifact_validation.rs");
+include!("advisor_benchmark/evidence.rs");
 include!("advisor_benchmark/recommendation.rs");
-include!("advisor_benchmark/output.rs");
-include!("advisor_benchmark/run.rs");
+include!("advisor_benchmark/persistence.rs");
+mod review;
+pub use review::{REVIEW_PROTOCOL, validate_operation_receipt};
+use review::{
+    ReviewManifestEntry, load_review_manifest, ratings, record_review_artifact, seal_sample,
+    selected_review_ids, verify_sample_digest, write_review_manifests,
+};
+include!("advisor_benchmark/decision.rs");
+mod derivation;
+use derivation::*;
+mod aggregate;
+use aggregate::{OutputInputs, write_outputs};
+include!("advisor_benchmark/preflight.rs");
+mod finalization;
+pub use finalization::finalize;
+mod run;
+use run::write_review_artifact;
+#[cfg(test)]
+use run::{
+    BenchmarkReleaseGate, benchmark_capacity_blockers, privacy_safe_benchmark_runtime_identifier,
+    validate_benchmark_capacity, validate_benchmark_gate,
+};
+pub use run::{check_capacity, run};
 
 fn release_matrix_complete(options: &Options) -> bool {
     options.full_matrix && options.repetitions >= 3

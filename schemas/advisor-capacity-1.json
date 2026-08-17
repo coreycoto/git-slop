@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.16.1/schemas/advisor-capacity-1.json",
+  "title": "Git Slop advisor capacity receipt schema 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "command",
+    "eligible",
+    "provider_contacted",
+    "report_accessed",
+    "model",
+    "model_size_bytes",
+    "estimated_peak_memory_bytes",
+    "required_available_memory_bytes",
+    "required_physical_memory_bytes",
+    "host",
+    "limits",
+    "release",
+    "blockers"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "command": {"const": "advisor-capacity"},
+    "eligible": {"type": "boolean"},
+    "provider_contacted": {"const": false},
+    "report_accessed": {"const": false},
+    "model": {"const": "openai/gpt-oss-safeguard-20b"},
+    "model_size_bytes": {"type": "integer", "minimum": 0},
+    "estimated_peak_memory_bytes": {"type": "integer", "minimum": 0},
+    "required_available_memory_bytes": {"type": "integer", "minimum": 0},
+    "required_physical_memory_bytes": {"type": "integer", "minimum": 0},
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "physical_memory_bytes",
+        "available_memory_bytes",
+        "swap_used_bytes"
+      ],
+      "properties": {
+        "physical_memory_bytes": {"type": "integer", "minimum": 0},
+        "available_memory_bytes": {"type": "integer", "minimum": 0},
+        "swap_used_bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_model_size_bytes",
+        "minimum_estimated_peak_memory_bytes",
+        "minimum_physical_memory_bytes",
+        "minimum_available_memory_reserve_bytes",
+        "maximum_initial_swap_used_bytes",
+        "maximum_swap_growth_bytes"
+      ],
+      "properties": {
+        "minimum_model_size_bytes": {"type": "integer", "minimum": 0},
+        "minimum_estimated_peak_memory_bytes": {"type": "integer", "minimum": 0},
+        "minimum_physical_memory_bytes": {"type": "integer", "minimum": 0},
+        "minimum_available_memory_reserve_bytes": {"type": "integer", "minimum": 0},
+        "maximum_initial_swap_used_bytes": {"type": "integer", "minimum": 0},
+        "maximum_swap_growth_bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recommendation",
+        "public_inference_enabled",
+        "decision_record"
+      ],
+      "properties": {
+        "recommendation": {"enum": ["ship", "adjust", "defer"]},
+        "public_inference_enabled": {"type": "boolean"},
+        "decision_record": {"type": "string", "minLength": 1}
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "actual_bytes",
+          "comparison",
+          "limit_bytes"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "model_size_below_minimum",
+              "estimated_peak_memory_below_minimum",
+              "estimated_peak_memory_below_model_size",
+              "physical_memory_below_required",
+              "available_memory_below_required",
+              "initial_swap_above_maximum"
+            ]
+          },
+          "message": {"type": "string", "minLength": 1},
+          "actual_bytes": {"type": "integer", "minimum": 0},
+          "comparison": {"enum": ["minimum", "maximum"]},
+          "limit_bytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"eligible": {"const": true}}},
+      "then": {"properties": {"blockers": {"maxItems": 0}}}
+    },
+    {
+      "if": {"properties": {"eligible": {"const": false}}},
+      "then": {"properties": {"blockers": {"minItems": 1}}}
+    }
+  ]
+}
