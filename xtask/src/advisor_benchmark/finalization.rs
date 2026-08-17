@@ -1,6 +1,7 @@
 fn ratings(path: Option<&Path>, corpus: &Corpus) -> Result<Option<ManualScores>> {
     let Some(path) = path else { return Ok(None) };
-    let ratings: RatingsFile = serde_json::from_slice(&fs::read(path)?)?;
+    let bytes = read_bounded(path, MAX_BENCHMARK_CONFIG_BYTES, "advisor ratings")?;
+    let ratings: RatingsFile = serde_json::from_slice(&bytes)?;
     let expected = corpus
         .cases
         .iter()
@@ -307,15 +308,28 @@ pub fn finalize(
     let thresholds_path = resolve(repo_root, thresholds_path);
     let results_path = resolve(repo_root, results_path);
     let ratings_path = resolve(repo_root, ratings_path);
-    let corpus_bytes = fs::read(&corpus_path)?;
-    let threshold_bytes = fs::read(&thresholds_path)?;
+    let corpus_bytes = read_bounded(
+        &corpus_path,
+        MAX_BENCHMARK_CONFIG_BYTES,
+        "advisor corpus",
+    )?;
+    let threshold_bytes = read_bounded(
+        &thresholds_path,
+        MAX_BENCHMARK_CONFIG_BYTES,
+        "advisor thresholds",
+    )?;
     let corpus: Corpus = serde_json::from_slice(&corpus_bytes)?;
     validate_corpus(&corpus)?;
     let thresholds: Thresholds = serde_json::from_slice(&threshold_bytes)?;
     if thresholds.schema_version != 1 || !thresholds.preregistered_before_final_corpus {
         bail!("benchmark thresholds must use preregistered schema 1");
     }
-    let mut result: Value = serde_json::from_slice(&fs::read(&results_path)?)?;
+    let result_bytes = read_bounded(
+        &results_path,
+        MAX_BENCHMARK_RESULT_BYTES,
+        "advisor benchmark result",
+    )?;
+    let mut result: Value = serde_json::from_slice(&result_bytes)?;
     validate_benchmark_result(&result)?;
     if result.get("status").and_then(Value::as_str) != Some("complete") {
         bail!("manual ratings require a completed schema-1 advisor benchmark result");
@@ -345,12 +359,22 @@ pub fn finalize(
     let automatic_passed = verify_finalization_evidence(&result, &corpus, &thresholds)?;
     let manual = ratings(Some(&ratings_path), &corpus)?.expect("ratings path is present");
     let manual_passed = manual_gates_pass(&thresholds, Some(&manual));
+    let valid_samples = result
+        .pointer("/summary/valid_sample_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let recommendation = if automatic_passed && manual_passed {
         "ship"
+    } else if valid_samples == 0 {
+        "defer"
     } else {
         "adjust"
     };
-    let ratings_digest = sha256(&fs::read(&ratings_path)?);
+    let ratings_digest = sha256(&read_bounded(
+        &ratings_path,
+        MAX_BENCHMARK_CONFIG_BYTES,
+        "advisor ratings",
+    )?);
     let decision_path = results_path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("benchmark results path has no parent"))?

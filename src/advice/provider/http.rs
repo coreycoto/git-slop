@@ -1,10 +1,52 @@
 use std::io::{Read, Write};
-use std::net::{IpAddr, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
 const MAXIMUM_RESPONSE_HEADER_BYTES: usize = 65_536;
+const PROVIDER_IO_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+fn remaining_timeout(started: Instant, timeout: Duration, phase: &str) -> Result<Duration> {
+    timeout
+        .checked_sub(started.elapsed())
+        .filter(|value| !value.is_zero())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "provider_timeout: {phase} did not finish within {} seconds",
+                timeout.as_secs_f64()
+            )
+        })
+}
+
+fn write_with_deadline(
+    stream: &mut TcpStream,
+    mut bytes: &[u8],
+    started: Instant,
+    timeout: Duration,
+    resource_monitor: Option<&crate::advice::resources::RuntimeResourceMonitor>,
+) -> Result<()> {
+    while !bytes.is_empty() {
+        if let Some(monitor) = resource_monitor {
+            monitor.enforce()?;
+        }
+        let remaining = remaining_timeout(started, timeout, "request transmission")?;
+        stream.set_write_timeout(Some(remaining.min(PROVIDER_IO_POLL_INTERVAL)))?;
+        match stream.write(bytes) {
+            Ok(0) => bail!("provider_unavailable: provider closed while receiving the request"),
+            Ok(written) => bytes = &bytes[written..],
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(error) => {
+                return Err(error).context("provider_unavailable: request transmission failed");
+            }
+        }
+    }
+    Ok(())
+}
 
 pub(super) struct Endpoint {
     host: String,
@@ -92,34 +134,38 @@ impl Endpoint {
         resource_guard: Option<crate::advice::RuntimeResourceGuard>,
     ) -> Result<Vec<u8>> {
         let mut stream = connect_endpoint(self, connect_timeout)?;
+        let resource_monitor =
+            resource_guard.map(crate::advice::resources::RuntimeResourceMonitor::start);
         let started = Instant::now();
-        let poll_timeout = timeout.min(Duration::from_millis(250));
+        let poll_timeout = timeout.min(PROVIDER_IO_POLL_INTERVAL);
         stream.set_read_timeout(Some(poll_timeout))?;
-        stream.set_write_timeout(Some(timeout))?;
         let request = format!(
             "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nAccept: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             self.path,
             self.host_header(),
             body.len()
         );
-        stream
-            .write_all(request.as_bytes())
-            .context("provider_timeout: request headers could not be written")?;
-        stream
-            .write_all(body)
-            .context("provider_timeout: request body could not be written")?;
+        write_with_deadline(
+            &mut stream,
+            request.as_bytes(),
+            started,
+            timeout,
+            resource_monitor.as_ref(),
+        )?;
+        write_with_deadline(
+            &mut stream,
+            body,
+            started,
+            timeout,
+            resource_monitor.as_ref(),
+        )?;
         let mut response = Vec::new();
         let response_limit = maximum.saturating_add(MAXIMUM_RESPONSE_HEADER_BYTES);
         loop {
-            if let Some(guard) = resource_guard {
-                crate::advice::resources::enforce_resource_guard(guard)?;
+            if let Some(monitor) = resource_monitor.as_ref() {
+                monitor.enforce()?;
             }
-            if started.elapsed() >= timeout {
-                bail!(
-                    "provider_timeout: model loading and generation did not finish within {} seconds",
-                    timeout.as_secs_f64()
-                );
-            }
+            remaining_timeout(started, timeout, "model loading and generation")?;
             let mut chunk = [0_u8; 8192];
             match stream.read(&mut chunk) {
                 Ok(0) => break,
@@ -175,16 +221,21 @@ pub(super) fn probe_endpoint(value: &str, timeout: Duration) -> Result<()> {
 
 fn connect_endpoint(endpoint: &Endpoint, timeout: Duration) -> Result<TcpStream> {
     let started = Instant::now();
-    let addresses = (endpoint.host.as_str(), endpoint.port)
-        .to_socket_addrs()
-        .context("provider_unavailable: endpoint resolution failed")?
-        .collect::<Vec<_>>();
-    if addresses.is_empty() {
-        bail!("provider_unavailable: endpoint resolved to no addresses");
-    }
-    if addresses.iter().any(|address| !address.ip().is_loopback()) {
-        bail!("provider_endpoint_invalid: loopback endpoint resolved to a non-loopback address");
-    }
+    let addresses = match endpoint.host.as_str() {
+        "localhost" => vec![
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), endpoint.port),
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), endpoint.port),
+        ],
+        "127.0.0.1" => vec![SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            endpoint.port,
+        )],
+        "::1" => vec![SocketAddr::new(
+            IpAddr::V6(Ipv6Addr::LOCALHOST),
+            endpoint.port,
+        )],
+        _ => bail!("provider_endpoint_invalid: endpoint host is not an explicit loopback host"),
+    };
     let mut last_error = None;
     for address in addresses {
         let Some(remaining) = timeout.checked_sub(started.elapsed()) else {

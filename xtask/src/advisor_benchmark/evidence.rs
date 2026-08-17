@@ -61,20 +61,24 @@ fn verify_sample(
             sample.case_id
         );
     }
-    let valid = sample.actual_candidate_count == Some(case.candidate_count);
-    if (sample.status == "valid") != valid {
+    let candidate_count_matches = sample.actual_candidate_count == Some(case.candidate_count);
+    if sample.status == "valid" && !candidate_count_matches {
         bail!(
             "benchmark sample {} has inconsistent candidate-count status",
             sample.case_id
         );
     }
-    if valid && (sample.exit_code != Some(0) || sample.failure_category.is_some()) {
+    if sample.status == "valid"
+        && (sample.exit_code != Some(0)
+            || sample.failure_category.is_some()
+            || sample.accepted_invalid_references != 0)
+    {
         bail!(
             "benchmark sample {} has inconsistent successful process evidence",
             sample.case_id
         );
     }
-    if !valid && sample.failure_category.is_none() {
+    if sample.status != "valid" && sample.failure_category.is_none() {
         bail!(
             "benchmark sample {} is failed without a failure category",
             sample.case_id

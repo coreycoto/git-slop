@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -622,7 +621,12 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
                     "provider_mock_missing: --mock-response is required for the mock provider"
                 )
             })?;
-            let response: Value = serde_json::from_slice(&fs::read(path)?)?;
+            let bytes = super::io::read_bounded(
+                path,
+                super::io::MAX_MOCK_RESPONSE_BYTES,
+                "mock provider response",
+            )?;
+            let response: Value = serde_json::from_slice(&bytes)?;
             Ok(ProviderResult {
                 response,
                 metadata: json!({

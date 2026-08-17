@@ -387,6 +387,7 @@ dependencies = [
  "flate2",
  "hex",
  "jsonschema",
+ "libc",
  "serde",
  "serde_json",
  "serde_yaml",

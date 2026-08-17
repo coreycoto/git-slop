@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Once};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 
 const BENCHMARK_RUNTIME_CONTEXT_TOKENS: usize = 16_384;
 const BENCHMARK_TIMEOUT_SECONDS: u64 = 600;
+const BENCHMARK_CHILD_DEADLINE_SECONDS: u64 = BENCHMARK_TIMEOUT_SECONDS + 60;
 const BENCHMARK_CONSECUTIVE_PROVIDER_FAILURE_LIMIT: usize = 2;
 const BENCHMARK_CHILD_OUTPUT_LIMIT_BYTES: usize = 8 * 1024 * 1024;
 
@@ -245,8 +246,11 @@ fn validate_benchmark_result(value: &Value) -> Result<()> {
 }
 
 include!("advisor_benchmark/corpus.rs");
+include!("advisor_benchmark/io.rs");
 include!("advisor_benchmark/system.rs");
+include!("advisor_benchmark/provenance.rs");
 include!("advisor_benchmark/scoring.rs");
+include!("advisor_benchmark/artifact_validation.rs");
 include!("advisor_benchmark/evidence.rs");
 include!("advisor_benchmark/recommendation.rs");
 include!("advisor_benchmark/persistence.rs");

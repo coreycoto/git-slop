@@ -293,7 +293,12 @@ pub fn write_artifacts(repo_root: &Path, run: &AdviceRun) -> Result<(PathBuf, Pa
 }
 
 pub fn load_and_validate_artifact(path: &Path, report: &Value) -> Result<Value> {
-    let artifact: Value = serde_json::from_slice(&fs::read(path)?)
+    let bytes = super::io::read_bounded(
+        path,
+        super::io::MAX_ADVICE_ARTIFACT_BYTES,
+        "advice artifact",
+    )?;
+    let artifact: Value = serde_json::from_slice(&bytes)
         .with_context(|| format!("unable to parse advice artifact {}", path.display()))?;
     let schema: Value = serde_json::from_str(include_str!("../../schemas/advice-1.json"))?;
     let validator = jsonschema::draft202012::options()

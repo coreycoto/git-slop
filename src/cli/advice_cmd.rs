@@ -19,6 +19,57 @@ fn advice_render(value: &Value, markdown: Option<&str>, format: AdviceFormat) ->
     }
 }
 
+fn classify_advisor_error(
+    error: anyhow::Error,
+    fallback_code: &'static str,
+    fallback_kind: ErrorKind,
+) -> anyhow::Error {
+    if error.downcast_ref::<ClassifiedError>().is_some() {
+        return error;
+    }
+    let diagnostic = format!("{error:#}");
+    let code = [
+        "provider_endpoint_unsupported",
+        "provider_endpoint_invalid",
+        "provider_remote_unsupported",
+        "provider_response_too_large",
+        "provider_response_invalid",
+        "provider_http_invalid",
+        "provider_http_unsupported",
+        "provider_timeout",
+        "provider_unavailable",
+        "provider_http_error",
+        "provider_model_identity_missing",
+        "provider_model_mismatch",
+        "provider_completion_state_missing",
+        "provider_incomplete_response",
+        "provider_resource_guard_unavailable",
+        "provider_resource_guard_triggered",
+        "advisor_input_too_large",
+    ]
+    .into_iter()
+    .find(|code| diagnostic.contains(code))
+    .unwrap_or(fallback_code);
+    let kind = if code.contains("resource_guard")
+        || matches!(code, "provider_response_too_large" | "advisor_input_too_large")
+    {
+        ErrorKind::ResourceLimit
+    } else {
+        fallback_kind
+    };
+    ClassifiedError::new(kind, code, diagnostic)
+        .at("/advisor")
+        .into()
+}
+
+fn classify_advisor_runtime_error(error: anyhow::Error) -> anyhow::Error {
+    classify_advisor_error(error, "provider_operation_failed", ErrorKind::Repository)
+}
+
+fn classify_advisor_validation_error(error: anyhow::Error) -> anyhow::Error {
+    classify_advisor_error(error, "provider_response_invalid", ErrorKind::Contract)
+}
+
 fn inference_argument(
     value: &Option<String>,
     flag: &str,
@@ -357,14 +408,16 @@ fn run_advise(repo_root: &Path, args: AdviseArgs) -> Result<i32> {
         .mock_response
         .as_deref()
         .map(|path| resolve_repo_path(repo_root, path));
-    crate::advice::probe(&provider_config)?;
+    crate::advice::probe(&provider_config).map_err(classify_advisor_runtime_error)?;
     eprintln!(
         "Advisor phase 3/4: invoking the explicit provider; press Ctrl-C to cancel. The timeout covers model loading and generation."
     );
-    let provider = crate::advice::invoke(&input, &provider_config)?;
+    let provider = crate::advice::invoke(&input, &provider_config)
+        .map_err(classify_advisor_runtime_error)?;
     eprintln!("Advisor phase 4/4: validating references and recomputing the verdict.");
     let validation_started = std::time::Instant::now();
-    let validated = crate::advice::validate_response(&provider.response, &input, &policies)?;
+    let validated = crate::advice::validate_response(&provider.response, &input, &policies)
+        .map_err(classify_advisor_validation_error)?;
     let validation_elapsed_ms = validation_started.elapsed().as_millis();
     let cache_path = (!args.ephemeral)
         .then(|| crate::advice::cache_input(repo_root, &input))

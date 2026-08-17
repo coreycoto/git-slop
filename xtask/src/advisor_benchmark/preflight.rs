@@ -2,6 +2,7 @@ fn write_preflight(
     options: &Options,
     corpus: &Corpus,
     reports: &BTreeMap<String, PreparedReport>,
+    provenance: &BenchmarkProvenance,
 ) -> Result<(PathBuf, PathBuf)> {
     let output_dir = resolve(&options.repo_root, &options.output_dir);
     let repositories = reports
@@ -28,8 +29,15 @@ fn write_preflight(
         "configuration": {
             "corpus": corpus.id,
             "mode": "prepare-only",
-            "corpus_sha256": sha256(&fs::read(resolve(&options.repo_root, &options.corpus))?),
-            "thresholds_sha256": sha256(&fs::read(resolve(&options.repo_root, &options.thresholds))?)
+            "corpus_sha256": sha256(&read_bounded(&resolve(&options.repo_root, &options.corpus), MAX_BENCHMARK_CONFIG_BYTES, "advisor corpus")?),
+            "thresholds_sha256": sha256(&read_bounded(&resolve(&options.repo_root, &options.thresholds), MAX_BENCHMARK_CONFIG_BYTES, "advisor thresholds")?),
+            "harness_revision": provenance.harness_revision,
+            "binary_sha256": provenance.binary_sha256,
+            "binary_source_revision": provenance.binary_source_revision,
+            "binary_version": provenance.binary_version,
+            "binary_target": provenance.binary_target,
+            "binary_build_source": provenance.binary_build_source,
+            "binary_inference_feature_enabled": provenance.binary_inference_feature_enabled
         },
         "system": system_profile(),
         "repositories": repositories,

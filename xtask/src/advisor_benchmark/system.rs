@@ -1,5 +1,10 @@
 fn command_text(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(args).output().ok()?;
+    let output = command_output_bounded(
+        Command::new(program).args(args),
+        64 * 1024,
+        "system profile command",
+    )
+    .ok()?;
     output.status.success().then(|| {
         String::from_utf8_lossy(&output.stdout)
             .trim()
@@ -13,10 +18,12 @@ fn mac_hardware_profile() -> Option<Value> {
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let output = Command::new("system_profiler")
-        .args(["SPHardwareDataType", "-json"])
-        .output()
-        .ok()?;
+    let output = command_output_bounded(
+        Command::new("system_profiler").args(["SPHardwareDataType", "-json"]),
+        1024 * 1024,
+        "macOS hardware profile",
+    )
+    .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -158,10 +165,25 @@ fn system_available_memory_bytes() -> Option<u64> {
         .map(|kilobytes| kilobytes.saturating_mul(1024))
 }
 
-fn classify_failure(stderr: &[u8], artifact_present: bool) -> String {
+fn structured_child_error_code(stderr: &[u8]) -> Option<String> {
     let diagnostic = String::from_utf8_lossy(stderr);
-    for category in [
+    diagnostic.lines().rev().find_map(|line| {
+        serde_json::from_str::<Value>(line)
+            .ok()?
+            .pointer("/error/code")?
+            .as_str()
+            .map(str::to_string)
+    })
+}
+
+fn classify_failure(stderr: &[u8], artifact_present: bool) -> String {
+    let code = structured_child_error_code(stderr);
+    let allowed = [
         "provider_response_too_large",
+        "provider_endpoint_invalid",
+        "provider_endpoint_unsupported",
+        "provider_remote_unsupported",
+        "provider_operation_failed",
         "provider_response_invalid",
         "provider_http_invalid",
         "provider_http_unsupported",
@@ -172,10 +194,9 @@ fn classify_failure(stderr: &[u8], artifact_present: bool) -> String {
         "provider_model_mismatch",
         "provider_completion_state_missing",
         "provider_incomplete_response",
-    ] {
-        if diagnostic.contains(category) {
-            return category.to_string();
-        }
+    ];
+    if let Some(code) = code.filter(|code| allowed.contains(&code.as_str())) {
+        return code;
     }
     if artifact_present {
         "artifact_invalid".to_string()
@@ -225,6 +246,152 @@ struct BoundedRead {
     truncated: bool,
 }
 
+static INTERRUPT_HANDLER: Once = Once::new();
+static BENCHMARK_INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(unix)]
+extern "C" fn benchmark_signal_handler(_signal: libc::c_int) {
+    BENCHMARK_INTERRUPTED.store(true, Ordering::Release);
+}
+
+fn install_interrupt_handler() {
+    BENCHMARK_INTERRUPTED.store(false, Ordering::Release);
+    #[cfg(unix)]
+    INTERRUPT_HANDLER.call_once(|| unsafe {
+        libc::signal(
+            libc::SIGINT,
+            benchmark_signal_handler as *const () as libc::sighandler_t,
+        );
+        libc::signal(
+            libc::SIGTERM,
+            benchmark_signal_handler as *const () as libc::sighandler_t,
+        );
+    });
+}
+
+struct ChildGuard {
+    child: Child,
+    reaped: bool,
+}
+
+impl ChildGuard {
+    fn new(child: Child) -> Self {
+        Self {
+            child,
+            reaped: false,
+        }
+    }
+
+    fn kill_group(&mut self) -> Result<()> {
+        #[cfg(unix)]
+        {
+            unsafe {
+                let _ = libc::kill(-(self.child.id() as libc::pid_t), libc::SIGTERM);
+            }
+            let grace_started = Instant::now();
+            while grace_started.elapsed() < Duration::from_millis(500) {
+                if self.child.try_wait()?.is_some() {
+                    return Ok(());
+                }
+                thread::sleep(Duration::from_millis(25));
+            }
+        }
+        match self.child.kill() {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn try_wait(&mut self) -> Result<Option<ExitStatus>> {
+        Ok(self.child.try_wait()?)
+    }
+
+    fn wait(&mut self) -> Result<ExitStatus> {
+        let status = self.child.wait()?;
+        self.reaped = true;
+        Ok(status)
+    }
+}
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        if !self.reaped {
+            let _ = self.kill_group();
+            let _ = self.child.wait();
+            self.reaped = true;
+        }
+    }
+}
+
+#[derive(Default)]
+struct ResourceSnapshot {
+    peak_rss: Option<u64>,
+    minimum_available: Option<u64>,
+    maximum_swap_growth: Option<u64>,
+    measurement_failed: bool,
+}
+
+struct ResourceMonitor {
+    snapshot: Arc<Mutex<ResourceSnapshot>>,
+    heartbeat_ms: Arc<AtomicU64>,
+    stop: Arc<AtomicBool>,
+}
+
+impl ResourceMonitor {
+    fn start(pid: u32, initial_swap: u64) -> Self {
+        let snapshot = Arc::new(Mutex::new(ResourceSnapshot::default()));
+        let heartbeat_ms = Arc::new(AtomicU64::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_snapshot = Arc::clone(&snapshot);
+        let thread_heartbeat = Arc::clone(&heartbeat_ms);
+        let thread_stop = Arc::clone(&stop);
+        thread::spawn(move || {
+            let started = Instant::now();
+            while !thread_stop.load(Ordering::Acquire) {
+                let rss = process_rss_bytes(pid);
+                let available = system_available_memory_bytes();
+                let swap = swap_used_bytes();
+                if let Ok(mut state) = thread_snapshot.lock() {
+                    state.measurement_failed |= available.is_none() || swap.is_none();
+                    if let Some(rss) = rss {
+                        state.peak_rss = Some(state.peak_rss.map_or(rss, |old| old.max(rss)));
+                    }
+                    if let Some(available) = available {
+                        state.minimum_available = Some(
+                            state
+                                .minimum_available
+                                .map_or(available, |old| old.min(available)),
+                        );
+                    }
+                    if let Some(swap) = swap {
+                        let growth = swap.saturating_sub(initial_swap);
+                        state.maximum_swap_growth = Some(
+                            state
+                                .maximum_swap_growth
+                                .map_or(growth, |old| old.max(growth)),
+                        );
+                    }
+                }
+                thread_heartbeat.store(
+                    started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                    Ordering::Release,
+                );
+                thread::sleep(Duration::from_millis(250));
+            }
+        });
+        Self {
+            snapshot,
+            heartbeat_ms,
+            stop,
+        }
+    }
+
+    fn stop(&self) {
+        self.stop.store(true, Ordering::Release);
+    }
+}
+
 fn drain_bounded<R: Read>(
     mut reader: R,
     limit: usize,
@@ -250,10 +417,12 @@ fn drain_bounded<R: Read>(
 }
 
 fn process_rss_bytes(pid: u32) -> Option<u64> {
-    let output = Command::new("ps")
-        .args(["-o", "rss=", "-p", &pid.to_string()])
-        .output()
-        .ok()?;
+    let output = command_output_bounded(
+        Command::new("ps").args(["-o", "rss=", "-p", &pid.to_string()]),
+        64 * 1024,
+        "process memory measurement",
+    )
+    .ok()?;
     output
         .status
         .success()
@@ -268,6 +437,7 @@ fn timed_output(
     cwd: &Path,
     watchdog: BenchmarkWatchdog,
 ) -> Result<MonitoredOutput> {
+    install_interrupt_handler();
     let mut child = Command::new(binary);
     child
         .env("GIT_SLOP_ADVISOR_BENCHMARK", "1")
@@ -275,12 +445,17 @@ fn timed_output(
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = child.spawn()?;
-    let mut stdout = child
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        child.process_group(0);
+    }
+    let mut child = ChildGuard::new(child.spawn()?);
+    let mut stdout = child.child
         .stdout
         .take()
         .ok_or_else(|| anyhow::anyhow!("benchmark child stdout pipe is unavailable"))?;
-    let mut stderr = child
+    let mut stderr = child.child
         .stderr
         .take()
         .ok_or_else(|| anyhow::anyhow!("benchmark child stderr pipe is unavailable"))?;
@@ -301,48 +476,63 @@ fn timed_output(
             stderr_limit,
         )
     });
-    let mut peak_rss = None::<u64>;
-    let mut minimum_available = None::<u64>;
-    let mut maximum_swap_growth = None::<u64>;
+    let monitor = ResourceMonitor::start(child.child.id(), watchdog.initial_swap_used_bytes);
+    let started = Instant::now();
     let mut termination_reason = None;
     loop {
         if child.try_wait()?.is_some() {
             break;
         }
+        if BENCHMARK_INTERRUPTED.load(Ordering::Acquire) {
+            termination_reason = Some("operator_interrupt");
+        }
+        if started.elapsed() >= Duration::from_secs(BENCHMARK_CHILD_DEADLINE_SECONDS) {
+            termination_reason.get_or_insert("benchmark_child_deadline");
+        }
         if output_limit_exceeded.load(Ordering::Acquire) {
             termination_reason = Some("benchmark_child_output_limit");
         }
-        if let Some(rss) = process_rss_bytes(child.id()) {
-            peak_rss = Some(peak_rss.map_or(rss, |current| current.max(rss)));
+        let elapsed_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        let heartbeat = monitor.heartbeat_ms.load(Ordering::Acquire);
+        if elapsed_ms > 2_000 && elapsed_ms.saturating_sub(heartbeat) > 2_000 {
+            termination_reason.get_or_insert("resource_guard_measurement_unavailable");
         }
-        if let Some(available) = system_available_memory_bytes() {
-            minimum_available = Some(
-                minimum_available.map_or(available, |current| current.min(available)),
-            );
-            if available < watchdog.minimum_available_memory_bytes {
+        if let Ok(state) = monitor.snapshot.lock() {
+            if state.measurement_failed {
+                termination_reason.get_or_insert("resource_guard_measurement_unavailable");
+            }
+            if state
+                .minimum_available
+                .is_some_and(|value| value < watchdog.minimum_available_memory_bytes)
+            {
                 termination_reason.get_or_insert("resource_guard_available_memory");
             }
-        } else {
-            termination_reason.get_or_insert("resource_guard_measurement_unavailable");
-        }
-        if let Some(swap) = swap_used_bytes() {
-            let growth = swap.saturating_sub(watchdog.initial_swap_used_bytes);
-            maximum_swap_growth = Some(
-                maximum_swap_growth.map_or(growth, |current| current.max(growth)),
-            );
-            if growth > watchdog.maximum_swap_growth_bytes {
+            if state
+                .maximum_swap_growth
+                .is_some_and(|value| value > watchdog.maximum_swap_growth_bytes)
+            {
                 termination_reason.get_or_insert("resource_guard_swap_growth");
             }
-        } else {
-            termination_reason.get_or_insert("resource_guard_measurement_unavailable");
         }
         if termination_reason.is_some() {
-            let _ = child.kill();
+            child.kill_group()?;
             break;
         }
         thread::sleep(Duration::from_millis(250));
     }
+    monitor.stop();
     let status = child.wait()?;
+    let (peak_rss, minimum_available, maximum_swap_growth) = monitor
+        .snapshot
+        .lock()
+        .map(|state| {
+            (
+                state.peak_rss,
+                state.minimum_available,
+                state.maximum_swap_growth,
+            )
+        })
+        .unwrap_or((None, None, None));
     let stdout = stdout_reader
         .join()
         .map_err(|_| anyhow::anyhow!("benchmark stdout reader panicked"))??;

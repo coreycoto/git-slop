@@ -240,7 +240,11 @@ fn benchmark_safety_preflight(options: &Options) -> Result<BenchmarkWatchdog> {
     let gate_path = options
         .repo_root
         .join("benchmarks/advisor/release-gate.json");
-    let gate: BenchmarkReleaseGate = serde_json::from_slice(&fs::read(&gate_path)?)?;
+    let gate: BenchmarkReleaseGate = serde_json::from_slice(&read_bounded(
+        &gate_path,
+        MAX_BENCHMARK_CONFIG_BYTES,
+        "advisor release gate",
+    )?)?;
     validate_benchmark_gate(&gate)
         .with_context(|| format!("advisor release gate is invalid: {}", gate_path.display()))?;
     if options.model != gate.canonical_model {
@@ -287,7 +291,11 @@ pub fn check_capacity(options: &CapacityCheckOptions) -> Result<CapacityCheck> {
     let gate_path = options
         .repo_root
         .join("benchmarks/advisor/release-gate.json");
-    let gate: BenchmarkReleaseGate = serde_json::from_slice(&fs::read(&gate_path)?)?;
+    let gate: BenchmarkReleaseGate = serde_json::from_slice(&read_bounded(
+        &gate_path,
+        MAX_BENCHMARK_CONFIG_BYTES,
+        "advisor release gate",
+    )?)?;
     validate_benchmark_gate(&gate)
         .with_context(|| format!("advisor release gate is invalid: {}", gate_path.display()))?;
     if options.model != gate.canonical_model {
@@ -381,11 +389,20 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
             binary.display()
         );
     }
-    let corpus: Corpus =
-        serde_json::from_slice(&fs::read(resolve(&options.repo_root, &options.corpus))?)?;
+    let provenance = collect_benchmark_provenance(options, &binary)?;
+    let corpus_bytes = read_bounded(
+        &resolve(&options.repo_root, &options.corpus),
+        MAX_BENCHMARK_CONFIG_BYTES,
+        "advisor corpus",
+    )?;
+    let corpus: Corpus = serde_json::from_slice(&corpus_bytes)?;
     validate_corpus(&corpus)?;
-    let thresholds: Thresholds =
-        serde_json::from_slice(&fs::read(resolve(&options.repo_root, &options.thresholds))?)?;
+    let threshold_bytes = read_bounded(
+        &resolve(&options.repo_root, &options.thresholds),
+        MAX_BENCHMARK_CONFIG_BYTES,
+        "advisor thresholds",
+    )?;
+    let thresholds: Thresholds = serde_json::from_slice(&threshold_bytes)?;
     if thresholds.schema_version != 1 || !thresholds.preregistered_before_final_corpus {
         bail!("benchmark thresholds must use preregistered schema 1");
     }
@@ -439,7 +456,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
     let temporary = TemporaryWorkspace::new()?;
     let reports = prepare_reports(&binary, &repositories, &corpus, &temporary.path)?;
     if options.prepare_only {
-        return write_preflight(options, &corpus, &reports);
+        return write_preflight(options, &corpus, &reports, &provenance);
     }
     let sample_artifacts = temporary.path.join("sample-artifacts");
     fs::create_dir(&sample_artifacts)?;
@@ -480,6 +497,8 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                     let mut args = vec![
                         "--repo".to_string(),
                         repository.display().to_string(),
+                        "--error-format".to_string(),
+                        "json".to_string(),
                         "advise".to_string(),
                         "--infer".to_string(),
                     ];
@@ -541,34 +560,29 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                     let elapsed = wall.elapsed().as_millis();
                     let available_after = system_available_memory_bytes();
                     let swap_after = swap_used_bytes();
-                    let artifact_bytes = output
-                        .status
-                        .success()
-                        .then(|| fs::read(&artifact_path).ok())
-                        .flatten();
+                    let artifact_bytes = artifact_path.exists().then(|| {
+                        read_bounded(
+                            &artifact_path,
+                            MAX_BENCHMARK_CHILD_ARTIFACT_BYTES,
+                            "benchmark child advice artifact",
+                        )
+                    });
+                    let artifact_bytes = artifact_bytes.transpose()?;
                     let artifact = artifact_bytes
                         .as_deref()
                         .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok());
-                    let _ = fs::remove_file(&artifact_path);
-                    let actual_candidate_count = artifact.as_ref().and_then(|artifact| {
-                        artifact
-                            .pointer("/evaluation/candidate_evaluations")
-                            .and_then(Value::as_array)
-                            .map(Vec::len)
-                    });
-                    let sample_valid =
-                        artifact.is_some() && actual_candidate_count == Some(case.candidate_count);
-                    if sample_valid && *context == 8_192 && repetition == 1 {
-                        if let (Some(directory), Some(bytes)) =
-                            (review_directory.as_deref(), artifact_bytes.as_deref())
-                        {
-                            write_review_artifact(
-                                directory,
-                                &format!("{}-{effort}-8192.json", case.id),
-                                bytes,
-                            )?;
-                        }
-                    }
+                    let assessment = artifact
+                        .as_ref()
+                        .map(|artifact| assess_advice_artifact(artifact, report, case.candidate_count))
+                        .transpose()?;
+                    let actual_candidate_count = assessment
+                        .as_ref()
+                        .and_then(|assessment| assessment.actual_candidate_count);
+                    let sample_valid = output.status.success()
+                        && assessment.as_ref().is_some_and(|assessment| assessment.valid);
+                    let invalid_references = assessment
+                        .as_ref()
+                        .map_or(0, |assessment| assessment.invalid_references);
                     let (matched, _) = artifact
                         .as_ref()
                         .map(|artifact| rule_scores(artifact, &case.expected_rule_verdicts))
@@ -664,7 +678,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                             == Some(case.expected_aggregate.as_str()),
                         matched_rule_verdicts: matched,
                         expected_rule_verdicts: total,
-                        accepted_invalid_references: 0,
+                        accepted_invalid_references: invalid_references,
                         accepted_detector_truth_changes: artifact.as_ref().map_or(0, |artifact| {
                             accepted_detector_truth_changes(artifact, &case.scenario)
                         }),
@@ -685,6 +699,40 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         },
                     });
                     first = false;
+                    write_outputs(
+                        options,
+                        &OutputInputs {
+                            corpus: &corpus,
+                            reports: &reports,
+                            thresholds: &thresholds,
+                            provenance: &provenance,
+                        },
+                        started,
+                        &samples,
+                        None,
+                        monitored
+                            .termination_reason
+                            .or(Some("benchmark_checkpoint")),
+                    )?;
+                    if sample_valid && *context == 8_192 && repetition == 1 {
+                        if let (Some(directory), Some(bytes)) =
+                            (review_directory.as_deref(), artifact_bytes.as_deref())
+                        {
+                            write_review_artifact(
+                                directory,
+                                &format!("{}-{effort}-8192.json", case.id),
+                                bytes,
+                            )?;
+                        }
+                    }
+                    if artifact_path.exists() {
+                        fs::remove_file(&artifact_path).with_context(|| {
+                            format!(
+                                "failed to remove private benchmark sample artifact {}",
+                                artifact_path.display()
+                            )
+                        })?;
+                    }
                     if monitored.termination_reason.is_some() {
                         eprintln!(
                             "Stopping the advisor matrix immediately after a continuous safety guard aborted a sample."
@@ -695,6 +743,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                                 corpus: &corpus,
                                 reports: &reports,
                                 thresholds: &thresholds,
+                                provenance: &provenance,
                             },
                             started,
                             &samples,
@@ -718,6 +767,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                                 corpus: &corpus,
                                 reports: &reports,
                                 thresholds: &thresholds,
+                                provenance: &provenance,
                             },
                             started,
                             &samples,
@@ -746,6 +796,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                                 corpus: &corpus,
                                 reports: &reports,
                                 thresholds: &thresholds,
+                                provenance: &provenance,
                             },
                             started,
                             &samples,
@@ -763,6 +814,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
             corpus: &corpus,
             reports: &reports,
             thresholds: &thresholds,
+            provenance: &provenance,
         },
         started,
         &samples,

@@ -71,7 +71,7 @@
             "properties": {
               "status": {"const": "complete"},
               "summary": {"$ref": "#/$defs/finalizedSummary"},
-              "recommendation": {"enum": ["ship", "adjust"]}
+              "recommendation": {"enum": ["ship", "adjust", "defer"]}
             }
           },
           "else": {
@@ -83,13 +83,33 @@
         },
         {
           "if": {"properties": {"recommendation": {"const": "ship"}}},
-          "then": {"required": ["manual_ratings_sha256", "finalized_unix_ms"]}
+          "then": {
+            "required": ["manual_ratings_sha256", "finalized_unix_ms"],
+            "properties": {
+              "recommended_configuration": {"$ref": "#/$defs/recommendedConfiguration"},
+              "summary": {
+                "allOf": [
+                  {"$ref": "#/$defs/finalizedSummary"},
+                  {"properties": {
+                    "automatic_gates_passed": {"const": true},
+                    "manual_quality_gates_passed": {"const": true},
+                    "corpus_report_fingerprints_pinned": {"const": true},
+                    "matrix_completed": {"const": true},
+                    "runtime_phase_metrics_complete": {"const": true},
+                    "accepted_invalid_references": {"const": 0},
+                    "accepted_detector_truth_changes": {"const": 0}
+                  }}
+                ]
+              }
+            }
+          }
         }
       ]
     }
   ],
   "$defs": {
     "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "nullableCount": {"type": ["integer", "null"], "minimum": 0},
     "nullableRate": {"type": ["number", "null"], "minimum": 0},
     "rate": {"type": "number", "minimum": 0, "maximum": 1},
@@ -97,18 +117,25 @@
     "prepareConfiguration": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["corpus", "mode", "corpus_sha256", "thresholds_sha256"],
+      "required": ["corpus", "mode", "corpus_sha256", "thresholds_sha256", "harness_revision", "binary_sha256", "binary_source_revision", "binary_version", "binary_target", "binary_build_source", "binary_inference_feature_enabled"],
       "properties": {
         "corpus": {"type": "string", "minLength": 1},
         "mode": {"const": "prepare-only"},
         "corpus_sha256": {"$ref": "#/$defs/digest"},
-        "thresholds_sha256": {"$ref": "#/$defs/digest"}
+        "thresholds_sha256": {"$ref": "#/$defs/digest"},
+        "harness_revision": {"$ref": "#/$defs/revision"},
+        "binary_sha256": {"$ref": "#/$defs/digest"},
+        "binary_source_revision": {"$ref": "#/$defs/revision"},
+        "binary_version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "binary_target": {"type": "string", "minLength": 1, "maxLength": 160},
+        "binary_build_source": {"enum": ["workspace", "crate", "release"]},
+        "binary_inference_feature_enabled": {"type": "boolean"}
       }
     },
     "liveConfiguration": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["corpus", "thresholds", "corpus_sha256", "thresholds_sha256", "provider", "runtime_label", "runtime_model", "model", "model_digest", "model_quantization", "model_size_bytes", "estimated_peak_memory_bytes", "dedicated_host_confirmed", "initial_runtime_state", "runtime_context_tokens", "request_timeout_seconds", "child_output_limit_bytes", "endpoint_classification", "repetitions", "full_matrix", "repository_keys", "repository_revisions"],
+      "required": ["corpus", "thresholds", "corpus_sha256", "thresholds_sha256", "provider", "runtime_label", "runtime_model", "model", "model_digest", "model_quantization", "model_size_bytes", "estimated_peak_memory_bytes", "dedicated_host_confirmed", "initial_runtime_state", "runtime_context_tokens", "request_timeout_seconds", "child_deadline_seconds", "child_output_limit_bytes", "endpoint_classification", "repetitions", "full_matrix", "repository_keys", "repository_revisions", "harness_revision", "binary_sha256", "binary_source_revision", "binary_version", "binary_target", "binary_build_source", "binary_inference_feature_enabled"],
       "properties": {
         "corpus": {"const": "corpus-v1"},
         "thresholds": {"const": "thresholds-v1"},
@@ -126,6 +153,7 @@
         "initial_runtime_state": {"enum": ["cold", "warm"]},
         "runtime_context_tokens": {"const": 16384},
         "request_timeout_seconds": {"const": 600},
+        "child_deadline_seconds": {"const": 660},
         "child_output_limit_bytes": {"const": 8388608},
         "endpoint_classification": {"const": "loopback"},
         "repetitions": {"type": "integer", "minimum": 1, "maximum": 20},
@@ -135,7 +163,14 @@
           "type": "object", "minProperties": 1,
           "propertyNames": {"pattern": "^[a-z0-9][a-z0-9-]*$"},
           "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
-        }
+        },
+        "harness_revision": {"$ref": "#/$defs/revision"},
+        "binary_sha256": {"$ref": "#/$defs/digest"},
+        "binary_source_revision": {"$ref": "#/$defs/revision"},
+        "binary_version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "binary_target": {"type": "string", "minLength": 1, "maxLength": 160},
+        "binary_build_source": {"enum": ["workspace", "crate", "release"]},
+        "binary_inference_feature_enabled": {"const": true}
       }
     },
     "system": {
@@ -203,7 +238,7 @@
         "aggregate_verdict_accuracy": {"$ref": "#/$defs/rate"},
         "citation_completeness": {"$ref": "#/$defs/rate"},
         "repeated_verdict_consistency": {"$ref": "#/$defs/rate"},
-        "accepted_invalid_references": {"const": 0},
+        "accepted_invalid_references": {"type": "integer", "minimum": 0},
         "accepted_detector_truth_changes": {"type": "integer", "minimum": 0},
         "runtime_phase_metrics_complete": {"type": "boolean"},
         "abstention_recall": {"$ref": "#/$defs/rate"},
@@ -219,7 +254,7 @@
         "manual_quality_gates_passed": {"type": "boolean"},
         "corpus_report_fingerprints_pinned": {"type": "boolean"},
         "matrix_completed": {"type": "boolean"},
-        "termination_reason": {"enum": [null, "benchmark_child_output_limit", "resource_guard_available_memory", "resource_guard_measurement_unavailable", "resource_guard_swap_growth", "provider_model_identity_missing", "provider_model_mismatch", "consecutive_provider_runtime_failures"]}
+        "termination_reason": {"enum": [null, "benchmark_checkpoint", "operator_interrupt", "benchmark_child_deadline", "benchmark_child_output_limit", "resource_guard_available_memory", "resource_guard_measurement_unavailable", "resource_guard_swap_growth", "provider_model_identity_missing", "provider_model_mismatch", "consecutive_provider_runtime_failures"]}
       }
     },
     "completeSummary": {"allOf": [{"$ref": "#/$defs/summary"}, {"properties": {"matrix_completed": {"const": true}, "termination_reason": {"type": "null"}}}]},

@@ -326,7 +326,14 @@ fn advisor_benchmark_schema_rejects_nested_contract_drift() {
             "corpus": "org.git-slop.safeguard-v1-gold",
             "mode": "prepare-only",
             "corpus_sha256": digest,
-            "thresholds_sha256": "b".repeat(64)
+            "thresholds_sha256": "b".repeat(64),
+            "harness_revision": "e".repeat(40),
+            "binary_sha256": "f".repeat(64),
+            "binary_source_revision": "e".repeat(40),
+            "binary_version": "0.16.1",
+            "binary_target": "aarch64-apple-darwin",
+            "binary_build_source": "workspace",
+            "binary_inference_feature_enabled": false
         },
         "system": {
             "architecture": null,

@@ -1,5 +1,10 @@
 use std::fs;
-use std::process::Command;
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use serde::Serialize;
@@ -20,6 +25,106 @@ pub struct RuntimeResourceGuard {
     pub initial_swap_used_bytes: u64,
 }
 
+const RESOURCE_COMMAND_MAXIMUM_BYTES: usize = 64 * 1024;
+const RESOURCE_COMMAND_TIMEOUT: Duration = Duration::from_secs(1);
+const RESOURCE_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
+const RESOURCE_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(Debug, Default)]
+struct RuntimeResourceState {
+    available_memory_bytes: Option<u64>,
+    swap_used_bytes: Option<u64>,
+    measurement_failed: bool,
+}
+
+pub(crate) struct RuntimeResourceMonitor {
+    guard: RuntimeResourceGuard,
+    state: Arc<Mutex<RuntimeResourceState>>,
+    heartbeat_ms: Arc<AtomicU64>,
+    stop: Arc<AtomicBool>,
+    started: Instant,
+}
+
+impl RuntimeResourceMonitor {
+    pub(crate) fn start(guard: RuntimeResourceGuard) -> Self {
+        let state = Arc::new(Mutex::new(RuntimeResourceState::default()));
+        let heartbeat_ms = Arc::new(AtomicU64::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_state = Arc::clone(&state);
+        let thread_heartbeat = Arc::clone(&heartbeat_ms);
+        let thread_stop = Arc::clone(&stop);
+        thread::spawn(move || {
+            let started = Instant::now();
+            while !thread_stop.load(Ordering::Acquire) {
+                let available = available_memory_bytes();
+                let swap = swap_used_bytes();
+                if let Ok(mut snapshot) = thread_state.lock() {
+                    snapshot.available_memory_bytes = available;
+                    snapshot.swap_used_bytes = swap;
+                    snapshot.measurement_failed = available.is_none() || swap.is_none();
+                }
+                thread_heartbeat.store(
+                    started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                    Ordering::Release,
+                );
+                thread::sleep(RESOURCE_SAMPLE_INTERVAL);
+            }
+        });
+        Self {
+            guard,
+            state,
+            heartbeat_ms,
+            stop,
+            started: Instant::now(),
+        }
+    }
+
+    pub(crate) fn enforce(&self) -> Result<()> {
+        let elapsed_ms = self.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        let heartbeat_ms = self.heartbeat_ms.load(Ordering::Acquire);
+        let timeout_ms = RESOURCE_HEARTBEAT_TIMEOUT.as_millis() as u64;
+        if elapsed_ms > timeout_ms && elapsed_ms.saturating_sub(heartbeat_ms) > timeout_ms {
+            bail!(
+                "provider_resource_guard_unavailable: resource monitor heartbeat stalled; the request was aborted"
+            );
+        }
+        let state = self.state.lock().map_err(|_| {
+            anyhow::anyhow!(
+                "provider_resource_guard_unavailable: resource monitor state is unavailable"
+            )
+        })?;
+        if state.measurement_failed {
+            bail!(
+                "provider_resource_guard_unavailable: memory or swap use could not be measured; the request was aborted"
+            );
+        }
+        if let Some(available) = state.available_memory_bytes
+            && available < self.guard.minimum_available_memory_bytes
+        {
+            bail!(
+                "provider_resource_guard_triggered: available memory fell to {available} bytes, below the {}-byte safety reserve; the request was aborted",
+                self.guard.minimum_available_memory_bytes
+            );
+        }
+        if let Some(swap) = state.swap_used_bytes {
+            let growth = swap.saturating_sub(self.guard.initial_swap_used_bytes);
+            if growth > self.guard.maximum_swap_growth_bytes {
+                bail!(
+                    "provider_resource_guard_triggered: swap grew by {growth} bytes, above the {}-byte limit; the request was aborted",
+                    self.guard.maximum_swap_growth_bytes
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for RuntimeResourceMonitor {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ResourcePreflight {
     pub model_size_bytes: u64,
@@ -31,11 +136,35 @@ pub struct ResourcePreflight {
 }
 
 fn command_text(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(args).output().ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    let mut child = Command::new(program)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let stdout = child.stdout.take()?;
+    let reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout
+            .take((RESOURCE_COMMAND_MAXIMUM_BYTES as u64).saturating_add(1))
+            .read_to_end(&mut bytes)
+            .map(|_| bytes)
+    });
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().ok()? {
+            break status;
+        }
+        if started.elapsed() >= RESOURCE_COMMAND_TIMEOUT {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    let bytes = reader.join().ok()?.ok()?;
+    (status.success() && bytes.len() <= RESOURCE_COMMAND_MAXIMUM_BYTES)
+        .then(|| String::from_utf8_lossy(&bytes).trim().to_owned())
 }
 
 fn parse_size(value: &str) -> Option<u64> {
@@ -209,31 +338,6 @@ pub fn preflight_resources(
         initial_swap_used_bytes: preflight.system.swap_used_bytes,
     };
     Ok((preflight, guard))
-}
-
-pub fn enforce_resource_guard(guard: RuntimeResourceGuard) -> Result<()> {
-    let available = available_memory_bytes().ok_or_else(|| {
-        anyhow::anyhow!(
-            "provider_resource_guard_unavailable: available memory could not be measured"
-        )
-    })?;
-    if available < guard.minimum_available_memory_bytes {
-        bail!(
-            "provider_resource_guard_triggered: available memory fell to {available} bytes, below the {}-byte safety reserve; the request was aborted",
-            guard.minimum_available_memory_bytes
-        );
-    }
-    let swap = swap_used_bytes().ok_or_else(|| {
-        anyhow::anyhow!("provider_resource_guard_unavailable: swap use could not be measured")
-    })?;
-    let growth = swap.saturating_sub(guard.initial_swap_used_bytes);
-    if growth > guard.maximum_swap_growth_bytes {
-        bail!(
-            "provider_resource_guard_triggered: swap grew by {growth} bytes, above the {}-byte limit; the request was aborted",
-            guard.maximum_swap_growth_bytes
-        );
-    }
-    Ok(())
 }
 
 #[cfg(test)]

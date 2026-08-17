@@ -68,9 +68,95 @@ mod tests {
             "provider_incomplete_response"
         )));
         assert_eq!(
-            classify_failure(b"error: provider_model_mismatch", false),
+            classify_failure(
+                br#"{"error":{"code":"provider_model_mismatch","message":"mismatch"}}"#,
+                false,
+            ),
             "provider_model_mismatch"
         );
+        assert_eq!(
+            classify_failure(b"error: provider_model_mismatch", false),
+            "artifact_unavailable"
+        );
+    }
+
+    #[test]
+    fn benchmark_independently_rejects_an_invented_artifact_reference() {
+        let candidate_id = "candidate-0123456789abcdef";
+        let empty_citations = || {
+            json!({
+                "candidates": [], "paths": [], "findings": [],
+                "relationships": [], "clusters": [], "excerpts": [],
+                "policies": [], "verification": []
+            })
+        };
+        let mut artifact = json!({
+            "schema_version": 1,
+            "command": "advise",
+            "generated_at": "2026-08-17T00:00:00Z",
+            "report": {"sha256": "a".repeat(64), "canonical_sha256": "b".repeat(64)},
+            "selector": {},
+            "candidate_ids": [candidate_id],
+            "context": {
+                "builder_version": 1,
+                "digest": "c".repeat(64),
+                "limits": {},
+                "missing_evidence": [],
+                "reference_index": {
+                    "candidates": [candidate_id], "paths": [], "findings": [],
+                    "relationships": [], "clusters": [], "excerpts": [],
+                    "policies": [], "verification": []
+                }
+            },
+            "policies": {"resolution_digest": "d".repeat(64), "packs": [], "conflicts": []},
+            "provider": {
+                "provider": "mock", "model": "test", "requested_runtime_model": "test",
+                "endpoint_classification": "none", "reasoning_effort": "medium",
+                "timeout_ms": 1, "max_response_bytes": 1, "max_output_tokens": 1,
+                "context_window_tokens": 1, "runtime_label": null, "model_digest": null
+            },
+            "timing": {
+                "context_elapsed_ms": 0, "provider_elapsed_ms": 0,
+                "validation_elapsed_ms": 0, "time_to_validated_artifact_ms": 0
+            },
+            "response_sha256": "e".repeat(64),
+            "evaluation": {
+                "schema_version": 1,
+                "reported_aggregate_verdict": "approve",
+                "aggregate_verdict": "approve",
+                "summary": "test",
+                "candidate_evaluations": [{
+                    "candidate_id": candidate_id,
+                    "aggregate_verdict": "approve",
+                    "rationale": "test",
+                    "citations": empty_citations(),
+                    "rule_evaluations": [{
+                        "rule_id": "test-rule", "verdict": "approve",
+                        "rationale": "test", "citations": empty_citations()
+                    }],
+                    "requested_revisions": [], "verification_steps": []
+                }],
+                "warnings": []
+            },
+            "validation": {
+                "status": "valid", "aggregate_recomputed": true,
+                "references_validated": true, "warnings": []
+            },
+            "boundary": "Policy-guided advice is non-mutating and advisory. It cannot rewrite detector truth or change git slop check results."
+        });
+        let report = PreparedReport {
+            path: PathBuf::new(),
+            sha256: "f".repeat(64),
+            raw_sha256: "a".repeat(64),
+            canonical_sha256: "b".repeat(64),
+        };
+        let assessment = assess_advice_artifact(&artifact, &report, 1).unwrap();
+        assert!(assessment.valid);
+        artifact["evaluation"]["candidate_evaluations"][0]["citations"]["paths"] =
+            json!(["src/invented.rs"]);
+        let assessment = assess_advice_artifact(&artifact, &report, 1).unwrap();
+        assert!(!assessment.valid);
+        assert_eq!(assessment.invalid_references, 1);
     }
 
     #[test]
@@ -283,6 +369,8 @@ mod tests {
                             .expected_report_sha256
                             .clone()
                             .unwrap_or_else(|| "0".repeat(64)),
+                        raw_sha256: "3".repeat(64),
+                        canonical_sha256: "4".repeat(64),
                     },
                 )
             })
@@ -368,6 +456,7 @@ mod tests {
                 corpus: &corpus,
                 reports: &reports,
                 thresholds: &thresholds,
+                provenance: &test_provenance(),
             },
             1,
             &samples,
@@ -476,7 +565,7 @@ mod tests {
         )
         .unwrap();
         let finalized: Value = serde_json::from_slice(&fs::read(&results).unwrap()).unwrap();
-        assert_eq!(finalized["recommendation"], "adjust");
+        assert_eq!(finalized["recommendation"], "defer");
         assert_eq!(
             finalized["summary"]["manual_quality_gates_passed"],
             true

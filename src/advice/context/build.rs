@@ -19,7 +19,11 @@ pub fn build_input(
     let mut candidates = build_candidates(&plans)?;
     apply_evaluation_scenario(&mut candidates, options.evaluation_scenario)?;
     let (source_paths, test_paths) = collect_candidate_paths(&candidates);
-    let report_bytes = fs::read(report_path)?;
+    let report_bytes = super::io::read_bounded(
+        report_path,
+        super::io::MAX_ADVICE_REPORT_BYTES,
+        "advice report",
+    )?;
     let report_digest = sha256(&report_bytes);
     let canonical_report_digest = canonical_digest(report)?;
     let applicable_rules = policies
@@ -267,7 +271,12 @@ pub fn cache_input(repo_root: &Path, input: &Value) -> Result<PathBuf> {
     let path = root.join(format!("{digest}.json"));
     let bytes = serde_json::to_vec(input)?;
     if path.exists() {
-        let existing: Value = serde_json::from_slice(&fs::read(&path)?)?;
+        let existing_bytes = super::io::read_bounded(
+            &path,
+            super::io::MAX_ADVICE_CONTEXT_CACHE_BYTES,
+            "advice context cache entry",
+        )?;
+        let existing: Value = serde_json::from_slice(&existing_bytes)?;
         if existing != *input {
             bail!(
                 "advice context cache digest collision at {}",

@@ -10,6 +10,7 @@ struct OutputInputs<'a> {
     corpus: &'a Corpus,
     reports: &'a BTreeMap<String, PreparedReport>,
     thresholds: &'a Thresholds,
+    provenance: &'a BenchmarkProvenance,
 }
 
 fn write_outputs(
@@ -24,6 +25,7 @@ fn write_outputs(
         corpus,
         reports,
         thresholds,
+        provenance,
     } = inputs;
     let report_digests = reports
         .iter()
@@ -212,8 +214,8 @@ fn write_outputs(
         "finished_unix_ms": now_ms(),
         "configuration": {
             "corpus": "corpus-v1", "thresholds": "thresholds-v1",
-            "corpus_sha256": sha256(&fs::read(resolve(&options.repo_root, &options.corpus))?),
-            "thresholds_sha256": sha256(&fs::read(resolve(&options.repo_root, &options.thresholds))?),
+            "corpus_sha256": sha256(&read_bounded(&resolve(&options.repo_root, &options.corpus), MAX_BENCHMARK_CONFIG_BYTES, "advisor corpus")?),
+            "thresholds_sha256": sha256(&read_bounded(&resolve(&options.repo_root, &options.thresholds), MAX_BENCHMARK_CONFIG_BYTES, "advisor thresholds")?),
             "provider": options.provider, "runtime_label": options.runtime_label, "runtime_model": options.runtime_model,
             "model": options.model, "model_digest": options.model_digest,
             "model_quantization": options.model_quantization,
@@ -228,6 +230,14 @@ fn write_outputs(
             "repetitions": options.repetitions, "full_matrix": options.full_matrix,
             "repository_keys": reports.keys().map(String::as_str).collect::<BTreeSet<_>>(),
             "repository_revisions": corpus.repositories.iter().map(|(key, fixture)| (key, fixture.revision.as_str())).collect::<BTreeMap<_, _>>()
+            ,"harness_revision": provenance.harness_revision,
+            "binary_sha256": provenance.binary_sha256,
+            "binary_source_revision": provenance.binary_source_revision,
+            "binary_version": provenance.binary_version,
+            "binary_target": provenance.binary_target,
+            "binary_build_source": provenance.binary_build_source,
+            "binary_inference_feature_enabled": provenance.binary_inference_feature_enabled,
+            "child_deadline_seconds": BENCHMARK_CHILD_DEADLINE_SECONDS
         },
         "system": system_profile(),
         "thresholds": thresholds,
@@ -247,6 +257,12 @@ fn write_outputs(
             "Do not retry or accept evidence from this runtime. Verify the separately provisioned served-model identity before authorizing a fresh run."
         } else if termination_reason == Some("benchmark_child_output_limit") {
             "Do not retry until the unexpected child output volume is understood and bounded. Inspect the retained diagnostics without starting a provider on this host."
+        } else if termination_reason == Some("benchmark_checkpoint") {
+            "The benchmark is still running. This fail-closed checkpoint preserves completed cells and cannot authorize release."
+        } else if termination_reason == Some("operator_interrupt") {
+            "The operator interrupted the benchmark. Inspect the preserved incomplete evidence before authorizing any fresh run."
+        } else if termination_reason == Some("benchmark_child_deadline") {
+            "The parent-owned child deadline expired. Inspect the preserved incomplete evidence; do not retry until the stall is understood."
         } else {
             "Do not retry on this host. Inspect the safety-guard result, recover the runtime separately, and use a different adequately resourced dedicated host."
         };
