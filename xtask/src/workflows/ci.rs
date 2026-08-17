@@ -217,7 +217,11 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
         "cargo build -p git-slop --release --locked",
         "target/release/git-slop find",
         "dogfood-pr-base",
-        "--fail-on-regression",
+        "--format json --detail full --limit 1000",
+        "scripts/verify-dogfood-regressions.sh",
+        "config/github/dogfood-regression-acceptances.json",
+        "BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+        "HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
         "target/release/git-slop check --report .slop/latest/report.json --evaluate-only",
         "Scan a repository with no configuration override",
         "cat .slop/latest/health.md",
@@ -230,6 +234,61 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
     forbid(&text, "path: .slop/latest\n", name, errors);
     forbid(&text, "uv run git-slop", name, errors);
     forbid(&text, "check || true", name, errors);
+
+    let Some(repo_root) = workflows.parent().and_then(Path::parent) else {
+        errors.push(format!("{name} repository root could not be resolved."));
+        return;
+    };
+    let verifier_name = "scripts/verify-dogfood-regressions.sh";
+    if let Some(verifier) = read(&repo_root.join(verifier_name), errors) {
+        for expected in [
+            "pagination.regressions.has_more == false",
+            ".base_report.head_sha == $base",
+            ".head_report.head_sha == $head",
+            ".repo.head_sha == $head",
+            "content_sha256",
+            "maximum_slop_score",
+            ".severity == \"notice\" or .severity == \"warning\"",
+            "dogfood regressions exceed or drift from the reviewed acceptance ledger",
+        ] {
+            require(&verifier, expected, verifier_name, errors);
+        }
+    }
+
+    let manifest_name = "config/github/dogfood-regression-acceptances.json";
+    let Some(manifest_text) = read(&repo_root.join(manifest_name), errors) else {
+        return;
+    };
+    let manifest: serde_json::Value = match serde_json::from_str(&manifest_text) {
+        Ok(value) => value,
+        Err(error) => {
+            errors.push(format!("{manifest_name} is not valid JSON: {error}"));
+            return;
+        }
+    };
+    if manifest.get("schema_version") != Some(&serde_json::json!(1)) {
+        errors.push(format!("{manifest_name} must use schema version 1."));
+    }
+    let entries = manifest
+        .get("acceptances")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|acceptance| acceptance.get("entries"))
+        .filter_map(serde_json::Value::as_array)
+        .flatten()
+        .collect::<Vec<_>>();
+    if entries.is_empty() {
+        errors.push(format!("{manifest_name} must contain reviewed entries."));
+    }
+    if entries
+        .iter()
+        .any(|entry| entry.get("severity") == Some(&serde_json::json!("critical")))
+    {
+        errors.push(format!(
+            "{manifest_name} must never accept a critical regression."
+        ));
+    }
 }
 
 fn validate_ci(repo_root: &Path, workflows: &Path, errors: &mut Vec<String>) {

@@ -78,6 +78,7 @@ jobs:
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           base_worktree="$RUNNER_TEMP/git-slop-base"
@@ -101,9 +102,19 @@ jobs:
 
       - name: Enforce pull-request regressions
         if: github.event_name == 'pull_request' && steps.pr-baseline.outputs.enforce == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          set -euo pipefail
+          comparison="$RUNNER_TEMP/dogfood-comparison.json"
           target/release/git-slop compare --state-dir "$RUNNER_TEMP/dogfood-baselines" \
-            --baseline dogfood-pr-base --head .slop/latest/report.json --fail-on-regression
+            --baseline dogfood-pr-base --head .slop/latest/report.json \
+            --format json --detail full --limit 1000 >"$comparison"
+          scripts/verify-dogfood-regressions.sh \
+            config/github/dogfood-regression-acceptances.json \
+            "$comparison" .slop/latest/report.json "$BASE_SHA" "$HEAD_SHA"
+          target/release/git-slop compare --state-dir "$RUNNER_TEMP/dogfood-baselines" \
+            --baseline dogfood-pr-base --head .slop/latest/report.json
 
       - name: Preview first-adoption comparison
         if: github.event_name == 'pull_request' && steps.pr-baseline.outputs.enforce != 'true'
