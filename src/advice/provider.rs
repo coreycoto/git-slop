@@ -133,6 +133,16 @@ mod tests {
         one_shot_server_with_hold(response, delay, Duration::ZERO)
     }
 
+    fn one_shot_disconnect_server() -> (String, JoinHandle<()>) {
+        let listener =
+            TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("bind test provider");
+        let address = listener.local_addr().expect("test provider address");
+        let handle = thread::spawn(move || {
+            let _ = listener.accept().expect("accept test request");
+        });
+        (format!("http://{address}/v1/chat/completions"), handle)
+    }
+
     fn fixed_response(status: &str, body: &[u8]) -> Vec<u8> {
         format!(
             "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -374,16 +384,13 @@ mod tests {
         );
         handle.join().expect("missing-model server thread");
 
-        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .expect("bind unavailable endpoint");
-        let address = listener.local_addr().expect("unavailable address");
-        drop(listener);
+        let (endpoint, handle) = one_shot_disconnect_server();
         let mut unavailable = config();
-        unavailable.endpoint = format!("http://{address}/v1/chat/completions");
-        unavailable.timeout = Duration::from_millis(100);
+        unavailable.endpoint = endpoint;
         let error = invoke(&json!({"schema_version": 1}), &unavailable)
-            .expect_err("closed endpoint must fail");
+            .expect_err("disconnected endpoint must fail");
         assert!(format!("{error:#}").contains("provider_unavailable"));
+        handle.join().expect("disconnected server thread");
 
         let (endpoint, handle) = one_shot_server(
             fixed_response("200 OK", br#"{"choices":[]}"#),

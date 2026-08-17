@@ -789,7 +789,7 @@
           "type": "integer"
         },
         "health_band": {
-          "$ref": "#/$defs/context_band"
+          "$ref": "#/$defs/health_band"
         },
         "lines": {
           "type": "integer"
@@ -939,6 +939,14 @@
         "findings"
       ],
       "type": "object"
+    },
+    "health_band": {
+      "enum": [
+        "compact",
+        "healthy",
+        "warning",
+        "budget_exceeded"
+      ]
     },
     "index_collection_metadata": {
       "additionalProperties": false,

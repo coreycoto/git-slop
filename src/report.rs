@@ -151,5 +151,13 @@ mod tests {
             serde_json::from_str(include_str!("../schemas/report-5.json"))
                 .expect("published report schema");
         assert_eq!(published, super::write::schema());
+        assert_eq!(
+            published.pointer("/$defs/folder/properties/health_band/$ref"),
+            Some(&json!("#/$defs/health_band"))
+        );
+        assert_eq!(
+            published.pointer("/$defs/health_band/enum"),
+            Some(&json!(["compact", "healthy", "warning", "budget_exceeded"]))
+        );
     }
 }
