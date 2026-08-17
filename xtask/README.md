@@ -42,6 +42,12 @@ cargo xtask homebrew-formula \
 fragment, run `cargo xtask generate-release-workflow`, and validate the exact
 generated workflow before review.
 
+Dependabot groups routine Cargo minor and patch updates, but keeps
+`tiktoken-rs` independent because its pre-1.0 releases can change tokenizer
+behavior or the supported Rust floor. It ignores
+`Homebrew/actions/setup-homebrew` because that pin lives in a release-workflow
+source fragment; update the fragment and regenerate the workflow as one change.
+
 The validation commands are read-only. `release-prepare` accepts an exact
 candidate `HEAD` before its future tag exists, runs local Rust quality,
 packaging, and crates.io dry-run gates, and performs no publication. It never

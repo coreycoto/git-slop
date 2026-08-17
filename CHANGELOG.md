@@ -34,6 +34,9 @@ with local 16-GB M2/Ollama execution explicitly prohibited. Maintainer modules
 now separate advice artifacts, provider adaptation, and benchmark orchestration
 into focused files, while adjacent contract tests and an authoritative schema
 routing catalog make high-risk validation paths easier to change safely.
+Dependency automation now isolates tokenizer upgrades and SemVer-major changes,
+protects the Rust 1.85 floor, and routes generated release-workflow Actions
+through their owning source fragments.
 
 See the [complete numbered 0.16.1 release notes](docs/releases/0.16.1.md).
 

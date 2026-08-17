@@ -9,6 +9,12 @@ updates:
     groups:
       rust-dependencies:
         patterns: ["*"]
+        # Keep MSRV- or output-sensitive upgrades independently reviewable.
+        exclude-patterns:
+          - "tiktoken-rs"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: github-actions
     directory: /
@@ -19,3 +25,7 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
+    # release-publish.yml is generated. Update this Action in the owning stage
+    # fragment and regenerate the workflow so its source and tests stay aligned.
+    ignore:
+      - dependency-name: "Homebrew/actions/setup-homebrew"

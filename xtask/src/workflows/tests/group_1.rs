@@ -126,8 +126,8 @@
             ),
             (
                 valid.replacen(
-                    "Homebrew/actions/setup-homebrew@c8707045ccae42888fe98e86f2ee8938bc7cc193",
-                    "actions/setup-homebrew@c8707045ccae42888fe98e86f2ee8938bc7cc193",
+                    "Homebrew/actions/setup-homebrew@8f3d1ec8a696b3b9d9a6c3696b6c73033cab69e4",
+                    "actions/setup-homebrew@8f3d1ec8a696b3b9d9a6c3696b6c73033cab69e4",
                     1,
                 ),
                 "must use the Homebrew setup Action",

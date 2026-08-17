@@ -222,7 +222,7 @@ fn run(cli: Cli) -> Result<()> {
             let mut errors = codex::validate(&repo_root, require_codex_cli);
             errors.extend(workflows::validate(&repo_root));
             errors.extend(issue_forms::validate(&repo_root));
-            errors.extend(repository::validate_overlays(&repo_root));
+            errors.extend(repository::validate(&repo_root));
             errors.extend(distribution::validate(&repo_root));
             finish_validation("Repository", errors)
         }
