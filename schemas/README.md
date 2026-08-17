@@ -31,4 +31,10 @@ identities; compatible later releases intentionally retain the introduction URL.
   inputs, bounded maintainer ratings, privacy-safe machine-readable
   performance/quality results, and provider-free host eligibility receipts
 
+`advisor-benchmark-1.json` is strict at every nested object and distinguishes
+prepare-only, completed, interrupted, unfinalized, finalized, and shippable
+states. Maintainer tooling validates the exact schema before each output write;
+finalization binds the exact sample matrix and repository evidence to the
+pinned corpus, rederives automatic evidence, and binds the ratings digest.
+
 `build-info-1.json` remains published for consumers of releases through 0.11.x.

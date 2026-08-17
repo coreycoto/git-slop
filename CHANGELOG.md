@@ -13,7 +13,10 @@ served-model and completion identity, handles HTTP framing and child pipes
 without hangs, and structurally validates Cargo feature isolation. A second
 follow-up makes capacity receipts exhaustive and schema-bound, bounds retained
 benchmark output, hardens HTTP encoding and IPv6 handling, and separates the
-provider transport from policy-response logic.
+provider transport from policy-response logic. A third follow-up defers every
+provider connection until local validation is complete, redacts transport and
+provenance diagnostics, makes the benchmark result contract strict, and makes
+benchmark finalization recompute evidence before rollback-safe paired writes.
 
 See the [complete numbered 0.16.1 release notes](docs/releases/0.16.1.md).
 

@@ -56,7 +56,13 @@ the stable status.
 An explicit review directory must be absolute and outside this repository;
 validated case artifacts written there remain private. After review,
 `advisor-benchmark-finalize` binds the private ratings digest to an existing
-completed result and recalculates its manual gates without rerunning inference.
+completed result without rerunning inference. It is the only ratings entry
+point. The finalizer schema-validates the result, verifies its source digests
+and thresholds, binds the exact matrix and repository evidence to the pinned
+corpus, recomputes its recommendation and automatic gates from samples, and
+refuses already finalized evidence before adding manual gates. It also requires
+the current decision report to match its JSON result and regenerates the report
+from the finalized result.
 
 `advisor-capacity` is the provider-free first gate for proposed benchmark
 hardware. It reads only physical memory, available memory, and swap, never
@@ -71,7 +77,11 @@ machine.
 The benchmark retains at most 8 MiB from each child stdout/stderr stream while
 continuing to drain both. Crossing either boundary terminates the matrix with a
 privacy-safe incomplete result instead of deadlocking or consuming unbounded
-maintainer memory.
+maintainer memory. Its new temporary workspace is mode 0700 on Unix and uses a
+distinct artifact path for every sample. Prepare-only, aggregate, interrupted,
+and finalized results must pass the strict published `advisor-benchmark-1`
+schema before `results.json` and `decision.md` are replaced as a rollback-safe
+pair.
 
 After the protected workflow publishes the crate, `verify-crate` checks the
 downloaded `.crate` checksum, exact package archive boundary, Cargo package

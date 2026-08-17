@@ -310,3 +310,56 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
         .code(2)
         .stderr(predicate::str::contains("stale"));
 }
+
+#[cfg(feature = "advisor-inference-benchmark")]
+#[test]
+fn advise_finishes_local_validation_before_provider_contact() {
+    let repository = repository();
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .expect("bind synthetic provider");
+    listener
+        .set_nonblocking(true)
+        .expect("set synthetic provider nonblocking");
+    let endpoint = format!(
+        "http://{}/v1/chat/completions",
+        listener.local_addr().expect("synthetic provider address")
+    );
+
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .env("GIT_SLOP_ADVISOR_BENCHMARK", "1")
+        .args([
+            "advise",
+            "--top",
+            "1",
+            "--infer",
+            "--provider",
+            "openai-compatible",
+            "--endpoint",
+            &endpoint,
+            "--model",
+            "openai/gpt-oss-safeguard-20b",
+            "--runtime-model",
+            "synthetic-runtime-model",
+            "--runtime-label",
+            "synthetic-runtime",
+            "--model-digest",
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "--model-size-bytes",
+            "13793441254",
+            "--estimated-peak-memory-bytes",
+            "17179869184",
+            "--confirm-resources",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("report"));
+
+    let accepted = listener.accept();
+    assert!(
+        accepted
+            .as_ref()
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::WouldBlock),
+        "provider was contacted before local report validation: {accepted:?}"
+    );
+}

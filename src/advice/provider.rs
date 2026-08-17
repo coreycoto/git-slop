@@ -235,6 +235,10 @@ mod tests {
         assert_eq!(result.response["schema_version"], 1);
         assert_eq!(result.metadata["provider"], "ollama");
         assert_eq!(result.metadata["usage"]["prompt_tokens"], 20);
+        assert!(
+            result.metadata.get("endpoint").is_none(),
+            "provider provenance must not retain endpoint paths"
+        );
         assert_eq!(
             result.metadata["runtime_timings"]["prompt_eval_duration"],
             200
@@ -366,8 +370,8 @@ mod tests {
             "unexpected provider diagnostic: {diagnostic}"
         );
         assert!(
-            diagnostic.contains("model is not available"),
-            "unexpected provider diagnostic: {diagnostic}"
+            !diagnostic.contains("model is not available"),
+            "provider response bodies must not enter diagnostics: {diagnostic}"
         );
         handle.join().expect("missing-model server thread");
 
@@ -393,6 +397,39 @@ mod tests {
             .expect_err("stalled provider must time out");
         assert!(format!("{error:#}").contains("provider_timeout"));
         handle.join().expect("timeout server thread");
+    }
+
+    #[test]
+    fn provider_provenance_keeps_only_bounded_scalar_metadata() {
+        let envelope = json!({
+            "system_fingerprint": "unsafe fingerprint with spaces",
+            "total_duration": "private timing label",
+            "load_duration": 42,
+            "usage": {
+                "prompt_tokens": 12,
+                "completion_tokens": 3,
+                "total_tokens": 15,
+                "private_prompt": "must not be retained"
+            }
+        });
+        assert_eq!(safe_system_fingerprint(&envelope), Value::Null);
+        assert_eq!(
+            openai_usage(&envelope),
+            json!({
+                "prompt_tokens": 12,
+                "completion_tokens": 3,
+                "total_tokens": 15
+            })
+        );
+        assert_eq!(
+            safe_system_fingerprint(&json!({"system_fingerprint": "fp_123-safe"})),
+            "fp_123-safe"
+        );
+        assert_eq!(
+            numeric_metadata_field(&envelope, "total_duration"),
+            Value::Null
+        );
+        assert_eq!(numeric_metadata_field(&envelope, "load_duration"), 42);
     }
 }
 
@@ -537,6 +574,45 @@ fn validate_ollama_completion(payload: &Value) -> Result<()> {
     Ok(())
 }
 
+fn safe_system_fingerprint(payload: &Value) -> Value {
+    payload
+        .get("system_fingerprint")
+        .and_then(Value::as_str)
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 128
+                && value.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-')
+                })
+        })
+        .map_or(Value::Null, |value| Value::String(value.to_string()))
+}
+
+fn openai_usage(payload: &Value) -> Value {
+    let usage = payload.get("usage").unwrap_or(&Value::Null);
+    let prompt_tokens = usage
+        .get("prompt_tokens")
+        .or_else(|| usage.get("input_tokens"))
+        .and_then(Value::as_u64);
+    let completion_tokens = usage
+        .get("completion_tokens")
+        .or_else(|| usage.get("output_tokens"))
+        .and_then(Value::as_u64);
+    let total_tokens = usage.get("total_tokens").and_then(Value::as_u64);
+    json!({
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    })
+}
+
+fn numeric_metadata_field(payload: &Value, key: &str) -> Value {
+    payload
+        .get(key)
+        .and_then(Value::as_u64)
+        .map_or(Value::Null, Value::from)
+}
+
 pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> {
     let started = Instant::now();
     match config.kind {
@@ -553,7 +629,6 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
                     "provider": "mock",
                     "model": config.model,
                     "requested_runtime_model": config.runtime_model,
-                    "endpoint": Value::Null,
                     "endpoint_classification": "none",
                     "reasoning_effort": config.reasoning_effort,
                     "timeout_ms": config.timeout.as_millis(),
@@ -590,8 +665,7 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
                     "model": config.model,
                     "requested_runtime_model": config.runtime_model,
                     "runtime_model": envelope.get("model").cloned().unwrap_or(Value::Null),
-                    "system_fingerprint": envelope.get("system_fingerprint").cloned().unwrap_or(Value::Null),
-                    "endpoint": config.endpoint,
+                    "system_fingerprint": safe_system_fingerprint(&envelope),
                     "endpoint_classification": endpoint.classification(),
                     "reasoning_effort": config.reasoning_effort,
                     "connect_timeout_ms": config.connect_timeout.as_millis(),
@@ -602,14 +676,14 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
                     "runtime_label": config.runtime_label,
                     "model_digest": config.model_digest,
                     "resource_preflight": config.resource_preflight,
-                    "usage": envelope.get("usage").cloned().unwrap_or(Value::Null),
+                    "usage": openai_usage(&envelope),
                     "runtime_timings": {
-                        "total_duration": envelope.get("total_duration").cloned().unwrap_or(Value::Null),
-                        "load_duration": envelope.get("load_duration").cloned().unwrap_or(Value::Null),
-                        "prompt_eval_duration": envelope.get("prompt_eval_duration").cloned().unwrap_or(Value::Null),
-                        "eval_duration": envelope.get("eval_duration").cloned().unwrap_or(Value::Null),
-                        "prompt_eval_count": envelope.get("prompt_eval_count").cloned().unwrap_or(Value::Null),
-                        "eval_count": envelope.get("eval_count").cloned().unwrap_or(Value::Null)
+                        "total_duration": numeric_metadata_field(&envelope, "total_duration"),
+                        "load_duration": numeric_metadata_field(&envelope, "load_duration"),
+                        "prompt_eval_duration": numeric_metadata_field(&envelope, "prompt_eval_duration"),
+                        "eval_duration": numeric_metadata_field(&envelope, "eval_duration"),
+                        "prompt_eval_count": numeric_metadata_field(&envelope, "prompt_eval_count"),
+                        "eval_count": numeric_metadata_field(&envelope, "eval_count")
                     },
                 }),
                 elapsed_ms: started.elapsed().as_millis(),
@@ -639,7 +713,6 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
                     "requested_runtime_model": config.runtime_model,
                     "runtime_model": envelope.get("model").cloned().unwrap_or(Value::Null),
                     "system_fingerprint": Value::Null,
-                    "endpoint": config.endpoint,
                     "endpoint_classification": endpoint.classification(),
                     "reasoning_effort": config.reasoning_effort,
                     "connect_timeout_ms": config.connect_timeout.as_millis(),
@@ -651,16 +724,16 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
                     "model_digest": config.model_digest,
                     "resource_preflight": config.resource_preflight,
                     "usage": {
-                        "prompt_tokens": envelope.get("prompt_eval_count").cloned().unwrap_or(Value::Null),
-                        "completion_tokens": envelope.get("eval_count").cloned().unwrap_or(Value::Null),
+                        "prompt_tokens": numeric_metadata_field(&envelope, "prompt_eval_count"),
+                        "completion_tokens": numeric_metadata_field(&envelope, "eval_count"),
                     },
                     "runtime_timings": {
-                        "total_duration": envelope.get("total_duration").cloned().unwrap_or(Value::Null),
-                        "load_duration": envelope.get("load_duration").cloned().unwrap_or(Value::Null),
-                        "prompt_eval_duration": envelope.get("prompt_eval_duration").cloned().unwrap_or(Value::Null),
-                        "eval_duration": envelope.get("eval_duration").cloned().unwrap_or(Value::Null),
-                        "prompt_eval_count": envelope.get("prompt_eval_count").cloned().unwrap_or(Value::Null),
-                        "eval_count": envelope.get("eval_count").cloned().unwrap_or(Value::Null)
+                        "total_duration": numeric_metadata_field(&envelope, "total_duration"),
+                        "load_duration": numeric_metadata_field(&envelope, "load_duration"),
+                        "prompt_eval_duration": numeric_metadata_field(&envelope, "prompt_eval_duration"),
+                        "eval_duration": numeric_metadata_field(&envelope, "eval_duration"),
+                        "prompt_eval_count": numeric_metadata_field(&envelope, "prompt_eval_count"),
+                        "eval_count": numeric_metadata_field(&envelope, "eval_count")
                     },
                 }),
                 elapsed_ms: started.elapsed().as_millis(),

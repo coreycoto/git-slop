@@ -305,6 +305,62 @@ fn advisor_capacity_schema_is_strict_and_provider_free() {
 }
 
 #[test]
+fn advisor_benchmark_schema_rejects_nested_contract_drift() {
+    let schema: serde_json::Value = serde_json::from_slice(
+        &fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("schemas/advisor-benchmark-1.json"),
+        )
+        .expect("advisor benchmark schema"),
+    )
+    .expect("advisor benchmark schema JSON");
+    let validator = jsonschema::draft202012::options()
+        .should_validate_formats(true)
+        .build(&schema)
+        .expect("compiled advisor benchmark schema");
+    let digest = "a".repeat(64);
+    let mut receipt = json!({
+        "schema_version": 1,
+        "status": "incomplete",
+        "configuration": {
+            "corpus": "org.git-slop.safeguard-v1-gold",
+            "mode": "prepare-only",
+            "corpus_sha256": digest,
+            "thresholds_sha256": "b".repeat(64)
+        },
+        "system": {
+            "architecture": null,
+            "os_release": null,
+            "macos_version": null,
+            "hardware_model": null,
+            "physical_memory_bytes": null,
+            "cpu": null,
+            "privacy": "No username, home path, serial number, hardware UUID, repository path, source excerpt, prompt, or rationale is recorded."
+        },
+        "repositories": {
+            "fixture": {
+                "revision": "c".repeat(40),
+                "as_of": "2026-01-01T00:00:00Z",
+                "report_sha256": "d".repeat(64),
+                "matches_expected": true
+            }
+        },
+        "recommended_configuration": null,
+        "recommendation": "defer",
+        "next_step": "Pin the prepared report fingerprint."
+    });
+    assert!(validator.is_valid(&receipt));
+    receipt["configuration"]["unexpected"] = json!(true);
+    assert!(!validator.is_valid(&receipt));
+    receipt["configuration"]
+        .as_object_mut()
+        .expect("configuration object")
+        .remove("unexpected");
+    receipt["repositories"]["fixture"]["unexpected"] = json!(true);
+    assert!(!validator.is_valid(&receipt));
+}
+
+#[test]
 fn doctor_fails_closed_when_the_active_detector_cache_is_not_writable() {
     let repository = fixture_repository();
     let private_root = repository.path().join(".git/git-slop");

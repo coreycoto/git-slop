@@ -1,3 +1,18 @@
+fn privacy_safe_benchmark_runtime_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 200
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && !value.ends_with(':')
+        && !value.contains(":/")
+        && !value.contains("::")
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._+:/@-".contains(&byte))
+}
+
 fn prepare_review_directory(options: &Options) -> Result<Option<PathBuf>> {
     let Some(requested) = options.review_output_dir.as_deref() else {
         return Ok(None);
@@ -376,13 +391,21 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
     }
     if options.runtime_label.len() > 100
         || options.runtime_label.is_empty()
+        || !options
+            .runtime_label
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
         || options.runtime_label.chars().any(|character| {
             !(character.is_ascii_alphanumeric()
-                || character.is_ascii_whitespace()
+                || character == ' '
                 || "._+-()".contains(character))
         })
     {
         bail!("--runtime-label must be a short privacy-safe runtime name and version");
+    }
+    if !privacy_safe_benchmark_runtime_identifier(&options.runtime_model) {
+        bail!("--runtime-model must be a privacy-safe runtime identifier");
     }
     let immutable_model_digest = options
         .model_digest
@@ -418,11 +441,9 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
     if options.prepare_only {
         return write_preflight(options, &corpus, &reports);
     }
-    let efforts: &[&str] = if options.full_matrix {
-        &["low", "medium", "high"]
-    } else {
-        &["medium"]
-    };
+    let sample_artifacts = temporary.path.join("sample-artifacts");
+    fs::create_dir(&sample_artifacts)?;
+    let efforts = expected_efforts(options.full_matrix);
     let started = now_ms();
     let mut samples = Vec::new();
     let mut first = true;
@@ -438,25 +459,23 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
         let report = reports
             .get(&case.repository)
             .expect("mapped repository has a prepared report");
-        let contexts: &[usize] = if options.full_matrix {
-            match case.candidate_count {
-                1 => &[2_048, 4_096, 8_192],
-                2 | 3 => &[4_096, 8_192],
-                _ => &[8_192],
-            }
-        } else {
-            &[8_192]
-        };
+        let contexts = expected_contexts(options.full_matrix, case.candidate_count);
         for effort in efforts {
             for context in contexts {
                 for repetition in 1..=options.repetitions {
-                    let artifact_path = std::env::temp_dir().join(format!(
-                        "git-slop-advisor-benchmark-{}-{}-{}-{}.json",
-                        std::process::id(),
+                    let artifact_path = sample_artifacts.join(format!(
+                        "{}-{}-{}-{}.json",
                         case.id,
                         effort,
+                        context,
                         repetition
                     ));
+                    if artifact_path.exists() {
+                        bail!(
+                            "refusing to reuse benchmark sample artifact {}",
+                            artifact_path.display()
+                        );
+                    }
                     let output_token_limit = case.candidate_count.saturating_mul(2_048).min(8_192);
                     let mut args = vec![
                         "--repo".to_string(),
@@ -550,14 +569,12 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                             )?;
                         }
                     }
-                    let (matched, total) = artifact
+                    let (matched, _) = artifact
                         .as_ref()
                         .map(|artifact| rule_scores(artifact, &case.expected_rule_verdicts))
-                        .unwrap_or((
-                            0,
-                            high_severity_expectation_count(&case.expected_rule_verdicts)
-                                * case.candidate_count,
-                        ));
+                        .unwrap_or((0, 0));
+                    let total = high_severity_expectation_count(&case.expected_rule_verdicts)
+                        * case.candidate_count;
                     let aggregate = artifact
                         .as_ref()
                         .and_then(|artifact| artifact.pointer("/evaluation/aggregate_verdict"))
@@ -591,11 +608,11 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         output_token_limit,
                         repetition,
                         phase: if first && options.initial_runtime_state == "cold" {
-                            "cold"
+                            "cold".to_string()
                         } else {
-                            "warm"
+                            "warm".to_string()
                         },
-                        status: if sample_valid { "valid" } else { "failed" },
+                        status: if sample_valid { "valid" } else { "failed" }.to_string(),
                         exit_code: output.status.code(),
                         total_elapsed_ms: elapsed,
                         peak_process_rss_bytes: monitored.peak_process_rss_bytes,
@@ -740,7 +757,6 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
             }
         }
     }
-    let manual = ratings(options.ratings.as_deref(), &corpus)?;
     write_outputs(
         options,
         &OutputInputs {
@@ -750,7 +766,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
         },
         started,
         &samples,
-        manual.as_ref(),
+        None,
         None,
     )
 }

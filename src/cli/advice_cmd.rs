@@ -45,6 +45,35 @@ fn immutable_model_digest(value: &str) -> bool {
     })
 }
 
+fn privacy_safe_runtime_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 200
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && !value.ends_with(':')
+        && !value.contains(":/")
+        && !value.contains("::")
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._+:/@-".contains(&byte))
+}
+
+fn privacy_safe_runtime_label(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 100
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || byte == b' '
+                || b"._+-()".contains(&byte)
+        })
+}
+
 fn inference_provider_config(
     args: &AdviseArgs,
     gate: &crate::advice::AdvisorReleaseGate,
@@ -72,13 +101,22 @@ fn inference_provider_config(
     }
     let runtime_model =
         inference_argument(&args.runtime_model, "--runtime-model", "/runtime_model")?;
+    if !privacy_safe_runtime_identifier(&runtime_model) {
+        return Err(ClassifiedError::new(
+            ErrorKind::Contract,
+            "advisor_runtime_model_invalid",
+            "--runtime-model must be a privacy-safe runtime identifier of 200 characters or fewer",
+        )
+        .at("/runtime_model")
+        .into());
+    }
     let runtime_label =
         inference_argument(&args.runtime_label, "--runtime-label", "/runtime_label")?;
-    if runtime_label.len() > 100 {
+    if !privacy_safe_runtime_label(&runtime_label) {
         return Err(ClassifiedError::new(
             ErrorKind::Contract,
             "advisor_runtime_label_invalid",
-            "--runtime-label must be 100 characters or fewer",
+            "--runtime-label must be a short privacy-safe runtime name and version",
         )
         .at("/runtime_label")
         .into());
@@ -212,8 +250,8 @@ fn run_advise(repo_root: &Path, args: AdviseArgs) -> Result<i32> {
         .into());
     }
 
-    let gate = crate::advice::release_gate()?;
-    let provider_config = if args.infer {
+    let gate = if args.infer {
+        let gate = crate::advice::release_gate()?;
         let benchmark_inference_enabled = benchmark_mode
             && (cfg!(feature = "advisor-inference-benchmark")
                 || args.provider == Some(crate::advice::ProviderKind::Mock));
@@ -229,10 +267,7 @@ fn run_advise(repo_root: &Path, args: AdviseArgs) -> Result<i32> {
             .at("/infer")
             .into());
         }
-        eprintln!("Advisor phase 1/4: validating release, capacity, and provider boundaries.");
-        let (config, _preflight) = inference_provider_config(&args, &gate)?;
-        crate::advice::probe(&config)?;
-        Some(config)
+        Some(gate)
     } else {
         None
     };
@@ -254,6 +289,11 @@ fn run_advise(repo_root: &Path, args: AdviseArgs) -> Result<i32> {
         .at("/runtime_context_tokens")
         .into());
     }
+    if args.infer {
+        eprintln!(
+            "Advisor phase 1/4: validating the report, policy, context, and release boundaries without provider contact."
+        );
+    }
     let (report_value, report_path) =
         report_or_missing_with_currentness(repo_root, args.report.as_deref(), true)?;
     if let Some(artifact_path) = args.validate_artifact.as_deref() {
@@ -268,9 +308,6 @@ fn run_advise(repo_root: &Path, args: AdviseArgs) -> Result<i32> {
         return Ok(0);
     }
 
-    if args.infer {
-        eprintln!("Advisor phase 2/4: building bounded deterministic context.");
-    }
     let policies = crate::policy::resolve_for_advice(repo_root, &args.policies)?;
     let context_started = std::time::Instant::now();
     let input = crate::advice::build_input(
@@ -307,12 +344,20 @@ fn run_advise(repo_root: &Path, args: AdviseArgs) -> Result<i32> {
         return Ok(0);
     }
 
-    let mut provider_config = provider_config.expect("--infer resolves a provider configuration");
+    eprintln!(
+        "Advisor phase 2/4: validating capacity and probing the explicit provider only after local validation completed."
+    );
+    let (mut provider_config, _preflight) = inference_provider_config(
+        &args,
+        gate.as_ref()
+            .expect("non-context advice requires an inference release gate"),
+    )?;
     provider_config.context_window_tokens = runtime_context_tokens;
     provider_config.mock_response = provider_config
         .mock_response
         .as_deref()
         .map(|path| resolve_repo_path(repo_root, path));
+    crate::advice::probe(&provider_config)?;
     eprintln!(
         "Advisor phase 3/4: invoking the explicit provider; press Ctrl-C to cancel. The timeout covers model loading and generation."
     );
@@ -359,4 +404,22 @@ fn run_advise(repo_root: &Path, args: AdviseArgs) -> Result<i32> {
         );
     }
     Ok(0)
+}
+
+#[cfg(test)]
+mod advice_cmd_tests {
+    use super::*;
+
+    #[test]
+    fn runtime_provenance_identifiers_are_privacy_safe() {
+        assert!(privacy_safe_runtime_identifier("gpt-oss-safeguard:20b"));
+        assert!(privacy_safe_runtime_identifier("org/model@sha256:abc"));
+        assert!(!privacy_safe_runtime_identifier("/Users/example/model"));
+        assert!(!privacy_safe_runtime_identifier("C:/Users/example/model"));
+        assert!(!privacy_safe_runtime_identifier("private path/model"));
+        assert!(!privacy_safe_runtime_identifier("model\nsecret"));
+        assert!(privacy_safe_runtime_label("Runtime 1.2 (dedicated)"));
+        assert!(!privacy_safe_runtime_label(" Runtime 1.2"));
+        assert!(!privacy_safe_runtime_label("Runtime /Users/example"));
+    }
 }

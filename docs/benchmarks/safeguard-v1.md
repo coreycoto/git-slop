@@ -12,7 +12,8 @@ revision mismatch, an undeclared repository key, and report-fingerprint drift.
 It generates schema-5 reports into a private temporary directory with a fixed
 `--as-of`, disables the detector cache, runs advice with `--ephemeral`, and
 removes report, context, prompt, response, rationale, and advice data when the
-process ends.
+process ends. On Unix, that new workspace is mode 0700. Each matrix cell and
+repetition gets a distinct non-reusable artifact path inside it.
 
 The pinned semantic report fingerprint canonicalizes JSON and excludes only
 the report's measured elapsed time, estimator error, process RSS, and derived
@@ -182,13 +183,25 @@ cargo xtask advisor-benchmark-finalize \
 ```
 
 The finalizer rejects results whose recorded corpus or threshold digest differs
-from the reviewed inputs, recalculates the manual gates, records the ratings
-digest, and updates both the JSON result and decision report.
+from the reviewed inputs. It first validates the complete result against the
+published schema, recomputes the recommended configuration and every automatic
+summary and gate from the samples and preregistered thresholds, verifies the
+exact ordered matrix and repository evidence against the pinned corpus, and
+rejects any drift or omitted cell. It then recalculates the manual gates,
+records the ratings digest, verifies the existing decision report exactly
+matches the JSON evidence, regenerates it from the finalized result, and
+updates both outputs without rerunning inference. Ratings are accepted only by
+this finalization command, and an already finalized result is immutable.
 
 ## Measurements and decision
 
 `results.json` follows `advisor-benchmark-1`; `decision.md` is its human
-summary. Measurements distinguish model load, prompt processing, generation,
+summary. The schema rejects unknown nested fields and distinguishes
+prepare-only, completed, interrupted, unfinalized, finalized, and shippable
+states. Every result is validated before persistence. The JSON result and
+Markdown decision are written as a rollback-safe pair using new synchronized
+files and restoration backups, so a failed second replacement does not leave
+mixed evidence. Measurements distinguish model load, prompt processing, generation,
 context construction, provider time, validation, time to a validated artifact,
 total wall time, token rates/counts, peak process RSS, system-available memory
 as a pressure proxy, swap growth, failures, retries, malformed outputs,

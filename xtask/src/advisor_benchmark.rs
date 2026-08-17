@@ -39,7 +39,6 @@ pub struct Options {
     pub repetitions: usize,
     pub full_matrix: bool,
     pub prepare_only: bool,
-    pub ratings: Option<PathBuf>,
     pub review_output_dir: Option<PathBuf>,
 }
 
@@ -120,7 +119,7 @@ struct Thresholds {
     swap_growth_bytes_maximum: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct Sample {
     case_id: String,
     repository: String,
@@ -133,8 +132,8 @@ struct Sample {
     context_token_limit: usize,
     output_token_limit: usize,
     repetition: usize,
-    phase: &'static str,
-    status: &'static str,
+    phase: String,
+    status: String,
     exit_code: Option<i32>,
     total_elapsed_ms: u128,
     peak_process_rss_bytes: Option<u64>,
@@ -213,6 +212,11 @@ impl TemporaryWorkspace {
             bail!("refusing to reuse benchmark temporary workspace");
         }
         fs::create_dir(&path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+        }
         Ok(Self { path })
     }
 }
@@ -223,11 +227,33 @@ impl Drop for TemporaryWorkspace {
     }
 }
 
+fn validate_benchmark_result(value: &Value) -> Result<()> {
+    let schema: Value =
+        serde_json::from_str(include_str!("../../schemas/advisor-benchmark-1.json"))?;
+    let validator = jsonschema::draft202012::options()
+        .should_validate_formats(true)
+        .build(&schema)
+        .context("embedded advisor benchmark schema is invalid")?;
+    if let Some(error) = validator.iter_errors(value).next() {
+        bail!(
+            "advisor benchmark result does not match schema 1 at {}: {}",
+            error.instance_path(),
+            error
+        );
+    }
+    Ok(())
+}
+
 include!("advisor_benchmark/corpus.rs");
 include!("advisor_benchmark/system.rs");
 include!("advisor_benchmark/scoring.rs");
+include!("advisor_benchmark/evidence.rs");
 include!("advisor_benchmark/recommendation.rs");
-include!("advisor_benchmark/output.rs");
+include!("advisor_benchmark/persistence.rs");
+include!("advisor_benchmark/decision.rs");
+include!("advisor_benchmark/aggregate.rs");
+include!("advisor_benchmark/preflight.rs");
+include!("advisor_benchmark/finalization.rs");
 include!("advisor_benchmark/run.rs");
 
 fn release_matrix_complete(options: &Options) -> bool {

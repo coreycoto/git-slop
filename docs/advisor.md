@@ -51,7 +51,8 @@ git slop advise --top 5 --context-only --format json
 `--context-only --format json` remains the explicit spelling. Both options are
 now the defaults when `--infer` is absent, so `git slop advise --top 5` produces
 the same provider-independent JSON. No provider configuration is read and no
-network connection is attempted.
+network connection is attempted. Provider-free construction does not evaluate
+the inference release gate.
 
 Stable `git slop advise --help` shows only provider-free context construction
 and artifact validation. The disabled inference, provider, model, resource,
@@ -101,6 +102,11 @@ maintainer benchmark harness. Official release binaries never enable that
 feature. The release tooling validates that only a complete `ship` decision
 can enable the public boundary.
 
+Even in that separately built benchmark lane, provider configuration and the
+zero-data probe occur only after report currentness, artifact mode, selected
+policies, and bounded context have passed local validation. A locally invalid
+request therefore cannot contact the configured loopback service.
+
 The benchmark has no provider, endpoint, model, or runtime-model defaults. It
 requires an explicit canonical model, immutable digest, artifact size,
 conservative peak-memory estimate, runtime state, and dedicated-host
@@ -143,9 +149,10 @@ Only loopback `http://` endpoints are accepted. Remote endpoints are refused
 because V1 has no authenticated TLS transport; there is no `--allow-remote`
 escape hatch. Endpoint credentials, queries, fragments, whitespace, and header
 injection are rejected. A short zero-data TCP probe has its own connection
-timeout before any repository context is sent. Model loading and generation
-share a separately displayed total timeout, emit phase progress, and can be
-cancelled with Ctrl-C.
+timeout before any repository context is sent. That timeout is one deadline
+across every resolved loopback address, not a fresh allowance per address.
+Model loading and generation share a separately displayed total timeout, emit
+phase progress, and can be cancelled with Ctrl-C.
 
 Provider responses must identify the exact requested served model and report a
 normal stopped completion (`finish_reason: stop` for OpenAI-compatible
@@ -156,6 +163,13 @@ ambiguous framing before response validation. It formats IPv6 loopback Host
 headers correctly, rejects invalid ports, oversized declared bodies,
 unsupported transfer/content encodings, non-JSON successful responses, and
 trailing chunk bytes before the provider envelope is accepted.
+
+Provider HTTP error bodies are intentionally excluded from diagnostics because
+they can echo prompts or repository content. Stored provenance does not retain
+endpoint paths or arbitrary response metadata: token usage is reduced to
+numeric prompt, completion, and total counts, while a system fingerprint is
+kept only when it is a bounded safe identifier. Runtime model and label values
+must also satisfy bounded privacy-safe identifier contracts before contact.
 
 See the [official OpenAI Safeguard guide](https://cookbook.openai.com/articles/gpt-oss-safeguard-guide),
 the [benchmark protocol](benchmarks/safeguard-v1.md), and the [resource-safety
@@ -185,9 +199,10 @@ Successful runs write outside the canonical detector bundle:
 Before adoption, the same paths live in Git-private active state. Artifacts
 record report/revision/dirty-state digests, selector and candidates, context
 builder and digest, policy locks, provider/runtime/model identity, reasoning
-and size limits, token usage when returned, separate context/provider/
-validation timing, per-rule evaluations, citations, uncertainty, validation
-warnings, and the non-mutation boundary.
+and size limits, allowlisted token usage when returned, endpoint classification,
+separate context/provider/validation timing, per-rule evaluations, citations,
+uncertainty, validation warnings, and the non-mutation boundary. They do not
+retain the provider endpoint itself.
 
 Validate and render an existing artifact only against a current matching
 report:

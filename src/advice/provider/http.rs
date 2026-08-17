@@ -174,6 +174,7 @@ pub(super) fn probe_endpoint(value: &str, timeout: Duration) -> Result<()> {
 }
 
 fn connect_endpoint(endpoint: &Endpoint, timeout: Duration) -> Result<TcpStream> {
+    let started = Instant::now();
     let addresses = (endpoint.host.as_str(), endpoint.port)
         .to_socket_addrs()
         .context("provider_unavailable: endpoint resolution failed")?
@@ -186,10 +187,28 @@ fn connect_endpoint(endpoint: &Endpoint, timeout: Duration) -> Result<TcpStream>
     }
     let mut last_error = None;
     for address in addresses {
-        match TcpStream::connect_timeout(&address, timeout) {
+        let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
+            bail!(
+                "provider_timeout: endpoint connection did not finish within {} seconds",
+                timeout.as_secs_f64()
+            );
+        };
+        if remaining.is_zero() {
+            bail!(
+                "provider_timeout: endpoint connection did not finish within {} seconds",
+                timeout.as_secs_f64()
+            );
+        }
+        match TcpStream::connect_timeout(&address, remaining) {
             Ok(stream) => return Ok(stream),
             Err(error) => last_error = Some(error),
         }
+    }
+    if started.elapsed() >= timeout {
+        bail!(
+            "provider_timeout: endpoint connection did not finish within {} seconds",
+            timeout.as_secs_f64()
+        );
     }
     Err(anyhow::anyhow!(
         "provider_unavailable: {}",
@@ -406,10 +425,8 @@ fn decode_response(response: &[u8], maximum: usize) -> Result<Vec<u8>> {
         raw_body.to_vec()
     };
     if !(200..300).contains(&framing.status) {
-        let diagnostic = String::from_utf8_lossy(&body);
-        let bounded = diagnostic.chars().take(1000).collect::<String>();
         bail!(
-            "provider_http_error: endpoint returned HTTP {}: {bounded}",
+            "provider_http_error: endpoint returned HTTP {}",
             framing.status
         );
     }
@@ -482,5 +499,23 @@ mod tests {
             )
             .is_err()
         );
+
+        let diagnostic = decode_response(
+            b"HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 26\r\n\r\nprivate prompt contents!!!",
+            64,
+        )
+        .expect_err("HTTP error responses must fail")
+        .to_string();
+        assert!(diagnostic.contains("HTTP 500"));
+        assert!(!diagnostic.contains("private prompt"));
+    }
+
+    #[test]
+    fn connection_timeout_is_a_single_deadline() {
+        let endpoint =
+            Endpoint::parse("http://127.0.0.1:9/v1/chat/completions").expect("loopback endpoint");
+        let error = connect_endpoint(&endpoint, Duration::ZERO)
+            .expect_err("zero connection budget must fail before a socket attempt");
+        assert!(error.to_string().contains("provider_timeout"));
     }
 }

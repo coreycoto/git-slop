@@ -10,6 +10,45 @@ mod tests {
     }
 
     #[test]
+    fn benchmark_runtime_identity_cannot_record_a_local_path() {
+        assert!(privacy_safe_benchmark_runtime_identifier(
+            "org/model@sha256:abc"
+        ));
+        assert!(!privacy_safe_benchmark_runtime_identifier(
+            "/Users/example/model"
+        ));
+        assert!(!privacy_safe_benchmark_runtime_identifier(
+            "C:/Users/example/model"
+        ));
+    }
+
+    #[test]
+    fn paired_benchmark_rollback_restores_both_originals() {
+        let temporary = tempfile::tempdir().unwrap();
+        let results = temporary.path().join("results.json");
+        let decision = temporary.path().join("decision.md");
+        let results_backup = temporary.path().join("results.backup");
+        let decision_backup = temporary.path().join("decision.backup");
+        fs::write(&results, b"new results").unwrap();
+        fs::write(&decision, b"new decision").unwrap();
+        fs::write(&results_backup, b"old results").unwrap();
+        fs::write(&decision_backup, b"old decision").unwrap();
+
+        restore_pair(
+            &results,
+            &results_backup,
+            true,
+            &decision,
+            &decision_backup,
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(fs::read(results).unwrap(), b"old results");
+        assert_eq!(fs::read(decision).unwrap(), b"old decision");
+    }
+
+    #[test]
     fn only_runtime_provider_failures_trigger_the_bounded_abort() {
         assert!(is_provider_runtime_failure(Some("provider_http_error")));
         assert!(is_provider_runtime_failure(Some("provider_http_invalid")));
@@ -108,7 +147,6 @@ mod tests {
             repetitions: 3,
             full_matrix: false,
             prepare_only: true,
-            ratings: None,
             review_output_dir: None,
         };
         assert!(!release_matrix_complete(&options));
@@ -231,28 +269,110 @@ mod tests {
         let corpus_bytes = fs::read(&corpus_path).unwrap();
         let thresholds_bytes = fs::read(&thresholds_path).unwrap();
         let corpus: Corpus = serde_json::from_slice(&corpus_bytes).unwrap();
+        let thresholds: Thresholds = serde_json::from_slice(&thresholds_bytes).unwrap();
         let temporary = tempfile::tempdir().unwrap();
-        let results = temporary.path().join("results.json");
-        fs::write(
-            &results,
-            serde_json::to_vec_pretty(&json!({
-                "schema_version": 1,
-                "status": "complete",
-                "configuration": {
-                    "corpus_sha256": sha256(&corpus_bytes),
-                    "thresholds_sha256": sha256(&thresholds_bytes)
-                },
-                "system": {},
-                "summary": {"automatic_gates_passed": true},
-                "recommended_configuration": {"reasoning_effort": "medium"},
-                "recommendation": "adjust"
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-        fs::write(
-            temporary.path().join("decision.md"),
-            "# Decision\n\n- Recommendation: **adjust**\n- Maintainer usefulness mean: not reviewed\n- Manual quality mean: not reviewed\n- Unsupported claims found by maintainers: not reviewed\n",
+        let reports = corpus
+            .repositories
+            .iter()
+            .map(|(key, repository)| {
+                (
+                    key.clone(),
+                    PreparedReport {
+                        path: temporary.path().join(format!("{key}-report.json")),
+                        sha256: repository
+                            .expected_report_sha256
+                            .clone()
+                            .unwrap_or_else(|| "0".repeat(64)),
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let options = Options {
+            repo_root: root.to_path_buf(),
+            binary: PathBuf::new(),
+            corpus: corpus_path.clone(),
+            thresholds: thresholds_path.clone(),
+            repositories: Vec::new(),
+            provider: "openai-compatible".to_string(),
+            endpoint: "http://127.0.0.1:12345/v1/chat/completions".to_string(),
+            model: "openai/gpt-oss-safeguard-20b".to_string(),
+            runtime_model: "synthetic-runtime-model".to_string(),
+            runtime_label: "synthetic-runtime".to_string(),
+            model_digest: format!("sha256:{}", "a".repeat(64)),
+            model_quantization: "Q4_K_M".to_string(),
+            model_size_bytes: Some(13_793_441_254),
+            estimated_peak_memory_bytes: Some(17_179_869_184),
+            confirm_dedicated_host: true,
+            initial_runtime_state: "cold".to_string(),
+            output_dir: temporary.path().to_path_buf(),
+            repetitions: 1,
+            full_matrix: false,
+            prepare_only: false,
+            review_output_dir: None,
+        };
+        let samples = corpus
+            .cases
+            .iter()
+            .enumerate()
+            .map(|(index, case)| Sample {
+                case_id: case.id.clone(),
+                repository: case.repository.clone(),
+                scenario_tags: case.scenario_tags.clone(),
+                scenario: case.scenario.clone(),
+                candidate_count: case.candidate_count,
+                actual_candidate_count: None,
+                report_sha256: reports[&case.repository].sha256.clone(),
+                reasoning_effort: "medium".to_string(),
+                context_token_limit: 8_192,
+                output_token_limit: case.candidate_count.saturating_mul(2_048).min(8_192),
+                repetition: 1,
+                phase: if index == 0 { "cold" } else { "warm" }.to_string(),
+                status: "failed".to_string(),
+                exit_code: Some(2),
+                total_elapsed_ms: 1,
+                peak_process_rss_bytes: None,
+                system_available_memory_before_bytes: None,
+                system_available_memory_after_bytes: None,
+                system_available_memory_minimum_bytes: None,
+                swap_before_bytes: None,
+                swap_after_bytes: None,
+                swap_growth_bytes: None,
+                context_elapsed_ms: None,
+                provider_elapsed_ms: None,
+                validation_elapsed_ms: None,
+                time_to_validated_artifact_ms: None,
+                model_load_duration_ns: None,
+                prompt_eval_duration_ns: None,
+                generation_duration_ns: None,
+                input_tokens: None,
+                output_tokens: None,
+                prompt_tokens_per_second: None,
+                output_tokens_per_second: None,
+                reported_aggregate: None,
+                expected_aggregate: case.expected_aggregate.clone(),
+                aggregate_match: false,
+                matched_rule_verdicts: 0,
+                expected_rule_verdicts: high_severity_expectation_count(
+                    &case.expected_rule_verdicts,
+                ) * case.candidate_count,
+                accepted_invalid_references: 0,
+                accepted_detector_truth_changes: 0,
+                citation_complete: false,
+                retry_count: 0,
+                failure_category: Some("provider_response_invalid".to_string()),
+            })
+            .collect::<Vec<_>>();
+        let (results, _) = write_outputs(
+            &options,
+            &OutputInputs {
+                corpus: &corpus,
+                reports: &reports,
+                thresholds: &thresholds,
+            },
+            1,
+            &samples,
+            None,
+            None,
         )
         .unwrap();
         let ratings_path = temporary.path().join("ratings.json");
@@ -284,6 +404,69 @@ mod tests {
         )
         .unwrap();
 
+        let decision = temporary.path().join("decision.md");
+        let original_decision = fs::read(&decision).unwrap();
+        let original_results = fs::read(&results).unwrap();
+        let mut tampered: Value = serde_json::from_slice(&original_results).unwrap();
+        tampered["summary"]["automatic_gates_passed"] = json!(true);
+        fs::write(
+            &results,
+            serde_json::to_string_pretty(&tampered).unwrap() + "\n",
+        )
+        .unwrap();
+        let tampered_bytes = fs::read(&results).unwrap();
+        let error = finalize(
+            root,
+            &corpus_path,
+            &thresholds_path,
+            &results,
+            &ratings_path,
+        )
+        .expect_err("derived gate drift must fail before mutation");
+        assert!(error.to_string().contains("automatic_gates_passed"));
+        assert_eq!(fs::read(&results).unwrap(), tampered_bytes);
+        fs::write(&results, &original_results).unwrap();
+
+        let mut truncated: Value = serde_json::from_slice(&original_results).unwrap();
+        truncated["samples"]
+            .as_array_mut()
+            .expect("benchmark samples")
+            .pop();
+        fs::write(
+            &results,
+            serde_json::to_string_pretty(&truncated).unwrap() + "\n",
+        )
+        .unwrap();
+        let truncated_bytes = fs::read(&results).unwrap();
+        let error = finalize(
+            root,
+            &corpus_path,
+            &thresholds_path,
+            &results,
+            &ratings_path,
+        )
+        .expect_err("truncated sample evidence must fail before mutation");
+        assert!(error.to_string().contains("sample matrix ended"));
+        assert_eq!(fs::read(&results).unwrap(), truncated_bytes);
+        fs::write(&results, &original_results).unwrap();
+
+        fs::write(&decision, "# Incomplete decision template\n").unwrap();
+        let error = finalize(
+            root,
+            &corpus_path,
+            &thresholds_path,
+            &results,
+            &ratings_path,
+        )
+        .expect_err("invalid decision template must fail before mutation");
+        assert!(
+            error
+                .to_string()
+                .contains("does not match its result evidence")
+        );
+        assert_eq!(fs::read(&results).unwrap(), original_results);
+        fs::write(&decision, original_decision).unwrap();
+
         finalize(
             root,
             &corpus_path,
@@ -293,7 +476,7 @@ mod tests {
         )
         .unwrap();
         let finalized: Value = serde_json::from_slice(&fs::read(&results).unwrap()).unwrap();
-        assert_eq!(finalized["recommendation"], "ship");
+        assert_eq!(finalized["recommendation"], "adjust");
         assert_eq!(
             finalized["summary"]["manual_quality_gates_passed"],
             true
@@ -302,5 +485,16 @@ mod tests {
             finalized["manual_ratings_sha256"].as_str().map(str::len),
             Some(64)
         );
+        let finalized_bytes = fs::read(&results).unwrap();
+        let error = finalize(
+            root,
+            &corpus_path,
+            &thresholds_path,
+            &results,
+            &ratings_path,
+        )
+        .expect_err("finalized results must not be overwritten");
+        assert!(error.to_string().contains("already finalized"));
+        assert_eq!(fs::read(&results).unwrap(), finalized_bytes);
     }
 }

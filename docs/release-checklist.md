@@ -113,7 +113,20 @@ scope is wrong.
   identity must terminate the matrix immediately.
 - Confirm the loopback HTTP client rejects invalid ports, unsupported transfer
   or content encoding, oversized declared bodies, non-JSON success responses,
-  ambiguous framing, and trailing chunk bytes.
+  ambiguous framing, and trailing chunk bytes. Confirm its connection timeout
+  is one deadline across all resolved addresses and that HTTP error bodies do
+  not enter diagnostics.
+- Confirm provider configuration and probing follow all local report, policy,
+  and bounded-context validation; provider-free context must not evaluate the
+  release gate or contact a provider. Stored evidence must exclude endpoint
+  paths and arbitrary provider response metadata.
+- Validate prepare-only, completed, interrupted, and finalized results against
+  the strict `advisor-benchmark-1` schema. Apply ratings only through
+  `advisor-benchmark-finalize`; it must rederive the recommendation and every
+  automatic gate, bind every ordered matrix cell and repository fingerprint to
+  the pinned corpus, reject omissions, drift, and repeated finalization, and
+  require the decision report to match the JSON evidence before replacing
+  `results.json` and its regenerated `decision.md` as a rollback-safe pair.
 - Confirm `action.yml` remains the only root Action metadata file and its
   Marketplace name, description, branding, inputs, and outputs are current.
 - Confirm the nested Actions in `action.yml` and release workflows are pinned

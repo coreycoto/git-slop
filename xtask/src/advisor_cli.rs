@@ -155,7 +155,7 @@ pub struct BenchmarkArgs {
     /// Explicit provider state before the first sample; the harness never changes it.
     #[arg(long, value_parser = ["cold", "warm"])]
     initial_runtime_state: Option<String>,
-    /// Ignored output directory for aggregate results and the decision report.
+    /// Output directory for schema-validated aggregate results and the decision report.
     #[arg(long, default_value = "benchmark-results/advisor")]
     output_dir: PathBuf,
     /// Repetitions per matrix cell.
@@ -167,9 +167,6 @@ pub struct BenchmarkArgs {
     /// Generate fresh deterministic reports and privacy-safe fingerprints without inference.
     #[arg(long)]
     prepare_only: bool,
-    /// Optional JSON map of anonymous case IDs to maintainer usefulness ratings from 1 through 5.
-    #[arg(long)]
-    ratings: Option<PathBuf>,
     /// Explicit private directory outside the repository for one review artifact per case and effort.
     #[arg(long)]
     review_output_dir: Option<PathBuf>,
@@ -221,7 +218,6 @@ impl BenchmarkArgs {
             repetitions: self.repetitions,
             full_matrix: self.full_matrix,
             prepare_only: self.prepare_only,
-            ratings: self.ratings,
             review_output_dir: self.review_output_dir,
         })?;
         println!("Wrote advisor benchmark results: {}", results.display());
