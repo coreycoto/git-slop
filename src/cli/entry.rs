@@ -90,6 +90,9 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
                         SchemaContract::AdvisorRatings => {
                             include_str!("../../schemas/advisor-ratings-1.json")
                         }
+                        SchemaContract::AdvisorThresholds => {
+                            include_str!("../../schemas/advisor-thresholds-1.json")
+                        }
                         SchemaContract::AdvisorBenchmark => {
                             include_str!("../../schemas/advisor-benchmark-1.json")
                         }

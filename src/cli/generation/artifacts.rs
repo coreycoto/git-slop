@@ -38,6 +38,7 @@ enum SchemaContract {
     Advice,
     AdvisorCorpus,
     AdvisorRatings,
+    AdvisorThresholds,
     AdvisorBenchmark,
     AdvisorCapacity,
 }

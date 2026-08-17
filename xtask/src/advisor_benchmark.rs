@@ -199,32 +199,25 @@ struct ManualScores {
 }
 
 struct TemporaryWorkspace {
-    path: PathBuf,
+    directory: tempfile::TempDir,
 }
 
 impl TemporaryWorkspace {
     fn new() -> Result<Self> {
-        let path = std::env::temp_dir().join(format!(
-            "git-slop-advisor-benchmark-{}-{}",
-            std::process::id(),
-            now_ms()
-        ));
-        if path.exists() {
-            bail!("refusing to reuse benchmark temporary workspace");
-        }
-        fs::create_dir(&path)?;
+        let directory = tempfile::Builder::new()
+            .prefix("git-slop-advisor-benchmark-")
+            .tempdir()
+            .context("unable to create a secure advisor benchmark workspace")?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+            fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700))?;
         }
-        Ok(Self { path })
+        Ok(Self { directory })
     }
-}
 
-impl Drop for TemporaryWorkspace {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
+    fn path(&self) -> &Path {
+        self.directory.path()
     }
 }
 
@@ -243,6 +236,24 @@ fn validate_benchmark_result(value: &Value) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn parse_thresholds(bytes: &[u8]) -> Result<Thresholds> {
+    let value: Value = serde_json::from_slice(bytes)?;
+    let schema: Value =
+        serde_json::from_str(include_str!("../../schemas/advisor-thresholds-1.json"))?;
+    let validator = jsonschema::draft202012::options()
+        .should_validate_formats(true)
+        .build(&schema)
+        .context("embedded advisor thresholds schema is invalid")?;
+    if let Some(error) = validator.iter_errors(&value).next() {
+        bail!(
+            "advisor thresholds do not match schema 1 at {}: {}",
+            error.instance_path(),
+            error
+        );
+    }
+    serde_json::from_value(value).context("advisor thresholds do not match the runtime contract")
 }
 
 include!("advisor_benchmark/corpus.rs");

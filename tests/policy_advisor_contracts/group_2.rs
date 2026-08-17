@@ -274,6 +274,7 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
         .assert()
         .success();
     let artifact = read_json(&rendered);
+    assert_matches_schema(&artifact, "advice-1.json");
     assert_eq!(artifact["schema_version"], 1);
     assert_eq!(artifact["evaluation"]["aggregate_verdict"], "approve");
     assert_eq!(artifact["validation"]["status"], "valid");
@@ -296,6 +297,104 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
             .is_file()
     );
     assert!(!repository.path().join(".slop/latest/advice.json").exists());
+
+    let mut stale_aggregate = artifact.clone();
+    stale_aggregate["evaluation"]["candidate_evaluations"][0]["aggregate_verdict"] =
+        json!("reject");
+    let stale_aggregate_path = outputs.path().join("stale-aggregate.json");
+    fs::write(
+        &stale_aggregate_path,
+        serde_json::to_vec_pretty(&stale_aggregate).unwrap(),
+    )
+    .unwrap();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["advise", "--validate-artifact"])
+        .arg(&stale_aggregate_path)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("stale aggregate verdict"));
+
+    let mut nested_drift = artifact.clone();
+    nested_drift["provider"]["unexpected"] = json!(true);
+    let nested_drift_path = outputs.path().join("nested-drift.json");
+    fs::write(
+        &nested_drift_path,
+        serde_json::to_vec_pretty(&nested_drift).unwrap(),
+    )
+    .unwrap();
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["advise", "--validate-artifact"])
+        .arg(&nested_drift_path)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("does not match schema"));
+
+    let doctor = cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["doctor", "--format", "json"])
+        .output()
+        .expect("advisor doctor status");
+    assert!(doctor.status.success());
+    let doctor: Value = serde_json::from_slice(&doctor.stdout).unwrap();
+    assert_matches_schema(&doctor, "doctor-1.json");
+    assert_eq!(doctor["advisor"]["state"]["status"], "valid");
+    assert_eq!(doctor["advisor"]["state"]["retained_runs"], 1);
+    assert_eq!(
+        doctor["advisor"]["state"]["private_permissions"],
+        true
+    );
+
+    let preview = cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["prune", "--keep", "0", "--format", "json"])
+        .output()
+        .expect("advice prune preview");
+    assert!(preview.status.success());
+    let preview: Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_matches_schema(&preview, "prune-1.json");
+    assert_eq!(preview["advice"]["before"]["runs"], 1);
+    assert_eq!(preview["advice"]["removed"]["runs"], 1);
+    assert!(repository.path().join(".slop/advice/runs").exists());
+    cargo_bin_cmd!("git-slop")
+        .current_dir(repository.path())
+        .args(["prune", "--keep", "0", "--yes"])
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read_dir(repository.path().join(".slop/advice/runs"))
+            .unwrap()
+            .count(),
+        0
+    );
+    assert!(
+        repository
+            .path()
+            .join(".slop/advice/latest/advice.json")
+            .is_file()
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(repository.path().join(".slop/advice/latest"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(repository.path().join(".slop/advice/latest/advice.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
 
     fs::write(
         repository.path().join("src/left.rs"),

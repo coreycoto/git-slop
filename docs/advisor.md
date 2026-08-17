@@ -204,6 +204,14 @@ separate context/provider/validation timing, per-rule evaluations, citations,
 uncertainty, validation warnings, and the non-mutation boundary. They do not
 retain the provider endpoint itself.
 
+Advice state is owner-private (`0700` directories and `0600` files on Unix),
+written through fsynced temporary directories, and replaced under an exclusive
+write lock. An interrupted `latest` replacement is recovered before the next
+write; `git slop doctor` reports retained-run counts, permissions, stale
+artifacts, and any recovery entry. `git slop prune --dry-run` previews both
+detector and advice retention with the configured run and byte limits, while
+`--yes` removes only immutable historical runs and preserves `advice/latest`.
+
 Validate and render an existing artifact only against a current matching
 report:
 
@@ -211,8 +219,11 @@ report:
 git slop advise --validate-artifact .slop/advice/latest/advice.json
 ```
 
-A stale report or digest mismatch is rejected visibly. Advice exits successfully
-only after schema and reference validation, but it remains advisory: it cannot
+A stale report or digest mismatch is rejected visibly. Loading an artifact also
+rechecks candidate and policy identity, citations, policy completeness, warning
+parity, and every candidate and overall aggregate instead of trusting stored
+validation flags. Advice exits successfully only after schema and reference
+validation, but it remains advisory: it cannot
 edit files, Git, GitHub, configuration, policy selection, reports, or checks.
 
 See the [Safeguard-only V1 benchmark](benchmarks/safeguard-v1.md) for the

@@ -65,6 +65,24 @@ fn read_json(path: impl AsRef<Path>) -> Value {
     serde_json::from_slice(&fs::read(path).expect("read JSON")).expect("parse JSON")
 }
 
+fn assert_matches_schema(value: &Value, schema_name: &str) {
+    let schema = read_json(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("schemas")
+            .join(schema_name),
+    );
+    let validator = jsonschema::draft202012::options()
+        .should_validate_formats(true)
+        .build(&schema)
+        .expect("valid checked-in schema");
+    if let Some(error) = validator.iter_errors(value).next() {
+        panic!(
+            "value does not match {schema_name} at {}: {error}",
+            error.instance_path()
+        );
+    }
+}
+
 fn first_nested_id(value: &Value, pointer: &str) -> Option<String> {
     value
         .pointer(pointer)

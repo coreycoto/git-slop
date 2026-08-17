@@ -49,6 +49,79 @@ mod tests {
     }
 
     #[test]
+    fn interrupted_benchmark_pair_transaction_recovers_both_originals() {
+        let temporary = tempfile::tempdir().unwrap();
+        let results = temporary.path().join("results.json");
+        let decision = temporary.path().join("decision.md");
+        let results_backup = temporary.path().join("results.backup");
+        let decision_backup = temporary.path().join("decision.backup");
+        let decision_temporary = temporary.path().join("decision.tmp");
+        fs::write(&results, b"new partial results").unwrap();
+        fs::write(&results_backup, b"old results").unwrap();
+        fs::write(&decision_backup, b"old decision").unwrap();
+        fs::write(&decision_temporary, b"new decision").unwrap();
+        fs::write(
+            temporary.path().join(".benchmark-pair.transaction.json"),
+            serde_json::to_vec(&BenchmarkPairTransaction {
+                schema_version: 1,
+                results_file: "results.json".to_string(),
+                decision_file: "decision.md".to_string(),
+                results_temporary: "results.tmp".to_string(),
+                decision_temporary: "decision.tmp".to_string(),
+                results_backup: "results.backup".to_string(),
+                decision_backup: "decision.backup".to_string(),
+                had_results: true,
+                had_decision: true,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert!(
+            recover_benchmark_pair(temporary.path(), &results, &decision).unwrap()
+        );
+        assert_eq!(fs::read(results).unwrap(), b"old results");
+        assert_eq!(fs::read(decision).unwrap(), b"old decision");
+        assert!(!decision_temporary.exists());
+        assert!(
+            !temporary
+                .path()
+                .join(".benchmark-pair.transaction.json")
+                .exists()
+        );
+    }
+
+    #[test]
+    fn threshold_schema_and_runtime_deserialization_fail_together() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let standalone_schema: Value = serde_json::from_slice(
+            &fs::read(root.join("schemas/advisor-thresholds-1.json")).unwrap(),
+        )
+        .unwrap();
+        let benchmark_schema: Value = serde_json::from_slice(
+            &fs::read(root.join("schemas/advisor-benchmark-1.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            standalone_schema["required"],
+            benchmark_schema["$defs"]["thresholds"]["required"]
+        );
+        assert_eq!(
+            standalone_schema["properties"],
+            benchmark_schema["$defs"]["thresholds"]["properties"]
+        );
+        let bytes = fs::read(root.join("benchmarks/advisor/thresholds-v1.json")).unwrap();
+        let thresholds = parse_thresholds(&bytes).expect("checked-in thresholds");
+        assert_eq!(thresholds.accepted_invalid_reference_maximum, 0);
+        let mut invalid: Value = serde_json::from_slice(&bytes).unwrap();
+        invalid["structured_output_success_rate_minimum"] = json!(1.1);
+        assert!(parse_thresholds(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        invalid["structured_output_success_rate_minimum"] = json!(0.95);
+        invalid["unexpected"] = json!(true);
+        assert!(parse_thresholds(&serde_json::to_vec(&invalid).unwrap()).is_err());
+    }
+
+    #[test]
     fn only_runtime_provider_failures_trigger_the_bounded_abort() {
         assert!(is_provider_runtime_failure(Some("provider_http_error")));
         assert!(is_provider_runtime_failure(Some("provider_http_invalid")));
@@ -83,37 +156,58 @@ mod tests {
     #[test]
     fn benchmark_independently_rejects_an_invented_artifact_reference() {
         let candidate_id = "candidate-0123456789abcdef";
-        let empty_citations = || {
+        let citations = |policy: bool| {
             json!({
-                "candidates": [], "paths": [], "findings": [],
+                "candidates": [candidate_id], "paths": [], "findings": [],
                 "relationships": [], "clusters": [], "excerpts": [],
-                "policies": [], "verification": []
+                "policies": if policy { vec!["test-rule"] } else { Vec::<&str>::new() },
+                "verification": []
             })
         };
         let mut artifact = json!({
             "schema_version": 1,
             "command": "advise",
             "generated_at": "2026-08-17T00:00:00Z",
-            "report": {"sha256": "a".repeat(64), "canonical_sha256": "b".repeat(64)},
-            "selector": {},
+            "report": {
+                "schema_version": 5, "sha256": "a".repeat(64),
+                "canonical_sha256": "b".repeat(64), "repository_id": "fixture",
+                "head_sha": "1".repeat(40), "worktree_clean": true,
+                "worktree_state_digest": "2".repeat(64),
+                "scope": {"mode": "repository", "path": null, "selected_path_count": 1, "selected_path_digest": "3".repeat(64)}
+            },
+            "selector": {"kind": "top", "value": 1},
             "candidate_ids": [candidate_id],
             "context": {
                 "builder_version": 1,
                 "digest": "c".repeat(64),
-                "limits": {},
+                "limits": {
+                    "maximum_context_bytes": 131072, "maximum_context_tokens": 8192,
+                    "estimated_context_tokens": 100, "per_excerpt_bytes": 4096,
+                    "maximum_files": 20, "remaining_bytes": 1000, "truncated": false
+                },
                 "missing_evidence": [],
                 "reference_index": {
                     "candidates": [candidate_id], "paths": [], "findings": [],
                     "relationships": [], "clusters": [], "excerpts": [],
-                    "policies": [], "verification": []
+                    "policies": ["test-rule"], "verification": []
                 }
             },
-            "policies": {"resolution_digest": "d".repeat(64), "packs": [], "conflicts": []},
+            "policies": {
+                "resolution_digest": "d".repeat(64),
+                "packs": [{
+                    "id": "org.example.test", "version": "1.0.0", "schema_version": 1,
+                    "source_type": "built-in", "source_revision": "4".repeat(64),
+                    "content_digest": "4".repeat(64),
+                    "entrypoints": [{"path": "policy.md", "sha256": "5".repeat(64)}]
+                }],
+                "conflicts": []
+            },
             "provider": {
                 "provider": "mock", "model": "test", "requested_runtime_model": "test",
                 "endpoint_classification": "none", "reasoning_effort": "medium",
-                "timeout_ms": 1, "max_response_bytes": 1, "max_output_tokens": 1,
-                "context_window_tokens": 1, "runtime_label": null, "model_digest": null
+                "timeout_ms": 1, "max_response_bytes": 4096, "max_output_tokens": 128,
+                "context_window_tokens": 2048, "runtime_label": null, "model_digest": null,
+                "resource_preflight": null
             },
             "timing": {
                 "context_elapsed_ms": 0, "provider_elapsed_ms": 0,
@@ -127,14 +221,16 @@ mod tests {
                 "summary": "test",
                 "candidate_evaluations": [{
                     "candidate_id": candidate_id,
+                    "reported_verdict": "approve",
                     "aggregate_verdict": "approve",
                     "rationale": "test",
-                    "citations": empty_citations(),
+                    "citations": citations(false),
                     "rule_evaluations": [{
                         "rule_id": "test-rule", "verdict": "approve",
-                        "rationale": "test", "citations": empty_citations()
+                        "rationale": "test", "citations": citations(true)
                     }],
-                    "requested_revisions": [], "verification_steps": []
+                    "requested_revisions": [], "recommended_next_step": null,
+                    "assumptions": [], "missing_evidence": [], "confidence": "high"
                 }],
                 "warnings": []
             },

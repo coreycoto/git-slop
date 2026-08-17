@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.16.1/schemas/advisor-thresholds-1.json",
+  "title": "Git Slop advisor preregistered thresholds schema 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "preregistered_before_final_corpus",
+    "structured_output_success_rate_minimum",
+    "high_severity_rule_accuracy_minimum",
+    "aggregate_verdict_accuracy_minimum",
+    "citation_completeness_minimum",
+    "repeated_verdict_consistency_minimum",
+    "accepted_invalid_reference_maximum",
+    "accepted_detector_truth_change_maximum",
+    "abstention_recall_minimum",
+    "maintainer_usefulness_mean_minimum",
+    "manual_quality_mean_minimum",
+    "unsupported_claim_count_maximum",
+    "warm_top_one_p95_ms_maximum",
+    "warm_top_five_p95_ms_maximum",
+    "peak_process_rss_bytes_maximum",
+    "swap_growth_bytes_maximum"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "preregistered_before_final_corpus": {"const": true},
+    "structured_output_success_rate_minimum": {"$ref": "#/$defs/rate"},
+    "high_severity_rule_accuracy_minimum": {"$ref": "#/$defs/rate"},
+    "aggregate_verdict_accuracy_minimum": {"$ref": "#/$defs/rate"},
+    "citation_completeness_minimum": {"$ref": "#/$defs/rate"},
+    "repeated_verdict_consistency_minimum": {"$ref": "#/$defs/rate"},
+    "accepted_invalid_reference_maximum": {"type": "integer", "minimum": 0},
+    "accepted_detector_truth_change_maximum": {"type": "integer", "minimum": 0},
+    "abstention_recall_minimum": {"$ref": "#/$defs/rate"},
+    "maintainer_usefulness_mean_minimum": {"$ref": "#/$defs/score"},
+    "manual_quality_mean_minimum": {"$ref": "#/$defs/score"},
+    "unsupported_claim_count_maximum": {"type": "integer", "minimum": 0},
+    "warm_top_one_p95_ms_maximum": {"type": "integer", "minimum": 1},
+    "warm_top_five_p95_ms_maximum": {"type": "integer", "minimum": 1},
+    "peak_process_rss_bytes_maximum": {"type": "integer", "minimum": 1},
+    "swap_growth_bytes_maximum": {"type": "integer", "minimum": 0}
+  },
+  "$defs": {
+    "rate": {"type": "number", "minimum": 0, "maximum": 1},
+    "score": {"type": "number", "minimum": 1, "maximum": 5}
+  }
+}

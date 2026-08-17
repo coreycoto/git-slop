@@ -224,7 +224,7 @@ comments are explicit opt-ins. See [GitHub Action](docs/github-action.md).
 | `git slop config` | Inspect, validate, migrate, or describe configuration |
 | `git slop doctor` | Diagnose repository readiness and resource estimates |
 | `git slop list` | List policy failures, interventions, observations, advisory health findings, relationships, clusters, or profiles |
-| `git slop prune` | Preview or remove retained immutable run snapshots |
+| `git slop prune` | Preview or remove retained detector and advice run snapshots |
 | `git slop cache` | Inspect or prune the packed token cache |
 | `git slop completions` | Generate completion source from the live command tree |
 | `git slop man` | Generate the roff manual from the live command tree |

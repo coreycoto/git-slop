@@ -402,10 +402,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
         MAX_BENCHMARK_CONFIG_BYTES,
         "advisor thresholds",
     )?;
-    let thresholds: Thresholds = serde_json::from_slice(&threshold_bytes)?;
-    if thresholds.schema_version != 1 || !thresholds.preregistered_before_final_corpus {
-        bail!("benchmark thresholds must use preregistered schema 1");
-    }
+    let thresholds = parse_thresholds(&threshold_bytes)?;
     if options.runtime_label.len() > 100
         || options.runtime_label.is_empty()
         || !options
@@ -454,11 +451,11 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
     let repositories = repository_map(&options.repositories, &corpus)?;
     let review_directory = prepare_review_directory(options)?;
     let temporary = TemporaryWorkspace::new()?;
-    let reports = prepare_reports(&binary, &repositories, &corpus, &temporary.path)?;
+    let reports = prepare_reports(&binary, &repositories, &corpus, temporary.path())?;
     if options.prepare_only {
         return write_preflight(options, &corpus, &reports, &provenance);
     }
-    let sample_artifacts = temporary.path.join("sample-artifacts");
+    let sample_artifacts = temporary.path().join("sample-artifacts");
     fs::create_dir(&sample_artifacts)?;
     let efforts = expected_efforts(options.full_matrix);
     let started = now_ms();

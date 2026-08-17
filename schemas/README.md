@@ -26,10 +26,11 @@ identities; compatible later releases intentionally retain the introduction URL.
 - `advice-input-1.json`, `advice-response-1.json`, and `advice-1.json`:
   provider-independent context, strict provider response, and validated
   non-mutating advice artifact contracts
-- `advisor-corpus-1.json`, `advisor-ratings-1.json`,
+- `advisor-corpus-1.json`, `advisor-ratings-1.json`, `advisor-thresholds-1.json`,
   `advisor-benchmark-1.json`, and `advisor-capacity-1.json`: reviewed benchmark
-  inputs, bounded maintainer ratings, privacy-safe machine-readable
-  performance/quality results, and provider-free host eligibility receipts
+  inputs, bounded maintainer ratings, preregistered release thresholds,
+  privacy-safe machine-readable performance/quality results, and provider-free
+  host eligibility receipts
 
 `advisor-benchmark-1.json` is strict at every nested object and distinguishes
 prepare-only, completed, interrupted, unfinalized, finalized, and shippable

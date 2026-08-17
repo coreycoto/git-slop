@@ -34,19 +34,24 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     };
     let mut report_freshness = None;
     let mut freshness_error = None;
+    let mut selected_report = None;
     let report_status = if report_path.exists() {
         match report::load_report(&report_path) {
-            Ok(loaded) => match crate::freshness::evaluate(repo_root, &loaded) {
-                Ok(freshness) => {
-                    let status = freshness.status;
-                    report_freshness = Some(freshness);
-                    status
+            Ok(loaded) => {
+                let freshness = crate::freshness::evaluate(repo_root, &loaded);
+                selected_report = Some(loaded);
+                match freshness {
+                    Ok(freshness) => {
+                        let status = freshness.status;
+                        report_freshness = Some(freshness);
+                        status
+                    }
+                    Err(error) => {
+                        freshness_error = Some(format!("{error:#}"));
+                        "unverified"
+                    }
                 }
-                Err(error) => {
-                    freshness_error = Some(format!("{error:#}"));
-                    "unverified"
-                }
-            },
+            }
             Err(_) => "invalid",
         }
     } else {
@@ -103,6 +108,19 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     };
     let state_root = config::active_state_dir(repo_root)
         .unwrap_or_else(|_| config::slop_dir(repo_root));
+    let advice_state = crate::advice::state_status(&state_root, selected_report.as_ref())
+        .unwrap_or_else(|error| {
+            json!({
+                "status": "invalid",
+                "latest": "invalid",
+                "retained_runs": 0,
+                "retained_bytes": 0,
+                "private_permissions": false,
+                "recovery_entries": 0,
+                "retention_command": "git slop prune --dry-run",
+                "detail": crate::text::visible_controls(&format!("{error:#}"))
+            })
+        });
     let detector_cache = writable_cache_probe(&state_root);
     let policy_cache = crate::policy::policy_home()
         .map(|path| writable_cache_probe(&path))
@@ -122,6 +140,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             "recommendation": gate.recommendation,
             "decision_record": gate.decision_record,
             "benchmark_feature_compiled": cfg!(feature = "advisor-inference-benchmark"),
+            "state": advice_state.clone(),
         }),
         Err(error) => json!({
             "status": "invalid_release_gate",
@@ -131,6 +150,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             "public_inference_enabled": false,
             "detail": crate::text::visible_controls(&format!("{error:#}")),
             "benchmark_feature_compiled": cfg!(feature = "advisor-inference-benchmark"),
+            "state": advice_state.clone(),
         }),
     };
     let bundle_path = doctor_bundle_path(repo_root, args.bundle.as_deref());
@@ -166,6 +186,19 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     }
     if let Err(error) = &advisor_gate {
         diagnostics.push(json!({"code":"advisor_release_gate_invalid","severity":"error","detail":crate::text::visible_controls(&format!("{error:#}"))}));
+    }
+    if matches!(
+        advice_state["status"].as_str(),
+        Some("invalid" | "recovery_required" | "insecure_permissions")
+    ) {
+        diagnostics.push(json!({
+            "code": "advisor_state_requires_attention",
+            "severity": "warning",
+            "detail": format!(
+                "Retained advice state is {}; run git slop advise --validate-artifact for evidence validation or git slop prune --dry-run for retention review.",
+                advice_state["status"].as_str().unwrap_or("invalid")
+            )
+        }));
     }
     if tracked_paths.is_empty() {
         diagnostics.push(json!({"code":"no_tracked_paths","severity":"notice","detail":"The repository has no committed tracked paths yet. Commit a tracked file, or run git slop find --allow-empty-scope when an empty report is intentional.","recovery_command":"git slop find --allow-empty-scope"}));
@@ -286,6 +319,15 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             advisor_payload["recommendation"]
                 .as_str()
                 .unwrap_or("invalid release gate")
+        );
+        println!(
+            "- advisor state: {}; retained runs={} ({} bytes); private permissions={}",
+            advice_state["status"].as_str().unwrap_or("invalid"),
+            advice_state["retained_runs"].as_u64().unwrap_or(0),
+            advice_state["retained_bytes"].as_u64().unwrap_or(0),
+            advice_state["private_permissions"]
+                .as_bool()
+                .unwrap_or(false)
         );
         if repo.is_shallow {
             println!("- recovery: fetch full history, or explicitly use --allow-shallow");

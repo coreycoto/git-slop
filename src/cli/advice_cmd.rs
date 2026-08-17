@@ -349,7 +349,10 @@ fn run_advise(repo_root: &Path, args: AdviseArgs) -> Result<i32> {
         report_or_missing_with_currentness(repo_root, args.report.as_deref(), true)?;
     if let Some(artifact_path) = args.validate_artifact.as_deref() {
         let artifact_path = resolve_repo_path(repo_root, artifact_path);
-        let artifact = crate::advice::load_and_validate_artifact(&artifact_path, &report_value)?;
+        let artifact = crate::advice::load_and_validate_artifact(&artifact_path, &report_value)
+            .map_err(|error| {
+                classify_advisor_error(error, "advisor_artifact_invalid", ErrorKind::Contract)
+            })?;
         let rendered = advice_render(&artifact, None, format)?;
         if let Some(output) = args.output.as_deref() {
             write_generated_output(Some(&resolve_repo_path(repo_root, output)), rendered.as_bytes())?;

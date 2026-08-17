@@ -61,8 +61,12 @@ deterministic path-prefix report is acceptable.
 
 ## Report size and validity
 
-Use `git slop prune --dry-run`, then `git slop prune --yes`. JSON is compact
-by default; enable compatibility YAML explicitly with `output.yaml: true`.
+Use `git slop prune --dry-run`, then `git slop prune --yes`. The same preview
+reports detector snapshots and owner-private advice runs separately; applying
+it preserves `.slop/advice/latest`. `git slop doctor --format json` reports the
+latest advice status, retained bytes and runs, private permissions, and any
+interrupted-write recovery entry. JSON is compact by default; enable
+compatibility YAML explicitly with `output.yaml: true`.
 
 Run `git slop find` to replace a missing or invalid report. Consumers validate
 the complete schema-5 shape and return stable codes and JSON pointers. Schema-4

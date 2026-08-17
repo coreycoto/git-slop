@@ -7,7 +7,8 @@ mod resources;
 mod validate;
 
 pub use artifact::{
-    AdviceRun, AdviceTimings, load_and_validate_artifact, render_advice_markdown, write_artifacts,
+    AdviceRun, AdviceTimings, load_and_validate_artifact, render_advice_markdown, state_status,
+    write_artifacts,
 };
 pub use context::{
     AdviceSelector, BuildInputOptions, EvaluationScenario, build_input, cache_input,

@@ -320,10 +320,7 @@ pub fn finalize(
     )?;
     let corpus: Corpus = serde_json::from_slice(&corpus_bytes)?;
     validate_corpus(&corpus)?;
-    let thresholds: Thresholds = serde_json::from_slice(&threshold_bytes)?;
-    if thresholds.schema_version != 1 || !thresholds.preregistered_before_final_corpus {
-        bail!("benchmark thresholds must use preregistered schema 1");
-    }
+    let thresholds = parse_thresholds(&threshold_bytes)?;
     let result_bytes = read_bounded(
         &results_path,
         MAX_BENCHMARK_RESULT_BYTES,

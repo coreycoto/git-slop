@@ -113,6 +113,7 @@
     "nullableCount": {"type": ["integer", "null"], "minimum": 0},
     "nullableRate": {"type": ["number", "null"], "minimum": 0},
     "rate": {"type": "number", "minimum": 0, "maximum": 1},
+    "score": {"type": "number", "minimum": 1, "maximum": 5},
     "verdict": {"enum": ["approve", "abstain", "revise", "reject"]},
     "prepareConfiguration": {
       "type": "object",
@@ -202,12 +203,12 @@
         "accepted_invalid_reference_maximum": {"type": "integer", "minimum": 0},
         "accepted_detector_truth_change_maximum": {"type": "integer", "minimum": 0},
         "abstention_recall_minimum": {"$ref": "#/$defs/rate"},
-        "maintainer_usefulness_mean_minimum": {"type": "number", "minimum": 1, "maximum": 5},
-        "manual_quality_mean_minimum": {"type": "number", "minimum": 1, "maximum": 5},
+        "maintainer_usefulness_mean_minimum": {"$ref": "#/$defs/score"},
+        "manual_quality_mean_minimum": {"$ref": "#/$defs/score"},
         "unsupported_claim_count_maximum": {"type": "integer", "minimum": 0},
-        "warm_top_one_p95_ms_maximum": {"type": "integer", "minimum": 0},
-        "warm_top_five_p95_ms_maximum": {"type": "integer", "minimum": 0},
-        "peak_process_rss_bytes_maximum": {"type": "integer", "minimum": 0},
+        "warm_top_one_p95_ms_maximum": {"type": "integer", "minimum": 1},
+        "warm_top_five_p95_ms_maximum": {"type": "integer", "minimum": 1},
+        "peak_process_rss_bytes_maximum": {"type": "integer", "minimum": 1},
         "swap_growth_bytes_maximum": {"type": "integer", "minimum": 0}
       }
     },

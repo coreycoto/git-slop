@@ -3,6 +3,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "advisor": {
+      "additionalProperties": false,
       "properties": {
         "benchmark_feature_compiled": {
           "type": "boolean"
@@ -32,6 +33,21 @@
             "defer"
           ]
         },
+        "state": {
+          "additionalProperties": false,
+          "properties": {
+            "detail": {"type": "string"},
+            "latest": {"enum": ["missing", "valid", "stale", "invalid"]},
+            "private_permissions": {"type": "boolean"},
+            "recovery_entries": {"type": "integer", "minimum": 0},
+            "retained_bytes": {"type": "integer", "minimum": 0},
+            "retained_runs": {"type": "integer", "minimum": 0},
+            "retention_command": {"const": "git slop prune --dry-run"},
+            "status": {"enum": ["missing", "valid", "stale", "invalid", "recovery_required", "insecure_permissions"]}
+          },
+          "required": ["status", "latest", "retained_runs", "retained_bytes", "private_permissions", "recovery_entries", "retention_command"],
+          "type": "object"
+        },
         "status": {
           "enum": [
             "available",
@@ -45,7 +61,8 @@
         "provider_free_context_available",
         "model_required_for_ordinary_use",
         "public_inference_enabled",
-        "benchmark_feature_compiled"
+        "benchmark_feature_compiled",
+        "state"
       ],
       "type": "object"
     },
