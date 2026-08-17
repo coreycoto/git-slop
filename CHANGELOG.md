@@ -28,6 +28,9 @@ evidence, embeds policy identities, explains every truncation, and presents a
 concise human receipt while retaining explicit machine JSON. Adoption and
 policy mutations now emit complete machine receipts and staging guidance, while
 `doctor` exposes typed advisor state and a version-pinned decision URL.
+The public backlog now closes completed provider-free work and confines every
+remaining live-model acceptance gate to a separately provisioned eligible host,
+with local 16-GB M2/Ollama execution explicitly prohibited.
 
 See the [complete numbered 0.16.1 release notes](docs/releases/0.16.1.md).
 
