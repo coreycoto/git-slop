@@ -18,6 +18,7 @@ cargo xtask check-distribution
 cargo xtask release-prepare --version 0.16.1 --check-only
 cargo xtask release-prepare --version 0.16.1
 cargo xtask release-status --version 0.16.1 --format json
+cargo xtask advisor-capacity --help
 cargo xtask advisor-benchmark --help
 cargo xtask advisor-benchmark-finalize --help
 cargo xtask verify-crate \
@@ -56,6 +57,21 @@ An explicit review directory must be absolute and outside this repository;
 validated case artifacts written there remain private. After review,
 `advisor-benchmark-finalize` binds the private ratings digest to an existing
 completed result and recalculates its manual gates without rerunning inference.
+
+`advisor-capacity` is the provider-free first gate for proposed benchmark
+hardware. It reads only physical memory, available memory, and swap, never
+reads a report or contacts a provider, and emits a receipt that states both
+facts. An ineligible host exits nonzero after printing every blocker rather
+than only the first one. The JSON receipt follows
+`git slop schema advisor-capacity`; human output shows the same complete limit
+contract. Run this before building the inference feature or provisioning a
+runtime; never replace it with the full benchmark on a low-memory development
+machine.
+
+The benchmark retains at most 8 MiB from each child stdout/stderr stream while
+continuing to drain both. Crossing either boundary terminates the matrix with a
+privacy-safe incomplete result instead of deadlocking or consuming unbounded
+maintainer memory.
 
 After the protected workflow publishes the crate, `verify-crate` checks the
 downloaded `.crate` checksum, exact package archive boundary, Cargo package

@@ -141,13 +141,14 @@ fn inference_provider_config(
                 estimated_peak_memory_bytes,
             )?;
             eprintln!(
-                "Advisor resource contract: model={} bytes; estimated peak={} bytes; required available={} bytes; host physical={} bytes; host available={} bytes; swap={} bytes; maximum swap growth={} bytes; consent=--confirm-resources",
+                "Advisor resource contract: model={} bytes; estimated peak={} bytes; required available={} bytes; host physical={} bytes; host available={} bytes; swap={} bytes; maximum initial swap={} bytes; maximum swap growth={} bytes; consent=--confirm-resources",
                 preflight.model_size_bytes,
                 preflight.estimated_peak_memory_bytes,
                 preflight.required_available_memory_bytes,
                 preflight.system.physical_memory_bytes,
                 preflight.system.available_memory_bytes,
                 preflight.system.swap_used_bytes,
+                preflight.maximum_initial_swap_used_bytes,
                 preflight.maximum_swap_growth_bytes,
             );
             (endpoint, Some(preflight), Some(guard))
@@ -221,7 +222,7 @@ fn run_advise(repo_root: &Path, args: AdviseArgs) -> Result<i32> {
                 ErrorKind::Contract,
                 "advisor_inference_deferred",
                 format!(
-                    "model inference is disabled because the checked-in advisor release recommendation is {:?}; use provider-free context output or an advisor-inference-benchmark build on a separately controlled, adequately resourced host. Decision: {}",
+                    "model inference is unavailable in public releases because the checked-in advisor recommendation is {:?}. Use provider-free context output; maintainer inference research is restricted to a separately provisioned, adequately resourced host. Decision: {}",
                     gate.recommendation, gate.decision_record
                 ),
             )

@@ -46,6 +46,25 @@ Review the selected plan candidates privately. Pin the emitted report SHA-256
 values in the corpus only after that review. An unpinned corpus can run, but it
 cannot receive a `ship` recommendation.
 
+Before building the inference lane, check only the proposed host's capacity:
+
+```sh
+cargo xtask advisor-capacity \
+  --model openai/gpt-oss-safeguard-20b \
+  --model-size-bytes 13793441254 \
+  --estimated-peak-memory-bytes 17179869184 \
+  --format json
+```
+
+This command does not read a report, build context, connect to a provider, or
+manage a runtime. The machine-readable receipt explicitly records
+`provider_contacted: false` and `report_accessed: false`; an ineligible host
+receives every blocker and a nonzero exit. Each blocker carries a stable code,
+actual bytes, comparison direction, limiting bytes, and a human message. The
+receipt must match `git slop schema advisor-capacity`. This is the safe capacity
+check for a low-memory development machine. Do not replace it there with
+`advisor-benchmark`.
+
 Build the inference lane only on the dedicated benchmark host with the
 non-default feature:
 
@@ -72,10 +91,13 @@ Before preparing repository context or contacting a provider, the inference
 lane requires `--confirm-dedicated-host`, measures physical and available
 memory and swap, validates the supplied model and peak-memory sizes against the
 checked-in release gate, and prints the complete capacity contract. A
-continuous 250-ms watchdog aborts the client request if available memory drops
-below the reserve, swap grows past the fixed limit, or either measurement
-becomes unavailable. A resource abort terminates the matrix immediately and is
-not retried.
+host is rejected when more than 256 MiB of swap is already in use. The runtime
+and harness also enforce the 20B model, 16-GiB peak estimate, 24-GiB physical
+memory, 8-GiB reserve, and 256-MiB swap boundaries as hard safety floors even
+if a checked-in gate is weakened. A continuous 250-ms watchdog aborts the
+client request if available memory drops below the reserve, swap grows past the
+fixed limit, or either measurement becomes unavailable. A resource abort
+terminates the matrix immediately and is not retried.
 
 ## Preregistered matrix
 
@@ -104,7 +126,11 @@ runtime fail-fast boundary.
 The harness never starts, stops, installs, unloads, or otherwise manages a
 provider runtime. The operator must set `--initial-runtime-state cold` or
 `warm` to record the separately verified state before the first sample; all
-later samples are treated as warm. Run only on the dedicated host:
+later samples are treated as warm. Child stdout and stderr are drained while
+each sample runs so a full pipe cannot deadlock the watchdog or timeout path.
+Each stream retains at most 8 MiB; crossing that boundary closes the child and
+terminates the matrix with `benchmark_child_output_limit` instead of consuming
+unbounded harness memory. Run only on the dedicated host:
 
 ```sh
 cargo xtask advisor-benchmark \
@@ -133,6 +159,15 @@ contain repository paths and model rationales and must never be committed or
 shared as public benchmark output. Select the six artifacts for the
 automatically recommended reasoning effort, review them, and create a private
 ratings file.
+
+Each returned response must name the exact requested served model and report a
+normal stopped completion. The client accepts a complete `Content-Length` or
+chunked HTTP response without waiting for the loopback server to close a
+keep-alive socket. It rejects conflicting or oversized framing, compressed or
+unsupported encodings, non-JSON successful responses, and trailing chunk data.
+IPv6 loopback request Host headers retain the required brackets. Missing or
+mismatched served-model identity terminates the matrix immediately; evidence
+from that runtime is not accepted or retried.
 
 The ratings file must match `git slop schema advisor-ratings`. At least one
 maintainer rates every anonymous case from 1–5 for usefulness, fact versus

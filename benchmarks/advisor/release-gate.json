@@ -7,6 +7,7 @@
   "minimum_estimated_peak_memory_bytes": 17179869184,
   "minimum_physical_memory_bytes": 25769803776,
   "minimum_available_memory_reserve_bytes": 8589934592,
+  "maximum_initial_swap_used_bytes": 268435456,
   "maximum_swap_growth_bytes": 268435456,
   "decision_record": "docs/benchmarks/safeguard-v1-m2-air-decision.md"
 }

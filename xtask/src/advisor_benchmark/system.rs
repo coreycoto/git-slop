@@ -163,9 +163,15 @@ fn classify_failure(stderr: &[u8], artifact_present: bool) -> String {
     for category in [
         "provider_response_too_large",
         "provider_response_invalid",
+        "provider_http_invalid",
+        "provider_http_unsupported",
         "provider_timeout",
         "provider_unavailable",
         "provider_http_error",
+        "provider_model_identity_missing",
+        "provider_model_mismatch",
+        "provider_completion_state_missing",
+        "provider_incomplete_response",
     ] {
         if diagnostic.contains(category) {
             return category.to_string();
@@ -183,10 +189,19 @@ fn is_provider_runtime_failure(category: Option<&str>) -> bool {
         category,
         Some(
             "provider_response_too_large"
+                | "provider_http_invalid"
+                | "provider_http_unsupported"
                 | "provider_timeout"
                 | "provider_unavailable"
                 | "provider_http_error"
         )
+    )
+}
+
+fn is_terminal_provider_identity_failure(category: Option<&str>) -> bool {
+    matches!(
+        category,
+        Some("provider_model_identity_missing" | "provider_model_mismatch")
     )
 }
 
@@ -203,6 +218,35 @@ struct MonitoredOutput {
     minimum_available_memory_bytes: Option<u64>,
     maximum_swap_growth_bytes: Option<u64>,
     termination_reason: Option<&'static str>,
+}
+
+struct BoundedRead {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+fn drain_bounded<R: Read>(
+    mut reader: R,
+    limit: usize,
+    output_limit_exceeded: Arc<AtomicBool>,
+) -> std::io::Result<BoundedRead> {
+    let mut bytes = Vec::with_capacity(limit.min(64 * 1024));
+    let mut truncated = false;
+    let mut chunk = [0_u8; 8192];
+    loop {
+        let read = reader.read(&mut chunk)?;
+        if read == 0 {
+            break;
+        }
+        let remaining = limit.saturating_sub(bytes.len());
+        let retained = remaining.min(read);
+        bytes.extend_from_slice(&chunk[..retained]);
+        if retained < read {
+            truncated = true;
+            output_limit_exceeded.store(true, Ordering::Release);
+        }
+    }
+    Ok(BoundedRead { bytes, truncated })
 }
 
 fn process_rss_bytes(pid: u32) -> Option<u64> {
@@ -232,6 +276,31 @@ fn timed_output(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = child.spawn()?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("benchmark child stdout pipe is unavailable"))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("benchmark child stderr pipe is unavailable"))?;
+    let output_limit_exceeded = Arc::new(AtomicBool::new(false));
+    let stdout_limit = Arc::clone(&output_limit_exceeded);
+    let stderr_limit = Arc::clone(&output_limit_exceeded);
+    let stdout_reader = thread::spawn(move || {
+        drain_bounded(
+            &mut stdout,
+            BENCHMARK_CHILD_OUTPUT_LIMIT_BYTES,
+            stdout_limit,
+        )
+    });
+    let stderr_reader = thread::spawn(move || {
+        drain_bounded(
+            &mut stderr,
+            BENCHMARK_CHILD_OUTPUT_LIMIT_BYTES,
+            stderr_limit,
+        )
+    });
     let mut peak_rss = None::<u64>;
     let mut minimum_available = None::<u64>;
     let mut maximum_swap_growth = None::<u64>;
@@ -239,6 +308,9 @@ fn timed_output(
     loop {
         if child.try_wait()?.is_some() {
             break;
+        }
+        if output_limit_exceeded.load(Ordering::Acquire) {
+            termination_reason = Some("benchmark_child_output_limit");
         }
         if let Some(rss) = process_rss_bytes(child.id()) {
             peak_rss = Some(peak_rss.map_or(rss, |current| current.max(rss)));
@@ -248,10 +320,10 @@ fn timed_output(
                 minimum_available.map_or(available, |current| current.min(available)),
             );
             if available < watchdog.minimum_available_memory_bytes {
-                termination_reason = Some("resource_guard_available_memory");
+                termination_reason.get_or_insert("resource_guard_available_memory");
             }
         } else {
-            termination_reason = Some("resource_guard_measurement_unavailable");
+            termination_reason.get_or_insert("resource_guard_measurement_unavailable");
         }
         if let Some(swap) = swap_used_bytes() {
             let growth = swap.saturating_sub(watchdog.initial_swap_used_bytes);
@@ -259,10 +331,10 @@ fn timed_output(
                 maximum_swap_growth.map_or(growth, |current| current.max(growth)),
             );
             if growth > watchdog.maximum_swap_growth_bytes {
-                termination_reason = Some("resource_guard_swap_growth");
+                termination_reason.get_or_insert("resource_guard_swap_growth");
             }
         } else {
-            termination_reason = Some("resource_guard_measurement_unavailable");
+            termination_reason.get_or_insert("resource_guard_measurement_unavailable");
         }
         if termination_reason.is_some() {
             let _ = child.kill();
@@ -270,10 +342,24 @@ fn timed_output(
         }
         thread::sleep(Duration::from_millis(250));
     }
-    let mut output = child.wait_with_output()?;
+    let status = child.wait()?;
+    let stdout = stdout_reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("benchmark stdout reader panicked"))??;
+    let stderr = stderr_reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("benchmark stderr reader panicked"))??;
+    if (stdout.truncated || stderr.truncated) && termination_reason.is_none() {
+        termination_reason = Some("benchmark_child_output_limit");
+    }
+    let mut output = Output {
+        status,
+        stdout: stdout.bytes,
+        stderr: stderr.bytes,
+    };
     if let Some(reason) = termination_reason {
         output.stderr.extend_from_slice(
-            format!("\nadvisor benchmark aborted by {reason}; provider connection closed\n")
+            format!("\nadvisor benchmark aborted by safety guard {reason}; provider connection closed\n")
                 .as_bytes(),
         );
     }

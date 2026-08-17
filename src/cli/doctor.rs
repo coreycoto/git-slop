@@ -110,6 +110,29 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             json!({"status":"unavailable","writable":false,"detail":format!("policy cache could not be resolved: {error}")})
         });
     let detector_cache_writable = detector_cache["writable"].as_bool() == Some(true);
+    let advisor_gate = crate::advice::release_gate();
+    let advisor_gate_valid = advisor_gate.is_ok();
+    let advisor_payload = match &advisor_gate {
+        Ok(gate) => json!({
+            "status": "available",
+            "default_mode": "provider_free_json",
+            "provider_free_context_available": true,
+            "model_required_for_ordinary_use": false,
+            "public_inference_enabled": gate.public_inference_enabled,
+            "recommendation": gate.recommendation,
+            "decision_record": gate.decision_record,
+            "benchmark_feature_compiled": cfg!(feature = "advisor-inference-benchmark"),
+        }),
+        Err(error) => json!({
+            "status": "invalid_release_gate",
+            "default_mode": "provider_free_json",
+            "provider_free_context_available": true,
+            "model_required_for_ordinary_use": false,
+            "public_inference_enabled": false,
+            "detail": crate::text::visible_controls(&format!("{error:#}")),
+            "benchmark_feature_compiled": cfg!(feature = "advisor-inference-benchmark"),
+        }),
+    };
     let bundle_path = doctor_bundle_path(repo_root, args.bundle.as_deref());
     let mut diagnostics = Vec::new();
     if adoption_status == "not_adopted" {
@@ -141,6 +164,9 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
     if policy_cache["writable"].as_bool() != Some(true) {
         diagnostics.push(json!({"code":"policy_cache_not_writable","severity":"warning","detail":policy_cache.get("detail"),"recovery_command":"Set GIT_SLOP_POLICY_HOME to a private writable directory before installing policy packs."}));
     }
+    if let Err(error) = &advisor_gate {
+        diagnostics.push(json!({"code":"advisor_release_gate_invalid","severity":"error","detail":crate::text::visible_controls(&format!("{error:#}"))}));
+    }
     if tracked_paths.is_empty() {
         diagnostics.push(json!({"code":"no_tracked_paths","severity":"notice","detail":"The repository has no committed tracked paths yet. Commit a tracked file, or run git slop find --allow-empty-scope when an empty report is intentional.","recovery_command":"git slop find --allow-empty-scope"}));
     }
@@ -154,6 +180,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
         || report_status == "invalid"
         || resource_status == "over_memory_budget"
         || !detector_cache_writable
+        || !advisor_gate_valid
     {
         "error"
     } else if !scan_ready || !report_available || !report_current || repo.is_shallow {
@@ -173,6 +200,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
         "report": {"status": report_status, "path": report_path, "storage": report_storage, "freshness": report_freshness, "freshness_error": freshness_error},
         "estimate": estimate,
         "cache_writability": {"detector_state": detector_cache, "policy_packs": policy_cache},
+        "advisor": advisor_payload,
         "resource_status": resource_status,
         "diagnostics": diagnostics,
         "bundle_path": bundle_path,
@@ -248,6 +276,17 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
             detector_cache["status"].as_str().unwrap_or("unknown"),
             policy_cache["status"].as_str().unwrap_or("unknown")
         );
+        println!(
+            "- advisor: provider-free context available; model required for ordinary use=no; public inference={} ({})",
+            if advisor_payload["public_inference_enabled"].as_bool() == Some(true) {
+                "enabled"
+            } else {
+                "disabled"
+            },
+            advisor_payload["recommendation"]
+                .as_str()
+                .unwrap_or("invalid release gate")
+        );
         if repo.is_shallow {
             println!("- recovery: fetch full history, or explicitly use --allow-shallow");
         }
@@ -275,6 +314,7 @@ fn run_doctor(repo_root: &Path, args: DoctorArgs) -> Result<i32> {
         || report_status == "invalid"
         || resource_status == "over_memory_budget"
         || !detector_cache_writable
+        || !advisor_gate_valid
         || (args.require_current && report_status != "current")
     {
         2

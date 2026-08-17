@@ -96,10 +96,24 @@ scope is wrong.
   release may ship provider-free context only; it must keep public inference
   disabled.
 - Run inference benchmarks only on an explicitly confirmed, separately
-  provisioned host that passes the model-size, peak-memory, available-memory,
-  and swap preflight. The harness must not install, start, stop, or unload
-  Ollama. A resource-watchdog abort is terminal for that host and must not be
-  retried as part of the same release decision.
+  provisioned host. First run `cargo xtask advisor-capacity` with the exact
+  model size and conservative peak estimate; its receipt must say
+  `provider_contacted: false`, `report_accessed: false`, and `eligible: true`,
+  contain no blockers, and validate against `git slop schema
+  advisor-capacity`.
+  Then require the full benchmark's model-size, peak-memory, physical-memory,
+  available-memory, initial-swap, and swap-growth gates. The harness must not
+  install, start, stop, or unload Ollama. A resource-watchdog abort is terminal
+  for that host and must not be retried as part of the same release decision.
+- Confirm the harness's 8-MiB per-stream child-output guard is recorded in the
+  result configuration; an output-limit abort is terminal for that matrix.
+- Confirm the provider response reports the exact requested served model and a
+  normal stopped completion for every sample; truncated or mismatched output is
+  a validation failure, not benchmark evidence. Missing or mismatched model
+  identity must terminate the matrix immediately.
+- Confirm the loopback HTTP client rejects invalid ports, unsupported transfer
+  or content encoding, oversized declared bodies, non-JSON success responses,
+  ambiguous framing, and trailing chunk bytes.
 - Confirm `action.yml` remains the only root Action metadata file and its
   Marketplace name, description, branding, inputs, and outputs are current.
 - Confirm the nested Actions in `action.yml` and release workflows are pinned

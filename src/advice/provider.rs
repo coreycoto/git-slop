@@ -1,6 +1,4 @@
 use std::fs;
-use std::io::{Read, Write};
-use std::net::{IpAddr, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -8,6 +6,8 @@ use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
 use serde::Serialize;
 use serde_json::{Value, json};
+
+mod http;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ProviderKind {
@@ -69,73 +69,6 @@ pub struct ProviderResult {
     pub elapsed_ms: u128,
 }
 
-struct HttpEndpoint {
-    host: String,
-    port: u16,
-    path: String,
-    classification: &'static str,
-}
-
-fn parse_endpoint(value: &str) -> Result<HttpEndpoint> {
-    let Some(rest) = value.strip_prefix("http://") else {
-        bail!("provider_endpoint_unsupported: V1 requires an explicit http:// endpoint");
-    };
-    if rest.contains('@')
-        || rest.contains('?')
-        || rest.contains('#')
-        || rest
-            .chars()
-            .any(|character| character.is_control() || character.is_whitespace())
-    {
-        bail!("provider_endpoint_invalid: credentials, queries, and fragments are not allowed");
-    }
-    let (authority, path) = rest
-        .split_once('/')
-        .map_or((rest, "/".to_string()), |(authority, path)| {
-            (authority, format!("/{path}"))
-        });
-    if authority.is_empty() {
-        bail!("provider_endpoint_invalid: endpoint host is empty");
-    }
-    let (host, port) = if authority.starts_with('[') {
-        let close = authority
-            .find(']')
-            .ok_or_else(|| anyhow::anyhow!("provider_endpoint_invalid: malformed IPv6 host"))?;
-        let host = authority[1..close].to_string();
-        let suffix = &authority[close + 1..];
-        let port = if suffix.is_empty() {
-            80
-        } else {
-            suffix
-                .strip_prefix(':')
-                .ok_or_else(|| {
-                    anyhow::anyhow!("provider_endpoint_invalid: malformed IPv6 authority")
-                })?
-                .parse::<u16>()?
-        };
-        (host, port)
-    } else if let Some((host, port)) = authority.rsplit_once(':') {
-        (host.to_string(), port.parse::<u16>()?)
-    } else {
-        (authority.to_string(), 80)
-    };
-    let local = host.eq_ignore_ascii_case("localhost")
-        || host
-            .parse::<IpAddr>()
-            .is_ok_and(|address| address.is_loopback());
-    if !local {
-        bail!(
-            "provider_remote_unsupported: endpoint host {host:?} is not loopback. Advisor V1 has no authenticated TLS transport, so remote endpoints are refused"
-        );
-    }
-    Ok(HttpEndpoint {
-        host,
-        port,
-        path,
-        classification: "loopback",
-    })
-}
-
 #[cfg(test)]
 #[allow(
     clippy::items_after_test_module,
@@ -143,10 +76,15 @@ fn parse_endpoint(value: &str) -> Result<HttpEndpoint> {
 )]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread::{self, JoinHandle};
 
-    fn one_shot_server(response: Vec<u8>, delay: Duration) -> (String, JoinHandle<()>) {
+    fn one_shot_server_with_hold(
+        response: Vec<u8>,
+        delay: Duration,
+        hold_open: Duration,
+    ) -> (String, JoinHandle<()>) {
         let listener =
             TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("bind test provider");
         let address = listener.local_addr().expect("test provider address");
@@ -185,8 +123,15 @@ mod tests {
                 thread::sleep(delay);
             }
             let _ = stream.write_all(&response);
+            if !hold_open.is_zero() {
+                thread::sleep(hold_open);
+            }
         });
         (format!("http://{address}/v1/chat/completions"), handle)
+    }
+
+    fn one_shot_server(response: Vec<u8>, delay: Duration) -> (String, JoinHandle<()>) {
+        one_shot_server_with_hold(response, delay, Duration::ZERO)
     }
 
     fn fixed_response(status: &str, body: &[u8]) -> Vec<u8> {
@@ -197,6 +142,18 @@ mod tests {
         .into_bytes()
         .into_iter()
         .chain(body.iter().copied())
+        .collect()
+    }
+
+    fn chunked_response(status: &str, body: &[u8]) -> Vec<u8> {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n{:x}\r\n",
+            body.len()
+        )
+        .into_bytes()
+        .into_iter()
+        .chain(body.iter().copied())
+        .chain(b"\r\n0\r\n\r\n".iter().copied())
         .collect()
     }
 
@@ -218,17 +175,6 @@ mod tests {
             resource_guard: None,
             resource_preflight: None,
         }
-    }
-
-    #[test]
-    fn endpoint_boundary_is_loopback_by_default_and_rejects_header_injection() {
-        let local = parse_endpoint("http://localhost:11434/v1/chat/completions")
-            .expect("loopback endpoint");
-        assert_eq!(local.classification, "loopback");
-        assert!(parse_endpoint("http://example.com/v1/chat/completions").is_err());
-        assert!(parse_endpoint("http://localhost\r\nX-Test: unsafe/path").is_err());
-        assert!(parse_endpoint("https://localhost/v1/chat/completions").is_err());
-        assert!(parse_endpoint("http://[::1]evil/v1/chat/completions").is_err());
     }
 
     #[test]
@@ -271,6 +217,8 @@ mod tests {
         let body = serde_json::to_vec(&json!({
             "model": "gpt-oss-safeguard:20b",
             "message": {"role": "assistant", "content": "{\"schema_version\":1}"},
+            "done": true,
+            "done_reason": "stop",
             "total_duration": 500,
             "load_duration": 100,
             "prompt_eval_count": 20,
@@ -295,13 +243,87 @@ mod tests {
     }
 
     #[test]
-    fn chunked_decoder_is_bounded_and_rejects_malformed_frames() {
-        assert_eq!(
-            decode_chunked(b"4\r\ntest\r\n0\r\n\r\n", 4).expect("chunked response"),
-            b"test"
+    fn content_length_finishes_without_waiting_for_connection_close() {
+        let body = serde_json::to_vec(&json!({
+            "model": "gpt-oss-safeguard:20b",
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {"content": {"schema_version": 1}}
+            }]
+        }))
+        .expect("OpenAI-compatible fixture");
+        let (endpoint, handle) = one_shot_server_with_hold(
+            fixed_response("200 OK", &body),
+            Duration::ZERO,
+            Duration::from_millis(150),
         );
-        assert!(decode_chunked(b"4\r\ntest", 4).is_err());
-        assert!(decode_chunked(b"4\r\ntest\r\n0\r\n\r\n", 3).is_err());
+        let mut provider = config();
+        provider.endpoint = endpoint;
+        provider.timeout = Duration::from_millis(50);
+        let result = invoke(&json!({"schema_version": 1}), &provider)
+            .expect("Content-Length should complete before close");
+        assert_eq!(result.response["schema_version"], 1);
+        handle.join().expect("held-open server thread");
+    }
+
+    #[test]
+    fn chunked_response_finishes_without_waiting_for_connection_close() {
+        let body = serde_json::to_vec(&json!({
+            "model": "gpt-oss-safeguard:20b",
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {"content": {"schema_version": 1}}
+            }]
+        }))
+        .expect("OpenAI-compatible fixture");
+        let (endpoint, handle) = one_shot_server_with_hold(
+            chunked_response("200 OK", &body),
+            Duration::ZERO,
+            Duration::from_millis(150),
+        );
+        let mut provider = config();
+        provider.endpoint = endpoint;
+        provider.timeout = Duration::from_millis(50);
+        let result = invoke(&json!({"schema_version": 1}), &provider)
+            .expect("chunked response should complete before close");
+        assert_eq!(result.response["schema_version"], 1);
+        handle.join().expect("held-open server thread");
+    }
+
+    #[test]
+    fn provider_rejects_model_identity_and_completion_drift() {
+        for (body, expected) in [
+            (
+                json!({
+                    "model": "different-model",
+                    "choices": [{
+                        "finish_reason": "stop",
+                        "message": {"content": {"schema_version": 1}}
+                    }]
+                }),
+                "provider_model_mismatch",
+            ),
+            (
+                json!({
+                    "model": "gpt-oss-safeguard:20b",
+                    "choices": [{
+                        "finish_reason": "length",
+                        "message": {"content": {"schema_version": 1}}
+                    }]
+                }),
+                "provider_incomplete_response",
+            ),
+        ] {
+            let body = serde_json::to_vec(&body).expect("provider fixture");
+            let (endpoint, handle) =
+                one_shot_server(fixed_response("200 OK", &body), Duration::ZERO);
+            let mut provider = config();
+            provider.endpoint = endpoint;
+            let error = invoke(&json!({"schema_version": 1}), &provider)
+                .expect_err("provider provenance drift must fail");
+            assert!(format!("{error:#}").contains(expected));
+            handle.join().expect("provider drift server thread");
+        }
     }
 
     #[test]
@@ -374,167 +396,11 @@ mod tests {
     }
 }
 
-fn decode_chunked(mut body: &[u8], maximum: usize) -> Result<Vec<u8>> {
-    let mut decoded = Vec::new();
-    loop {
-        let Some(line_end) = body.windows(2).position(|window| window == b"\r\n") else {
-            bail!("provider_http_invalid: malformed chunk header");
-        };
-        let size_text = std::str::from_utf8(&body[..line_end])?
-            .split(';')
-            .next()
-            .unwrap_or_default();
-        let size = usize::from_str_radix(size_text.trim(), 16)
-            .context("provider_http_invalid: invalid chunk size")?;
-        body = &body[line_end + 2..];
-        if size == 0 {
-            break;
-        }
-        if body.len() < size + 2 || &body[size..size + 2] != b"\r\n" {
-            bail!("provider_http_invalid: truncated chunked response");
-        }
-        if decoded.len().saturating_add(size) > maximum {
-            bail!("provider_response_too_large: response exceeds {maximum} bytes");
-        }
-        decoded.extend_from_slice(&body[..size]);
-        body = &body[size + 2..];
-    }
-    Ok(decoded)
-}
-
-fn connect_endpoint(endpoint: &HttpEndpoint, timeout: Duration) -> Result<TcpStream> {
-    let addresses = (endpoint.host.as_str(), endpoint.port)
-        .to_socket_addrs()
-        .context("provider_unavailable: endpoint resolution failed")?
-        .collect::<Vec<_>>();
-    if addresses.is_empty() {
-        bail!("provider_unavailable: endpoint resolved to no addresses");
-    }
-    if endpoint.classification == "loopback"
-        && addresses.iter().any(|address| !address.ip().is_loopback())
-    {
-        bail!("provider_endpoint_invalid: loopback endpoint resolved to a non-loopback address");
-    }
-    let mut last_error = None;
-    let mut stream = None;
-    for address in addresses {
-        match TcpStream::connect_timeout(&address, timeout) {
-            Ok(candidate) => {
-                stream = Some(candidate);
-                break;
-            }
-            Err(error) => last_error = Some(error),
-        }
-    }
-    stream.ok_or_else(|| {
-        anyhow::anyhow!(
-            "provider_unavailable: {}",
-            last_error.map_or_else(
-                || "connection failed".to_string(),
-                |error| error.to_string()
-            )
-        )
-    })
-}
-
 pub fn probe(config: &ProviderConfig) -> Result<()> {
     if config.kind == ProviderKind::Mock {
         return Ok(());
     }
-    let endpoint = parse_endpoint(&config.endpoint)?;
-    let _stream = connect_endpoint(&endpoint, config.connect_timeout)?;
-    Ok(())
-}
-
-fn http_post(
-    endpoint: &HttpEndpoint,
-    body: &[u8],
-    connect_timeout: Duration,
-    timeout: Duration,
-    maximum: usize,
-    resource_guard: Option<super::RuntimeResourceGuard>,
-) -> Result<Vec<u8>> {
-    let mut stream = connect_endpoint(endpoint, connect_timeout)?;
-    let started = Instant::now();
-    let poll_timeout = timeout.min(Duration::from_millis(250));
-    stream.set_read_timeout(Some(poll_timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
-    let request = format!(
-        "POST {} HTTP/1.1\r\nHost: {}:{}\r\nContent-Type: application/json\r\nAccept: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        endpoint.path,
-        endpoint.host,
-        endpoint.port,
-        body.len()
-    );
-    stream
-        .write_all(request.as_bytes())
-        .context("provider_timeout: request headers could not be written")?;
-    stream
-        .write_all(body)
-        .context("provider_timeout: request body could not be written")?;
-    let mut response = Vec::new();
-    let response_limit = maximum.saturating_add(65_536);
-    loop {
-        if let Some(guard) = resource_guard {
-            super::resources::enforce_resource_guard(guard)?;
-        }
-        if started.elapsed() >= timeout {
-            bail!(
-                "provider_timeout: model loading and generation did not finish within {} seconds",
-                timeout.as_secs_f64()
-            );
-        }
-        let mut chunk = [0_u8; 8192];
-        match stream.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(read) => {
-                if response.len().saturating_add(read) > response_limit {
-                    bail!("provider_response_too_large: response exceeds configured bounds");
-                }
-                response.extend_from_slice(&chunk[..read]);
-            }
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
-            Err(error) => {
-                return Err(error)
-                    .context("provider_unavailable: response connection failed before completion");
-            }
-        }
-    }
-    let header_end = response
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .ok_or_else(|| anyhow::anyhow!("provider_http_invalid: response headers are incomplete"))?;
-    let headers = std::str::from_utf8(&response[..header_end])?;
-    let status = headers
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .and_then(|value| value.parse::<u16>().ok())
-        .ok_or_else(|| anyhow::anyhow!("provider_http_invalid: response status is malformed"))?;
-    let raw_body = &response[header_end + 4..];
-    let body = if headers.lines().any(|line| {
-        line.eq_ignore_ascii_case("transfer-encoding: chunked")
-            || line
-                .to_ascii_lowercase()
-                .starts_with("transfer-encoding: chunked")
-    }) {
-        decode_chunked(raw_body, maximum)?
-    } else {
-        if raw_body.len() > maximum {
-            bail!("provider_response_too_large: response exceeds {maximum} bytes");
-        }
-        raw_body.to_vec()
-    };
-    if !(200..300).contains(&status) {
-        let diagnostic = String::from_utf8_lossy(&body);
-        let bounded = diagnostic.chars().take(1000).collect::<String>();
-        bail!("provider_http_error: endpoint returned HTTP {status}: {bounded}");
-    }
-    Ok(body)
+    http::probe_endpoint(&config.endpoint, config.connect_timeout)
 }
 
 fn trust_zone_messages(input: &Value) -> Result<Value> {
@@ -622,6 +488,55 @@ fn ollama_response_content(payload: &Value) -> Result<Value> {
         .context("provider_response_invalid: message content is malformed JSON")
 }
 
+fn validate_runtime_model(payload: &Value, config: &ProviderConfig) -> Result<()> {
+    let runtime_model = payload
+        .get("model")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            anyhow::anyhow!("provider_model_identity_missing: response omitted the served model")
+        })?;
+    if runtime_model != config.runtime_model {
+        bail!(
+            "provider_model_mismatch: requested served model {:?}, response reported {runtime_model:?}",
+            config.runtime_model
+        );
+    }
+    Ok(())
+}
+
+fn validate_openai_completion(payload: &Value) -> Result<()> {
+    let finish_reason = payload
+        .pointer("/choices/0/finish_reason")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "provider_completion_state_missing: response omitted choices[0].finish_reason"
+            )
+        })?;
+    if finish_reason != "stop" {
+        bail!(
+            "provider_incomplete_response: provider finish reason was {finish_reason:?}, not \"stop\""
+        );
+    }
+    Ok(())
+}
+
+fn validate_ollama_completion(payload: &Value) -> Result<()> {
+    if payload.get("done").and_then(Value::as_bool) != Some(true) {
+        bail!("provider_incomplete_response: Ollama response did not declare done=true");
+    }
+    let done_reason = payload
+        .get("done_reason")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            anyhow::anyhow!("provider_completion_state_missing: response omitted done_reason")
+        })?;
+    if done_reason != "stop" {
+        bail!("provider_incomplete_response: Ollama done reason was {done_reason:?}, not \"stop\"");
+    }
+    Ok(())
+}
+
 pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> {
     let started = Instant::now();
     match config.kind {
@@ -653,11 +568,10 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
             })
         }
         ProviderKind::OpenaiCompatible => {
-            let endpoint = parse_endpoint(&config.endpoint)?;
+            let endpoint = http::Endpoint::parse(&config.endpoint)?;
             let request = openai_request_payload(input, config)?;
             let body = serde_json::to_vec(&request)?;
-            let raw = http_post(
-                &endpoint,
+            let raw = endpoint.post(
                 &body,
                 config.connect_timeout,
                 config.timeout,
@@ -666,6 +580,8 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
             )?;
             let envelope: Value = serde_json::from_slice(&raw)
                 .context("provider_response_invalid: endpoint returned malformed JSON")?;
+            validate_runtime_model(&envelope, config)?;
+            validate_openai_completion(&envelope)?;
             let response = response_content(&envelope)?;
             Ok(ProviderResult {
                 response,
@@ -676,7 +592,7 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
                     "runtime_model": envelope.get("model").cloned().unwrap_or(Value::Null),
                     "system_fingerprint": envelope.get("system_fingerprint").cloned().unwrap_or(Value::Null),
                     "endpoint": config.endpoint,
-                    "endpoint_classification": endpoint.classification,
+                    "endpoint_classification": endpoint.classification(),
                     "reasoning_effort": config.reasoning_effort,
                     "connect_timeout_ms": config.connect_timeout.as_millis(),
                     "timeout_ms": config.timeout.as_millis(),
@@ -700,11 +616,10 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
             })
         }
         ProviderKind::Ollama => {
-            let endpoint = parse_endpoint(&config.endpoint)?;
+            let endpoint = http::Endpoint::parse(&config.endpoint)?;
             let request = ollama_request_payload(input, config)?;
             let body = serde_json::to_vec(&request)?;
-            let raw = http_post(
-                &endpoint,
+            let raw = endpoint.post(
                 &body,
                 config.connect_timeout,
                 config.timeout,
@@ -713,6 +628,8 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
             )?;
             let envelope: Value = serde_json::from_slice(&raw)
                 .context("provider_response_invalid: endpoint returned malformed JSON")?;
+            validate_runtime_model(&envelope, config)?;
+            validate_ollama_completion(&envelope)?;
             let response = ollama_response_content(&envelope)?;
             Ok(ProviderResult {
                 response,
@@ -723,7 +640,7 @@ pub fn invoke(input: &Value, config: &ProviderConfig) -> Result<ProviderResult> 
                     "runtime_model": envelope.get("model").cloned().unwrap_or(Value::Null),
                     "system_fingerprint": Value::Null,
                     "endpoint": config.endpoint,
-                    "endpoint_classification": endpoint.classification,
+                    "endpoint_classification": endpoint.classification(),
                     "reasoning_effort": config.reasoning_effort,
                     "connect_timeout_ms": config.connect_timeout.as_millis(),
                     "timeout_ms": config.timeout.as_millis(),

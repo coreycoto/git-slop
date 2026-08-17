@@ -228,6 +228,12 @@ fn doctor_reports_detector_and_policy_cache_writability_separately() {
         String::from_utf8_lossy(&output.stderr)
     );
     let payload: Value = serde_json::from_slice(&output.stdout).expect("doctor JSON");
+    assert_eq!(payload["advisor"]["default_mode"], "provider_free_json");
+    assert_eq!(
+        payload["advisor"]["model_required_for_ordinary_use"],
+        false
+    );
+    assert_eq!(payload["advisor"]["public_inference_enabled"], false);
     assert_eq!(
         payload["cache_writability"]["detector_state"]["writable"],
         true
@@ -243,6 +249,59 @@ fn doctor_reports_detector_and_policy_cache_writability_separately() {
                 item["code"] == "policy_cache_not_writable" && item["severity"] == "warning"
             }))
     );
+}
+
+#[test]
+fn advisor_capacity_schema_is_strict_and_provider_free() {
+    let output = cargo_bin_cmd!("git-slop")
+        .args(["schema", "advisor-capacity"])
+        .output()
+        .expect("advisor capacity schema");
+    assert!(output.status.success());
+    let schema: Value = serde_json::from_slice(&output.stdout).expect("capacity schema JSON");
+    let validator = jsonschema::draft202012::options()
+        .build(&schema)
+        .expect("compiled capacity schema");
+    let mut receipt = json!({
+        "schema_version": 1,
+        "command": "advisor-capacity",
+        "eligible": false,
+        "provider_contacted": false,
+        "report_accessed": false,
+        "model": "openai/gpt-oss-safeguard-20b",
+        "model_size_bytes": 13793441254_u64,
+        "estimated_peak_memory_bytes": 17179869184_u64,
+        "required_available_memory_bytes": 25769803776_u64,
+        "required_physical_memory_bytes": 25769803776_u64,
+        "host": {
+            "physical_memory_bytes": 17179869184_u64,
+            "available_memory_bytes": 4294967296_u64,
+            "swap_used_bytes": 536870912_u64
+        },
+        "limits": {
+            "minimum_model_size_bytes": 13793441254_u64,
+            "minimum_estimated_peak_memory_bytes": 17179869184_u64,
+            "minimum_physical_memory_bytes": 25769803776_u64,
+            "minimum_available_memory_reserve_bytes": 8589934592_u64,
+            "maximum_initial_swap_used_bytes": 268435456_u64,
+            "maximum_swap_growth_bytes": 268435456_u64
+        },
+        "release": {
+            "recommendation": "defer",
+            "public_inference_enabled": false,
+            "decision_record": "docs/benchmarks/safeguard-v1-m2-air-decision.md"
+        },
+        "blockers": [{
+            "code": "physical_memory_below_required",
+            "message": "host is too small",
+            "actual_bytes": 17179869184_u64,
+            "comparison": "minimum",
+            "limit_bytes": 25769803776_u64
+        }]
+    });
+    assert!(validator.is_valid(&receipt));
+    receipt["provider_contacted"] = json!(true);
+    assert!(!validator.is_valid(&receipt));
 }
 
 #[test]

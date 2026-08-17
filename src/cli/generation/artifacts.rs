@@ -39,6 +39,7 @@ enum SchemaContract {
     AdvisorCorpus,
     AdvisorRatings,
     AdvisorBenchmark,
+    AdvisorCapacity,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

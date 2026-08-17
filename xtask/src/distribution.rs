@@ -76,10 +76,16 @@ fn validate_advisor_release_gate(repo_root: &Path, errors: &mut Vec<String>) {
         .get("maximum_swap_growth_bytes")
         .and_then(|value| value.as_u64())
         .unwrap_or(u64::MAX);
+    let initial_swap = gate
+        .get("maximum_initial_swap_used_bytes")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(u64::MAX);
     if model_size < 13_793_441_254
+        || estimated_peak < 16 * 1024 * 1024 * 1024
         || estimated_peak < model_size
         || physical < 24 * 1024 * 1024 * 1024
-        || reserve < 4 * 1024 * 1024 * 1024
+        || reserve < 8 * 1024 * 1024 * 1024
+        || initial_swap > 256 * 1024 * 1024
         || swap_growth > 256 * 1024 * 1024
     {
         errors.push(format!(
@@ -118,8 +124,7 @@ fn validate_advisor_release_gate(repo_root: &Path, errors: &mut Vec<String>) {
     let manifest = fs::read_to_string(repo_root.join("Cargo.toml")).unwrap_or_default();
     let advisor_source =
         fs::read_to_string(repo_root.join("src/cli/advice_cmd.rs")).unwrap_or_default();
-    if !manifest.contains("default = []")
-        || !manifest.contains("advisor-inference-benchmark = []")
+    if !advisor_features_fail_closed(&manifest)
         || !advisor_source.contains("cfg!(feature = \"advisor-inference-benchmark\")")
     {
         errors.push(
@@ -137,6 +142,23 @@ fn validate_advisor_release_gate(repo_root: &Path, errors: &mut Vec<String>) {
                 .into(),
         );
     }
+}
+
+fn advisor_features_fail_closed(manifest: &str) -> bool {
+    let Ok(manifest) = toml::from_str::<toml::Value>(manifest) else {
+        return false;
+    };
+    let Some(features) = manifest.get("features").and_then(toml::Value::as_table) else {
+        return false;
+    };
+    features
+        .get("default")
+        .and_then(toml::Value::as_array)
+        .is_some_and(Vec::is_empty)
+        && features
+            .get("advisor-inference-benchmark")
+            .and_then(toml::Value::as_array)
+            .is_some_and(Vec::is_empty)
 }
 
 include!("distribution/document_consistency.rs");

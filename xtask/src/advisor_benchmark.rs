@@ -1,7 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -12,6 +15,7 @@ use serde_json::{Value, json};
 const BENCHMARK_RUNTIME_CONTEXT_TOKENS: usize = 16_384;
 const BENCHMARK_TIMEOUT_SECONDS: u64 = 600;
 const BENCHMARK_CONSECUTIVE_PROVIDER_FAILURE_LIMIT: usize = 2;
+const BENCHMARK_CHILD_OUTPUT_LIMIT_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -37,6 +41,28 @@ pub struct Options {
     pub prepare_only: bool,
     pub ratings: Option<PathBuf>,
     pub review_output_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CapacityCheckOptions {
+    pub repo_root: PathBuf,
+    pub model: String,
+    pub model_size_bytes: u64,
+    pub estimated_peak_memory_bytes: u64,
+}
+
+pub struct CapacityCheck {
+    pub receipt: Value,
+    pub eligible: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CapacityBlocker {
+    code: &'static str,
+    message: String,
+    actual_bytes: u64,
+    comparison: &'static str,
+    limit_bytes: u64,
 }
 
 #[derive(Debug, Deserialize)]

@@ -25,6 +25,7 @@ pub struct ResourcePreflight {
     pub model_size_bytes: u64,
     pub estimated_peak_memory_bytes: u64,
     pub required_available_memory_bytes: u64,
+    pub maximum_initial_swap_used_bytes: u64,
     pub maximum_swap_growth_bytes: u64,
     pub system: SystemResourceSnapshot,
 }
@@ -174,10 +175,18 @@ fn validate_capacity(
             required_available_memory_bytes
         );
     }
+    if system.swap_used_bytes > gate.maximum_initial_swap_used_bytes {
+        bail!(
+            "advisor_initial_swap_exceeded: host swap use is {} bytes; this configuration permits at most {} bytes before provider contact. Recover memory pressure or use a separately provisioned host",
+            system.swap_used_bytes,
+            gate.maximum_initial_swap_used_bytes
+        );
+    }
     Ok(ResourcePreflight {
         model_size_bytes,
         estimated_peak_memory_bytes,
         required_available_memory_bytes,
+        maximum_initial_swap_used_bytes: gate.maximum_initial_swap_used_bytes,
         maximum_swap_growth_bytes: gate.maximum_swap_growth_bytes,
         system,
     })
@@ -268,5 +277,21 @@ mod tests {
             preflight.required_available_memory_bytes,
             24 * 1024 * 1024 * 1024
         );
+    }
+
+    #[test]
+    fn initially_pressured_host_is_rejected_even_with_memory_headroom() {
+        let error = validate_capacity(
+            &gate(),
+            13_793_441_254,
+            17_179_869_184,
+            SystemResourceSnapshot {
+                physical_memory_bytes: 64 * 1024 * 1024 * 1024,
+                available_memory_bytes: 48 * 1024 * 1024 * 1024,
+                swap_used_bytes: 512 * 1024 * 1024,
+            },
+        )
+        .expect_err("initial swap pressure must fail");
+        assert!(error.to_string().contains("advisor_initial_swap_exceeded"));
     }
 }

@@ -53,6 +53,13 @@ now the defaults when `--infer` is absent, so `git slop advise --top 5` produces
 the same provider-independent JSON. No provider configuration is read and no
 network connection is attempted.
 
+Stable `git slop advise --help` shows only provider-free context construction
+and artifact validation. The disabled inference, provider, model, resource,
+timeout, and mock-response controls are hidden because they are not supported
+product workflows. `git slop doctor` independently reports that provider-free
+context is available, no model is required for ordinary use, and public
+inference is disabled.
+
 `--top` preserves intervention ranking first and fills any remaining requested
 slots from the report's ranked health refactor candidates. It never promotes
 ordinary observations into plan candidates.
@@ -99,9 +106,31 @@ requires an explicit canonical model, immutable digest, artifact size,
 conservative peak-memory estimate, runtime state, and dedicated-host
 confirmation. Before provider contact it measures physical and available
 memory plus swap, enforces at least 24 GiB of physical memory and 24 GiB of
-available capacity for the current model estimate, and prints the complete
-resource contract. A continuous watchdog closes the request when the 8-GiB
-available-memory reserve or 256-MiB swap-growth boundary is crossed.
+available capacity for the current model estimate, rejects more than 256 MiB
+of swap already in use, and prints the complete resource contract. Those
+minimums are enforced in both the runtime and the private harness even if the
+checked-in gate is weakened. A continuous watchdog closes the request when the
+8-GiB available-memory reserve or 256-MiB swap-growth boundary is crossed.
+
+Maintainers must run the capacity-only preflight before preparing a report or
+provisioning a provider:
+
+```sh
+cargo xtask advisor-capacity \
+  --model openai/gpt-oss-safeguard-20b \
+  --model-size-bytes 13793441254 \
+  --estimated-peak-memory-bytes 17179869184 \
+  --format json
+```
+
+It reads only host memory and swap state. Its receipt records
+`provider_contacted: false` and `report_accessed: false`, and it exits nonzero
+when the host is ineligible. Every blocker is returned with a stable code,
+actual byte count, comparison direction, limit, and message instead of stopping
+at the first failure. `git slop schema advisor-capacity` prints the strict
+`advisor-capacity-1` receipt contract. This is therefore the only advisor
+capacity command that should be run on the recorded 16-GB M2 Air; do not use
+that machine for the full benchmark.
 
 Git Slop never manages the provider runtime. In particular, neither the public
 CLI nor the benchmark runs `ollama serve`, `ollama pull`, `ollama stop`, package
@@ -117,6 +146,16 @@ injection are rejected. A short zero-data TCP probe has its own connection
 timeout before any repository context is sent. Model loading and generation
 share a separately displayed total timeout, emit phase progress, and can be
 cancelled with Ctrl-C.
+
+Provider responses must identify the exact requested served model and report a
+normal stopped completion (`finish_reason: stop` for OpenAI-compatible
+responses or `done: true` with `done_reason: stop` for native Ollama). The HTTP
+reader honors complete `Content-Length` and chunked framing without waiting for
+the provider to close a keep-alive connection, and rejects conflicting or
+ambiguous framing before response validation. It formats IPv6 loopback Host
+headers correctly, rejects invalid ports, oversized declared bodies,
+unsupported transfer/content encodings, non-JSON successful responses, and
+trailing chunk bytes before the provider envelope is accepted.
 
 See the [official OpenAI Safeguard guide](https://cookbook.openai.com/articles/gpt-oss-safeguard-guide),
 the [benchmark protocol](benchmarks/safeguard-v1.md), and the [resource-safety

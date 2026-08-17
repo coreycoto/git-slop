@@ -93,6 +93,9 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
                         SchemaContract::AdvisorBenchmark => {
                             include_str!("../../schemas/advisor-benchmark-1.json")
                         }
+                        SchemaContract::AdvisorCapacity => {
+                            include_str!("../../schemas/advisor-capacity-1.json")
+                        }
                         SchemaContract::Report | SchemaContract::Config => unreachable!(),
                     };
                     let value: Value = serde_json::from_str(source)?;

@@ -12,11 +12,26 @@ mod tests {
     #[test]
     fn only_runtime_provider_failures_trigger_the_bounded_abort() {
         assert!(is_provider_runtime_failure(Some("provider_http_error")));
+        assert!(is_provider_runtime_failure(Some("provider_http_invalid")));
+        assert!(is_provider_runtime_failure(Some("provider_http_unsupported")));
         assert!(is_provider_runtime_failure(Some("provider_timeout")));
         assert!(!is_provider_runtime_failure(Some("provider_response_invalid")));
         assert!(!is_provider_runtime_failure(Some("artifact_invalid")));
         assert!(!is_provider_runtime_failure(None));
         assert_eq!(BENCHMARK_CONSECUTIVE_PROVIDER_FAILURE_LIMIT, 2);
+        assert!(is_terminal_provider_identity_failure(Some(
+            "provider_model_mismatch"
+        )));
+        assert!(is_terminal_provider_identity_failure(Some(
+            "provider_model_identity_missing"
+        )));
+        assert!(!is_terminal_provider_identity_failure(Some(
+            "provider_incomplete_response"
+        )));
+        assert_eq!(
+            classify_failure(b"error: provider_model_mismatch", false),
+            "provider_model_mismatch"
+        );
     }
 
     #[test]
@@ -121,6 +136,91 @@ mod tests {
         )
         .expect_err("16 GiB benchmark host must fail");
         assert!(error.to_string().contains("do not run on this host"));
+    }
+
+    #[test]
+    fn dedicated_benchmark_rejects_existing_swap_pressure() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let gate: BenchmarkReleaseGate = serde_json::from_slice(
+            &fs::read(root.join("benchmarks/advisor/release-gate.json")).unwrap(),
+        )
+        .unwrap();
+        let error = validate_benchmark_capacity(
+            &gate,
+            13_793_441_254,
+            17_179_869_184,
+            64 * 1024 * 1024 * 1024,
+            48 * 1024 * 1024 * 1024,
+            512 * 1024 * 1024,
+        )
+        .expect_err("initial swap pressure must fail");
+        assert!(error.to_string().contains("swap in use"));
+    }
+
+    #[test]
+    fn capacity_receipt_reports_every_host_blocker() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let gate: BenchmarkReleaseGate = serde_json::from_slice(
+            &fs::read(root.join("benchmarks/advisor/release-gate.json")).unwrap(),
+        )
+        .unwrap();
+        let (_, _, blockers) = benchmark_capacity_blockers(
+            &gate,
+            13_793_441_254,
+            17_179_869_184,
+            16 * 1024 * 1024 * 1024,
+            4 * 1024 * 1024 * 1024,
+            512 * 1024 * 1024,
+        )
+        .expect("capacity evaluation");
+        let codes = blockers
+            .iter()
+            .map(|blocker| blocker.code)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            codes,
+            [
+                "physical_memory_below_required",
+                "available_memory_below_required",
+                "initial_swap_above_maximum"
+            ]
+        );
+    }
+
+    #[test]
+    fn benchmark_child_output_is_drained_but_retained_within_a_fixed_limit() {
+        let exceeded = Arc::new(AtomicBool::new(false));
+        let result = drain_bounded(
+            std::io::Cursor::new(b"abcdefgh"),
+            4,
+            Arc::clone(&exceeded),
+        )
+        .expect("bounded drain");
+        assert_eq!(result.bytes, b"abcd");
+        assert!(result.truncated);
+        assert!(exceeded.load(Ordering::Acquire));
+
+        let exceeded = Arc::new(AtomicBool::new(false));
+        let result = drain_bounded(
+            std::io::Cursor::new(b"abcd"),
+            4,
+            Arc::clone(&exceeded),
+        )
+        .expect("exact bounded drain");
+        assert_eq!(result.bytes, b"abcd");
+        assert!(!result.truncated);
+        assert!(!exceeded.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn benchmark_gate_cannot_weaken_the_fixed_runtime_floor() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let mut gate: BenchmarkReleaseGate = serde_json::from_slice(
+            &fs::read(root.join("benchmarks/advisor/release-gate.json")).unwrap(),
+        )
+        .unwrap();
+        gate.minimum_available_memory_reserve_bytes = 4 * 1024 * 1024 * 1024;
+        assert!(validate_benchmark_gate(&gate).is_err());
     }
 
     #[test]

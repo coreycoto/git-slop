@@ -80,11 +80,31 @@ checks are that the provider process is gone, available memory has recovered,
 and swap use is no longer increasing. Restart the computer only if normal
 operator controls cannot recover the system.
 
+If you need a machine-readable eligibility check after recovery, use only the
+provider-free capacity command:
+
+```sh
+cargo xtask advisor-capacity \
+  --model openai/gpt-oss-safeguard-20b \
+  --model-size-bytes 13793441254 \
+  --estimated-peak-memory-bytes 17179869184 \
+  --format json
+```
+
+It reads host memory and swap state without reading a repository report or
+contacting a provider. It reports every blocker rather than hiding later
+failures behind the first one; validate the JSON form with `git slop schema
+advisor-capacity`. An ineligible result is expected on the recorded 16-GB M2
+Air and is a stop signal, not a reason to try the full benchmark.
+
 ## Future benchmark requirements
 
 Never rerun the 20B Safeguard matrix on the recorded 16-GB M2 Air. A future run
 must use a separately provisioned dedicated host, explicit provider and model
 identity, independently reviewed model and peak-memory sizes, and the complete
-capacity preflight. The benchmark aborts when available memory drops below its
+capacity preflight. More than 256 MiB of swap already in use fails before
+provider contact. The benchmark aborts when available memory drops below its
 reserve or swap growth crosses its fixed limit; an abort is terminal evidence
-for that host, not permission to retry.
+for that host, not permission to retry. A
+`benchmark_child_output_limit` abort likewise stops the matrix rather than
+retaining unbounded child output.

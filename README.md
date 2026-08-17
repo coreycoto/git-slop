@@ -73,9 +73,15 @@ The advisor's stable surface builds deterministic, inspectable policy context
 without a model, model runtime, or network request:
 
 ```bash
+git slop doctor
 git slop policy show core
 git slop advise --top 1
 ```
+
+`doctor` reports that provider-free advisor context is available and that no
+model is required for ordinary use. Stable `advise --help` exposes only this
+provider-free workflow and artifact validation; disabled inference controls
+remain confined to the private maintainer harness.
 
 Public model inference is currently disabled by the checked-in `defer` release
 gate after the 20B Safeguard model exhausted a 16-GB M2 Air. Git Slop never

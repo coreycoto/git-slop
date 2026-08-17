@@ -6,7 +6,14 @@ This patch makes the policy advisor fail closed: provider-free context is the
 default, public inference is disabled by the recorded `defer` decision, no
 Ollama or provider identity is implicit, and the separately controlled
 benchmark now requires dedicated-host capacity evidence and continuous
-resource protection.
+resource protection. Follow-up hardening hides unavailable inference controls,
+reports the no-model product state in `doctor`, adds a provider-free
+capacity-only receipt, rejects pre-existing swap pressure, validates exact
+served-model and completion identity, handles HTTP framing and child pipes
+without hangs, and structurally validates Cargo feature isolation. A second
+follow-up makes capacity receipts exhaustive and schema-bound, bounds retained
+benchmark output, hardens HTTP encoding and IPv6 handling, and separates the
+provider transport from policy-response logic.
 
 See the [complete numbered 0.16.1 release notes](docs/releases/0.16.1.md).
 

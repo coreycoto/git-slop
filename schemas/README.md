@@ -26,8 +26,9 @@ identities; compatible later releases intentionally retain the introduction URL.
 - `advice-input-1.json`, `advice-response-1.json`, and `advice-1.json`:
   provider-independent context, strict provider response, and validated
   non-mutating advice artifact contracts
-- `advisor-corpus-1.json`, `advisor-ratings-1.json`, and
-  `advisor-benchmark-1.json`: reviewed benchmark inputs, bounded maintainer
-  ratings, and privacy-safe machine-readable performance/quality results
+- `advisor-corpus-1.json`, `advisor-ratings-1.json`,
+  `advisor-benchmark-1.json`, and `advisor-capacity-1.json`: reviewed benchmark
+  inputs, bounded maintainer ratings, privacy-safe machine-readable
+  performance/quality results, and provider-free host eligibility receipts
 
 `build-info-1.json` remains published for consumers of releases through 0.11.x.

@@ -212,6 +212,7 @@ fn write_outputs(
             "initial_runtime_state": options.initial_runtime_state,
             "runtime_context_tokens": BENCHMARK_RUNTIME_CONTEXT_TOKENS,
             "request_timeout_seconds": BENCHMARK_TIMEOUT_SECONDS,
+            "child_output_limit_bytes": BENCHMARK_CHILD_OUTPUT_LIMIT_BYTES,
             "endpoint_classification": "loopback",
             "repetitions": options.repetitions, "full_matrix": options.full_matrix,
             "repository_keys": reports.keys().map(String::as_str).collect::<BTreeSet<_>>(),
@@ -226,9 +227,21 @@ fn write_outputs(
         "recommendation": recommendation
     });
     if !matrix_completed {
+        let next_step = if termination_reason.is_some_and(|reason| {
+            matches!(
+                reason,
+                "provider_model_identity_missing" | "provider_model_mismatch"
+            )
+        }) {
+            "Do not retry or accept evidence from this runtime. Verify the separately provisioned served-model identity before authorizing a fresh run."
+        } else if termination_reason == Some("benchmark_child_output_limit") {
+            "Do not retry until the unexpected child output volume is understood and bounded. Inspect the retained diagnostics without starting a provider on this host."
+        } else {
+            "Do not retry on this host. Inspect the safety-guard result, recover the runtime separately, and use a different adequately resourced dedicated host."
+        };
         result.as_object_mut().expect("benchmark result is an object").insert(
             "next_step".to_string(),
-            json!("Do not retry on this host. Inspect the resource-watchdog result, recover the runtime separately, and use a different adequately resourced dedicated host."),
+            json!(next_step),
         );
     }
     let output_dir = resolve(&options.repo_root, &options.output_dir);

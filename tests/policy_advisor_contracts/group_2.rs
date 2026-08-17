@@ -1,4 +1,27 @@
 #[test]
+fn stable_advise_help_exposes_only_provider_free_workflows() {
+    let output = cargo_bin_cmd!("git-slop")
+        .args(["advise", "--help"])
+        .output()
+        .expect("advise help");
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).expect("UTF-8 help");
+    assert!(help.contains("Build provider-free policy context"));
+    for hidden in [
+        "--infer",
+        "--provider",
+        "--endpoint",
+        "--model",
+        "--runtime-model",
+        "--confirm-resources",
+        "--timeout-seconds",
+        "--mock-response",
+    ] {
+        assert!(!help.contains(hidden), "stable help exposed {hidden}");
+    }
+}
+
+#[test]
 fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts() {
     let repository = repository();
     let outputs = TempDir::new().expect("advice outputs");
@@ -44,7 +67,9 @@ fn advise_supports_every_selector_and_writes_only_validated_separate_artifacts()
         .args(["advise", "--top", "1", "--infer"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("model inference is disabled"));
+        .stderr(predicate::str::contains(
+            "model inference is unavailable in public releases",
+        ));
     assert!(!repository.path().join(".slop/advice").exists());
 
     cargo_bin_cmd!("git-slop")

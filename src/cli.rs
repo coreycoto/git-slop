@@ -53,7 +53,7 @@ enum Command {
     Plan(PlanArgs),
     /// Manage declarative policy packs used only by the optional advisor.
     Policy(PolicyArgs),
-    /// Build provider-free policy context; inference remains release-gated and experimental.
+    /// Build provider-free policy context or validate an existing advice artifact.
     Advise(Box<AdviseArgs>),
     /// Evaluate an existing report against CI thresholds.
     Check(CheckArgs),
