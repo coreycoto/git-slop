@@ -56,6 +56,26 @@ pub struct CapacityCheck {
     pub eligible: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct FinalizeOptions {
+    pub repo_root: PathBuf,
+    pub corpus: PathBuf,
+    pub thresholds: PathBuf,
+    pub results: PathBuf,
+    pub review_manifest: PathBuf,
+    pub ratings: PathBuf,
+    pub output: PathBuf,
+    pub decision_output: PathBuf,
+    pub apply: bool,
+}
+
+#[derive(Debug)]
+pub struct FinalizeOutcome {
+    pub receipt: Value,
+    pub results_path: PathBuf,
+    pub decision_path: PathBuf,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct CapacityBlocker {
     code: &'static str,
@@ -121,6 +141,7 @@ struct Thresholds {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct Sample {
     case_id: String,
     repository: String,
@@ -129,6 +150,8 @@ struct Sample {
     candidate_count: usize,
     actual_candidate_count: Option<usize>,
     report_sha256: String,
+    artifact_sha256: Option<String>,
+    sample_sha256: String,
     reasoning_effort: String,
     context_token_limit: usize,
     output_token_limit: usize,
@@ -167,15 +190,7 @@ struct Sample {
     failure_category: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RatingsFile {
-    schema_version: u64,
-    reviewer_count: usize,
-    cases: BTreeMap<String, CaseRating>,
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CaseRating {
     recommendation_usefulness: f64,
@@ -187,8 +202,9 @@ struct CaseRating {
 }
 
 #[derive(Debug, Serialize)]
-struct ManualScores {
-    reviewer_count: usize,
+struct ReviewerScores {
+    reviewer_id: String,
+    reviewed_artifact_count: usize,
     recommendation_usefulness_mean: f64,
     fact_interpretation_separation_mean: f64,
     scope_quality_mean: f64,
@@ -196,6 +212,20 @@ struct ManualScores {
     actionability_mean: f64,
     overall_quality_mean: f64,
     unsupported_claim_count: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct ManualScores {
+    reviewer_count: usize,
+    reviewed_artifact_count: usize,
+    recommendation_usefulness_mean: f64,
+    fact_interpretation_separation_mean: f64,
+    scope_quality_mean: f64,
+    verification_quality_mean: f64,
+    actionability_mean: f64,
+    overall_quality_mean: f64,
+    unsupported_claim_count: u64,
+    reviewer_scores: Vec<ReviewerScores>,
 }
 
 struct TemporaryWorkspace {
@@ -265,6 +295,7 @@ include!("advisor_benchmark/artifact_validation.rs");
 include!("advisor_benchmark/evidence.rs");
 include!("advisor_benchmark/recommendation.rs");
 include!("advisor_benchmark/persistence.rs");
+include!("advisor_benchmark/review.rs");
 include!("advisor_benchmark/decision.rs");
 include!("advisor_benchmark/aggregate.rs");
 include!("advisor_benchmark/preflight.rs");

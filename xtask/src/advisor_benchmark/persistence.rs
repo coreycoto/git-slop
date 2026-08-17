@@ -168,6 +168,7 @@ fn write_benchmark_pair(
     result: &Value,
     decision_path: &Path,
     decision: &str,
+    replace_existing: bool,
 ) -> Result<()> {
     validate_benchmark_result(result)?;
     let results_parent = results_path
@@ -182,6 +183,9 @@ fn write_benchmark_pair(
         if path.exists() && !path.is_file() {
             bail!("benchmark output destination is not a file: {}", path.display());
         }
+    }
+    if !replace_existing && (results_path.exists() || decision_path.exists()) {
+        bail!("immutable benchmark output already exists; refusing to overwrite it");
     }
 
     let results_bytes = serde_json::to_string_pretty(result)? + "\n";
@@ -247,6 +251,17 @@ fn write_benchmark_pair(
         return Err(error);
     }
     let replacement = (|| -> Result<()> {
+        if !replace_existing {
+            fs::hard_link(&results_temporary, results_path)?;
+            sync_benchmark_directory(results_parent)?;
+            fs::hard_link(&decision_temporary, decision_path)?;
+            sync_benchmark_directory(results_parent)?;
+            fs::remove_file(&results_temporary)?;
+            fs::remove_file(&decision_temporary)?;
+            fs::remove_file(results_parent.join(".benchmark-pair.transaction.json"))?;
+            sync_benchmark_directory(results_parent)?;
+            return Ok(());
+        }
         if had_results {
             fs::rename(results_path, &results_backup)?;
             sync_benchmark_directory(results_parent)?;

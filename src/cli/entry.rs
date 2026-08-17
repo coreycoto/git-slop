@@ -90,6 +90,18 @@ fn execute(repo_root: &Path, command: Command) -> Result<i32> {
                         SchemaContract::AdvisorRatings => {
                             include_str!("../../schemas/advisor-ratings-1.json")
                         }
+                        SchemaContract::AdvisorRatingsV2 => {
+                            include_str!("../../schemas/advisor-ratings-2.json")
+                        }
+                        SchemaContract::AdvisorReviewArtifact => {
+                            include_str!("../../schemas/advisor-review-artifact-1.json")
+                        }
+                        SchemaContract::AdvisorReviewManifest => {
+                            include_str!("../../schemas/advisor-review-manifest-1.json")
+                        }
+                        SchemaContract::AdvisorOperationReceipt => {
+                            include_str!("../../schemas/advisor-operation-receipt-1.json")
+                        }
                         SchemaContract::AdvisorThresholds => {
                             include_str!("../../schemas/advisor-thresholds-1.json")
                         }

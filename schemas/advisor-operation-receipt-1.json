@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.16.1/schemas/advisor-operation-receipt-1.json",
+  "title": "Git Slop advisor maintainer operation receipt schema 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "operation", "operation_code", "status", "results_output", "decision_output"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "operation": {"enum": ["advisor-benchmark", "advisor-benchmark-finalize"]},
+    "operation_code": {"enum": ["advisor_benchmark_preflight_written", "advisor_benchmark_incomplete_written", "advisor_benchmark_completed", "advisor_benchmark_finalize_preview_valid", "advisor_benchmark_finalize_applied"]},
+    "status": {"enum": ["written", "preview", "applied"]},
+    "benchmark_status": {"enum": ["complete", "incomplete"]},
+    "apply": {"type": "boolean"},
+    "recommendation": {"enum": ["ship", "adjust", "defer"]},
+    "source_results_sha256": {"$ref": "#/$defs/digest"},
+    "review_manifest_sha256": {"$ref": "#/$defs/digest"},
+    "manual_ratings_sha256": {"$ref": "#/$defs/digest"},
+    "proposed_results_sha256": {"$ref": "#/$defs/digest"},
+    "results_output": {"type": "string", "minLength": 1},
+    "decision_output": {"type": "string", "minLength": 1}
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "operation": {"const": "advisor-benchmark"},
+        "operation_code": {"enum": ["advisor_benchmark_preflight_written", "advisor_benchmark_incomplete_written", "advisor_benchmark_completed"]},
+        "status": {"const": "written"}
+      },
+      "required": ["benchmark_status"],
+      "not": {"anyOf": [{"required": ["apply"]}, {"required": ["source_results_sha256"]}, {"required": ["review_manifest_sha256"]}, {"required": ["manual_ratings_sha256"]}, {"required": ["proposed_results_sha256"]}]}
+    },
+    {
+      "properties": {
+        "operation": {"const": "advisor-benchmark-finalize"},
+        "operation_code": {"const": "advisor_benchmark_finalize_preview_valid"},
+        "status": {"const": "preview"},
+        "apply": {"const": false}
+      },
+      "required": ["apply", "recommendation", "source_results_sha256", "review_manifest_sha256", "manual_ratings_sha256", "proposed_results_sha256"],
+      "not": {"required": ["benchmark_status"]}
+    },
+    {
+      "properties": {
+        "operation": {"const": "advisor-benchmark-finalize"},
+        "operation_code": {"const": "advisor_benchmark_finalize_applied"},
+        "status": {"const": "applied"},
+        "apply": {"const": true}
+      },
+      "required": ["apply", "recommendation", "source_results_sha256", "review_manifest_sha256", "manual_ratings_sha256", "proposed_results_sha256"],
+      "not": {"required": ["benchmark_status"]}
+    }
+  ],
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

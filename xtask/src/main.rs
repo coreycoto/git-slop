@@ -115,7 +115,7 @@ enum Command {
     /// Measure advisor host capacity without reading a report or contacting a provider.
     AdvisorCapacity(advisor_cli::CapacityArgs),
 
-    /// Apply reviewed manual ratings to a completed advisor benchmark without rerunning inference.
+    /// Preview or write immutable reviewed advisor results without rerunning inference.
     AdvisorBenchmarkFinalize(advisor_cli::FinalizeArgs),
 
     /// Verify a downloaded crates.io package and write canonical source metadata.

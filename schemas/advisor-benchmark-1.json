@@ -24,6 +24,8 @@
       "additionalProperties": {"$ref": "#/$defs/repository"}
     },
     "next_step": {"type": "string", "minLength": 1},
+    "source_results_sha256": {"$ref": "#/$defs/digest"},
+    "review_manifest_sha256": {"$ref": "#/$defs/digest"},
     "manual_ratings_sha256": {"$ref": "#/$defs/digest"},
     "recommendation": {"enum": ["ship", "adjust", "defer"]}
   },
@@ -41,6 +43,7 @@
           {"required": ["started_unix_ms"]}, {"required": ["finished_unix_ms"]},
           {"required": ["finalized_unix_ms"]}, {"required": ["thresholds"]},
           {"required": ["summary"]}, {"required": ["samples"]},
+          {"required": ["source_results_sha256"]}, {"required": ["review_manifest_sha256"]},
           {"required": ["manual_ratings_sha256"]}
         ]
       }
@@ -49,8 +52,10 @@
       "properties": {"configuration": {"$ref": "#/$defs/liveConfiguration"}},
       "required": ["started_unix_ms", "finished_unix_ms", "thresholds", "summary", "samples"],
       "dependentRequired": {
-        "manual_ratings_sha256": ["finalized_unix_ms"],
-        "finalized_unix_ms": ["manual_ratings_sha256"]
+        "manual_ratings_sha256": ["finalized_unix_ms", "source_results_sha256", "review_manifest_sha256"],
+        "finalized_unix_ms": ["manual_ratings_sha256", "source_results_sha256", "review_manifest_sha256"],
+        "source_results_sha256": ["manual_ratings_sha256", "finalized_unix_ms", "review_manifest_sha256"],
+        "review_manifest_sha256": ["manual_ratings_sha256", "finalized_unix_ms", "source_results_sha256"]
       },
       "allOf": [
         {
@@ -62,7 +67,7 @@
           "else": {
             "properties": {"summary": {"$ref": "#/$defs/incompleteSummary"}},
             "required": ["next_step"],
-            "not": {"anyOf": [{"required": ["manual_ratings_sha256"]}, {"required": ["finalized_unix_ms"]}]}
+            "not": {"anyOf": [{"required": ["source_results_sha256"]}, {"required": ["review_manifest_sha256"]}, {"required": ["manual_ratings_sha256"]}, {"required": ["finalized_unix_ms"]}]}
           }
         },
         {
@@ -84,7 +89,7 @@
         {
           "if": {"properties": {"recommendation": {"const": "ship"}}},
           "then": {
-            "required": ["manual_ratings_sha256", "finalized_unix_ms"],
+            "required": ["source_results_sha256", "review_manifest_sha256", "manual_ratings_sha256", "finalized_unix_ms"],
             "properties": {
               "recommended_configuration": {"$ref": "#/$defs/recommendedConfiguration"},
               "summary": {
@@ -215,9 +220,27 @@
     "manualScores": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reviewer_count", "recommendation_usefulness_mean", "fact_interpretation_separation_mean", "scope_quality_mean", "verification_quality_mean", "actionability_mean", "overall_quality_mean", "unsupported_claim_count"],
+      "required": ["reviewer_count", "reviewed_artifact_count", "recommendation_usefulness_mean", "fact_interpretation_separation_mean", "scope_quality_mean", "verification_quality_mean", "actionability_mean", "overall_quality_mean", "unsupported_claim_count", "reviewer_scores"],
       "properties": {
-        "reviewer_count": {"type": "integer", "minimum": 1, "maximum": 20},
+        "reviewer_count": {"type": "integer", "minimum": 2, "maximum": 20},
+        "reviewed_artifact_count": {"type": "integer", "minimum": 1},
+        "recommendation_usefulness_mean": {"type": "number", "minimum": 1, "maximum": 5},
+        "fact_interpretation_separation_mean": {"type": "number", "minimum": 1, "maximum": 5},
+        "scope_quality_mean": {"type": "number", "minimum": 1, "maximum": 5},
+        "verification_quality_mean": {"type": "number", "minimum": 1, "maximum": 5},
+        "actionability_mean": {"type": "number", "minimum": 1, "maximum": 5},
+        "overall_quality_mean": {"type": "number", "minimum": 1, "maximum": 5},
+        "unsupported_claim_count": {"type": "integer", "minimum": 0},
+        "reviewer_scores": {"type": "array", "minItems": 2, "maxItems": 20, "items": {"$ref": "#/$defs/reviewerScores"}}
+      }
+    },
+    "reviewerScores": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_id", "reviewed_artifact_count", "recommendation_usefulness_mean", "fact_interpretation_separation_mean", "scope_quality_mean", "verification_quality_mean", "actionability_mean", "overall_quality_mean", "unsupported_claim_count"],
+      "properties": {
+        "reviewer_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
+        "reviewed_artifact_count": {"type": "integer", "minimum": 1},
         "recommendation_usefulness_mean": {"type": "number", "minimum": 1, "maximum": 5},
         "fact_interpretation_separation_mean": {"type": "number", "minimum": 1, "maximum": 5},
         "scope_quality_mean": {"type": "number", "minimum": 1, "maximum": 5},
@@ -265,7 +288,7 @@
     "sample": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["case_id", "repository", "scenario_tags", "scenario", "candidate_count", "actual_candidate_count", "report_sha256", "reasoning_effort", "context_token_limit", "output_token_limit", "repetition", "phase", "status", "exit_code", "total_elapsed_ms", "peak_process_rss_bytes", "system_available_memory_before_bytes", "system_available_memory_after_bytes", "system_available_memory_minimum_bytes", "swap_before_bytes", "swap_after_bytes", "swap_growth_bytes", "context_elapsed_ms", "provider_elapsed_ms", "validation_elapsed_ms", "time_to_validated_artifact_ms", "model_load_duration_ns", "prompt_eval_duration_ns", "generation_duration_ns", "input_tokens", "output_tokens", "prompt_tokens_per_second", "output_tokens_per_second", "reported_aggregate", "expected_aggregate", "aggregate_match", "matched_rule_verdicts", "expected_rule_verdicts", "accepted_invalid_references", "accepted_detector_truth_changes", "citation_complete", "retry_count", "failure_category"],
+      "required": ["case_id", "repository", "scenario_tags", "scenario", "candidate_count", "actual_candidate_count", "report_sha256", "artifact_sha256", "sample_sha256", "reasoning_effort", "context_token_limit", "output_token_limit", "repetition", "phase", "status", "exit_code", "total_elapsed_ms", "peak_process_rss_bytes", "system_available_memory_before_bytes", "system_available_memory_after_bytes", "system_available_memory_minimum_bytes", "swap_before_bytes", "swap_after_bytes", "swap_growth_bytes", "context_elapsed_ms", "provider_elapsed_ms", "validation_elapsed_ms", "time_to_validated_artifact_ms", "model_load_duration_ns", "prompt_eval_duration_ns", "generation_duration_ns", "input_tokens", "output_tokens", "prompt_tokens_per_second", "output_tokens_per_second", "reported_aggregate", "expected_aggregate", "aggregate_match", "matched_rule_verdicts", "expected_rule_verdicts", "accepted_invalid_references", "accepted_detector_truth_changes", "citation_complete", "retry_count", "failure_category"],
       "properties": {
         "case_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
         "repository": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
@@ -274,6 +297,8 @@
         "candidate_count": {"type": "integer", "minimum": 1, "maximum": 20},
         "actual_candidate_count": {"type": ["integer", "null"], "minimum": 0, "maximum": 20},
         "report_sha256": {"$ref": "#/$defs/digest"},
+        "artifact_sha256": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "sample_sha256": {"$ref": "#/$defs/digest"},
         "reasoning_effort": {"enum": ["low", "medium", "high"]},
         "context_token_limit": {"enum": [2048, 4096, 8192]},
         "output_token_limit": {"type": "integer", "minimum": 128, "maximum": 8192},
@@ -317,6 +342,7 @@
           "then": {
             "properties": {
               "actual_candidate_count": {"type": "integer", "minimum": 1},
+              "artifact_sha256": {"$ref": "#/$defs/digest"},
               "exit_code": {"const": 0},
               "failure_category": {"type": "null"}
             }

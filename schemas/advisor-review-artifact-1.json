@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coreycoto/git-slop/blob/v0.16.1/schemas/advisor-review-artifact-1.json",
+  "title": "Git Slop blinded advisor review artifact schema 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "review_id", "protocol", "source_artifact_sha256", "sample_sha256", "blinding", "advice"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "review_id": {"type": "string", "pattern": "^review-[0-9]{6}$"},
+    "protocol": {"const": "blind-independent-multi-repeat-v1"},
+    "source_artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sample_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "blinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider_identity_removed", "runtime_identity_removed", "reasoning_effort_removed", "repetition_removed"],
+      "properties": {
+        "provider_identity_removed": {"const": true},
+        "runtime_identity_removed": {"const": true},
+        "reasoning_effort_removed": {"const": true},
+        "repetition_removed": {"const": true}
+      }
+    },
+    "advice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_ids", "context", "policies", "evaluation", "validation", "boundary"],
+      "properties": {
+        "candidate_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "context": {"type": "object", "minProperties": 1},
+        "policies": {"type": "object", "minProperties": 1},
+        "evaluation": {"type": "object", "minProperties": 1},
+        "validation": {"type": "object", "minProperties": 1},
+        "boundary": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

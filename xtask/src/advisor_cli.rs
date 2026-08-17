@@ -6,7 +6,7 @@ use clap::ValueEnum;
 use git_slop_xtask::advisor_benchmark;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum CapacityFormat {
+enum OutputFormat {
     Text,
     Json,
 }
@@ -23,8 +23,8 @@ pub struct CapacityArgs {
     #[arg(long)]
     estimated_peak_memory_bytes: u64,
     /// Select a human receipt or one machine-readable JSON value.
-    #[arg(long, value_enum, default_value_t = CapacityFormat::Text)]
-    format: CapacityFormat,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    format: OutputFormat,
 }
 
 impl CapacityArgs {
@@ -35,7 +35,7 @@ impl CapacityArgs {
             model_size_bytes: self.model_size_bytes,
             estimated_peak_memory_bytes: self.estimated_peak_memory_bytes,
         })?;
-        if self.format == CapacityFormat::Json {
+        if self.format == OutputFormat::Json {
             println!("{}", serde_json::to_string_pretty(&result.receipt)?);
         } else {
             println!("Advisor capacity check");
@@ -167,9 +167,12 @@ pub struct BenchmarkArgs {
     /// Generate fresh deterministic reports and privacy-safe fingerprints without inference.
     #[arg(long)]
     prepare_only: bool,
-    /// Explicit private directory outside the repository for one review artifact per case and effort.
+    /// Explicit private directory outside the repository for blinded multi-repeat review evidence.
     #[arg(long)]
     review_output_dir: Option<PathBuf>,
+    /// Select human output or one machine-readable operation receipt.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    format: OutputFormat,
 }
 
 impl BenchmarkArgs {
@@ -197,6 +200,8 @@ impl BenchmarkArgs {
                     required(self.initial_runtime_state, "--initial-runtime-state")?,
                 )
             };
+        let prepare_only = self.prepare_only;
+        let format = self.format;
         let (results, decision) = advisor_benchmark::run(&advisor_benchmark::Options {
             repo_root,
             binary: self.binary,
@@ -220,8 +225,33 @@ impl BenchmarkArgs {
             prepare_only: self.prepare_only,
             review_output_dir: self.review_output_dir,
         })?;
-        println!("Wrote advisor benchmark results: {}", results.display());
-        println!("Wrote advisor benchmark decision: {}", decision.display());
+        if format == OutputFormat::Json {
+            let benchmark: serde_json::Value = serde_json::from_slice(&std::fs::read(&results)?)?;
+            let benchmark_status = benchmark["status"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("benchmark result has no status"))?;
+            let operation_code = if prepare_only {
+                "advisor_benchmark_preflight_written"
+            } else if benchmark_status == "complete" {
+                "advisor_benchmark_completed"
+            } else {
+                "advisor_benchmark_incomplete_written"
+            };
+            let receipt = serde_json::json!({
+                "schema_version": 1,
+                "operation": "advisor-benchmark",
+                "operation_code": operation_code,
+                "status": "written",
+                "benchmark_status": benchmark_status,
+                "results_output": results,
+                "decision_output": decision
+            });
+            advisor_benchmark::validate_operation_receipt(&receipt)?;
+            println!("{}", serde_json::to_string_pretty(&receipt)?);
+        } else {
+            println!("Wrote advisor benchmark results: {}", results.display());
+            println!("Wrote advisor benchmark decision: {}", decision.display());
+        }
         Ok(())
     }
 }
@@ -237,24 +267,62 @@ pub struct FinalizeArgs {
     /// Completed machine-readable benchmark results.
     #[arg(long, default_value = "benchmark-results/advisor/results.json")]
     results: PathBuf,
-    /// Completed private maintainer ratings covering every anonymous corpus case.
+    /// Independent blinded schema-2 ratings covering every selected review artifact.
     #[arg(long)]
     ratings: PathBuf,
+    /// Private manifest binding blinded artifacts to the immutable source result.
+    #[arg(long)]
+    review_manifest: PathBuf,
+    /// New finalized result; the completed source result is never overwritten.
+    #[arg(
+        long,
+        default_value = "benchmark-results/advisor/finalized-results.json"
+    )]
+    output: PathBuf,
+    /// New finalized decision; the completed source decision is never overwritten.
+    #[arg(
+        long,
+        default_value = "benchmark-results/advisor/finalized-decision.md"
+    )]
+    decision_output: PathBuf,
+    /// Write the validated finalized outputs. Without this flag, preview only.
+    #[arg(long)]
+    apply: bool,
+    /// Select human output or one machine-readable operation receipt.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    format: OutputFormat,
 }
 
 impl FinalizeArgs {
     pub fn run(self, repo_root: &Path) -> Result<()> {
-        let decision = advisor_benchmark::finalize(
-            repo_root,
-            &self.corpus,
-            &self.thresholds,
-            &self.results,
-            &self.ratings,
-        )?;
-        println!(
-            "Finalized advisor benchmark decision: {}",
-            decision.display()
-        );
+        let outcome = advisor_benchmark::finalize(&advisor_benchmark::FinalizeOptions {
+            repo_root: repo_root.to_path_buf(),
+            corpus: self.corpus,
+            thresholds: self.thresholds,
+            results: self.results,
+            review_manifest: self.review_manifest,
+            ratings: self.ratings,
+            output: self.output,
+            decision_output: self.decision_output,
+            apply: self.apply,
+        })?;
+        if self.format == OutputFormat::Json {
+            println!("{}", serde_json::to_string_pretty(&outcome.receipt)?);
+        } else if self.apply {
+            println!(
+                "Finalized advisor benchmark results: {}",
+                outcome.results_path.display()
+            );
+            println!(
+                "Finalized advisor benchmark decision: {}",
+                outcome.decision_path.display()
+            );
+        } else {
+            println!("Advisor benchmark finalization preview is valid; no files were written.");
+            println!("- proposed results: {}", outcome.results_path.display());
+            println!("- proposed decision: {}", outcome.decision_path.display());
+            println!("- apply: re-run the same command with --apply");
+        }
         Ok(())
     }
 }

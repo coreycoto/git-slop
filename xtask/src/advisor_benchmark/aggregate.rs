@@ -275,6 +275,6 @@ fn write_outputs(
     let json_path = output_dir.join("results.json");
     let markdown_path = output_dir.join("decision.md");
     let markdown = render_live_decision(&result)?;
-    write_benchmark_pair(&json_path, &result, &markdown_path, &markdown)?;
+    write_benchmark_pair(&json_path, &result, &markdown_path, &markdown, true)?;
     Ok((json_path, markdown_path))
 }

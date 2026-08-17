@@ -48,6 +48,6 @@ fn write_preflight(
     let json_path = output_dir.join("results.json");
     let markdown_path = output_dir.join("decision.md");
     let markdown = "# Safeguard-only V1 decision\n\n- Recommendation: **defer**\n- Status: deterministic report preparation only; no model inference was attempted.\n\nReview and pin the privacy-safe report fingerprints in `results.json` before the live matrix.\n";
-    write_benchmark_pair(&json_path, &result, &markdown_path, markdown)?;
+    write_benchmark_pair(&json_path, &result, &markdown_path, markdown, true)?;
     Ok((json_path, markdown_path))
 }

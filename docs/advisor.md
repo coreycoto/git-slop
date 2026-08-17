@@ -226,5 +226,13 @@ validation flags. Advice exits successfully only after schema and reference
 validation, but it remains advisory: it cannot
 edit files, Git, GitHub, configuration, policy selection, reports, or checks.
 
+Private benchmark results self-digest every sample and bind the source advice
+artifact. An explicitly requested review directory receives blinded
+multi-repetition artifacts, a reviewer-facing opaque index, and a withheld
+mapping manifest. Finalization requires two independent reviewers, verifies
+the complete private evidence chain, previews by default, and writes new
+finalized outputs only with `--apply`; the completed source result remains
+immutable.
+
 See the [Safeguard-only V1 benchmark](benchmarks/safeguard-v1.md) for the
 privacy-safe gold corpus, fixed matrix, measurements, and ship gate.

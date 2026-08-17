@@ -1,64 +1,3 @@
-fn ratings(path: Option<&Path>, corpus: &Corpus) -> Result<Option<ManualScores>> {
-    let Some(path) = path else { return Ok(None) };
-    let bytes = read_bounded(path, MAX_BENCHMARK_CONFIG_BYTES, "advisor ratings")?;
-    let ratings: RatingsFile = serde_json::from_slice(&bytes)?;
-    let expected = corpus
-        .cases
-        .iter()
-        .map(|case| case.id.as_str())
-        .collect::<BTreeSet<_>>();
-    let actual = ratings
-        .cases
-        .keys()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
-    if ratings.schema_version != 1
-        || ratings.reviewer_count == 0
-        || ratings.reviewer_count > 20
-        || expected != actual
-    {
-        bail!("maintainer ratings must cover every corpus case exactly");
-    }
-    let dimensions = ratings.cases.values().flat_map(|rating| {
-        [
-            rating.recommendation_usefulness,
-            rating.fact_interpretation_separation,
-            rating.scope_quality,
-            rating.verification_quality,
-            rating.actionability,
-        ]
-    });
-    if dimensions
-        .clone()
-        .any(|rating| !(1.0..=5.0).contains(&rating))
-    {
-        bail!("every maintainer quality rating must be from 1 through 5");
-    }
-    let count = ratings.cases.len() as f64;
-    let mean =
-        |select: fn(&CaseRating) -> f64| ratings.cases.values().map(select).sum::<f64>() / count;
-    let usefulness = mean(|rating| rating.recommendation_usefulness);
-    let separation = mean(|rating| rating.fact_interpretation_separation);
-    let scope = mean(|rating| rating.scope_quality);
-    let verification = mean(|rating| rating.verification_quality);
-    let actionability = mean(|rating| rating.actionability);
-    Ok(Some(ManualScores {
-        reviewer_count: ratings.reviewer_count,
-        recommendation_usefulness_mean: usefulness,
-        fact_interpretation_separation_mean: separation,
-        scope_quality_mean: scope,
-        verification_quality_mean: verification,
-        actionability_mean: actionability,
-        overall_quality_mean: (usefulness + separation + scope + verification + actionability)
-            / 5.0,
-        unsupported_claim_count: ratings
-            .cases
-            .values()
-            .map(|rating| rating.unsupported_claim_count)
-            .sum(),
-    }))
-}
-
 fn verify_finalization_evidence(
     result: &Value,
     corpus: &Corpus,
@@ -297,17 +236,23 @@ fn verify_finalization_evidence(
     Ok(automatic_gates)
 }
 
-pub fn finalize(
-    repo_root: &Path,
-    corpus_path: &Path,
-    thresholds_path: &Path,
-    results_path: &Path,
-    ratings_path: &Path,
-) -> Result<PathBuf> {
-    let corpus_path = resolve(repo_root, corpus_path);
-    let thresholds_path = resolve(repo_root, thresholds_path);
-    let results_path = resolve(repo_root, results_path);
-    let ratings_path = resolve(repo_root, ratings_path);
+pub fn finalize(options: &FinalizeOptions) -> Result<FinalizeOutcome> {
+    let corpus_path = resolve(&options.repo_root, &options.corpus);
+    let thresholds_path = resolve(&options.repo_root, &options.thresholds);
+    let results_path = resolve(&options.repo_root, &options.results);
+    let review_manifest_path = resolve(&options.repo_root, &options.review_manifest);
+    let ratings_path = resolve(&options.repo_root, &options.ratings);
+    let output_path = resolve(&options.repo_root, &options.output);
+    let decision_output_path = resolve(&options.repo_root, &options.decision_output);
+    if output_path == results_path
+        || decision_output_path == results_path
+        || output_path == decision_output_path
+    {
+        bail!("finalized outputs must be new files distinct from the immutable source result");
+    }
+    if output_path.exists() || decision_output_path.exists() {
+        bail!("finalized output already exists; refusing to overwrite immutable evidence");
+    }
     let corpus_bytes = read_bounded(
         &corpus_path,
         MAX_BENCHMARK_CONFIG_BYTES,
@@ -326,12 +271,15 @@ pub fn finalize(
         MAX_BENCHMARK_RESULT_BYTES,
         "advisor benchmark result",
     )?;
+    let source_results_sha256 = sha256(&result_bytes);
     let mut result: Value = serde_json::from_slice(&result_bytes)?;
     validate_benchmark_result(&result)?;
     if result.get("status").and_then(Value::as_str) != Some("complete") {
         bail!("manual ratings require a completed schema-1 advisor benchmark result");
     }
     if result.get("manual_ratings_sha256").is_some()
+        || result.get("source_results_sha256").is_some()
+        || result.get("review_manifest_sha256").is_some()
         || result.get("finalized_unix_ms").is_some()
     {
         bail!("advisor benchmark result is already finalized; refusing to overwrite it");
@@ -354,7 +302,21 @@ pub fn finalize(
         bail!("completed benchmark thresholds do not match the preregistered thresholds file");
     }
     let automatic_passed = verify_finalization_evidence(&result, &corpus, &thresholds)?;
-    let manual = ratings(Some(&ratings_path), &corpus)?.expect("ratings path is present");
+    let samples: Vec<Sample> = serde_json::from_value(
+        result
+            .get("samples")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("completed benchmark result is missing samples"))?,
+    )?;
+    let (review_manifest, review_manifest_sha256) =
+        load_review_manifest(&review_manifest_path, &source_results_sha256)?;
+    let review_ids = selected_review_ids(&result, &samples, &review_manifest)?;
+    let manual = ratings(
+        &ratings_path,
+        &source_results_sha256,
+        &review_manifest_sha256,
+        &review_ids,
+    )?;
     let manual_passed = manual_gates_pass(&thresholds, Some(&manual));
     let valid_samples = result
         .pointer("/summary/valid_sample_count")
@@ -372,11 +334,11 @@ pub fn finalize(
         MAX_BENCHMARK_CONFIG_BYTES,
         "advisor ratings",
     )?);
-    let decision_path = results_path
+    let source_decision_path = results_path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("benchmark results path has no parent"))?
         .join("decision.md");
-    let original = fs::read_to_string(&decision_path)?;
+    let original = fs::read_to_string(&source_decision_path)?;
     if original != render_live_decision(&result)? {
         bail!("benchmark decision report does not match its result evidence");
     }
@@ -384,9 +346,43 @@ pub fn finalize(
     result["summary"]["manual_quality"] = serde_json::to_value(&manual)?;
     result["summary"]["manual_quality_gates_passed"] = json!(manual_passed);
     result["recommendation"] = json!(recommendation);
+    result["source_results_sha256"] = json!(source_results_sha256);
+    result["review_manifest_sha256"] = json!(review_manifest_sha256);
     result["manual_ratings_sha256"] = json!(ratings_digest);
     result["finalized_unix_ms"] = json!(now_ms());
+    validate_benchmark_result(&result)?;
     let decision = render_live_decision(&result)?;
-    write_benchmark_pair(&results_path, &result, &decision_path, &decision)?;
-    Ok(decision_path)
+    let proposed_results = serde_json::to_string_pretty(&result)? + "\n";
+    let operation_code = if options.apply {
+        write_benchmark_pair(
+            &output_path,
+            &result,
+            &decision_output_path,
+            &decision,
+            false,
+        )?;
+        "advisor_benchmark_finalize_applied"
+    } else {
+        "advisor_benchmark_finalize_preview_valid"
+    };
+    let receipt = json!({
+        "schema_version": 1,
+        "operation": "advisor-benchmark-finalize",
+        "operation_code": operation_code,
+        "status": if options.apply { "applied" } else { "preview" },
+        "apply": options.apply,
+        "recommendation": recommendation,
+        "source_results_sha256": result["source_results_sha256"],
+        "review_manifest_sha256": result["review_manifest_sha256"],
+        "manual_ratings_sha256": result["manual_ratings_sha256"],
+        "proposed_results_sha256": sha256(proposed_results.as_bytes()),
+        "results_output": output_path,
+        "decision_output": decision_output_path
+    });
+    validate_operation_receipt(&receipt)?;
+    Ok(FinalizeOutcome {
+        receipt,
+        results_path: output_path,
+        decision_path: decision_output_path,
+    })
 }

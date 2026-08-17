@@ -154,12 +154,14 @@ cargo xtask advisor-benchmark \
 ```
 
 The explicitly requested review directory must be new or empty, absolute, and
-outside the repository. It receives mode-0600 validated advice artifacts for
-the first 8,192-token repetition of every case and effort; these artifacts can
-contain repository paths and model rationales and must never be committed or
-shared as public benchmark output. Select the six artifacts for the
-automatically recommended reasoning effort, review them, and create a private
-ratings file.
+outside the repository. Every valid 8,192-token repetition is transformed into
+a mode-0600 blinded review artifact. Provider, runtime, reasoning-effort, and
+repetition identity are removed from the artifact itself. The directory also
+receives `blind-review-index.json`, which is safe to give reviewers, and a
+private `review-manifest.json`, which maps opaque review IDs back to exact
+sample and source-artifact digests. Keep that mapping from reviewers until
+their independent ratings are complete. None of this private evidence may be
+committed or shared as public benchmark output.
 
 Each returned response must name the exact requested served model and report a
 normal stopped completion. The client accepts a complete `Content-Length` or
@@ -170,33 +172,44 @@ IPv6 loopback request Host headers retain the required brackets. Missing or
 mismatched served-model identity terminates the matrix immediately; evidence
 from that runtime is not accepted or retried.
 
-The ratings file must match `git slop schema advisor-ratings`. At least one
-maintainer rates every anonymous case from 1–5 for usefulness, fact versus
-interpretation separation, scope, verification, and actionability, and records
-the number of unsupported claims. Ratings contain no rationale or source text.
-Apply those ratings to the completed result without rerunning inference:
+The ratings file must match `git slop schema advisor-ratings-v2`. At least two
+independent reviewers each rate every blinded artifact for the automatically
+recommended effort, including at least two repetitions of every anonymous
+case. Each rating covers usefulness, fact-versus-interpretation separation,
+scope, verification, actionability, and unsupported-claim count. Ratings bind
+the immutable source-result and review-manifest digests and contain no
+rationale or source text.
+
+Finalization is preview-only by default. It validates all evidence and prints
+the proposed destinations without writing or rerunning inference:
 
 ```sh
 cargo xtask advisor-benchmark-finalize \
   --results benchmark-results/advisor/results.json \
+  --review-manifest /absolute/private/path/to/review-artifacts/review-manifest.json \
   --ratings /absolute/private/path/to/ratings.json
 ```
 
+After reviewing that preview, repeat the command with `--apply`. The command
+writes `finalized-results.json` and `finalized-decision.md`; it never mutates
+`results.json` or `decision.md`. Custom new destinations are available through
+`--output` and `--decision-output`. Existing destinations are refused.
+
 The finalizer rejects results whose recorded corpus or threshold digest differs
 from the reviewed inputs. It first validates the complete result against the
-published schema, recomputes the recommended configuration and every automatic
-summary and gate from the samples and preregistered thresholds, verifies the
-exact ordered matrix and repository evidence against the pinned corpus, and
-rejects any drift or omitted cell. It then recalculates the manual gates,
-records the ratings digest, verifies the existing decision report exactly
-matches the JSON evidence, regenerates it from the finalized result, and
-updates both outputs without rerunning inference. Ratings are accepted only by
-this finalization command, and an already finalized result is immutable.
+published schema, verifies every self-digested sample, recomputes the
+recommended configuration and every automatic summary and gate, verifies the
+exact ordered matrix and repository evidence, and rejects any drift or omitted
+cell. It then verifies the blinded files and index against the private manifest,
+requires exact per-reviewer coverage, recalculates aggregate and per-reviewer
+manual scores, verifies the existing decision report, and binds source-result,
+manifest, and ratings digests into new finalized outputs.
 
 ## Measurements and decision
 
 `results.json` follows `advisor-benchmark-1`; `decision.md` is its human
-summary. The schema rejects unknown nested fields and distinguishes
+summary. Each sample records both the source advice-artifact digest and a
+self-digest over its complete machine evidence. The schema rejects unknown nested fields and distinguishes
 prepare-only, completed, interrupted, unfinalized, finalized, and shippable
 states. Every result is validated before persistence. The JSON result and
 Markdown decision are written as a rollback-safe pair using new synchronized
@@ -208,7 +221,8 @@ as a pressure proxy, swap growth, failures, retries, malformed outputs,
 reference acceptance, detector-truth resistance, per-rule and aggregate
 agreement, citation completeness, abstention, and repeated-verdict consistency.
 Manual ratings cover the dimensions that cannot be inferred from schema
-validity.
+validity. `--format json` emits a validated `advisor-operation-receipt` with a
+stable operation code for benchmark writes and finalization preview/apply.
 
 Ollama's native `/api/chat` adapter can expose nanosecond load,
 prompt-evaluation, and generation timings, but it is never selected

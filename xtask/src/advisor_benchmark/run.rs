@@ -66,16 +66,45 @@ fn write_review_artifact(directory: &Path, name: &str, bytes: &[u8]) -> Result<(
     let path = directory.join(name);
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
     let mut file = options.open(&path)?;
     use std::io::Write;
     file.write_all(bytes)?;
     file.sync_all()?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    }
+    sync_benchmark_directory(directory)?;
     Ok(())
+}
+
+fn write_terminal_outputs(
+    options: &Options,
+    inputs: &OutputInputs<'_>,
+    started: u128,
+    samples: &[Sample],
+    termination_reason: Option<&str>,
+    review_directory: Option<&Path>,
+    review_entries: &[ReviewManifestEntry],
+) -> Result<(PathBuf, PathBuf)> {
+    let paths = write_outputs(
+        options,
+        inputs,
+        started,
+        samples,
+        None,
+        termination_reason,
+    )?;
+    if let Some(directory) = review_directory {
+        write_review_manifests(
+            directory,
+            review_entries,
+            &paths.0,
+            termination_reason.is_none(),
+        )?;
+    }
+    Ok(paths)
 }
 
 #[derive(Debug, Deserialize)]
@@ -460,6 +489,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
     let efforts = expected_efforts(options.full_matrix);
     let started = now_ms();
     let mut samples = Vec::new();
+    let mut review_entries = Vec::new();
     let mut first = true;
     let mut consecutive_provider_failures = 0usize;
     for case in &corpus.cases {
@@ -606,7 +636,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                     let generation_duration = artifact.as_ref().and_then(|artifact| {
                         u64_at(artifact, "/provider/runtime_timings/eval_duration")
                     });
-                    samples.push(Sample {
+                    let sample = seal_sample(Sample {
                         case_id: case.id.clone(),
                         repository: case.repository.clone(),
                         scenario_tags: case.scenario_tags.clone(),
@@ -614,6 +644,8 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         candidate_count: case.candidate_count,
                         actual_candidate_count,
                         report_sha256: report.sha256.clone(),
+                        artifact_sha256: artifact_bytes.as_deref().map(sha256),
+                        sample_sha256: String::new(),
                         reasoning_effort: (*effort).to_string(),
                         context_token_limit: *context,
                         output_token_limit,
@@ -694,7 +726,20 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         } else {
                             None
                         },
-                    });
+                    })?;
+                    samples.push(sample);
+                    if sample_valid && *context == 8_192 {
+                        if let (Some(directory), Some(artifact)) =
+                            (review_directory.as_deref(), artifact.as_ref())
+                        {
+                            record_review_artifact(
+                                directory,
+                                &mut review_entries,
+                                samples.last().expect("sample was just recorded"),
+                                artifact,
+                            )?;
+                        }
+                    }
                     first = false;
                     write_outputs(
                         options,
@@ -711,17 +756,6 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                             .termination_reason
                             .or(Some("benchmark_checkpoint")),
                     )?;
-                    if sample_valid && *context == 8_192 && repetition == 1 {
-                        if let (Some(directory), Some(bytes)) =
-                            (review_directory.as_deref(), artifact_bytes.as_deref())
-                        {
-                            write_review_artifact(
-                                directory,
-                                &format!("{}-{effort}-8192.json", case.id),
-                                bytes,
-                            )?;
-                        }
-                    }
                     if artifact_path.exists() {
                         fs::remove_file(&artifact_path).with_context(|| {
                             format!(
@@ -734,7 +768,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         eprintln!(
                             "Stopping the advisor matrix immediately after a continuous safety guard aborted a sample."
                         );
-                        return write_outputs(
+                        return write_terminal_outputs(
                             options,
                             &OutputInputs {
                                 corpus: &corpus,
@@ -744,8 +778,9 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                             },
                             started,
                             &samples,
-                            None,
                             monitored.termination_reason,
+                            review_directory.as_deref(),
+                            &review_entries,
                         );
                     }
                     let terminal_identity_failure = samples
@@ -758,7 +793,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         eprintln!(
                             "Stopping the advisor matrix after provider identity drift ({category}); do not retry or accept evidence from this runtime."
                         );
-                        return write_outputs(
+                        return write_terminal_outputs(
                             options,
                             &OutputInputs {
                                 corpus: &corpus,
@@ -768,8 +803,9 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                             },
                             started,
                             &samples,
-                            None,
                             Some(category),
+                            review_directory.as_deref(),
+                            &review_entries,
                         );
                     }
                     consecutive_provider_failures = if is_provider_runtime_failure(
@@ -787,7 +823,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                         eprintln!(
                             "Stopping the advisor matrix after {consecutive_provider_failures} consecutive provider/runtime failures; writing a fail-closed incomplete result."
                         );
-                        return write_outputs(
+                        return write_terminal_outputs(
                             options,
                             &OutputInputs {
                                 corpus: &corpus,
@@ -797,15 +833,16 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
                             },
                             started,
                             &samples,
-                            None,
                             Some("consecutive_provider_runtime_failures"),
+                            review_directory.as_deref(),
+                            &review_entries,
                         );
                     }
                 }
             }
         }
     }
-    write_outputs(
+    write_terminal_outputs(
         options,
         &OutputInputs {
             corpus: &corpus,
@@ -816,6 +853,7 @@ pub fn run(options: &Options) -> Result<(PathBuf, PathBuf)> {
         started,
         &samples,
         None,
-        None,
+        review_directory.as_deref(),
+        &review_entries,
     )
 }

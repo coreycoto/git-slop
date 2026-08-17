@@ -26,6 +26,7 @@ fn verify_sample(
     repetition: usize,
     phase: &str,
 ) -> Result<()> {
+    verify_sample_digest(sample)?;
     let expected_rule_verdicts =
         high_severity_expectation_count(&case.expected_rule_verdicts) * case.candidate_count;
     let expected_output_tokens = case.candidate_count.saturating_mul(2_048).min(8_192);
@@ -69,7 +70,8 @@ fn verify_sample(
         );
     }
     if sample.status == "valid"
-        && (sample.exit_code != Some(0)
+        && (sample.artifact_sha256.is_none()
+            || sample.exit_code != Some(0)
             || sample.failure_category.is_some()
             || sample.accepted_invalid_references != 0)
     {
