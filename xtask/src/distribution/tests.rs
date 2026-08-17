@@ -7,6 +7,7 @@ mod tests {
         let root = temp.path();
         fs::create_dir_all(root.join("action")).unwrap();
         fs::create_dir_all(root.join("docs")).unwrap();
+        fs::create_dir_all(root.join("docs/releases")).unwrap();
         fs::create_dir_all(root.join("man")).unwrap();
         fs::create_dir_all(root.join(".github/workflows")).unwrap();
         fs::create_dir_all(root.join("plugins/git-slop/skills/adopt-repo")).unwrap();
@@ -14,6 +15,16 @@ mod tests {
         fs::write(
             root.join("Cargo.toml"),
             "[package]\nname = \"git-slop\"\nversion = \"0.9.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("CHANGELOG.md"),
+            "# Changelog\n\n## 0.9.0 - Unreleased\n\nSee the [complete numbered 0.9.0 release notes](docs/releases/0.9.0.md).\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("docs/releases/0.9.0.md"),
+            "# Git Slop 0.9.0\n\nNumbered improvements: **1**.\n\n1. Fixture.\n",
         )
         .unwrap();
         fs::write(

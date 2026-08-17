@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.16.1 - 2026-08-16
+## 0.16.1 - Unreleased
 
 This patch makes the policy advisor fail closed: provider-free context is the
 default, public inference is disabled by the recorded `defer` decision, no
@@ -17,6 +17,12 @@ provider transport from policy-response logic. A third follow-up defers every
 provider connection until local validation is complete, redacts transport and
 provenance diagnostics, makes the benchmark result contract strict, and makes
 benchmark finalization recompute evidence before rollback-safe paired writes.
+The final advisor hardening series adds bounded child supervision, private and
+crash-durable evidence, blinded multi-review finalization, typed decision
+derivation, decision-ready human output, and exact-head Dogfood qualification.
+Release preparation now keeps the changelog explicitly unreleased until the
+publication commit, validates a declared contiguous improvement inventory, and
+normalizes loopback transport failures consistently across macOS and Linux.
 
 See the [complete numbered 0.16.1 release notes](docs/releases/0.16.1.md).
 

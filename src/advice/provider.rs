@@ -76,8 +76,40 @@ pub struct ProviderResult {
 mod tests {
     use super::*;
     use std::io::{Read, Write};
-    use std::net::TcpListener;
+    use std::net::{Shutdown, TcpListener, TcpStream};
     use std::thread::{self, JoinHandle};
+
+    fn read_complete_request(stream: &mut TcpStream) {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .expect("set test read timeout");
+        let mut request = Vec::new();
+        loop {
+            let mut chunk = [0_u8; 4096];
+            let Ok(read) = stream.read(&mut chunk) else {
+                break;
+            };
+            if read == 0 {
+                break;
+            }
+            request.extend_from_slice(&chunk[..read]);
+            let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n")
+            else {
+                continue;
+            };
+            let content_length = String::from_utf8_lossy(&request[..header_end])
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .and_then(|value| value.trim().parse::<usize>().ok())
+                })
+                .unwrap_or_default();
+            if request.len() >= header_end + 4 + content_length {
+                break;
+            }
+        }
+    }
 
     fn one_shot_server_with_hold(
         response: Vec<u8>,
@@ -89,35 +121,7 @@ mod tests {
         let address = listener.local_addr().expect("test provider address");
         let handle = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept test request");
-            stream
-                .set_read_timeout(Some(Duration::from_secs(1)))
-                .expect("set test read timeout");
-            let mut request = Vec::new();
-            loop {
-                let mut chunk = [0_u8; 4096];
-                let Ok(read) = stream.read(&mut chunk) else {
-                    break;
-                };
-                if read == 0 {
-                    break;
-                }
-                request.extend_from_slice(&chunk[..read]);
-                let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n")
-                else {
-                    continue;
-                };
-                let content_length = String::from_utf8_lossy(&request[..header_end])
-                    .lines()
-                    .find_map(|line| {
-                        line.to_ascii_lowercase()
-                            .strip_prefix("content-length:")
-                            .and_then(|value| value.trim().parse::<usize>().ok())
-                    })
-                    .unwrap_or_default();
-                if request.len() >= header_end + 4 + content_length {
-                    break;
-                }
-            }
+            read_complete_request(&mut stream);
             if !delay.is_zero() {
                 thread::sleep(delay);
             }
@@ -138,7 +142,9 @@ mod tests {
             TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("bind test provider");
         let address = listener.local_addr().expect("test provider address");
         let handle = thread::spawn(move || {
-            let _ = listener.accept().expect("accept test request");
+            let (mut stream, _) = listener.accept().expect("accept test request");
+            read_complete_request(&mut stream);
+            let _ = stream.shutdown(Shutdown::Both);
         });
         (format!("http://{address}/v1/chat/completions"), handle)
     }

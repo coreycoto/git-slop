@@ -132,7 +132,7 @@ jobs:
         env:
           VERSION: ${{ steps.identity.outputs.version }}
         run: |
-          cargo xtask release-prepare --version "$VERSION" --check-only
+          cargo xtask release-prepare --version "$VERSION" --check-only --require-release-date
           cargo fmt -p git-slop -- --check
           cargo clippy -p git-slop --all-targets --all-features --locked -- -D warnings
           cargo test -p git-slop --all-targets --all-features --locked

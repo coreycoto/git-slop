@@ -82,6 +82,10 @@ scope is wrong.
 
 - Update `Cargo.toml`, `Cargo.lock`, the Action's default `version`, examples,
   and generated release-note inputs to the same stable version.
+- Keep the new changelog heading as `Unreleased` while implementation and local
+  qualification are still changing. Give `docs/releases/<version>.md` a
+  `Numbered improvements: **<count>**.` declaration and keep its numbered list
+  contiguous; release preparation validates the count and changelog link.
 - Confirm there is no prerelease suffix or leading zero.
 - For a release that introduces or materially changes the policy-guided
   advisor, run the complete pinned Safeguard matrix in
@@ -155,6 +159,17 @@ cargo xtask validate
 node --test action/*.test.mjs
 cargo publish -p git-slop --dry-run --locked
 ```
+
+Immediately before the publication commit, replace `Unreleased` with the real
+`YYYY-MM-DD` publication date and run the protected-boundary form locally:
+
+```bash
+cargo xtask release-prepare --version <version> --check-only --require-release-date
+```
+
+The protected workflow repeats that exact dated check before it can publish the
+crate. Do not date an in-progress release merely to make ordinary local
+preparation pass.
 
 If `gh release verify` or `gh attestation verify` cannot refresh its
 Sigstore/TUF cache because the home cache is read-only, scope `XDG_CACHE_HOME`

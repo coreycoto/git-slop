@@ -35,6 +35,21 @@ pub struct PrepareReleaseResult {
 }
 
 pub fn validate_project_version(project_root: &Path, expected_version: &str) -> Result<()> {
+    validate_project_version_with_date_policy(project_root, expected_version, false)
+}
+
+pub fn validate_publishable_project_version(
+    project_root: &Path,
+    expected_version: &str,
+) -> Result<()> {
+    validate_project_version_with_date_policy(project_root, expected_version, true)
+}
+
+fn validate_project_version_with_date_policy(
+    project_root: &Path,
+    expected_version: &str,
+    require_release_date: bool,
+) -> Result<()> {
     if !is_strict_semver(expected_version) {
         bail!("release version must be strict semver in X.Y.Z form: {expected_version}");
     }
@@ -52,10 +67,95 @@ pub fn validate_project_version(project_root: &Path, expected_version: &str) -> 
         .ok_or_else(|| {
             anyhow::anyhow!("CHANGELOG.md is missing release heading {expected_version}")
         })?;
-    if heading[heading_prefix.len()..].trim() == "Unreleased" {
+    let release_date = heading[heading_prefix.len()..].trim();
+    if release_date == "Unreleased" && require_release_date {
         bail!(
             "CHANGELOG.md release heading for {expected_version} is still Unreleased; date the release before publication"
         );
+    }
+    if release_date != "Unreleased" && !is_release_date(release_date) {
+        bail!(
+            "CHANGELOG.md release heading for {expected_version} must use Unreleased or a YYYY-MM-DD publication date"
+        );
+    }
+    validate_release_inventory(project_root, expected_version)?;
+    Ok(())
+}
+
+fn is_release_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes
+            .iter()
+            .enumerate()
+            .any(|(index, byte)| index != 4 && index != 7 && !byte.is_ascii_digit())
+    {
+        return false;
+    }
+    let month = value[5..7].parse::<u8>().unwrap_or_default();
+    let day = value[8..10].parse::<u8>().unwrap_or_default();
+    (1..=12).contains(&month) && (1..=31).contains(&day)
+}
+
+pub fn validate_release_inventory(project_root: &Path, expected_version: &str) -> Result<()> {
+    let relative = format!("docs/releases/{expected_version}.md");
+    let path = project_root.join(&relative);
+    let notes = std::fs::read_to_string(&path)
+        .map_err(|error| anyhow::anyhow!("unable to read {}: {error}", path.display()))?;
+    let expected_heading = format!("# Git Slop {expected_version}");
+    if notes.lines().next() != Some(expected_heading.as_str()) {
+        bail!("{relative} must start with {expected_heading:?}");
+    }
+
+    let declared = notes
+        .lines()
+        .find_map(|line| {
+            line.trim()
+                .strip_prefix("Numbered improvements: **")
+                .and_then(|value| value.strip_suffix("**."))
+                .and_then(|value| value.parse::<usize>().ok())
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!("{relative} must declare `Numbered improvements: **<count>**.`")
+        })?;
+    let numbers = notes
+        .lines()
+        .filter_map(|line| {
+            let (prefix, _) = line.split_once(". ")?;
+            (!prefix.is_empty() && prefix.bytes().all(|byte| byte.is_ascii_digit()))
+                .then(|| prefix.parse::<usize>().ok())
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    if numbers.len() != declared {
+        bail!(
+            "{relative} declares {declared} numbered improvements but contains {}",
+            numbers.len()
+        );
+    }
+    for (index, number) in numbers.iter().enumerate() {
+        let expected = index + 1;
+        if *number != expected {
+            bail!(
+                "{relative} numbered improvements must be contiguous: expected {expected}, found {number}"
+            );
+        }
+    }
+
+    let changelog_path = project_root.join("CHANGELOG.md");
+    let changelog = std::fs::read_to_string(&changelog_path)
+        .map_err(|error| anyhow::anyhow!("unable to read {}: {error}", changelog_path.display()))?;
+    let heading_prefix = format!("## {expected_version} - ");
+    let section = changelog
+        .split_once(&heading_prefix)
+        .map(|(_, remainder)| remainder.split("\n## ").next().unwrap_or(remainder))
+        .ok_or_else(|| {
+            anyhow::anyhow!("CHANGELOG.md is missing release heading {expected_version}")
+        })?;
+    if !section.contains(&format!("]({relative})")) {
+        bail!("CHANGELOG.md {expected_version} section must link to {relative}");
     }
     Ok(())
 }
@@ -82,12 +182,32 @@ pub fn validate_release_state(project_root: &Path, version: &str) -> Result<Rele
     validate_release_state_with_runner(project_root, version, &mut SystemCommandRunner)
 }
 
+pub fn validate_publishable_release_state(
+    project_root: &Path,
+    version: &str,
+) -> Result<ReleaseState> {
+    validate_release_state_with_date_policy(project_root, version, true, &mut SystemCommandRunner)
+}
+
 pub fn validate_release_state_with_runner(
     project_root: &Path,
     version: &str,
     runner: &mut impl CommandRunner,
 ) -> Result<ReleaseState> {
-    validate_project_version(project_root, version)?;
+    validate_release_state_with_date_policy(project_root, version, false, runner)
+}
+
+fn validate_release_state_with_date_policy(
+    project_root: &Path,
+    version: &str,
+    require_release_date: bool,
+    runner: &mut impl CommandRunner,
+) -> Result<ReleaseState> {
+    if require_release_date {
+        validate_publishable_project_version(project_root, version)?;
+    } else {
+        validate_project_version(project_root, version)?;
+    }
     let worktree_status = runner.output(
         project_root,
         &CommandSpec::new("git", ["status", "--porcelain=v1", "--untracked-files=all"]),
@@ -273,26 +393,52 @@ mod tests {
 
     fn project() -> Result<tempfile::TempDir> {
         let temp = tempfile::tempdir()?;
+        fs::create_dir_all(temp.path().join("docs/releases"))?;
         fs::write(
             temp.path().join("Cargo.toml"),
             "[package]\nname = \"git-slop\"\nversion = \"0.9.0\"\n",
         )?;
         fs::write(
             temp.path().join("CHANGELOG.md"),
-            "# Changelog\n\n## 0.9.0 - 2026-08-10\n\n- Release fixture.\n",
+            "# Changelog\n\n## 0.9.0 - 2026-08-10\n\n- Release fixture.\n\nSee the [complete numbered 0.9.0 release notes](docs/releases/0.9.0.md).\n",
+        )?;
+        fs::write(
+            temp.path().join("docs/releases/0.9.0.md"),
+            "# Git Slop 0.9.0\n\nNumbered improvements: **1**.\n\n1. Release fixture.\n",
         )?;
         Ok(temp)
     }
 
     #[test]
-    fn release_candidate_rejects_an_unreleased_changelog_heading() -> Result<()> {
+    fn release_candidate_allows_unreleased_until_publication() -> Result<()> {
         let project = project()?;
         fs::write(
             project.path().join("CHANGELOG.md"),
-            "# Changelog\n\n## 0.9.0 - Unreleased\n",
+            "# Changelog\n\n## 0.9.0 - Unreleased\n\nSee the [complete numbered 0.9.0 release notes](docs/releases/0.9.0.md).\n",
         )?;
-        let error = validate_project_version(project.path(), "0.9.0").unwrap_err();
+        validate_project_version(project.path(), "0.9.0")?;
+        let error = validate_publishable_project_version(project.path(), "0.9.0").unwrap_err();
         assert!(error.to_string().contains("still Unreleased"));
+        Ok(())
+    }
+
+    #[test]
+    fn release_inventory_requires_declared_contiguous_numbering() -> Result<()> {
+        let project = project()?;
+        let notes = project.path().join("docs/releases/0.9.0.md");
+        fs::write(
+            &notes,
+            "# Git Slop 0.9.0\n\nNumbered improvements: **2**.\n\n1. First.\n3. Third.\n",
+        )?;
+        let error = validate_release_inventory(project.path(), "0.9.0").unwrap_err();
+        assert!(error.to_string().contains("expected 2, found 3"));
+
+        fs::write(
+            notes,
+            "# Git Slop 0.9.0\n\nNumbered improvements: **3**.\n\n1. Only one.\n",
+        )?;
+        let error = validate_release_inventory(project.path(), "0.9.0").unwrap_err();
+        assert!(error.to_string().contains("declares 3"));
         Ok(())
     }
 

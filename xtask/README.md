@@ -16,6 +16,7 @@ cargo xtask generate-release-workflow --check
 cargo xtask check-issue-forms
 cargo xtask check-distribution
 cargo xtask release-prepare --version 0.16.1 --check-only
+cargo xtask release-prepare --version 0.16.1 --check-only --require-release-date
 cargo xtask release-prepare --version 0.16.1
 cargo xtask release-status --version 0.16.1 --format json
 cargo xtask advisor-capacity --help
@@ -46,6 +47,12 @@ candidate `HEAD` before its future tag exists, runs local Rust quality,
 packaging, and crates.io dry-run gates, and performs no publication. It never
 creates or pushes a tag, publishes a crate, mutates a GitHub release, renders a
 formula, or writes another repository.
+
+Local preparation accepts an `Unreleased` changelog heading. The protected
+publication workflow adds `--require-release-date` and fails before crate
+publication unless the exact candidate commit has a `YYYY-MM-DD` heading. The
+same validation checks the release note's declared improvement total,
+contiguous numbering, version heading, and changelog link.
 
 `ci --quiet` suppresses successful gate subprocess output while retaining a
 useful failure. `ci --format json` implies quiet mode and emits one terminal
