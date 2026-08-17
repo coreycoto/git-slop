@@ -181,6 +181,13 @@
           "maximum_slop_score": 28.3
         },
         {
+          "path": "xtask/src/workflows/ci.rs",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "a530a1c036968a72a6a4ded0a1d9168e0b402a6ec28980286e40b71ba3702df9",
+          "maximum_slop_score": 37.5
+        },
+        {
           "path": "xtask/src/workflows/tests/repository_contracts.rs",
           "reason": "material_score_increase",
           "severity": "notice",

@@ -222,6 +222,7 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
         "config/github/dogfood-regression-acceptances.json",
         "BASE_SHA: ${{ github.event.pull_request.base.sha }}",
         "HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
+        "ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
         "target/release/git-slop check --report .slop/latest/report.json --evaluate-only",
         "Scan a repository with no configuration override",
         "cat .slop/latest/health.md",
@@ -234,6 +235,38 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
     forbid(&text, "path: .slop/latest\n", name, errors);
     forbid(&text, "uv run git-slop", name, errors);
     forbid(&text, "check || true", name, errors);
+    if text
+        .matches("ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}")
+        .count()
+        != 2
+    {
+        errors.push(format!(
+            "{name} must pin both Dogfood checkouts to the exact pull-request head."
+        ));
+    }
+    let enforcement = text
+        .split_once("      - name: Enforce pull-request regressions")
+        .and_then(|(_, tail)| tail.split_once("      - name: Preview first-adoption comparison"))
+        .map(|(block, _)| block);
+    match enforcement {
+        Some(block) => {
+            require(
+                block,
+                "BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+                name,
+                errors,
+            );
+            require(
+                block,
+                "HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
+                name,
+                errors,
+            );
+        }
+        None => errors.push(format!(
+            "{name} must retain a bounded pull-request regression enforcement block."
+        )),
+    }
 
     let Some(repo_root) = workflows.parent().and_then(Path::parent) else {
         errors.push(format!("{name} repository root could not be resolved."));
