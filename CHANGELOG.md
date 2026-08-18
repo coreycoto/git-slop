@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.16.1 - Unreleased
+## 0.16.1 - 2026-08-17
 
 This patch makes the policy advisor fail closed: provider-free context is the
 default, public inference is disabled by the recorded `defer` decision, no
