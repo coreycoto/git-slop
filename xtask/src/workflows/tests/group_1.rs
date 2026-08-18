@@ -93,6 +93,18 @@
                 "unpack candidate source outside the repository workspace",
             ),
             (
+                valid.replacen("        timeout-minutes: 5", "        timeout-minutes: 30", 1),
+                "cap musl package setup at five minutes",
+            ),
+            (
+                valid.replacen(
+                    "https://archive.ubuntu.com/ubuntu/",
+                    "http://azure.archive.ubuntu.com/ubuntu/",
+                    1,
+                ),
+                "must not include azure.archive.ubuntu.com",
+            ),
+            (
                 valid.replacen(
                     r#"-c user.name="git-slop release validation""#,
                     r#"-c user.name="""#,

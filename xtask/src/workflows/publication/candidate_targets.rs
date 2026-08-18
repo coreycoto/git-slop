@@ -9,6 +9,12 @@ fn validate_candidate_targets_job(candidate_targets: Option<&YamlValue>, text: &
             errors,
         );
         validate_target_matrix(candidate_targets, name, "candidate-targets", true, errors);
+        validate_bounded_musl_install(
+            candidate_targets,
+            "Install musl linker and unpack candidate bytes",
+            "candidate-targets",
+            errors,
+        );
         let env = candidate_targets.get("env");
         for (key, expected) in [
             (
