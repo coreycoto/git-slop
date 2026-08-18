@@ -122,6 +122,39 @@ fn validate_crates_io_api_client(text: &str, name: &str, errors: &mut Vec<String
     }
 }
 
+fn validate_bounded_musl_install(
+    job: &YamlValue,
+    step_name: &str,
+    job_name: &str,
+    errors: &mut Vec<String>,
+) {
+    let name = "release-publish.yml";
+    let Some(step) = named_step(job, step_name) else {
+        errors.push(format!("{name} {job_name} must define {step_name}."));
+        return;
+    };
+    if step.get("timeout-minutes").and_then(YamlValue::as_u64) != Some(5) {
+        errors.push(format!(
+            "{name} {job_name} must cap musl package setup at five minutes."
+        ));
+    }
+    let Some(run) = step.get("run").and_then(YamlValue::as_str) else {
+        errors.push(format!("{name} {job_name} {step_name} must define a script."));
+        return;
+    };
+    for required in [
+        "https://archive.ubuntu.com/ubuntu/",
+        "Acquire::Retries=2",
+        "Acquire::http::Timeout=20",
+        "Acquire::https::Timeout=20",
+        "sudo apt-get \"${apt_network_options[@]}\" update",
+        "sudo apt-get \"${apt_network_options[@]}\" install --yes musl-tools",
+    ] {
+        require(run, required, name, errors);
+    }
+    forbid(run, "azure.archive.ubuntu.com", name, errors);
+}
+
 fn validate_trusted_publishing(
     text: &str,
     payload: &YamlValue,

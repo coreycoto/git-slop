@@ -3,6 +3,7 @@ fn validate_build_job(build: Option<&YamlValue>, text: &str, errors: &mut Vec<St
     if let Some(build) = build {
         require_needs(build, name, "build", &["publish-crate"], errors);
         validate_target_matrix(build, name, "build", false, errors);
+        validate_bounded_musl_install(build, "Install musl linker", "build", errors);
         let env = build.get("env");
         for (key, expected) in [
             (

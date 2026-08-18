@@ -36,7 +36,9 @@ into focused files, while adjacent contract tests and an authoritative schema
 routing catalog make high-risk validation paths easier to change safely.
 Dependency automation now isolates tokenizer upgrades and SemVer-major changes,
 protects the Rust 1.85 floor, and routes generated release-workflow Actions
-through their owning source fragments.
+through their owning source fragments. Release publication now prefers the
+stable HTTPS Ubuntu archive and bounds package-manager network waits for both
+musl artifact stages.
 
 See the [complete numbered 0.16.1 release notes](docs/releases/0.16.1.md).
 

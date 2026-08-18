@@ -85,10 +85,20 @@
       - name: Install musl linker and unpack candidate bytes
         if: matrix.target == 'x86_64-unknown-linux-musl'
         shell: bash
+        timeout-minutes: 5
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes musl-tools
+          if test -f /etc/apt/apt-mirrors.txt; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' \
+              | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          apt_network_options=(
+            -o Acquire::Retries=2
+            -o Acquire::http::Timeout=20
+            -o Acquire::https::Timeout=20
+          )
+          sudo apt-get "${apt_network_options[@]}" update
+          sudo apt-get "${apt_network_options[@]}" install --yes musl-tools
           crate="candidate/git-slop-${VERSION}.crate"
           test "$(sha256sum "$crate" | awk '{print $1}')" = "$EXPECTED_CRATE_SHA256"
           candidate_source_dir="${RUNNER_TEMP}/candidate-source"
