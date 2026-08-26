@@ -43,13 +43,18 @@ Use this skill when a repository should start consuming `git-slop`.
   release manifest's version and source revision.
 - Keep the Action at its safe defaults initially: advisory policy, at most 10
   annotations, `health.md`-only artifact, 14-day retention, and no pull request
-  comment.
+  comment. Treat the experimental path-based surface ledger in the job summary
+  as review evidence, never as a composite score or gate. Reassess it after 10
+  pull requests and remove or consolidate it if it has not changed a reviewer
+  decision or its path dimensions routinely mislead.
 - Preserve the Action sequence: install the verified binary; run `find` once;
-  append its generated `health.md` to the job summary; render bounded
-  annotations with `health --format github`; upload allowlisted artifacts and
-  optionally update one pull request comment; then run `check` only when
-  `policy: enforce`. Advisory findings do not fail, but setup, analysis,
-  rendering, or publication failures do.
+  append its generated `health.md` and the Action's advisory surface-area
+  ledger to the job summary; render bounded annotations with `health --format
+  github`; upload allowlisted artifacts and optionally update one pull request
+  comment; then run `check` only when `policy: enforce`. Advisory findings do
+  not fail, but setup, analysis, stable rendering, or publication failures do.
+  Experimental surface-ledger unavailability stays advisory and must be stated
+  in the job summary.
 - Opt into `artifact-contents: report` only for schema-5 automation. Do not
   upload `.slop/latest/` or `.slop/runs/` as broad directories.
 - Keep `git-slop` observational until the repository explicitly promotes checks

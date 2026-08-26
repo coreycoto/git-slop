@@ -123,7 +123,8 @@ JSON, and compare JSON as generated artifacts unless a repository intentionally
 curates them as fixtures outside `.slop/`. A first scan does not require
 adoption; run `init` only when durable configuration and state are intended.
 The GitHub Action uploads only an allowlisted subset, with `health.md` as its
-default artifact.
+default artifact. Its job summary also includes experimental, advisory surface
+dimensions that are not combined into a score and do not affect policy status.
 The portable Agent Plugin layout can be installed by clients that support
 Agent Plugins or Agent Skills, including Codex, VS Code/Copilot, Cursor, and
 Kiro. Point the client at `plugins/git-slop`, keep `plugin.json` authoritative,

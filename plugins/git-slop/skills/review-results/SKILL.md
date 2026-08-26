@@ -24,7 +24,10 @@ or `health.md` artifact.
    `git-slop explain`, before recommending work.
 7. Treat `budget_exceeded` as a threshold label and review candidate, not an
    automatic mandate to change code.
-8. Stop after explaining and prioritizing the evidence unless the user
+8. Give each reviewed finding one explicit disposition: `implement`,
+   `consolidate`, `defer`, `accept`, or `won't fix`. Do not optimize for closing
+   every finding.
+9. Stop after explaining and prioritizing the evidence unless the user
    explicitly asks for a maintenance proposal.
 
 ## Plan One Reviewed Finding
@@ -32,6 +35,12 @@ or `health.md` artifact.
 When the user explicitly selects a finding for planning, read
 [the maintenance-planning reference](references/maintenance-planning.md) and
 follow it for that finding only.
+
+If the proposal would add or promote a command, option, configuration key,
+schema, output, Action contract, Agent Plugin surface, workflow, integration,
+or compatibility promise, also read [the contract-admission
+reference](references/contract-admission.md). Apply its state model, admission
+test, and surface-area ledger before recommending implementation.
 
 ## Preserve Generated-State Boundaries
 

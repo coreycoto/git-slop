@@ -140,7 +140,7 @@ function outputs(path) {
   return result;
 }
 
-test("safe defaults analyze once and select only health.md", () => {
+test("safe defaults analyze once and select bounded human reports", () => {
   const state = fixture();
   const analysis = run("analyze", {
     GITHUB_OUTPUT: state.output,
@@ -153,6 +153,8 @@ test("safe defaults analyze once and select only health.md", () => {
   assert.doesNotMatch(analysis.stdout, /::error/u);
   assert.equal(readFileSync(join(state.repository, ".find-count"), "utf8"), "1");
   assert.match(readFileSync(state.summary, "utf8"), /# Repository Health/u);
+  assert.match(readFileSync(state.summary, "utf8"), /## Surface-area ledger/u);
+  assert.match(readFileSync(state.summary, "utf8"), /there is no composite score/u);
   const actual = outputs(state.output);
   assert.equal(actual.policy, "advisory");
   assert.equal(actual.mode, "advanced");
@@ -161,6 +163,7 @@ test("safe defaults analyze once and select only health.md", () => {
   assert.equal(actual["health-finding-count"], "4");
   assert.equal(actual["policy-finding-count"], "2");
   assert.equal(actual["finding-count"], "2");
+  assert.ok(existsSync(actual["surface-area-path"]));
   assert.equal(readFileSync(join(state.repository, ".check-count"), "utf8"), "1");
 
   writeFileSync(state.output, "");
@@ -277,6 +280,26 @@ test("post-find validation failure preserves fresh diagnostics and report output
   assert.ok(actual["compressed-report-path"].endsWith("report.json.gz"));
   assert.ok(actual["analysis-error-path"].endsWith("analysis-error.md"));
   assert.match(readFileSync(actual["analysis-error-path"], "utf8"), /failed immediate validation/u);
+});
+
+test("surface ledger failure stays advisory and preserves detector status", () => {
+  const state = fixture();
+  const eventPath = join(state.root, "event.json");
+  writeFileSync(eventPath, "{not-json", "utf8");
+  const analysis = run("analyze", {
+    GITHUB_EVENT_PATH: eventPath,
+    GITHUB_OUTPUT: state.output,
+    GITHUB_STEP_SUMMARY: state.summary,
+    GITHUB_WORKSPACE: state.repository,
+    GIT_SLOP_BINARY: state.fakeBinary,
+    GIT_SLOP_WORKING_DIRECTORY: ".",
+  });
+  assert.equal(analysis.status, 0, analysis.stderr);
+  const actual = outputs(state.output);
+  assert.equal(actual["analysis-exit-code"], "0");
+  assert.equal(actual["baseline-status"], "not_evaluated");
+  assert.match(readFileSync(actual["surface-area-path"], "utf8"), /could not be generated/u);
+  assert.match(readFileSync(state.summary, "utf8"), /does not change detector or policy status/u);
 });
 
 test("bounded annotations preserve notice, warning, and error without rerunning analysis", () => {
@@ -503,6 +526,7 @@ test("metadata and installer pin bounded secure defaults and supported targets",
   assert.match(metadata, /default: summary/u);
   assert.match(metadata, /default: "14"/u);
   assert.match(metadata, /default: "false"/u);
+  assert.match(metadata, /GIT_SLOP_SURFACE_AREA_PATH/u);
   assert.match(installer, /SHA256SUMS/u);
   assert.match(installer, /createHash\("sha256"\)/u);
   assert.match(installer, /x86_64-unknown-linux-gnu/u);
