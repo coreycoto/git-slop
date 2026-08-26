@@ -1,5 +1,5 @@
 name: Git Slop Repository Health
-description: Defragment repository context with deterministic health summaries, regression annotations, and artifacts.
+description: Defragment repository context with health summaries, advisory surface deltas, regression annotations, and artifacts.
 author: Corey Coto
 
 branding:
@@ -334,6 +334,7 @@ runs:
       uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
       env:
         GIT_SLOP_HEALTH_PATH: ${{ steps.analyze.outputs.health-path }}
+        GIT_SLOP_SURFACE_AREA_PATH: ${{ steps.analyze.outputs.surface-area-path }}
         GIT_SLOP_COMPARISON_PATH: ${{ steps.analyze.outputs.comparison-path }}
         GIT_SLOP_COMPARISON_ERROR_PATH: ${{ steps.analyze.outputs.comparison-error-path }}
       with:
@@ -342,6 +343,9 @@ runs:
           const fs = require("fs");
           const marker = "<!-- git-slop-repository-health -->";
           const report = fs.readFileSync(process.env.GIT_SLOP_HEALTH_PATH, "utf8");
+          const surface = process.env.GIT_SLOP_SURFACE_AREA_PATH && fs.existsSync(process.env.GIT_SLOP_SURFACE_AREA_PATH)
+            ? `\n\n${fs.readFileSync(process.env.GIT_SLOP_SURFACE_AREA_PATH, "utf8")}`
+            : "";
           let baseline = "\n\n## Regression baseline\n\nNo baseline comparison was requested.";
           if (process.env.GIT_SLOP_COMPARISON_PATH && fs.existsSync(process.env.GIT_SLOP_COMPARISON_PATH)) {
             const comparison = JSON.parse(fs.readFileSync(process.env.GIT_SLOP_COMPARISON_PATH, "utf8"));
@@ -359,10 +363,10 @@ runs:
             while (end > 0 && (bytes[end] & 0xC0) === 0x80) end -= 1;
             return bytes.subarray(0, end).toString("utf8");
           };
-          const completeBody = `${prefix}${report}${baseline}`;
+          const completeBody = `${prefix}${report}${surface}${baseline}`;
           const available = maximumBodyLength - Buffer.byteLength(prefix) - Buffer.byteLength(suffix);
           const body = Buffer.byteLength(completeBody) > maximumBodyLength
-            ? `${prefix}${utf8Prefix(`${report}${baseline}`, available)}${suffix}`
+            ? `${prefix}${utf8Prefix(`${report}${surface}${baseline}`, available)}${suffix}`
             : completeBody;
           const comments = await github.paginate(github.rest.issues.listComments, {
             owner: context.repo.owner,

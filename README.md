@@ -200,8 +200,10 @@ steps:
 ```
 
 The Action is advisory by default. It verifies the native release, writes the
-health dashboard to the job summary, emits at most 10 annotations, and uploads
-only `health.md` for 14 days. Enforcement, larger artifacts, and pull request
+health dashboard and an experimental multidimensional surface-area ledger to
+the job summary, emits at most 10 annotations, and uploads only `health.md` for
+14 days. The ledger has no composite score and never changes policy status or
+the stable artifact contract. Enforcement, larger artifacts, and pull request
 comments are explicit opt-ins. See [GitHub Action](docs/github-action.md).
 
 ## Command Map

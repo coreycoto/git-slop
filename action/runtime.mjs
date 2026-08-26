@@ -34,8 +34,13 @@ export function enumValue(name, fallback, allowed) {
   return raw;
 }
 
-export function run(command, args, cwd, stdio = "inherit") {
-  const result = spawnSync(command, args, { cwd, encoding: "utf8", stdio });
+export function run(command, args, cwd, stdio = "inherit", options = {}) {
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: "utf8",
+    stdio,
+    ...(options.maxBuffer ? { maxBuffer: options.maxBuffer } : {}),
+  });
   if (result.error) return { status: 2, stderr: result.error.message, stdout: "" };
   return {
     status: result.status ?? 2,

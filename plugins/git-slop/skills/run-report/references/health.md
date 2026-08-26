@@ -62,17 +62,23 @@ The Action deliberately separates analysis, presentation, and enforcement:
 2. Resolve the worktree root, reject shallow history, and run `git-slop find`
    exactly once.
 3. Append the generated `.slop/latest/health.md` to `GITHUB_STEP_SUMMARY`.
-4. When annotations are enabled, run `git-slop health --report
+4. Generate and append an Action-only surface-area ledger. On pull requests it
+   compares tracked path dimensions at the event's base commit and analyzed
+   head; elsewhere it reports head dimensions. It is experimental, advisory,
+   has no composite score, and does not affect detector policy.
+5. When annotations are enabled, run `git-slop health --report
    .slop/latest/report.json --format github --max-annotations <n>`.
-5. Upload an allowlisted artifact set and, when enabled, update one pull request
-   comment from `health.md`.
-6. Publish advisory status, or run `git-slop check --report
+6. Upload an allowlisted artifact set and, when enabled, update one pull request
+   comment from `health.md` plus the surface ledger.
+7. Publish advisory status, or run `git-slop check --report
    .slop/latest/report.json` after publication when `policy: enforce`.
 
 Thus `find` creates the durable report and Markdown, `health --format github`
 projects annotations from that report, and `check` alone supplies the optional
 threshold failure. Advisory findings do not fail the Action; installation,
-checkout-depth, detector, renderer, or publication failures still do.
+checkout-depth, detector, stable renderer, or publication failures still do.
+Experimental surface-ledger unavailability stays advisory and is stated in its
+job-summary section.
 
 ## Interpretation
 

@@ -8,6 +8,7 @@ import {
 import { evaluateAbsolutePolicy } from "./policy.mjs";
 import { annotate, artifacts, finalize } from "./publication.mjs";
 import { boundedInteger, enumValue, run, safeLogText, setOutput } from "./runtime.mjs";
+import { buildSurfaceAreaMarkdown } from "./surface-area.mjs";
 
 function normalizedBoolean(name, fallback) {
   const raw = (process.env[name] || fallback).trim().toLowerCase();
@@ -122,6 +123,13 @@ function appendComparisonSummary(comparisonPath) {
   writeFileSync(summaryTarget, `${lines.join("\n")}\n`, { flag: "a" });
 }
 
+function appendSurfaceAreaSummary(surfaceAreaPath) {
+  const summaryTarget = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryTarget || !surfaceAreaPath || !existsSync(surfaceAreaPath)) return;
+  const surfaceArea = readFileSync(surfaceAreaPath, "utf8");
+  writeFileSync(summaryTarget, `\n${surfaceArea.trimEnd()}\n`, { flag: "a" });
+}
+
 function writeFallbackHealth(healthPath, message) {
   mkdirSync(dirname(healthPath), { recursive: true });
   const safeMessage = String(message).replace(/\r?\n/gu, " ");
@@ -208,6 +216,7 @@ function analyze() {
   let reportGenerated = false;
   let comparisonPath = "";
   let comparisonErrorPath = "";
+  let surfaceAreaPath = "";
 
   try {
     inputs = validateInputs();
@@ -441,7 +450,39 @@ function analyze() {
     );
     console.error(`git-slop Action baseline analysis failed: ${safeLogText(failureMessage)}`);
   }
+  if (analysisExitCode === 0 && cwd) {
+    surfaceAreaPath = join(dirname(reportPath), "surface-area.md");
+    try {
+      writeFileSync(
+        surfaceAreaPath,
+        `${buildSurfaceAreaMarkdown(run, cwd, { scope: (process.env.GIT_SLOP_SCOPE || "").trim() })}\n`,
+        "utf8",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Git Slop surface-area ledger is unavailable: ${safeLogText(message)}`);
+      const safeMessage = safeLogText(message)
+        .slice(0, 1_000)
+        .replaceAll("`", "\\`")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+      writeFileSync(
+        surfaceAreaPath,
+        [
+          "## Surface-area ledger",
+          "",
+          "> [!WARNING]",
+          `> Experimental surface-area evidence could not be generated: ${safeMessage}`,
+          "",
+          "> This advisory failure does not change detector or policy status.",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+    }
+  }
   appendHealthSummary(healthPath, safeInputs);
+  appendSurfaceAreaSummary(surfaceAreaPath);
   appendComparisonSummary(comparisonPath);
   const artifactContents = analysisExitCode === 0
     ? safeInputs.artifactContents
@@ -462,6 +503,7 @@ function analyze() {
   );
   setOutput("comparison-path", comparisonPath);
   setOutput("comparison-error-path", comparisonErrorPath);
+  setOutput("surface-area-path", surfaceAreaPath);
   setOutput("analysis-error-path", existsSync(analysisErrorPath) ? analysisErrorPath : "");
   setOutput("health-path", healthPath);
   setOutput("report-path", reportGenerated && existsSync(reportPath) ? reportPath : "");

@@ -33,6 +33,32 @@
 - Keep repo-specific overlays next to the repo-owned data they describe under `config/*/README.md`.
 - Keep custom agents thin: they should reference plugin skills and only add role, sandbox, model, and delegation guidance.
 
+## Product Surface Discipline
+
+- Maximize demonstrated user value while minimizing permanent surface area.
+- Keep product and maintainer context in this monorepo. Prefer explicit logical
+  boundaries, internal modules, and reversible experiments over additional
+  repositories or public contracts.
+- Treat every new command, option, configuration key, machine schema, output
+  format, Action input or output, Agent Plugin skill, workflow, integration,
+  generated artifact, and compatibility promise as long-lived surface until
+  proven otherwise.
+- Give every contract one state: `internal`, `experimental`, `candidate`, or
+  `stable`. Promotion must follow demonstrated use; implementation completeness
+  alone is not evidence that users need a stable contract.
+- Before admitting or promoting a contract, identify its consumer and job,
+  direct evidence of need, why an existing contract is insufficient, the
+  smallest reversible experiment, permanent maintenance cost, expiry, and
+  deletion conditions. Prefer consolidation, an internal seam, or deferral when
+  those answers are weak.
+- Every pull request must include a multidimensional surface-area ledger. Record
+  added, removed, or consolidated surface and its contract state; do not reduce
+  the ledger to a composite score. Automated path dimensions are advisory
+  evidence and never a default gate.
+- Resolve audit findings explicitly as `implement`, `consolidate`, `defer`,
+  `accept`, or `won't fix`. Closing every finding is not the objective, and a
+  green closure metric is not proof of user value.
+
 ## Automation Rules
 
 - Use prompt files under `.github/codex/prompts/` for every Codex-powered workflow job.

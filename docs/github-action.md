@@ -56,29 +56,58 @@ The default is advisory:
 
 - `git-slop find` runs exactly once.
 - `.slop/latest/health.md` is appended to the job summary.
+- an experimental surface-area ledger is generated from tracked paths and
+  appended to the job summary; pull requests compare the event's base commit
+  with the analyzed head.
 - at most 10 workflow annotations are emitted, preserving each finding's
   `notice`, `warning`, or `error` level.
 - only `health.md` is uploaded as the `git-slop` artifact.
 - the artifact is retained for 14 days.
 - pull request comments are disabled.
 - findings do not fail the job, but installation, shallow-history, detector, or
-  renderer errors do.
+  stable renderer errors do. Experimental ledger unavailability remains
+  advisory and is stated in the job summary.
 
 The publication sequence is explicit:
 
 1. Run `git-slop find` once, producing the persisted compact bundle.
 2. Append the persisted `.slop/latest/health.md` to `GITHUB_STEP_SUMMARY`.
-3. When annotations are enabled, run `git-slop health --report
+3. Generate and append a multidimensional, advisory surface-area ledger. This
+   path-based evidence is separate from schema-5 detector output and policy.
+4. When annotations are enabled, run `git-slop health --report
    .slop/latest/report.json --format github --max-annotations <count>` and emit
    its standard output as bounded workflow annotations. This projection does
    not rewrite `health.md` or rerun `find`.
-4. Publish the selected artifact and optional pull request comment, then, only
+5. Publish the selected artifact and optional pull request comment, then, only
    for `policy: enforce`, apply either native `git-slop check` absolute
    thresholds or the already-produced native comparison regression count.
 
 The dashboard and annotation findings are advisory projections. A successful
 `health` render exits 0 even when findings are present; `check` is the step that
 turns configured stable thresholds into an enforcing exit status.
+
+### Surface-Area Ledger
+
+The Action's surface-area ledger reports observed dimensions separately: tracked
+files, top-level namespaces, documentation, tests, GitHub workflows,
+machine-schema files, Agent Skill definitions, CLI/distribution files, and
+tooling/automation. Dimensions may overlap intentionally. The report never
+combines them into a score and never changes the Action's exit status.
+
+On a pull request, the Action resolves `pull_request.base.sha` from the trusted
+event payload and compares that tree with the analyzed checkout. It records
+base, head, net delta, and added/removed/retained-changed path counts. On other
+events it records the absolute head dimensions. An unavailable base produces an
+advisory note rather than a detector failure.
+
+Path counts cannot prove that a command, option, config key, schema, or
+compatibility promise is valuable. Use them to prompt review, then record those
+semantic contracts and their evidence in the pull request's surface-area
+ledger. Growth alone is not a finding.
+
+Treat this as an expiring experiment: reassess it after 10 pull requests in the
+adopting repository. Consolidate or remove it if it has not changed a reviewer
+decision or if its path dimensions routinely mislead.
 
 ### Finding Levels And Annotation Bounds
 
@@ -305,8 +334,9 @@ For example:
           retention-days: 14
 ```
 
-Use `report.json` for automation. Markdown is the human-facing contract, while
-the JSON `schema_version` is the machine compatibility boundary.
+Use `report.json` for automation. `health.md` is the stable human presentation,
+while the job-summary surface ledger is explicitly experimental review
+evidence; the JSON `schema_version` remains the machine compatibility boundary.
 
 ## Pull Request Comments
 
@@ -328,9 +358,11 @@ steps:
       pr-comment: "true"
 ```
 
-The Action creates or updates one marker-based comment instead of adding a new
-comment on every run. Long reports are truncated in the comment; the complete
-report remains in the job summary and artifact.
+The Action creates or updates one marker-based comment containing health,
+surface-area evidence, and any baseline summary instead of adding a new comment
+on every run. Long reports are truncated in the comment; the complete health
+report remains in the artifact, and the complete combined presentation remains
+in the job summary.
 
 ## Inputs
 
