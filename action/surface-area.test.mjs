@@ -44,7 +44,10 @@ test("surface ledger reports head dimensions when no pull-request base is availa
   writeFileSync(join(repository, "README.md"), "# Fixture\n");
   git(repository, "add", "README.md");
 
-  const markdown = buildSurfaceAreaMarkdown(run, repository, { scope: "." });
+  const markdown = buildSurfaceAreaMarkdown(run, repository, {
+    scope: ".",
+    eventPath: join(repository, "missing-event.json"),
+  });
   assert.match(markdown, /\| Tracked files \| 1 \|/u);
   assert.match(markdown, /no pull-request base revision/u);
   assert.match(markdown, /\*\*Scope:\*\* whole repository/u);
