@@ -4,6 +4,8 @@ use serde_yaml::Value as YamlValue;
 
 use super::{WORKFLOWS, read_text};
 
+mod codex_action;
+
 pub(super) const PREPARE_COMMAND: &str = "scripts/with-agent-plugins.sh --prepare";
 pub(super) const VERIFY_COMMAND: &str = "scripts/with-agent-plugins.sh --verify";
 pub(super) const MARKETPLACE_COMMAND: &str = "scripts/with-agent-plugins.sh marketplace install";
@@ -182,30 +184,7 @@ pub(super) fn validate_agent_plugin_workflow_text(
     };
     validate_acquisition_token_scope(&payload, &steps, name, errors);
     validate_runtime_step_order(&steps, name, kind, errors);
-    for step in steps.iter().filter(|step| step.uses == CODEX_ACTION) {
-        let Some(args) = step
-            .raw
-            .get("with")
-            .and_then(|inputs| inputs.get("codex-args"))
-        else {
-            continue;
-        };
-        let parsed = args
-            .as_str()
-            .and_then(|args| serde_json::from_str::<Vec<String>>(args).ok());
-        match parsed {
-            Some(args)
-                if !args.iter().any(|arg| {
-                    arg == "--profile"
-                        || arg.starts_with("--profile=")
-                        || (arg.starts_with("-p") && !arg.starts_with("--"))
-                }) => {}
-            _ => errors.push(format!(
-                "{name} Codex args must be a JSON string array without profile selectors; \
-                 the pinned protected action rejects --profile and -p."
-            )),
-        }
-    }
+    codex_action::validate_args(&steps, name, errors);
 
     match name {
         "dependency-remediation.yml" => {
