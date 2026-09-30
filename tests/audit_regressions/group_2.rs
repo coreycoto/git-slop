@@ -238,7 +238,10 @@ fn doctor_reports_detector_and_policy_cache_writability_separately() {
     assert!(
         payload["advisor"]["decision_record_url"]
             .as_str()
-            .is_some_and(|url| url.contains("/blob/v0.16.1/docs/benchmarks/"))
+            .is_some_and(|url| url.contains(&format!(
+                "/blob/v{}/docs/benchmarks/",
+                env!("CARGO_PKG_VERSION")
+            )))
     );
     assert_eq!(
         payload["advisor"]["model_required_for_ordinary_use"],
