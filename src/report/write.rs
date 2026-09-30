@@ -17,6 +17,9 @@ use crate::model::{
     Analysis, FileAnalysis, FindResult, FolderAnalysis, HealthRollup, ScopeIdentity,
 };
 
+#[path = "write/contract/scalars.rs"]
+mod scalar_contracts;
+
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 include!("write/profile.rs");
