@@ -1293,7 +1293,8 @@
       "enum": [
         "low",
         "moderate",
-        "high"
+        "high",
+        "critical"
       ]
     },
     "totals": {
