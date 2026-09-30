@@ -128,6 +128,7 @@ jobs:
         run: |
           mkdir -p .artifacts/codex "$RUNNER_TEMP/codex-runtime/.codex"
           cp .codex/config.toml "$RUNNER_TEMP/codex-runtime/.codex/config.toml"
+          sed -i 's/^approval_policy = "on-request"$/approval_policy = "never"/' "$RUNNER_TEMP/codex-runtime/.codex/config.toml"
           cp .codex/*.config.toml "$RUNNER_TEMP/codex-runtime/.codex/"
           scripts/with-agent-plugins.sh marketplace install \
             --manifest .agents/plugins/marketplace-source.json \
@@ -143,7 +144,7 @@ jobs:
           output-file: .artifacts/codex/merge-on-green.json
           codex-home: ${{ runner.temp }}/codex-runtime/.codex
           codex-args: >-
-            ["--profile","ci_mutation","--model","gpt-5.6-luna","--output-schema",".github/codex/schemas/merge-on-green.json"]
+            ["--model","gpt-5.6-luna","--output-schema",".github/codex/schemas/merge-on-green.json"]
           safety-strategy: drop-sudo
           sandbox: workspace-write
 
