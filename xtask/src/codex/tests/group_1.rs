@@ -23,7 +23,6 @@ fn contract_inventory_is_stable() {
             .collect::<Vec<_>>(),
         [
             "dependency-remediation.yml",
-            "docs-taxonomy.yml",
             "governance-reconcile.yml",
             "merge-on-green.yml",
             "release-publish.yml",
@@ -39,7 +38,6 @@ fn contract_inventory_is_stable() {
         runtime_workflow_names,
         [
             "dependency-remediation.yml",
-            "docs-taxonomy.yml",
             "governance-reconcile.yml",
             "merge-on-green.yml",
             "execution_state_sync.yml",

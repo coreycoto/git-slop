@@ -13,6 +13,8 @@ report indexes; compact and standard reports validate and remain consumable by
 `health`, `explain`, and the public Action.
 The Action installer now accepts the bundled schema catalog, fixing the archive
 layout mismatch that blocked 0.16.1 draft qualification.
+The automatic Docs Taxonomy workflow is removed; documentation taxonomy remains
+an on-demand task with deterministic repository validation in CI.
 
 See the [complete numbered 0.16.2 release notes](docs/releases/0.16.2.md).
 

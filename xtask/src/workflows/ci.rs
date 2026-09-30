@@ -95,19 +95,12 @@ fn validate_action_versions(repo_root: &Path, workflows: &Path, errors: &mut Vec
 }
 
 fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
-    let contracts: [(&str, &[&str]); 4] = [
+    let contracts: [(&str, &[&str]); 3] = [
         (
             "dependency-remediation.yml",
             &[
                 ".artifacts/codex/dependency-remediation.json",
                 ".artifacts/dependency-remediation/",
-            ],
-        ),
-        (
-            "docs-taxonomy.yml",
-            &[
-                ".artifacts/codex/docs-taxonomy.json",
-                ".artifacts/docs-taxonomy/",
             ],
         ),
         (

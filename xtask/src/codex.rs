@@ -171,21 +171,13 @@ struct WorkflowContract {
     uses_agent_plugins: bool,
 }
 
-const WORKFLOWS: [WorkflowContract; 5] = [
+const WORKFLOWS: [WorkflowContract; 4] = [
     WorkflowContract {
         name: "dependency-remediation.yml",
         prompt: ".github/codex/prompts/dependency-remediation.md",
         schema: ".github/codex/schemas/dependency-remediation.json",
         skill: "$project-management-workflows:dependency-remediation",
         agent_file: ".codex/agents/dependency-patcher.toml",
-        uses_agent_plugins: true,
-    },
-    WorkflowContract {
-        name: "docs-taxonomy.yml",
-        prompt: ".github/codex/prompts/docs-taxonomy.md",
-        schema: ".github/codex/schemas/docs-taxonomy.json",
-        skill: "$project-management-workflows:docs-taxonomy",
-        agent_file: ".codex/agents/docs-taxonomist.toml",
         uses_agent_plugins: true,
     },
     WorkflowContract {

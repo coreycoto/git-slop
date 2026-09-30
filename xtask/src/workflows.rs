@@ -21,16 +21,14 @@ const RELEASE_WORKFLOW_FRAGMENTS: [&str; 10] = [
     "90-marketplace-ready.yml",
 ];
 
-const CODEX_WORKFLOWS: [&str; 4] = [
+const CODEX_WORKFLOWS: [&str; 3] = [
     "dependency-remediation.yml",
-    "docs-taxonomy.yml",
     "governance-reconcile.yml",
     "merge-on-green.yml",
 ];
 
-const AGENT_PLUGIN_WORKFLOWS: [&str; 5] = [
+const AGENT_PLUGIN_WORKFLOWS: [&str; 4] = [
     "dependency-remediation.yml",
-    "docs-taxonomy.yml",
     "governance-reconcile.yml",
     "merge-on-green.yml",
     "execution_state_sync.yml",
@@ -150,11 +148,10 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
     validate_public_release_workflows(repo_root, &mut errors);
     validate_packaged_contracts_script(repo_root, &mut errors);
 
-    for name in ["docs-taxonomy.yml", "merge-on-green.yml"] {
-        if let Some(text) = read(&workflows.join(name), &mut errors) {
-            forbid(&text, "gpt-5.4-nano", name, &mut errors);
-            require(&text, r#""--model","gpt-5.6-luna""#, name, &mut errors);
-        }
+    let name = "merge-on-green.yml";
+    if let Some(text) = read(&workflows.join(name), &mut errors) {
+        forbid(&text, "gpt-5.4-nano", name, &mut errors);
+        require(&text, r#""--model","gpt-5.6-luna""#, name, &mut errors);
     }
 
     validate_action_versions(repo_root, &workflows, &mut errors);
