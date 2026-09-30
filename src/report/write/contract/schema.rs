@@ -99,7 +99,7 @@ fn harden_scalar_contracts(schema: &mut Value) {
         json!({"enum":["compact","healthy","warning","critical"]});
     schema["$defs"]["health_band"] =
         json!({"enum":["compact","healthy","warning","budget_exceeded"]});
-    schema["$defs"]["slop_band"] = json!({"enum":["low","moderate","high"]});
+    schema["$defs"]["slop_band"] = json!({"enum":["low","moderate","high","critical"]});
     schema["$defs"]["analysis_status"] = json!({"enum":[
         "analyzed","skipped","stable","experimental","not_applicable","legacy_unknown",
         "complete","degraded_resource_budget","degraded_large_files","degraded_incomplete_inventory"
