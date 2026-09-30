@@ -257,6 +257,7 @@ export function createArchiveTools({
       manMember,
       completionsMember,
       schemasMember,
+      `${schemasMember}index.json`,
       ...expectedFileMembers,
       ...expectedCompletionMembers,
     ]);
@@ -278,7 +279,7 @@ export function createArchiveTools({
       if (!allowedMembers.has(member) && !versionedSchemaName.test(schemaName)) {
         throw new Error("archive inventory does not match the exact Git Slop release layout");
       }
-      if (schemaName) {
+      if (versionedSchemaName.test(schemaName)) {
         schemaMembers.add(member);
       }
       actualMembers.add(member);

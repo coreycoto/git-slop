@@ -25,6 +25,26 @@ export async function exerciseArchiveLayout(context) {
   assert.match(unsafeInventory.stderr, /exact Git Slop release layout/u);
 
   rmSync(join(stage, "UNEXPECTED"));
+  rmSync(join(stage, "schemas", "report-5.json"));
+  const catalogOnlyArchive = join(root, `catalog-only-${assetName}`);
+  createArchive(
+    catalogOnlyArchive,
+    ["-c", "-z"],
+    ["-C", join(root, "stage"), stageName],
+  );
+  context.servedArchiveBytes = readFileSync(catalogOnlyArchive);
+  context.servedArchiveDigest = createHash("sha256").update(context.servedArchiveBytes).digest("hex");
+  refreshMetadata();
+  const catalogOnly = await runInstaller({
+    GITHUB_API_URL: apiRoot,
+    GIT_SLOP_ACTION_VERSION: version,
+    GIT_SLOP_RELEASE_REPOSITORY: "example/git-slop",
+    RUNNER_TEMP: root,
+  });
+  assert.equal(catalogOnly.status, 1);
+  assert.match(catalogOnly.stderr, /exact Git Slop release layout/u);
+
+  writeFileSync(join(stage, "schemas", "report-5.json"), "{}\n", "utf8");
   rmSync(join(stage, "completions", "git-slop.nushell"));
   const missingCompletionArchive = join(root, `missing-completion-${assetName}`);
   createArchive(

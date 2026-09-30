@@ -164,11 +164,6 @@ jobs:
       - name: Detect Codex credentials
         id: codex_preflight
         run: echo "enabled=true" >> "$GITHUB_OUTPUT"
-      - name: Prepare artifact roots
-        if: steps.codex_preflight.outputs.enabled == 'true'
-        run: |
-          mkdir -p .artifacts/codex .artifacts/docs-taxonomy
-          jq -n '{}' > .artifacts/docs-taxonomy/run-context.json
       - name: Acquire runtime
         env:
           AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}

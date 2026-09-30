@@ -106,30 +106,12 @@ fn runtime_workflow_rejects_misplaced_token_old_setup_and_cache() {
     let workflow = safe_marketplace_workflow();
     let mut errors = Vec::new();
     validate_agent_plugin_workflow_text(
-        "docs-taxonomy.yml",
+        "merge-on-green.yml",
         workflow,
         AgentPluginWorkflowKind::Marketplace,
         &mut errors,
     );
     assert_eq!(errors, Vec::<String>::new());
-
-    let missing_diagnostic = workflow.replace(
-        "      - name: Prepare artifact roots\n        if: steps.codex_preflight.outputs.enabled == 'true'\n        run: |\n          mkdir -p .artifacts/codex .artifacts/docs-taxonomy\n          jq -n '{}' > .artifacts/docs-taxonomy/run-context.json\n",
-        "",
-    );
-    let mut errors = Vec::new();
-    validate_agent_plugin_workflow_text(
-        "docs-taxonomy.yml",
-        &missing_diagnostic,
-        AgentPluginWorkflowKind::Marketplace,
-        &mut errors,
-    );
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.contains("run-context diagnostic")),
-        "{errors:?}"
-    );
 
     let misplaced = workflow.replace(
         "      - name: Verify runtime\n        run:",
@@ -137,7 +119,7 @@ fn runtime_workflow_rejects_misplaced_token_old_setup_and_cache() {
     );
     let mut errors = Vec::new();
     validate_agent_plugin_workflow_text(
-        "docs-taxonomy.yml",
+        "merge-on-green.yml",
         &misplaced,
         AgentPluginWorkflowKind::Marketplace,
         &mut errors,
@@ -154,7 +136,7 @@ fn runtime_workflow_rejects_misplaced_token_old_setup_and_cache() {
     );
     let mut errors = Vec::new();
     validate_agent_plugin_workflow_text(
-        "docs-taxonomy.yml",
+        "merge-on-green.yml",
         &expanded_acquisition,
         AgentPluginWorkflowKind::Marketplace,
         &mut errors,
@@ -171,7 +153,7 @@ fn runtime_workflow_rejects_misplaced_token_old_setup_and_cache() {
     );
     let mut errors = Vec::new();
     validate_agent_plugin_workflow_text(
-        "docs-taxonomy.yml",
+        "merge-on-green.yml",
         &old_setup,
         AgentPluginWorkflowKind::Marketplace,
         &mut errors,
@@ -188,7 +170,7 @@ fn runtime_workflow_rejects_misplaced_token_old_setup_and_cache() {
     );
     let mut errors = Vec::new();
     validate_agent_plugin_workflow_text(
-        "docs-taxonomy.yml",
+        "merge-on-green.yml",
         &cached,
         AgentPluginWorkflowKind::Marketplace,
         &mut errors,

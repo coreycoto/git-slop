@@ -112,6 +112,9 @@ Current project-scoped agents:
 
 ## Workflow Assets
 
+Documentation taxonomy is maintained on demand through `docs_taxonomist`.
+Deterministic Codex and workflow validation runs in CI.
+
 Codex-driven GitHub Actions should keep their task contract in checked-in
 prompt and schema files. The schema files are workflow-owned assets. They are
 not auto-discovered by Codex or by custom agents; workflows must pass them

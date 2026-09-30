@@ -190,7 +190,6 @@ pub(super) fn validate_agent_plugin_workflow_text(
         "dependency-remediation.yml" => {
             validate_dependency_remediation_trust(text, &payload, &steps, errors)
         }
-        "docs-taxonomy.yml" => validate_docs_taxonomy_artifacts(&steps, errors),
         "execution_state_sync.yml" => {
             validate_execution_state_trust(text, &payload, &steps, errors);
             validate_execution_state_artifacts(&steps, errors);
@@ -706,61 +705,6 @@ fn validate_dependency_remediation_trust(
     {
         errors.push(format!(
             "{name} must trust Dependabot through allow-bot-users, never Boolean allow-bots."
-        ));
-    }
-}
-
-fn validate_docs_taxonomy_artifacts(steps: &[WorkflowStepView], errors: &mut Vec<String>) {
-    let name = "docs-taxonomy.yml";
-    let preparations = steps
-        .iter()
-        .filter(|step| {
-            step.run
-                .contains(".artifacts/docs-taxonomy/run-context.json")
-        })
-        .collect::<Vec<_>>();
-    let acquisitions = steps
-        .iter()
-        .filter(|step| step.run.trim() == PREPARE_COMMAND)
-        .collect::<Vec<_>>();
-    if preparations.len() != 1 || acquisitions.len() != 1 {
-        errors.push(format!(
-            "{name} must write exactly one non-secret run-context diagnostic before runtime acquisition."
-        ));
-        return;
-    }
-
-    let preparation = preparations[0];
-    let acquisition = acquisitions[0];
-    if preparation.job != acquisition.job || preparation.ordinal >= acquisition.ordinal {
-        errors.push(format!(
-            "{name} must create its artifact roots and diagnostic before runtime acquisition."
-        ));
-    }
-    for required in [
-        "mkdir -p .artifacts/codex .artifacts/docs-taxonomy",
-        "jq -n",
-        "> .artifacts/docs-taxonomy/run-context.json",
-    ] {
-        if !preparation.run.contains(required) {
-            errors.push(format!(
-                "{name} artifact preparation must include {required}."
-            ));
-        }
-    }
-    if preparation.raw.get("if").and_then(YamlValue::as_str)
-        != Some("steps.codex_preflight.outputs.enabled == 'true'")
-    {
-        errors.push(format!(
-            "{name} artifact preparation must use the Codex credential preflight gate."
-        ));
-    }
-    if yaml_contains(&preparation.raw, "secrets.")
-        || yaml_contains(&preparation.raw, "AGENT_PLUGINS_READ_TOKEN")
-        || yaml_contains(&preparation.raw, "OPENAI_API_KEY")
-    {
-        errors.push(format!(
-            "{name} run-context preparation must not receive or serialize credentials."
         ));
     }
 }
