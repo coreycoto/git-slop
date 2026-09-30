@@ -1,6 +1,6 @@
 {
   "name": "git-slop",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "description": "Agent guidance for the deterministic git-slop repository token-defragmenter.",
   "author": {
     "name": "Corey Coto",
