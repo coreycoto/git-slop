@@ -64,6 +64,12 @@ credentials. The repository token is supplied only to the deliberate Codex
 mutation step. The public release workflow never acquires or invokes this
 private runtime.
 
+Codex Action 1.12 rejects `--profile` and `-p` in protected runs. Its four
+maintainer workflows copy the trusted base configuration into their isolated
+Codex home and set `approval_policy = "never"` there before marketplace
+installation or requested-head checkout. Keep `safety-strategy: drop-sudo` and
+`sandbox: workspace-write`; pass only supported model and schema arguments.
+
 Publication rules:
 
 - prefer `git push`, `gh release`, and `gh pr merge`

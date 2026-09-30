@@ -130,7 +130,12 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
             name,
             &mut errors,
         );
-        require(&text, r#""--profile","ci_mutation""#, name, &mut errors);
+        require(
+            &text,
+            "sed -i 's/^approval_policy = \"on-request\"$/approval_policy = \"never\"/'",
+            name,
+            &mut errors,
+        );
         require(&text, "cargo xtask validate-codex", name, &mut errors);
         forbid(&text, "uv sync", name, &mut errors);
         forbid(

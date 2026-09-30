@@ -99,6 +99,7 @@ jobs:
           codex_home="$RUNNER_TEMP/codex-runtime/.codex"
           mkdir -p "$trusted_root" "$codex_home/agents"
           cp .codex/config.toml "$codex_home/config.toml"
+          sed -i 's/^approval_policy = "on-request"$/approval_policy = "never"/' "$codex_home/config.toml"
           cp .codex/*.config.toml "$codex_home/"
           cp -R .codex/agents/. "$codex_home/agents/"
           cp .github/codex/prompts/dependency-remediation.md \
@@ -133,7 +134,7 @@ jobs:
       - name: Run Codex dependency remediation
         if: steps.codex_preflight.outputs.enabled == 'true'
         id: run_codex
-        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1
+        uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1
         env:
           GH_TOKEN: ${{ github.token }}
         with:
@@ -142,8 +143,6 @@ jobs:
           output-schema-file: ${{ runner.temp }}/dependency-remediation-trusted/dependency-remediation.json
           output-file: .artifacts/codex/dependency-remediation.json
           codex-home: ${{ runner.temp }}/codex-runtime/.codex
-          codex-args: >-
-            ["--profile","ci_mutation"]
           safety-strategy: drop-sudo
           sandbox: workspace-write
           allow-bot-users: dependabot[bot]

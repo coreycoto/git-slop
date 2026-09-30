@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.16.2 - 2026-09-30
+
+This patch consolidates the Rust dependency and Codex Action updates, and ships
+the experimental advisory surface-area ledger added since the immutable 0.16.1
+crate. It preserves the Rust 1.85 minimum and keeps surface-area evidence
+outside enforcement gates.
+
+Fixes critical maintenance-pressure reports failing their own validation and
+breaking advisory CI (#143). Critical scores and bands are preserved across
+report indexes; compact and standard reports validate and remain consumable by
+`health`, `explain`, and the public Action.
+
+See the [complete numbered 0.16.2 release notes](docs/releases/0.16.2.md).
+
 ## 0.16.1 - 2026-08-17
 
 This patch makes the policy advisor fail closed: provider-free context is the

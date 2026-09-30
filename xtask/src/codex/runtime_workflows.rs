@@ -4,6 +4,8 @@ use serde_yaml::Value as YamlValue;
 
 use super::{WORKFLOWS, read_text};
 
+mod codex_action;
+
 pub(super) const PREPARE_COMMAND: &str = "scripts/with-agent-plugins.sh --prepare";
 pub(super) const VERIFY_COMMAND: &str = "scripts/with-agent-plugins.sh --verify";
 pub(super) const MARKETPLACE_COMMAND: &str = "scripts/with-agent-plugins.sh marketplace install";
@@ -18,7 +20,9 @@ const CODEX_CONFIG_COPY_COMMAND: &str =
 const CODEX_PROFILE_COPY_COMMAND: &str =
     "cp .codex/*.config.toml \"$RUNNER_TEMP/codex-runtime/.codex/\"";
 const CODEX_HOME_INPUT: &str = "codex-home: ${{ runner.temp }}/codex-runtime/.codex";
-const CODEX_ACTION: &str = "openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56";
+const CODEX_ACTION: &str = "openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e";
+const CODEX_APPROVAL_OVERRIDE: &str =
+    "sed -i 's/^approval_policy = \"on-request\"$/approval_policy = \"never\"/'";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AgentPluginWorkflowKind {
@@ -54,6 +58,10 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
         for (required, description) in [
             (VALIDATE_COMMAND, "run the Rust Codex surface validator"),
             (CODEX_ACTION, "invoke the immutable Codex action"),
+            (
+                CODEX_APPROVAL_OVERRIDE,
+                "set noninteractive approval in the trusted temporary Codex config",
+            ),
             (
                 CODEX_HOME_INPUT,
                 "pass the isolated Codex home to codex-action",
@@ -176,6 +184,7 @@ pub(super) fn validate_agent_plugin_workflow_text(
     };
     validate_acquisition_token_scope(&payload, &steps, name, errors);
     validate_runtime_step_order(&steps, name, kind, errors);
+    codex_action::validate_args(&steps, name, errors);
 
     match name {
         "dependency-remediation.yml" => {
@@ -569,6 +578,7 @@ fn validate_dependency_remediation_trust(
         "trusted_root=\"$RUNNER_TEMP/dependency-remediation-trusted\"",
         "codex_home=\"$RUNNER_TEMP/codex-runtime/.codex\"",
         "cp .codex/config.toml \"$codex_home/config.toml\"",
+        "sed -i 's/^approval_policy = \"on-request\"$/approval_policy = \"never\"/' \"$codex_home/config.toml\"",
         "cp .codex/*.config.toml \"$codex_home/\"",
         "cp -R .codex/agents/. \"$codex_home/agents/\"",
         "cp .github/codex/prompts/dependency-remediation.md",
@@ -653,7 +663,6 @@ fn validate_dependency_remediation_trust(
     };
     let allowed_inputs = [
         "allow-bot-users",
-        "codex-args",
         "codex-home",
         "openai-api-key",
         "output-file",
@@ -687,14 +696,9 @@ fn validate_dependency_remediation_trust(
             ));
         }
     }
-    if inputs
-        .get("codex-args")
-        .and_then(YamlValue::as_str)
-        .map(str::trim)
-        != Some("[\"--profile\",\"ci_mutation\"]")
-    {
+    if inputs.get("codex-args").is_some() {
         errors.push(format!(
-            "{name} Codex args must select only the trusted ci_mutation profile."
+            "{name} Codex mutation step must use its trusted config without extra Codex args."
         ));
     }
     if inputs.get("allow-bots").is_some()
