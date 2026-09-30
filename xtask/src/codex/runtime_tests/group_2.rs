@@ -1,4 +1,30 @@
 #[test]
+fn protected_codex_action_rejects_profile_selectors() {
+    for args in [
+        r#"["--profile","ci_mutation"]"#,
+        r#"["--profile=ci_mutation"]"#,
+        r#"["-p","ci_mutation"]"#,
+        r#"["-pci_mutation"]"#,
+    ] {
+        let workflow = safe_dependency_workflow().replace(
+            "          allow-bot-users: dependabot[bot]",
+            &format!("          codex-args: '{args}'\n          allow-bot-users: dependabot[bot]"),
+        );
+        let mut errors = Vec::new();
+        validate_agent_plugin_workflow_text(
+            "dependency-remediation.yml",
+            &workflow,
+            AgentPluginWorkflowKind::Marketplace,
+            &mut errors,
+        );
+        assert!(
+            errors.iter().any(|error| error.contains("without profile selectors")),
+            "{args}: {errors:?}"
+        );
+    }
+}
+
+#[test]
 fn runtime_workflows_reject_unsafe_pull_request_checkout_ordering() {
     let dependency = safe_dependency_workflow();
     let mut errors = Vec::new();
