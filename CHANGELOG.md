@@ -11,6 +11,8 @@ Fixes critical maintenance-pressure reports failing their own validation and
 breaking advisory CI (#143). Critical scores and bands are preserved across
 report indexes; compact and standard reports validate and remain consumable by
 `health`, `explain`, and the public Action.
+The Action installer now accepts the bundled schema catalog, fixing the archive
+layout mismatch that blocked 0.16.1 draft qualification.
 
 See the [complete numbered 0.16.2 release notes](docs/releases/0.16.2.md).
 

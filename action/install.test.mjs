@@ -139,6 +139,10 @@ if (process.argv[2] === "version") {
     }
     mkdirSync(join(stage, "schemas"), { recursive: true });
     writeFileSync(join(stage, "schemas", "report-5.json"), "{}\n", "utf8");
+    writeFileSync(
+      join(stage, "schemas", "index.json"),
+      readFileSync(join(actionDirectory, "..", "schemas", "index.json")),
+    );
     createArchive(archive, ["-c", "-z"], ["-C", join(root, "stage"), stageName]);
     const archiveBytes = readFileSync(archive);
     const digest = createHash("sha256").update(archiveBytes).digest("hex");
@@ -716,6 +720,7 @@ test("Windows ZIP archives use the exact safe layout when the host tar supports 
     "completions/git-slop.powershell": "# powershell completion fixture\n",
     "completions/git-slop.nushell": "# nushell completion fixture\n",
     "schemas/report-5.json": "{}\n",
+    "schemas/index.json": readFileSync(join(actionDirectory, "..", "schemas", "index.json")),
   };
   for (const [name, contents] of Object.entries(payloads)) {
     mkdirSync(dirname(join(stage, name)), { recursive: true });

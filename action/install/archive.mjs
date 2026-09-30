@@ -257,6 +257,7 @@ export function createArchiveTools({
       manMember,
       completionsMember,
       schemasMember,
+      `${schemasMember}index.json`,
       ...expectedFileMembers,
       ...expectedCompletionMembers,
     ]);
