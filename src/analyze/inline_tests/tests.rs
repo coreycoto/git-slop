@@ -16,6 +16,8 @@ fn javascript_inline_tests_ignore_methods_identifiers_and_literal_text() {
         "const message = `describe('fake', () => {})`;",
         "const message = `${`test('fake', callback)`} it('fake', callback)`;",
         r#"const pattern = /test\('fake', callback\)/;"#,
+        "const pattern = /test('fake', callback)/;",
+        "const pattern = () => /it('fake', callback)/;",
         "export function test(value, callback) { return callback(value); }",
         "class Validator { test(value, callback) { return callback(value); } }",
         "const object = { it(value, callback) {} };",
@@ -39,6 +41,7 @@ fn javascript_inline_tests_recognize_definitions_across_formatting() {
         "test.only('works', () => {}); it.skip('works', callback);",
         "test(name, callback);",
         "const quotient = value / divisor; test('works', () => {});",
+        "const pattern = () => /it('fake', callback)/; test('real', callback);",
         "// it('fake', callback)\n test('real', () => {});",
         "const message = `it('fake', callback)`; test('real', callback);",
     ] {

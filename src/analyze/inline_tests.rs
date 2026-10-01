@@ -79,7 +79,7 @@ impl<'a> JavascriptTokens<'a> {
     fn regex_allowed(&self) -> bool {
         match self.previous {
             None => true,
-            Some(Token::Punctuation(c)) => "=([{,:;!?&|+-*%^~".contains(c),
+            Some(Token::Punctuation(c)) => "=([{,:;!?&|+-*%^~<>".contains(c),
             Some(Token::Name("return" | "throw" | "case" | "yield" | "typeof" | "void")) => true,
             _ => false,
         }
