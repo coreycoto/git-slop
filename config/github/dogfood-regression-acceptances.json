@@ -76,6 +76,26 @@
           "maximum_slop_score": 14.8
         }
       ]
+    },
+    {
+      "base_sha": "587751bc36a27958aa9d2f374df861a0745cf511",
+      "rationale": "Reviewed #145 adds a narrow Drizzle metadata heuristic and required negative-control and real-CLI regression coverage. The two notice-level score increases retain healthy/compact context budgets and keep the absolute repository policy green. Accept only these exact contents and observed score ceilings for this base.",
+      "entries": [
+        {
+          "path": "src/inventory.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "fc3fdc8f153f06a2fe7a87300cfef2dcf23f12b1783bf26c6530ea037046b5fc",
+          "maximum_slop_score": 54.4
+        },
+        {
+          "path": "tests/cli_runtime/group_1.rs",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "84b3c0cda9763439c5e77a23bd3a97088f3dfcc7fdb01b2dbdb454f1afdaf03d",
+          "maximum_slop_score": 19.0
+        }
+      ]
     }
   ]
 }
