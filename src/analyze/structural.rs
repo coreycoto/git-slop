@@ -210,7 +210,7 @@ fn has_inline_tests(language: &str, text: &str) -> bool {
         "Go" => text.contains("func Test") || text.contains("func Benchmark"),
         "Python" => text.contains("def test_") || text.contains("class Test"),
         "JavaScript" | "JSX" | "TypeScript" | "TSX" => {
-            text.contains("describe(") || text.contains("test(") || text.contains("it(")
+            inline_tests::javascript_has_inline_tests(text)
         }
         "Swift" => text.contains("XCTestCase") || text.contains("@Test"),
         _ => false,

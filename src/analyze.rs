@@ -54,6 +54,7 @@ static JS_SYMBOL_RE: LazyLock<Regex> = LazyLock::new(|| {
 static MARKDOWN_HEADING_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^\s{0,3}#{1,6}\s+([^#\r\n]+?)\s*#*\s*$").expect("valid Markdown heading regex")
 });
+mod inline_tests;
 include!("analyze/cache.rs");
 include!("analyze/structural.rs");
 pub fn run_find() -> Result<FindResult> {
