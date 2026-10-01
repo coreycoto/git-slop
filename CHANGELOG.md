@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.16.3 - Unreleased
+## 0.16.3 - 2026-10-01
 
 Fix Drizzle Kit metadata being classified as editable source (#145). Recognize
 `_journal.json` and numbered `*_snapshot.json` files directly under
