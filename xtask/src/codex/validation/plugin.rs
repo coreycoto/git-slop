@@ -195,12 +195,11 @@ fn validate_product_plugin(repo_root: &Path, errors: &mut Vec<String>) {
             }
         }
 
-        for asset in ["assets/git-slop.svg"] {
-            if !repo_root.join(GIT_SLOP_PLUGIN_ROOT).join(asset).is_file() {
-                errors.push(format!(
-                    "git-slop Agent Plugin referenced asset is missing: {asset}."
-                ));
-            }
+        let asset = "assets/git-slop.svg";
+        if !repo_root.join(GIT_SLOP_PLUGIN_ROOT).join(asset).is_file() {
+            errors.push(format!(
+                "git-slop Agent Plugin referenced asset is missing: {asset}."
+            ));
         }
     }
 

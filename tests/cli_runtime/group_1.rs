@@ -211,3 +211,119 @@ fn find_writes_schema_five_and_all_human_and_machine_surfaces() {
             .contains("# Repository Health")
     );
 }
+
+#[test]
+fn drizzle_snapshot_size_evidence_routes_to_generator_investigation() {
+    let repository = committed_repository();
+    let snapshot_path = "packages/example-db/drizzle/meta/0001_snapshot.json";
+    let journal_path = "packages/example-db/drizzle/meta/_journal.json";
+    let unrelated_path = "packages/example-db/src/customer_snapshot.json";
+    let columns = (0..1500)
+        .map(|index| {
+            let name = format!("column_{index}");
+            (
+                name.clone(),
+                json!({"name": name, "type": "text", "notNull": true}),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    let snapshot = serde_json::to_string(&json!({
+        "version": "7",
+        "dialect": "postgresql",
+        "tables": {"public.example": {"name": "example", "columns": columns}},
+        "enums": {},
+        "schemas": {},
+        "_meta": {"schemas": {}, "tables": {}, "columns": {}}
+    }))
+    .expect("snapshot JSON");
+    for path in [snapshot_path, unrelated_path] {
+        let absolute = repository.path().join(path);
+        fs::create_dir_all(absolute.parent().expect("parent")).expect("directory");
+        fs::write(absolute, &snapshot).expect("snapshot");
+    }
+    fs::write(
+        repository.path().join(journal_path),
+        "{\"version\":\"7\",\"dialect\":\"postgresql\",\"entries\":[]}\n",
+    )
+    .expect("migration journal");
+    git(&repository, &["add", "packages"]);
+    git(
+        &repository,
+        &[
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-m",
+            "Track Drizzle metadata",
+        ],
+    );
+
+    for profile in ["compact", "standard"] {
+        cargo_bin_cmd!("git-slop")
+            .current_dir(repository.path())
+            .args(["find", "--report-profile", profile, "--persist-unadopted"])
+            .assert()
+            .success();
+        let report_path = repository.path().join(".slop/latest/report.json");
+        let report: Value =
+            serde_json::from_slice(&fs::read(&report_path).expect("report")).expect("report JSON");
+        for (path, classification, feed, remediation) in [
+            (
+                snapshot_path,
+                "generated",
+                "observation_feed",
+                "generator_source_investigation",
+            ),
+            (
+                unrelated_path,
+                "source",
+                "action_queue",
+                "source_intervention",
+            ),
+        ] {
+            let file = report["files"]
+                .as_array()
+                .expect("files")
+                .iter()
+                .find(|file| file["path"] == path)
+                .expect("snapshot record");
+            assert_eq!(file["classification"], classification, "{profile}: {path}");
+            assert_eq!(file["bytes"], snapshot.len());
+            assert!(file["tokens"].as_u64().expect("tokens") > 10_000);
+            let action = report[feed]
+                .as_array()
+                .expect("finding feed")
+                .iter()
+                .find(|action| action["path"] == path)
+                .expect("size finding in its classification's feed");
+            assert_eq!(action["remediation_kind"], remediation, "{profile}: {path}");
+            assert!(
+                !action["reason_codes"]
+                    .as_array()
+                    .expect("reasons")
+                    .is_empty()
+            );
+        }
+        assert!(
+            report["action_queue"]
+                .as_array()
+                .expect("action queue")
+                .iter()
+                .all(|action| action["path"] != snapshot_path)
+        );
+        cargo_bin_cmd!("git-slop")
+            .current_dir(repository.path())
+            .args([
+                "report",
+                "validate",
+                "--report",
+                report_path.to_str().expect("report path"),
+            ])
+            .assert()
+            .success();
+    }
+    assert_eq!(
+        fs::read_to_string(repository.path().join(snapshot_path)).expect("snapshot"),
+        snapshot
+    );
+}
