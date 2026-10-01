@@ -115,6 +115,19 @@ fn language_for_path(path: &str) -> &'static str {
     }
 }
 
+fn is_drizzle_metadata(path: &str) -> bool {
+    let Some((directory, name)) = path.rsplit_once('/') else {
+        return false;
+    };
+    if directory != "drizzle/meta" && !directory.ends_with("/drizzle/meta") {
+        return false;
+    }
+    name == "_journal.json"
+        || name.strip_suffix("_snapshot.json").is_some_and(|prefix| {
+            !prefix.is_empty() && prefix.bytes().all(|byte| byte.is_ascii_digit())
+        })
+}
+
 fn classification_for_path(path: &str) -> Classification {
     let lower = path.to_ascii_lowercase();
     let name = lower.rsplit('/').next().unwrap_or(&lower);
@@ -131,6 +144,7 @@ fn classification_for_path(path: &str) -> Classification {
         || name.ends_with(".generated.rs")
         || name.ends_with(".generated.ts")
         || name.ends_with(".generated.js")
+        || is_drizzle_metadata(&lower)
     {
         Classification::Generated
     } else if lower.contains("/snapshots/")
@@ -730,6 +744,72 @@ mod tests {
             report.generated_provenance["verification_command"],
             "cargo test published_report_schema"
         );
+    }
+
+    #[test]
+    fn drizzle_metadata_is_generated_without_reclassifying_neighboring_files() {
+        let repository = tempdir().expect("repository");
+        let cases = [
+            ("drizzle/meta/0000_snapshot.json", "generated"),
+            ("drizzle/meta/_journal.json", "generated"),
+            (
+                "packages/example-db/drizzle/meta/0001_snapshot.json",
+                "generated",
+            ),
+            (
+                "packages/example-db/drizzle/meta/_journal.json",
+                "generated",
+            ),
+            ("packages/example-db/src/0001_snapshot.json", "source"),
+            ("packages/example-db/src/customer_snapshot.json", "source"),
+            (
+                "packages/example-db/drizzle/meta/customer_snapshot.json",
+                "source",
+            ),
+            ("packages/example-db/drizzle/meta/_snapshot.json", "source"),
+            (
+                "packages/example-db/drizzle/meta/nested/0001_snapshot.json",
+                "source",
+            ),
+            (
+                "packages/example-db/not-drizzle/meta/0001_snapshot.json",
+                "source",
+            ),
+            (
+                "packages/example-db/drizzle/metadata/0001_snapshot.json",
+                "source",
+            ),
+            ("packages/example-db/meta/_journal.json", "source"),
+            ("packages/example-db/drizzle/0001_migration.sql", "source"),
+            ("vendor/drizzle/meta/0001_snapshot.json", "vendored"),
+        ];
+        let tracked = cases
+            .iter()
+            .map(|(path, _)| path.to_string())
+            .collect::<Vec<_>>();
+        for path in &tracked {
+            let absolute = repository.path().join(path);
+            fs::create_dir_all(absolute.parent().expect("parent")).expect("directory");
+            fs::write(absolute, "{}\n").expect("commentless metadata");
+        }
+        let (files, _) =
+            build(repository.path(), &tracked, &config::default_config()).expect("inventory");
+        for (path, expected) in cases {
+            let file = files.iter().find(|file| file.path == path).expect("file");
+            assert_eq!(file.classification, expected, "{path}");
+        }
+
+        let mut config = config::default_config();
+        config["inventory"]["path_overrides"] = json!([{
+            "glob": "packages/example-db/drizzle/meta/*.json",
+            "classification": "source"
+        }]);
+        let (files, _) = build(repository.path(), &tracked, &config).expect("override inventory");
+        let snapshot = files
+            .iter()
+            .find(|file| file.path == "packages/example-db/drizzle/meta/0001_snapshot.json")
+            .expect("overridden snapshot");
+        assert_eq!(snapshot.classification, "source");
     }
 
     #[test]

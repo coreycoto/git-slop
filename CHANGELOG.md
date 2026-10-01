@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.16.3 - Unreleased
+
+Fix Drizzle Kit metadata being classified as editable source (#145). Recognize
+`_journal.json` and numbered `*_snapshot.json` files directly under
+`drizzle/meta/`, including package-prefixed paths. Preserve size and token
+findings in the observation feed with generator-investigation guidance, keeping
+migration history out of the source-intervention queue. Unrelated snapshot
+filenames and explicit consumer classification overrides retain their behavior.
+
+See the [complete numbered 0.16.3 release notes](docs/releases/0.16.3.md).
+
 ## 0.16.2 - 2026-09-30
 
 This patch consolidates the Rust dependency and Codex Action updates, and ships
