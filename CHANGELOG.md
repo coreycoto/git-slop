@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.16.4 - 2026-10-01
+
+Fix JavaScript and TypeScript inline-test detection so ordinary `.test()` and
+`.split()` calls, identifier suffixes, comments, and strings cannot suppress
+verification gaps. Recognize real `describe`, `test`, and `it` definitions across
+whitespace and comment formatting, including `only` and `skip` modifiers.
+Preserve the existing hotspot scores and advisory CI policy.
+
+See the [complete numbered 0.16.4 release notes](docs/releases/0.16.4.md).
+
 ## 0.16.3 - 2026-10-01
 
 Fix Drizzle Kit metadata being classified as editable source (#145). Recognize

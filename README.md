@@ -148,7 +148,7 @@ Routine generated output stays untracked. Commit `.slop/config.yaml` and
 
 ## Install
 
-The examples below pin the 0.16.3 release identity. Use each command only after
+The examples below pin the 0.16.4 release identity. Use each command only after
 that exact version is published on the requested distribution surface;
 documentation or a source tag is not proof that every surface is available.
 
@@ -164,7 +164,7 @@ brew install coreycoto/tap/git-slop
 ### Cargo (Crates.io)
 
 ```bash
-cargo install git-slop --version 0.16.3 --locked
+cargo install git-slop --version 0.16.4 --locked
 ```
 
 ### Scoop (Windows)
@@ -196,7 +196,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: coreycoto/git-slop@v0.16.3
+  - uses: coreycoto/git-slop@v0.16.4
 ```
 
 The Action is advisory by default. It verifies the native release, writes the
@@ -254,7 +254,7 @@ benchmark.
 
 Start with `git slop doctor`; see [Troubleshooting](docs/troubleshooting.md),
 [Configuration Recipes](docs/config-recipes.md), the neutral [Worked
-Example](docs/worked-example.md), and the [0.16.3 release notes](CHANGELOG.md).
+Example](docs/worked-example.md), and the [0.16.4 release notes](CHANGELOG.md).
 
 ## Trust Boundaries
 
