@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.16.4 - Unreleased
+## 0.16.4 - 2026-10-01
 
 Fix JavaScript and TypeScript inline-test detection so ordinary `.test()` and
 `.split()` calls, identifier suffixes, comments, and strings cannot suppress
