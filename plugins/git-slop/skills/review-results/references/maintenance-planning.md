@@ -40,3 +40,49 @@ cluster, or relationship for a bounded maintenance proposal.
    for backlog preparation.
 11. Do not create, update, close, label, or milestone GitHub issues from this
    skill. Live tracker mutation remains outside the Git Slop product plugin.
+
+## Prepare A Bounded Refactor Handoff
+
+When the user asks to carry an `implement` or `consolidate` proposal into a
+refactor, prepare a bounded handoff for the repository's available engineering
+workflow. The handoff preserves why the work was selected; it does not expand
+the selected scope or authorize unrelated changes. If a `phased-refactor` skill
+is installed, it can guide implementation. Keep this handoff usable when that
+skill is unavailable.
+
+Include:
+
+- **Finding and source:** repository and exact report `repo.head_sha` (or state
+  when unavailable), Git Slop version and report schema, profile and scope,
+  effective configuration identity (including available analysis, evidence,
+  policy, and presentation digests), and the bounded report artifact location
+  or digest. Keep generated reports outside version control unless the
+  repository explicitly curates them.
+- **Reason and disposition:** the selected finding, its targeted `explain`
+  evidence, selected `plan` scope and exclusions when applicable, the explicit
+  disposition, and why adjacent findings were deferred, accepted, or left
+  outside the slice. Keep original consumer findings separate from suspected
+  Git Slop detector defects; reproduce a detector concern independently and
+  do not treat it as proof that the consumer finding is invalid.
+- **Change boundary:** files and behavior in scope, explicit out-of-scope
+  paths, affected callers, producer/consumer contracts, persisted or generated
+  shapes, and compatibility expectations. Audit callers before changing a
+  shared helper or interface.
+- **Proof:** current baseline and focused checks; behavior or output parity
+  where refactoring should preserve behavior; meaningful contract, error, and
+  edge-case coverage; and interruption or recovery checks when the change
+  affects durable work. Set coverage, mutation, and timing expectations to the
+  risk and claim of this change. Coverage percentages alone do not establish
+  correctness; use mutation checks when they can show that important assertions
+  catch a regression, and record timing baselines when performance is part of
+  the goal.
+- **Phases and finish:** separate the baseline and caller audit, mechanical
+  edits, behavior changes (if any), and final verification. Record the exact
+  candidate revision with the results, then review fresh Git Slop evidence and
+  assign dispositions to newly surfaced findings. Findings remain advisory;
+  this handoff adds no CI or merge gate.
+
+Treat this as review context, not an autonomous patch loop, blanket refactor
+authorization, or permission to report findings to an external tracker. Keep
+each implementation batch within the user's authorized scope and applicable
+repository boundaries.
