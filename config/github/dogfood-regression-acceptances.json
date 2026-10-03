@@ -96,6 +96,19 @@
           "maximum_slop_score": 19.0
         }
       ]
+    },
+    {
+      "base_sha": "7ce9cfedc590d43321ee09e03a5240ae1538acb2",
+      "rationale": "Reviewed #150 adds a portable, bounded refactor handoff with source/configuration provenance, explicit disposition, caller and contract boundaries, risk-matched proof and phases, and preserved authority limits. The compacted reference remains low-band/compact at 1004 tokens; its committed score increase includes the new documentation edit history. Accept only this exact reviewed content and observed score ceiling while retaining the absolute repository policy and all other regression checks.",
+      "entries": [
+        {
+          "path": "plugins/git-slop/skills/review-results/references/maintenance-planning.md",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "ad8364345d87997c5255a2f1b8d1641de67d9bb8a4f705fe4efed083826bc4c5",
+          "maximum_slop_score": 13.8
+        }
+      ]
     }
   ]
 }
