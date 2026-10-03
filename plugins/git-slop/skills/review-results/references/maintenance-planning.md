@@ -40,3 +40,42 @@ cluster, or relationship for a bounded maintenance proposal.
    for backlog preparation.
 11. Do not create, update, close, label, or milestone GitHub issues from this
    skill. Live tracker mutation remains outside the Git Slop product plugin.
+
+## Prepare A Bounded Refactor Handoff
+
+When the user asks to carry an `implement` or `consolidate` proposal into a
+refactor, prepare a portable handoff that records why the work was selected and
+its boundary.
+
+Include:
+
+- **Finding and source:** repository; exact report `repo.head_sha` (or
+  unavailable state); Git Slop version and report schema; profile and scope;
+  effective configuration identity and available analysis, evidence, policy,
+  and presentation digests; and bounded report artifact location or digest.
+  Keep generated reports outside version control unless the repository
+  explicitly curates fixtures outside `.slop/`.
+- **Disposition:** selected finding and targeted `explain` evidence;
+  disposition and rationale; selected `plan` scope and exclusions when
+  applicable; and dispositions with rationale for adjacent findings. Keep
+  consumer findings separate from suspected detector defects; reproduce a
+  concern independently and do not use an unverified concern to invalidate a
+  consumer finding.
+- **Change boundary:** in-scope files and behavior, excluded paths, affected
+  callers, producer/consumer contracts, persisted or generated shapes, and
+  compatibility expectations. Audit callers before changing a shared helper or
+  interface.
+- **Proof and phases:** baseline and focused checks, behavior/output parity
+  where needed, contract/error/edge cases, and interruption/recovery for durable
+  work. Match coverage, mutation, and timing checks to risk: coverage alone
+  does not prove correctness. Use mutation checks when they show important
+  assertions catch regressions, and record performance baselines when
+  performance matters. Sequence the baseline and caller audit, mechanical
+  edits, behavior changes, and final verification.
+- **Finish:** exact candidate revision and results; fresh Git Slop evidence; and
+  dispositions for new findings. Findings remain advisory.
+
+An installed `phased-refactor` skill may guide the phases, but this handoff must
+stand alone. It is review context, not an autonomous patch loop or blanket
+authorization; it adds no CI/merge gate or tracker mutation. Keep each batch
+within the user's authorized scope and repository boundaries.
