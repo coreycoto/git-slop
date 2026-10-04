@@ -174,207 +174,207 @@ fn validate_action_versions(repo_root: &Path, workflows: &Path, errors: &mut Vec
     }
 }
 
+struct ArtifactUploadContract {
+    workflow_name: &'static str,
+    job_name: &'static str,
+    step_name: &'static str,
+    artifact_name_fragment: &'static str,
+    artifact_path_fragment: &'static str,
+    retention_days: u64,
+    include_hidden_files: Option<bool>,
+}
+
 fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
-    const UPLOADS: [(&str, &str, &str, &str, &str, u64, Option<bool>); 20] = [
-        (
-            "dependency-remediation.yml",
-            "recover",
-            "Upload immutable native recovery handoff",
-            "-handoff-00",
-            "${{ runner.temp }}/dependency-remediation-package",
-            14,
-            Some(true),
-        ),
-        (
-            "dependency-remediation.yml",
-            "publish",
-            "Upload exact dependency-remediation recovery artifact",
-            "outputs.artifact_name",
-            "${{ runner.temp }}/dependency-remediation-package",
-            90,
-            Some(true),
-        ),
-        (
-            "dependency-remediation.yml",
-            "settle-noop",
-            "Upload exact terminal dependency no-op artifact",
-            "outputs.artifact_name",
-            "${{ runner.temp }}/dependency-remediation-package",
-            90,
-            Some(true),
-        ),
-        (
-            "dependency-remediation.yml",
-            "publish",
-            "Upload exact publication settlement checkpoint",
-            "checkpoint_name",
-            "checkpoint_path",
-            90,
-            None,
-        ),
-        (
-            "dependency-remediation.yml",
-            "settle-noop",
-            "Upload exact dependency no-op settlement checkpoint",
-            "checkpoint_name",
-            "checkpoint_path",
-            90,
-            None,
-        ),
-        (
-            "execution_state_sync.yml",
-            "prepare",
-            "Upload exact execution package handoff",
-            "-handoff-00",
-            "${{ steps.package_state.outputs.package }}",
-            14,
-            Some(true),
-        ),
-        (
-            "execution_state_sync.yml",
-            "apply",
-            "Upload exact terminal execution recovery artifact",
-            "outputs.artifact_name",
-            "${{ runner.temp }}/execution-state-package",
-            90,
-            Some(true),
-        ),
-        (
-            "execution_state_sync.yml",
-            "settle_noop",
-            "Upload exact terminal execution no-op artifact",
-            "outputs.artifact_name",
-            "${{ runner.temp }}/execution-state-package",
-            90,
-            Some(true),
-        ),
-        (
-            "execution_state_sync.yml",
-            "apply",
-            "Upload exact execution settlement checkpoint",
-            "checkpoint_name",
-            "checkpoint_path",
-            90,
-            None,
-        ),
-        (
-            "execution_state_sync.yml",
-            "settle_noop",
-            "Upload exact execution no-op settlement checkpoint",
-            "checkpoint_name",
-            "checkpoint_path",
-            90,
-            None,
-        ),
-        (
-            "governance-reconcile.yml",
-            "prepare",
-            "Upload exact governance handoff for apply or no-op settlement",
-            "-handoff-00",
-            "${{ steps.package_outputs.outputs.package }}",
-            14,
-            Some(true),
-        ),
-        (
-            "governance-reconcile.yml",
-            "apply",
-            "Upload exact governance recovery artifact",
-            "outputs.artifact_name",
-            "${{ runner.temp }}/governance-package",
-            90,
-            Some(true),
-        ),
-        (
-            "governance-reconcile.yml",
-            "settle_noop",
-            "Upload exact terminal governance no-op artifact",
-            "outputs.artifact_name",
-            "${{ runner.temp }}/governance-package",
-            90,
-            Some(true),
-        ),
-        (
-            "governance-reconcile.yml",
-            "apply",
-            "Upload exact governance settlement checkpoint",
-            "checkpoint_name",
-            "checkpoint_path",
-            90,
-            None,
-        ),
-        (
-            "governance-reconcile.yml",
-            "settle_noop",
-            "Upload exact governance no-op settlement checkpoint",
-            "checkpoint_name",
-            "checkpoint_path",
-            90,
-            None,
-        ),
-        (
-            "merge-on-green.yml",
-            "prepare",
-            "Upload immutable merge handoff",
-            "-handoff-00",
-            "${{ runner.temp }}/merge-package",
-            14,
-            Some(true),
-        ),
-        (
-            "merge-on-green.yml",
-            "apply",
-            "Upload exact merge recovery artifact",
-            "outputs.artifact_name",
-            "${{ runner.temp }}/merge-package",
-            90,
-            Some(true),
-        ),
-        (
-            "merge-on-green.yml",
-            "settle_noop",
-            "Upload exact terminal merge no-op artifact",
-            "outputs.artifact_name",
-            "${{ runner.temp }}/merge-package",
-            90,
-            Some(true),
-        ),
-        (
-            "merge-on-green.yml",
-            "apply",
-            "Upload exact merge settlement checkpoint",
-            "checkpoint_name",
-            "checkpoint_path",
-            90,
-            None,
-        ),
-        (
-            "merge-on-green.yml",
-            "settle_noop",
-            "Upload exact merge no-op settlement checkpoint",
-            "checkpoint_name",
-            "checkpoint_path",
-            90,
-            None,
-        ),
+    const UPLOADS: [ArtifactUploadContract; 20] = [
+        ArtifactUploadContract {
+            workflow_name: "dependency-remediation.yml",
+            job_name: "recover",
+            step_name: "Upload immutable native recovery handoff",
+            artifact_name_fragment: "-handoff-00",
+            artifact_path_fragment: "${{ runner.temp }}/dependency-remediation-package",
+            retention_days: 14,
+            include_hidden_files: Some(true),
+        },
+        ArtifactUploadContract {
+            workflow_name: "dependency-remediation.yml",
+            job_name: "publish",
+            step_name: "Upload exact dependency-remediation recovery artifact",
+            artifact_name_fragment: "outputs.artifact_name",
+            artifact_path_fragment: "${{ runner.temp }}/dependency-remediation-package",
+            retention_days: 90,
+            include_hidden_files: Some(true),
+        },
+        ArtifactUploadContract {
+            workflow_name: "dependency-remediation.yml",
+            job_name: "settle-noop",
+            step_name: "Upload exact terminal dependency no-op artifact",
+            artifact_name_fragment: "outputs.artifact_name",
+            artifact_path_fragment: "${{ runner.temp }}/dependency-remediation-package",
+            retention_days: 90,
+            include_hidden_files: Some(true),
+        },
+        ArtifactUploadContract {
+            workflow_name: "dependency-remediation.yml",
+            job_name: "publish",
+            step_name: "Upload exact publication settlement checkpoint",
+            artifact_name_fragment: "checkpoint_name",
+            artifact_path_fragment: "checkpoint_path",
+            retention_days: 90,
+            include_hidden_files: None,
+        },
+        ArtifactUploadContract {
+            workflow_name: "dependency-remediation.yml",
+            job_name: "settle-noop",
+            step_name: "Upload exact dependency no-op settlement checkpoint",
+            artifact_name_fragment: "checkpoint_name",
+            artifact_path_fragment: "checkpoint_path",
+            retention_days: 90,
+            include_hidden_files: None,
+        },
+        ArtifactUploadContract {
+            workflow_name: "execution_state_sync.yml",
+            job_name: "prepare",
+            step_name: "Upload exact execution package handoff",
+            artifact_name_fragment: "-handoff-00",
+            artifact_path_fragment: "${{ steps.package_state.outputs.package }}",
+            retention_days: 14,
+            include_hidden_files: Some(true),
+        },
+        ArtifactUploadContract {
+            workflow_name: "execution_state_sync.yml",
+            job_name: "apply",
+            step_name: "Upload exact terminal execution recovery artifact",
+            artifact_name_fragment: "outputs.artifact_name",
+            artifact_path_fragment: "${{ runner.temp }}/execution-state-package",
+            retention_days: 90,
+            include_hidden_files: Some(true),
+        },
+        ArtifactUploadContract {
+            workflow_name: "execution_state_sync.yml",
+            job_name: "settle_noop",
+            step_name: "Upload exact terminal execution no-op artifact",
+            artifact_name_fragment: "outputs.artifact_name",
+            artifact_path_fragment: "${{ runner.temp }}/execution-state-package",
+            retention_days: 90,
+            include_hidden_files: Some(true),
+        },
+        ArtifactUploadContract {
+            workflow_name: "execution_state_sync.yml",
+            job_name: "apply",
+            step_name: "Upload exact execution settlement checkpoint",
+            artifact_name_fragment: "checkpoint_name",
+            artifact_path_fragment: "checkpoint_path",
+            retention_days: 90,
+            include_hidden_files: None,
+        },
+        ArtifactUploadContract {
+            workflow_name: "execution_state_sync.yml",
+            job_name: "settle_noop",
+            step_name: "Upload exact execution no-op settlement checkpoint",
+            artifact_name_fragment: "checkpoint_name",
+            artifact_path_fragment: "checkpoint_path",
+            retention_days: 90,
+            include_hidden_files: None,
+        },
+        ArtifactUploadContract {
+            workflow_name: "governance-reconcile.yml",
+            job_name: "prepare",
+            step_name: "Upload exact governance handoff for apply or no-op settlement",
+            artifact_name_fragment: "-handoff-00",
+            artifact_path_fragment: "${{ steps.package_outputs.outputs.package }}",
+            retention_days: 14,
+            include_hidden_files: Some(true),
+        },
+        ArtifactUploadContract {
+            workflow_name: "governance-reconcile.yml",
+            job_name: "apply",
+            step_name: "Upload exact governance recovery artifact",
+            artifact_name_fragment: "outputs.artifact_name",
+            artifact_path_fragment: "${{ runner.temp }}/governance-package",
+            retention_days: 90,
+            include_hidden_files: Some(true),
+        },
+        ArtifactUploadContract {
+            workflow_name: "governance-reconcile.yml",
+            job_name: "settle_noop",
+            step_name: "Upload exact terminal governance no-op artifact",
+            artifact_name_fragment: "outputs.artifact_name",
+            artifact_path_fragment: "${{ runner.temp }}/governance-package",
+            retention_days: 90,
+            include_hidden_files: Some(true),
+        },
+        ArtifactUploadContract {
+            workflow_name: "governance-reconcile.yml",
+            job_name: "apply",
+            step_name: "Upload exact governance settlement checkpoint",
+            artifact_name_fragment: "checkpoint_name",
+            artifact_path_fragment: "checkpoint_path",
+            retention_days: 90,
+            include_hidden_files: None,
+        },
+        ArtifactUploadContract {
+            workflow_name: "governance-reconcile.yml",
+            job_name: "settle_noop",
+            step_name: "Upload exact governance no-op settlement checkpoint",
+            artifact_name_fragment: "checkpoint_name",
+            artifact_path_fragment: "checkpoint_path",
+            retention_days: 90,
+            include_hidden_files: None,
+        },
+        ArtifactUploadContract {
+            workflow_name: "merge-on-green.yml",
+            job_name: "prepare",
+            step_name: "Upload immutable merge handoff",
+            artifact_name_fragment: "-handoff-00",
+            artifact_path_fragment: "${{ runner.temp }}/merge-package",
+            retention_days: 14,
+            include_hidden_files: Some(true),
+        },
+        ArtifactUploadContract {
+            workflow_name: "merge-on-green.yml",
+            job_name: "apply",
+            step_name: "Upload exact merge recovery artifact",
+            artifact_name_fragment: "outputs.artifact_name",
+            artifact_path_fragment: "${{ runner.temp }}/merge-package",
+            retention_days: 90,
+            include_hidden_files: Some(true),
+        },
+        ArtifactUploadContract {
+            workflow_name: "merge-on-green.yml",
+            job_name: "settle_noop",
+            step_name: "Upload exact terminal merge no-op artifact",
+            artifact_name_fragment: "outputs.artifact_name",
+            artifact_path_fragment: "${{ runner.temp }}/merge-package",
+            retention_days: 90,
+            include_hidden_files: Some(true),
+        },
+        ArtifactUploadContract {
+            workflow_name: "merge-on-green.yml",
+            job_name: "apply",
+            step_name: "Upload exact merge settlement checkpoint",
+            artifact_name_fragment: "checkpoint_name",
+            artifact_path_fragment: "checkpoint_path",
+            retention_days: 90,
+            include_hidden_files: None,
+        },
+        ArtifactUploadContract {
+            workflow_name: "merge-on-green.yml",
+            job_name: "settle_noop",
+            step_name: "Upload exact merge no-op settlement checkpoint",
+            artifact_name_fragment: "checkpoint_name",
+            artifact_path_fragment: "checkpoint_path",
+            retention_days: 90,
+            include_hidden_files: None,
+        },
     ];
-    for (name, job, step, artifact_name, artifact_path, days, include_hidden) in UPLOADS {
-        let Some(text) = read(&workflows.join(name), errors) else {
+    for upload in UPLOADS {
+        let Some(text) = read(&workflows.join(upload.workflow_name), errors) else {
             continue;
         };
-        let Some(payload) = parse_ci_workflow(&text, name, errors) else {
+        let Some(payload) = parse_ci_workflow(&text, upload.workflow_name, errors) else {
             continue;
         };
-        validate_artifact_upload(
-            &payload,
-            name,
-            job,
-            step,
-            artifact_name,
-            artifact_path,
-            days,
-            include_hidden,
-            errors,
-        );
+        validate_artifact_upload(&payload, &upload, errors);
     }
 
     if let Some(text) = read(&workflows.join("execution_state_sync.yml"), errors) {
@@ -384,24 +384,20 @@ fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
 
 fn validate_artifact_upload(
     payload: &YamlValue,
-    workflow_name: &str,
-    job_name: &str,
-    step_name: &str,
-    artifact_name_fragment: &str,
-    artifact_path_fragment: &str,
-    retention_days: u64,
-    include_hidden_files: Option<bool>,
+    upload: &ArtifactUploadContract,
     errors: &mut Vec<String>,
 ) {
     let step = payload
         .get("jobs")
-        .and_then(|jobs| jobs.get(job_name))
+        .and_then(|jobs| jobs.get(upload.job_name))
         .and_then(|job| job.get("steps"))
         .and_then(YamlValue::as_sequence)
         .and_then(|steps| {
             steps
                 .iter()
-                .find(|step| step.get("name").and_then(YamlValue::as_str) == Some(step_name))
+                .find(|step| {
+                    step.get("name").and_then(YamlValue::as_str) == Some(upload.step_name)
+                })
         });
     let valid = step.is_some_and(|step| {
         step.get("uses")
@@ -410,15 +406,15 @@ fn validate_artifact_upload(
             && step.get("with").is_some_and(|with| {
                 with.get("name")
                     .and_then(YamlValue::as_str)
-                    .is_some_and(|value| value.contains(artifact_name_fragment))
+                    .is_some_and(|value| value.contains(upload.artifact_name_fragment))
                     && with
                         .get("path")
                         .and_then(YamlValue::as_str)
-                        .is_some_and(|value| value.contains(artifact_path_fragment))
+                        .is_some_and(|value| value.contains(upload.artifact_path_fragment))
                     && with.get("retention-days").and_then(YamlValue::as_u64)
-                        == Some(retention_days)
+                        == Some(upload.retention_days)
                     && with.get("if-no-files-found").and_then(YamlValue::as_str) == Some("error")
-                    && include_hidden_files.is_none_or(|expected| {
+                    && upload.include_hidden_files.is_none_or(|expected| {
                         with.get("include-hidden-files")
                             .and_then(YamlValue::as_bool)
                             == Some(expected)
@@ -427,7 +423,8 @@ fn validate_artifact_upload(
     });
     if !valid {
         errors.push(format!(
-            "{workflow_name} {job_name} must retain {step_name} with exact immutable artifact identity, path, and retention."
+            "{} {} must retain {} with exact immutable artifact identity, path, and retention.",
+            upload.workflow_name, upload.job_name, upload.step_name
         ));
     }
 }
