@@ -6,27 +6,28 @@ use super::{WORKFLOWS, read_text};
 
 mod codex_action;
 
-pub(super) const PREPARE_COMMAND: &str = "scripts/with-agent-plugins.sh --prepare";
-pub(super) const VERIFY_COMMAND: &str = "scripts/with-agent-plugins.sh --verify";
-pub(super) const MARKETPLACE_COMMAND: &str = "scripts/with-agent-plugins.sh marketplace install";
-pub(super) const PROJECT_SNAPSHOT_COMMAND: &str =
-    "scripts/with-agent-plugins.sh github project-snapshot";
-pub(super) const EXECUTION_STATE_COMMAND: &str =
-    "scripts/with-agent-plugins.sh github execution-state";
-
-const VALIDATE_COMMAND: &str = "cargo xtask validate-codex";
+pub(super) const GH_STEWARD_PREPARE: &str = "scripts/with-gh-steward.sh --prepare";
+pub(super) const GH_STEWARD_VERIFY: &str = "scripts/with-gh-steward.sh --verify";
+pub(super) const CODEX_PLUGIN_SETUP: &str = "scripts/prepare-codex-plugins.sh";
+pub(super) const CODEX_ACTION: &str =
+    "openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e";
+pub(super) const VALIDATE_COMMAND: &str = "cargo xtask validate-codex";
 const CODEX_CONFIG_COPY_COMMAND: &str =
     "cp .codex/config.toml \"$RUNNER_TEMP/codex-runtime/.codex/config.toml\"";
 const CODEX_PROFILE_COPY_COMMAND: &str =
     "cp .codex/*.config.toml \"$RUNNER_TEMP/codex-runtime/.codex/\"";
 const CODEX_HOME_INPUT: &str = "codex-home: ${{ runner.temp }}/codex-runtime/.codex";
-const CODEX_ACTION: &str = "openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e";
 const CODEX_APPROVAL_OVERRIDE: &str =
     "sed -i 's/^approval_policy = \"on-request\"$/approval_policy = \"never\"/'";
+const PROJECT_SNAPSHOT: &str = "gh steward snapshot project";
+const EXECUTION_PREPARE: &str = "gh steward execution prepare";
+const EXECUTION_APPLY: &str = "gh steward execution apply";
+const PROJECT_TOKEN: &str =
+    "${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AgentPluginWorkflowKind {
-    Marketplace,
+    CodexPlugins,
     ExecutionState,
 }
 
@@ -52,7 +53,7 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
         validate_agent_plugin_workflow_text(
             workflow.name,
             &text,
-            AgentPluginWorkflowKind::Marketplace,
+            AgentPluginWorkflowKind::CodexPlugins,
             errors,
         );
         for (required, description) in [
@@ -66,6 +67,7 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
                 CODEX_HOME_INPUT,
                 "pass the isolated Codex home to codex-action",
             ),
+            ("gpt-6-luna", "use the qualified lightweight Codex model"),
         ] {
             if !text.contains(required) {
                 errors.push(format!("{} must {description}.", workflow.name));
@@ -110,58 +112,35 @@ pub(super) fn validate_agent_plugin_workflow_text(
     kind: AgentPluginWorkflowKind,
     errors: &mut Vec<String>,
 ) {
-    for (required, description) in [
-        (PREPARE_COMMAND, "explicitly acquire the pinned runtime"),
-        (VERIFY_COMMAND, "verify the acquired runtime offline"),
-        (
-            "AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}",
-            "scope the read-only token to runtime acquisition",
-        ),
-    ] {
-        if !text.contains(required) {
-            errors.push(format!("{name} must {description}."));
-        }
+    if kind == AgentPluginWorkflowKind::CodexPlugins && !text.contains(CODEX_PLUGIN_SETUP) {
+        errors.push(format!(
+            "{name} must install the selected public plugins into isolated Codex state."
+        ));
     }
-
-    match kind {
-        AgentPluginWorkflowKind::Marketplace => {
-            if !text.contains(MARKETPLACE_COMMAND) {
-                errors.push(format!(
-                    "{name} must install the marketplace through the direct runtime CLI."
-                ));
-            }
-        }
-        AgentPluginWorkflowKind::ExecutionState => {
-            for (required, description) in [
-                (
-                    PROJECT_SNAPSHOT_COMMAND,
-                    "run project-snapshot through the direct runtime CLI",
-                ),
-                (
-                    EXECUTION_STATE_COMMAND,
-                    "run execution-state through the direct runtime CLI",
-                ),
-            ] {
-                if !text.contains(required) {
-                    errors.push(format!("{name} must {description}."));
-                }
-            }
-        }
+    if kind == AgentPluginWorkflowKind::CodexPlugins && !text.contains("gpt-6-luna") {
+        errors.push(format!("{name} must use the qualified gpt-6-luna model."));
+    }
+    if kind == AgentPluginWorkflowKind::ExecutionState
+        && [PROJECT_SNAPSHOT, EXECUTION_PREPARE, EXECUTION_APPLY]
+            .iter()
+            .any(|command| !text.contains(command))
+    {
+        errors.push(format!(
+            "{name} must use gh steward for Project snapshots and reviewed execution prepare/apply."
+        ));
     }
 
     for forbidden in [
-        "actions/setup-python",
-        "python-version:",
-        "python -m pip",
-        "pip install",
-        "Install uv",
-        "uv run",
-        "uv sync",
+        "agent-plugins-private-history",
+        "AGENT_PLUGINS_READ_TOKEN",
         "AGENT_PLUGINS_GIT_TOKEN",
-        "git ls-remote",
-        "insteadOf",
+        "PEX_INTERPRETER",
         "python -m agent_plugins",
         "python -c \"from agent_plugins",
+        "actions/setup-python",
+        "python-version:",
+        "uv run",
+        "uv sync",
         "actions/cache@",
         "RUNNER_TOOL_CACHE",
         "runner.tool_cache",
@@ -182,8 +161,8 @@ pub(super) fn validate_agent_plugin_workflow_text(
     let Some(steps) = workflow_step_views(&payload, name, errors) else {
         return;
     };
-    validate_acquisition_token_scope(&payload, &steps, name, errors);
-    validate_runtime_step_order(&steps, name, kind, errors);
+    validate_acquisition_scope(&payload, &steps, name, kind, errors);
+    validate_step_order(&steps, name, kind, errors);
     codex_action::validate_args(&steps, name, errors);
 
     match name {
@@ -192,7 +171,7 @@ pub(super) fn validate_agent_plugin_workflow_text(
         }
         "execution_state_sync.yml" => {
             validate_execution_state_trust(text, &payload, &steps, errors);
-            validate_execution_state_artifacts(&steps, errors);
+            validate_execution_state_artifacts(text, &steps, errors);
         }
         _ => {}
     }
@@ -247,196 +226,188 @@ fn workflow_step_views(
     Some(views)
 }
 
-fn validate_acquisition_token_scope(
+fn validate_acquisition_scope(
     payload: &YamlValue,
-    steps: &[WorkflowStepView],
-    name: &str,
-    errors: &mut Vec<String>,
-) {
-    let acquisitions = steps
-        .iter()
-        .filter(|step| step.run.contains(PREPARE_COMMAND))
-        .collect::<Vec<_>>();
-    if acquisitions.len() != 1 {
-        errors.push(format!(
-            "{name} must define exactly one dedicated agent-plugins acquisition step."
-        ));
-        return;
-    }
-    let acquisition = acquisitions[0];
-    if acquisition.run.trim() != PREPARE_COMMAND {
-        errors.push(format!(
-            "{name} acquisition step must run only {PREPARE_COMMAND}."
-        ));
-    }
-
-    let Some(env) = acquisition.raw.get("env").and_then(YamlValue::as_mapping) else {
-        errors.push(format!(
-            "{name} acquisition step must define a step-scoped token environment."
-        ));
-        return;
-    };
-    let token_key = YamlValue::String("AGENT_PLUGINS_READ_TOKEN".into());
-    let expected_secret = "${{ secrets.AGENT_PLUGINS_READ_TOKEN }}";
-    if env.get(&token_key).and_then(YamlValue::as_str) != Some(expected_secret) {
-        errors.push(format!(
-            "{name} acquisition step must map AGENT_PLUGINS_READ_TOKEN directly from its \
-             namesake secret."
-        ));
-    }
-    if env.len() != 1 {
-        errors.push(format!(
-            "{name} acquisition step must expose only AGENT_PLUGINS_READ_TOKEN."
-        ));
-    }
-
-    if let Some(mapping) = acquisition.raw.as_mapping() {
-        for (key, value) in mapping {
-            if key.as_str() != Some("env")
-                && (yaml_contains(key, "AGENT_PLUGINS_READ_TOKEN")
-                    || yaml_contains(value, "AGENT_PLUGINS_READ_TOKEN"))
-            {
-                errors.push(format!(
-                    "{name} acquisition token must not appear outside the step env mapping."
-                ));
-                break;
-            }
-        }
-    }
-    for (key, value) in env {
-        if key != &token_key
-            && (yaml_contains(key, "AGENT_PLUGINS_READ_TOKEN")
-                || yaml_contains(value, "AGENT_PLUGINS_READ_TOKEN"))
-        {
-            errors.push(format!(
-                "{name} acquisition token must not be aliased through another environment key."
-            ));
-            break;
-        }
-    }
-
-    for step in steps {
-        if step.ordinal != acquisition.ordinal
-            && yaml_contains(&step.raw, "AGENT_PLUGINS_READ_TOKEN")
-        {
-            errors.push(format!(
-                "{name} must keep AGENT_PLUGINS_READ_TOKEN only in the dedicated acquisition step."
-            ));
-        }
-    }
-    if let Some(root) = payload.as_mapping() {
-        for (key, value) in root {
-            if key.as_str() == Some("jobs") {
-                continue;
-            }
-            if yaml_contains(key, "AGENT_PLUGINS_READ_TOKEN")
-                || yaml_contains(value, "AGENT_PLUGINS_READ_TOKEN")
-            {
-                errors.push(format!(
-                    "{name} must not define AGENT_PLUGINS_READ_TOKEN outside job steps."
-                ));
-            }
-        }
-    }
-    if let Some(jobs) = payload.get("jobs").and_then(YamlValue::as_mapping) {
-        for (_, job) in jobs {
-            if let Some(job) = job.as_mapping() {
-                for (key, value) in job {
-                    if key.as_str() == Some("steps") {
-                        continue;
-                    }
-                    if yaml_contains(key, "AGENT_PLUGINS_READ_TOKEN")
-                        || yaml_contains(value, "AGENT_PLUGINS_READ_TOKEN")
-                    {
-                        errors.push(format!(
-                            "{name} must not define AGENT_PLUGINS_READ_TOKEN at job scope."
-                        ));
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn validate_runtime_step_order(
     steps: &[WorkflowStepView],
     name: &str,
     kind: AgentPluginWorkflowKind,
     errors: &mut Vec<String>,
 ) {
-    let acquisitions = steps
+    let prepares = steps
         .iter()
-        .filter(|step| step.run.contains(PREPARE_COMMAND))
+        .filter(|step| step.run.trim() == GH_STEWARD_PREPARE)
         .collect::<Vec<_>>();
-    let verifications = steps
+    let verifies = steps
         .iter()
-        .filter(|step| step.run.contains(VERIFY_COMMAND))
+        .filter(|step| step.run.trim() == GH_STEWARD_VERIFY)
         .collect::<Vec<_>>();
-    if acquisitions.len() != 1 || verifications.len() != 1 {
-        if verifications.len() != 1 {
-            errors.push(format!(
-                "{name} must define exactly one separate offline runtime verification step."
-            ));
-        }
+    let plugin_setup = steps
+        .iter()
+        .filter(|step| step.run.contains(CODEX_PLUGIN_SETUP))
+        .collect::<Vec<_>>();
+    let codex = steps
+        .iter()
+        .filter(|step| step.uses == CODEX_ACTION)
+        .collect::<Vec<_>>();
+    let wants_plugins = kind == AgentPluginWorkflowKind::CodexPlugins;
+    if (wants_plugins && plugin_setup.len() != 1)
+        || (!wants_plugins && !plugin_setup.is_empty())
+        || (wants_plugins && codex.len() != 1)
+    {
+        errors.push(format!(
+            "{name} must have one dedicated native acquisition and verification pair, with isolated plugin install and Codex action only when needed."
+        ));
         return;
     }
-    let acquisition = acquisitions[0];
-    let verification = verifications[0];
-    if verification.run.trim() != VERIFY_COMMAND {
-        errors.push(format!(
-            "{name} verification step must run only {VERIFY_COMMAND}."
-        ));
-    }
-    if acquisition.job != verification.job || acquisition.ordinal >= verification.ordinal {
-        errors.push(format!(
-            "{name} must verify the runtime after acquisition in the same job."
-        ));
-    }
-    if yaml_contains(&verification.raw, "AGENT_PLUGINS_READ_TOKEN") {
-        errors.push(format!(
-            "{name} offline verification step must not receive AGENT_PLUGINS_READ_TOKEN."
-        ));
-    }
-
-    let direct_commands = match kind {
-        AgentPluginWorkflowKind::Marketplace => [MARKETPLACE_COMMAND, ""].as_slice(),
-        AgentPluginWorkflowKind::ExecutionState => {
-            [PROJECT_SNAPSHOT_COMMAND, EXECUTION_STATE_COMMAND].as_slice()
-        }
-    };
-    for command in direct_commands.iter().filter(|command| !command.is_empty()) {
-        let matches = steps
+    let mut native_jobs = std::collections::BTreeSet::new();
+    native_jobs.extend(prepares.iter().map(|step| step.job.as_str()));
+    native_jobs.extend(verifies.iter().map(|step| step.job.as_str()));
+    for job in &native_jobs {
+        let job_prepares = prepares
             .iter()
-            .filter(|step| step.run.contains(command))
+            .filter(|step| step.job.as_str() == *job)
             .collect::<Vec<_>>();
-        if matches.len() != 1 {
+        let job_verifies = verifies
+            .iter()
+            .filter(|step| step.job.as_str() == *job)
+            .collect::<Vec<_>>();
+        if job_prepares.len() != 1 || job_verifies.len() != 1 {
             errors.push(format!(
-                "{name} must invoke {command} exactly once through the direct CLI."
+                "{name} job {job} must contain exactly one native acquisition and verification pair."
             ));
             continue;
         }
-        let direct = matches[0];
-        if direct.job != verification.job || direct.ordinal <= verification.ordinal {
+        if job_prepares[0].ordinal >= job_verifies[0].ordinal {
             errors.push(format!(
-                "{name} must invoke {command} only after offline runtime verification."
+                "{name} job {job} must verify its acquired binary before using it."
             ));
         }
-        if yaml_contains(&direct.raw, "AGENT_PLUGINS_READ_TOKEN") {
+    }
+    for step in prepares
+        .iter()
+        .chain(verifies.iter())
+        .chain(plugin_setup.iter())
+    {
+        if !step
+            .raw
+            .get("env")
+            .is_none_or(|env| env.as_mapping().is_some_and(|env| env.is_empty()))
+            && step.raw.get("env").is_some_and(|env| {
+                yaml_contains(env, "GH_TOKEN")
+                    || yaml_contains(env, "GITHUB_TOKEN")
+                    || yaml_contains(env, "secrets.")
+            })
+        {
             errors.push(format!(
-                "{name} direct runtime commands must not receive AGENT_PLUGINS_READ_TOKEN."
+                "{name} acquisition and isolated plugin setup must not receive GitHub tokens or other workflow secrets."
+            ));
+        }
+    }
+    if text_has_legacy_credentials_or_runtime(payload) {
+        errors.push(format!(
+            "{name} must not define legacy publisher tokens or the Python runtime anywhere in workflow structure."
+        ));
+    }
+}
+
+fn text_has_legacy_credentials_or_runtime(payload: &YamlValue) -> bool {
+    [
+        "AGENT_PLUGINS_READ_TOKEN",
+        "AGENT_PLUGINS_GIT_TOKEN",
+        "PEX_INTERPRETER",
+        "agent-plugins-private-history",
+    ]
+    .iter()
+    .any(|needle| yaml_contains(payload, needle))
+}
+
+fn validate_step_order(
+    steps: &[WorkflowStepView],
+    name: &str,
+    kind: AgentPluginWorkflowKind,
+    errors: &mut Vec<String>,
+) {
+    let jobs = steps
+        .iter()
+        .map(|step| step.job.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    for job in jobs {
+        let job_steps = steps
+            .iter()
+            .filter(|step| step.job == job)
+            .collect::<Vec<_>>();
+        let prepare = job_steps
+            .iter()
+            .find(|step| step.run.trim() == GH_STEWARD_PREPARE)
+            .copied();
+        let verify = job_steps
+            .iter()
+            .find(|step| step.run.trim() == GH_STEWARD_VERIFY)
+            .copied();
+        let native_commands = job_steps
+            .iter()
+            .filter(|step| {
+                step.run.contains("gh steward ")
+                    && step.run.trim() != GH_STEWARD_PREPARE
+                    && step.run.trim() != GH_STEWARD_VERIFY
+            })
+            .copied()
+            .collect::<Vec<_>>();
+        if !native_commands.is_empty() && (prepare.is_none() || verify.is_none()) {
+            errors.push(format!(
+                "{name} job {job} must acquire and verify gh-steward before running native commands."
+            ));
+        }
+        if let (Some(prepare), Some(verify)) = (prepare, verify) {
+            let checkout_before = job_steps.iter().any(|step| {
+                step.ordinal < prepare.ordinal
+                    && step.uses.starts_with("actions/checkout@")
+                    && step.persist_credentials == Some(false)
+            });
+            if !checkout_before {
+                errors.push(format!(
+                    "{name} job {job} must check out trusted source with persisted credentials disabled before native acquisition."
+                ));
+            }
+            if prepare.ordinal >= verify.ordinal
+                || native_commands
+                    .iter()
+                    .any(|step| step.ordinal <= verify.ordinal)
+            {
+                errors.push(format!(
+                    "{name} job {job} must verify the acquired binary before running native commands."
+                ));
+            }
+        }
+    }
+
+    if kind == AgentPluginWorkflowKind::CodexPlugins {
+        let plugins = steps
+            .iter()
+            .find(|step| step.run.contains(CODEX_PLUGIN_SETUP));
+        let codex = steps.iter().find(|step| step.uses == CODEX_ACTION);
+        if let (Some(plugins), Some(codex)) = (plugins, codex)
+            && (plugins.job != codex.job || plugins.ordinal >= codex.ordinal)
+        {
+            errors.push(format!(
+                "{name} must install pinned plugins before Codex executes in the same read-only review job."
             ));
         }
     }
 
-    let checkout_before_acquisition = steps.iter().any(|step| {
-        step.job == acquisition.job
-            && step.ordinal < acquisition.ordinal
-            && step.uses.starts_with("actions/checkout@")
-    });
-    if !checkout_before_acquisition {
-        errors.push(format!(
-            "{name} must check out trusted wrapper and manifest content before acquisition."
-        ));
+    if kind == AgentPluginWorkflowKind::ExecutionState {
+        for command in [PROJECT_SNAPSHOT, EXECUTION_PREPARE, EXECUTION_APPLY] {
+            for step in steps.iter().filter(|step| step.run.contains(command)) {
+                let verify = steps.iter().find(|candidate| {
+                    candidate.job == step.job && candidate.run.trim() == GH_STEWARD_VERIFY
+                });
+                if verify.is_none_or(|verify| verify.ordinal >= step.ordinal) {
+                    errors.push(format!(
+                        "{name} must run {command} only after verifying the exact tool acquisition in its job."
+                    ));
+                }
+            }
+        }
     }
 }
 
@@ -452,263 +423,333 @@ fn validate_dependency_remediation_trust(
             "{name} must restrict pull_request_target execution to Dependabot."
         ));
     }
-    let checkouts = steps
-        .iter()
-        .filter(|step| step.job == "remediate" && step.uses.starts_with("actions/checkout@"))
-        .collect::<Vec<_>>();
-    let Some(first) = checkouts.first() else {
-        errors.push(format!("{name} must check out the trusted base revision."));
+    let Some(jobs) = payload.get("jobs").and_then(YamlValue::as_mapping) else {
+        errors.push(format!(
+            "{name} must isolate proposal, candidate verification, and trusted publication jobs."
+        ));
         return;
     };
-    if checkouts.len() != 2 {
-        errors.push(format!(
-            "{name} must define exactly the trusted-base and requested-head checkouts."
-        ));
-    }
-    if !first.checkout_ref.contains("pull_request.base.sha") {
-        errors.push(format!(
-            "{name} first checkout must select the trusted pull-request base revision."
-        ));
-    }
-    if first.persist_credentials != Some(false) {
-        errors.push(format!(
-            "{name} trusted-base checkout must disable persisted GitHub credentials."
-        ));
-    }
-    let steps = steps
-        .iter()
-        .filter(|step| step.job == first.job)
-        .collect::<Vec<_>>();
-    let head_checkouts = checkouts
-        .iter()
-        .filter(|step| step.checkout_ref.contains("pull_request.head.sha"))
-        .collect::<Vec<_>>();
-    if head_checkouts.len() != 1 {
-        errors.push(format!(
-            "{name} must define exactly one explicit requested-head checkout."
-        ));
-        return;
-    }
-    let head = head_checkouts[0];
-    if head.persist_credentials != Some(false) {
-        errors.push(format!(
-            "{name} requested-head checkout must disable persisted GitHub credentials."
-        ));
-    }
-
-    let validations = steps
-        .iter()
-        .filter(|step| step.run.trim() == VALIDATE_COMMAND)
-        .collect::<Vec<_>>();
-    let rust_setups = steps
-        .iter()
-        .filter(|step| step.uses.starts_with("dtolnay/rust-toolchain@"))
-        .collect::<Vec<_>>();
-    let acquisitions = steps
-        .iter()
-        .filter(|step| step.run.trim() == PREPARE_COMMAND)
-        .collect::<Vec<_>>();
-    let verifications = steps
-        .iter()
-        .filter(|step| step.run.trim() == VERIFY_COMMAND)
-        .collect::<Vec<_>>();
-    let snapshots = steps
-        .iter()
-        .filter(|step| step.run.contains("cp -R .codex/agents/."))
-        .collect::<Vec<_>>();
-    let marketplaces = steps
-        .iter()
-        .filter(|step| step.run.contains(MARKETPLACE_COMMAND))
-        .collect::<Vec<_>>();
-    let codex_steps = steps
-        .iter()
-        .filter(|step| step.uses == CODEX_ACTION)
-        .collect::<Vec<_>>();
-    if rust_setups.len() != 1
-        || validations.len() != 1
-        || acquisitions.len() != 1
-        || verifications.len() != 1
-        || snapshots.len() != 1
-        || marketplaces.len() != 1
-        || codex_steps.len() != 1
-    {
-        errors.push(format!(
-            "{name} must define one trusted Rust setup, validation, acquisition, verification, \
-             runtime-input snapshot, marketplace install, and Codex mutation step."
-        ));
-        return;
-    }
-    let rust_setup = rust_setups[0];
-    let validation = validations[0];
-    let acquisition = acquisitions[0];
-    let verification = verifications[0];
-    let snapshot = snapshots[0];
-    let marketplace = marketplaces[0];
-    let codex = codex_steps[0];
-    let all_in_trusted_job = [
-        rust_setup,
-        validation,
-        acquisition,
-        verification,
-        snapshot,
-        marketplace,
-        head,
-        codex,
-    ]
-    .iter()
-    .all(|step| step.job == first.job);
-    if !all_in_trusted_job
-        || !(first.ordinal < rust_setup.ordinal
-            && rust_setup.ordinal < validation.ordinal
-            && validation.ordinal < acquisition.ordinal
-            && acquisition.ordinal < verification.ordinal
-            && verification.ordinal < snapshot.ordinal
-            && snapshot.ordinal < marketplace.ordinal
-            && marketplace.ordinal < head.ordinal
-            && head.ordinal < codex.ordinal)
-    {
-        errors.push(format!(
-            "{name} must set up Rust, validate, acquire, verify, snapshot, and install from \
-             trusted base content in one job before the requested-head checkout and Codex mutation."
-        ));
-    }
-
-    for required in [
-        "trusted_root=\"$RUNNER_TEMP/dependency-remediation-trusted\"",
-        "codex_home=\"$RUNNER_TEMP/codex-runtime/.codex\"",
-        "cp .codex/config.toml \"$codex_home/config.toml\"",
-        "sed -i 's/^approval_policy = \"on-request\"$/approval_policy = \"never\"/' \"$codex_home/config.toml\"",
-        "cp .codex/*.config.toml \"$codex_home/\"",
-        "cp -R .codex/agents/. \"$codex_home/agents/\"",
-        "cp .github/codex/prompts/dependency-remediation.md",
-        "\"$trusted_root/dependency-remediation.md\"",
-        "cp .github/codex/schemas/dependency-remediation.json",
-        "\"$trusted_root/dependency-remediation.json\"",
-    ] {
-        if !snapshot.run.contains(required) {
+    let job = |job_name: &str| jobs.get(YamlValue::String(job_name.to_owned()));
+    for job_name in ["capture", "proposal", "verify-candidate", "publish"] {
+        let Some(job) = job(job_name) else {
+            errors.push(format!("{name} must define the {job_name} stage."));
+            return;
+        };
+        let permissions = job.get("permissions").and_then(YamlValue::as_mapping);
+        let expected: &[(&str, &str)] = match job_name {
+            "capture" => &[("contents", "read")],
+            "proposal" | "verify-candidate" => &[("actions", "read"), ("contents", "read")],
+            "publish" => &[
+                ("actions", "read"),
+                ("contents", "write"),
+                ("pull-requests", "write"),
+            ],
+            _ => unreachable!(),
+        };
+        if permissions.is_none() {
             errors.push(format!(
-                "{name} trusted runtime-input snapshot must include {required}."
+                "{name} {job_name} job must declare least-privilege permissions."
             ));
+            continue;
         }
-    }
-
-    for step in steps.iter().filter(|step| step.ordinal > head.ordinal) {
-        for forbidden in [
-            "cargo xtask",
-            ".codex/config.toml",
-            ".codex/agents/",
-            ".config.toml",
-            ".github/codex/prompts/",
-            ".github/codex/schemas/",
-        ] {
-            if step.run.contains(forbidden) {
+        let permissions = permissions.unwrap();
+        for (scope, expected_value) in expected {
+            if permissions
+                .get(YamlValue::String((*scope).to_owned()))
+                .and_then(YamlValue::as_str)
+                != Some(*expected_value)
+            {
                 errors.push(format!(
-                    "{name} must not use requested-head Codex inputs after checkout: {forbidden}."
+                    "{name} {job_name} job must grant {scope}: {expected_value}."
                 ));
             }
         }
-    }
-
-    let Some(codex_env) = codex.raw.get("env").and_then(YamlValue::as_mapping) else {
-        errors.push(format!(
-            "{name} Codex mutation step must receive a step-scoped GH_TOKEN."
-        ));
-        return;
-    };
-    let gh_token_key = YamlValue::String("GH_TOKEN".into());
-    if codex_env.get(&gh_token_key).and_then(YamlValue::as_str) != Some("${{ github.token }}")
-        || codex_env.len() != 1
-    {
-        errors.push(format!(
-            "{name} Codex mutation step must expose only GH_TOKEN from github.token."
-        ));
-    }
-    let root_exposes_token = payload.get("env").is_some_and(|env| {
-        yaml_mapping_has_key(env, "GH_TOKEN") || yaml_contains(env, "github.token")
-    });
-    let job_exposes_token = payload
-        .get("jobs")
-        .and_then(YamlValue::as_mapping)
-        .is_some_and(|jobs| {
-            jobs.values().any(|job| {
-                job.get("env").is_some_and(|env| {
-                    yaml_mapping_has_key(env, "GH_TOKEN") || yaml_contains(env, "github.token")
-                })
-            })
-        });
-    if root_exposes_token || job_exposes_token {
-        errors.push(format!(
-            "{name} must not expose github.token through workflow- or job-level environment."
-        ));
-    }
-    for step in steps.iter().filter(|step| step.ordinal != codex.ordinal) {
-        if step
-            .raw
-            .get("env")
-            .is_some_and(|env| yaml_mapping_has_key(env, "GH_TOKEN"))
-            || yaml_contains(&step.raw, "github.token")
+        if job.get("env").is_some_and(|env| {
+            yaml_mapping_has_key(env, "GH_TOKEN")
+                || yaml_mapping_has_key(env, "GITHUB_TOKEN")
+                || yaml_contains(env, "secrets.")
+        }) {
+            errors.push(format!(
+                "{name} {job_name} job must not expose credentials through job environment."
+            ));
+        }
+        if job_name != "publish"
+            && permissions
+                .values()
+                .any(|permission| matches!(permission.as_str(), Some("write" | "admin")))
         {
+            errors.push(format!("{name} {job_name} job must remain read-only."));
+        }
+    }
+
+    let steps_for = |job_name: &str| {
+        steps
+            .iter()
+            .filter(|step| step.job == job_name)
+            .collect::<Vec<_>>()
+    };
+    let capture_steps = steps_for("capture");
+    let proposal_steps = steps_for("proposal");
+    let verify_steps = steps_for("verify-candidate");
+    let publish_steps = steps_for("publish");
+    let trusted_ref = concat!("$", "{{ github.workflow_sha }}");
+    let trusted_only = |job_steps: &[&WorkflowStepView]| {
+        job_steps
+            .iter()
+            .filter(|step| step.uses.starts_with("actions/checkout@"))
+            .all(|step| step.checkout_ref == trusted_ref && step.persist_credentials == Some(false))
+    };
+    let has_trusted_checkout = |job_steps: &[&WorkflowStepView]| {
+        job_steps.iter().any(|step| {
+            step.uses.starts_with("actions/checkout@")
+                && step.checkout_ref == trusted_ref
+                && step.persist_credentials == Some(false)
+        })
+    };
+    let credentials_disabled = |job_steps: &[&WorkflowStepView]| {
+        job_steps
+            .iter()
+            .filter(|step| step.uses.starts_with("actions/checkout@"))
+            .all(|step| step.persist_credentials == Some(false))
+    };
+
+    if !trusted_only(&proposal_steps)
+        || proposal_steps
+            .iter()
+            .filter(|step| step.uses.starts_with("actions/checkout@"))
+            .count()
+            != 1
+    {
+        errors.push(format!(
+            "{name} proposal must use only the exact trusted workflow checkout with credentials disabled."
+        ));
+    }
+    let codex = proposal_steps.iter().find(|step| step.uses == CODEX_ACTION);
+    if codex.is_none_or(|step| {
+        step.raw.get("env").is_some_and(|env| {
+            yaml_mapping_has_key(env, "GH_TOKEN")
+                || yaml_mapping_has_key(env, "GITHUB_TOKEN")
+                || yaml_contains(env, "secrets.GITHUB_TOKEN")
+        })
+    }) {
+        errors.push(format!(
+            "{name} bounded Codex proposal must run without a GitHub token."
+        ));
+    }
+    if proposal_steps.iter().any(|step| {
+        step.uses.starts_with("actions/checkout@")
+            && (step.checkout_ref.contains("pull_request.head")
+                || step.checkout_ref == concat!("$", "{{ github.sha }}"))
+    }) || proposal_steps.iter().any(|step| {
+        step.run.contains("cargo test")
+            || step.run.contains("dependency-remediation-publish.sh")
+            || step.run.contains("working-directory: source")
+    }) {
+        errors.push(format!(
+            "{name} Codex proposal must not check out or execute dependency-head code."
+        ));
+    }
+    for required in [
+        "cp .github/codex/prompts/dependency-remediation.md",
+        "cp .github/codex/schemas/dependency-remediation.json",
+        "scripts/prepare-codex-plugins.sh",
+        "source.patch",
+        "source-verification.json",
+    ] {
+        if !text.contains(required) {
             errors.push(format!(
-                "{name} must expose github.token only to the deliberate Codex mutation step."
+                "{name} must provide bounded trusted proposal input {required}."
             ));
         }
     }
 
-    let Some(inputs) = codex.raw.get("with") else {
+    let source_ref = concat!("$", "{{ steps.source.outputs.source_sha }}");
+    let candidate_ref = concat!("$", "{{ steps.validated_source.outputs.source_sha }}");
+    let source_checkout = capture_steps.iter().any(|step| {
+        step.uses.starts_with("actions/checkout@")
+            && step.checkout_ref == source_ref
+            && step.persist_credentials == Some(false)
+            && step
+                .raw
+                .get("with")
+                .is_some_and(|with| with.get("path").and_then(YamlValue::as_str) == Some("source"))
+    });
+    let candidate_checkout = verify_steps.iter().any(|step| {
+        step.uses.starts_with("actions/checkout@")
+            && step.checkout_ref == candidate_ref
+            && step.persist_credentials == Some(false)
+            && step.raw.get("with").is_some_and(|with| {
+                with.get("path").and_then(YamlValue::as_str) == Some("candidate")
+            })
+    });
+    if !has_trusted_checkout(&capture_steps)
+        || !source_checkout
+        || !credentials_disabled(&capture_steps)
+        || !has_trusted_checkout(&verify_steps)
+        || !candidate_checkout
+        || !credentials_disabled(&verify_steps)
+    {
         errors.push(format!(
-            "{name} Codex mutation step must define trusted inputs."
+            "{name} capture and candidate verification must use exact event-bound source checkouts without persisted credentials."
+        ));
+    }
+    if !capture_steps.iter().any(|step| {
+        step.run
+            .contains("env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test")
+    }) || !verify_steps.iter().any(|step| {
+        step.run
+            .contains("env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test")
+    }) {
+        errors.push(format!(
+            "{name} must test source and the complete candidate in credential-free jobs."
+        ));
+    }
+
+    let recovery = publish_steps
+        .iter()
+        .find(|step| step.run.contains("runs acquire-handoff"));
+    let candidate_acquire = publish_steps
+        .iter()
+        .find(|step| step.run.contains("runs acquire-publication-candidate"));
+    let context_start = publish_steps
+        .iter()
+        .find(|step| step.run.contains("runs context-start"));
+    let prepare_intent = publish_steps.iter().find(|step| {
+        step.run.contains("dependency-remediation-publish.sh") && step.run.contains(" prepare ")
+    });
+    let verify_publication = publish_steps
+        .iter()
+        .find(|step| step.run.contains("runs verify-publication"));
+    let publish_write = publish_steps.iter().find(|step| {
+        step.run.contains("dependency-remediation-publish.sh") && step.run.contains(" continue ")
+    });
+    let terminal_upload = publish_steps
+        .iter()
+        .find(|step| step.uses.starts_with("actions/upload-artifact@"));
+    let finalizer = publish_steps.iter().find(|step| {
+        step.run.contains("finalize-gh-steward-run.sh") && step.run.contains("args=(--workflow")
+    });
+    let (
+        Some(recovery),
+        Some(candidate_acquire),
+        Some(context_start),
+        Some(prepare_intent),
+        Some(verify_publication),
+        Some(publish_write),
+        Some(terminal_upload),
+        Some(finalizer),
+    ) = (
+        recovery,
+        candidate_acquire,
+        context_start,
+        prepare_intent,
+        verify_publication,
+        publish_write,
+        terminal_upload,
+        finalizer,
+    )
+    else {
+        errors.push(format!(
+            "{name} publisher must acquire recovery and candidate evidence, create a native context, verify before writes, and finalize its terminal artifact."
         ));
         return;
     };
-    let allowed_inputs = [
-        "allow-bot-users",
-        "codex-home",
-        "openai-api-key",
-        "output-file",
-        "output-schema-file",
-        "prompt-file",
-        "safety-strategy",
-        "sandbox",
-    ];
-    if let Some(mapping) = inputs.as_mapping() {
-        for key in mapping.keys().filter_map(YamlValue::as_str) {
-            if !allowed_inputs.contains(&key) {
-                errors.push(format!(
-                    "{name} Codex mutation step uses unsupported pinned action input {key}."
-                ));
-            }
-        }
-    }
-    for (key, expected) in [
-        (
-            "prompt-file",
-            "${{ runner.temp }}/dependency-remediation-trusted/dependency-remediation.md",
-        ),
-        (
-            "output-schema-file",
-            "${{ runner.temp }}/dependency-remediation-trusted/dependency-remediation.json",
-        ),
-    ] {
-        if inputs.get(key).and_then(YamlValue::as_str) != Some(expected) {
-            errors.push(format!(
-                "{name} Codex mutation step must use trusted absolute {key} {expected}."
-            ));
-        }
-    }
-    if inputs.get("codex-args").is_some() {
-        errors.push(format!(
-            "{name} Codex mutation step must use its trusted config without extra Codex args."
-        ));
-    }
-    if inputs.get("allow-bots").is_some()
-        || inputs.get("allow-bot-users").and_then(YamlValue::as_str) != Some("dependabot[bot]")
+    if !trusted_only(&publish_steps)
+        || publish_steps
+            .iter()
+            .filter(|step| step.uses.starts_with("actions/checkout@"))
+            .count()
+            != 1
     {
         errors.push(format!(
-            "{name} must trust Dependabot through allow-bot-users, never Boolean allow-bots."
+            "{name} publisher must use only one exact trusted checkout with credentials disabled."
+        ));
+    }
+    if !(recovery.ordinal < candidate_acquire.ordinal
+        && candidate_acquire.ordinal < context_start.ordinal
+        && context_start.ordinal < prepare_intent.ordinal
+        && prepare_intent.ordinal < verify_publication.ordinal
+        && verify_publication.ordinal < publish_write.ordinal
+        && publish_write.ordinal < terminal_upload.ordinal
+        && terminal_upload.ordinal < finalizer.ordinal)
+    {
+        errors.push(format!(
+            "{name} publisher step order must be recovery < candidate < context < intent < verify < write < artifact < finalize; observed {:?}.",
+            [recovery.ordinal, candidate_acquire.ordinal, context_start.ordinal, prepare_intent.ordinal,
+                verify_publication.ordinal, publish_write.ordinal, terminal_upload.ordinal, finalizer.ordinal]
+        ));
+    }
+    if !candidate_acquire
+        .run
+        .contains("--workflow-sha \"$GITHUB_WORKFLOW_SHA\"")
+        || !candidate_acquire
+            .run
+            .contains("--artifact-id \"$CANDIDATE_ARTIFACT_ID\"")
+        || !candidate_acquire
+            .run
+            .contains("--artifact-digest \"$CANDIDATE_ARTIFACT_DIGEST\"")
+        || !verify_publication
+            .run
+            .contains("--workflow-sha \"$GITHUB_WORKFLOW_SHA\"")
+        || !verify_publication
+            .run
+            .contains("--repo-root \"$GH_STEWARD_TRUSTED_ROOT\"")
+        || !publish_steps.iter().any(|step| {
+            step.run
+                .contains("git worktree add --detach \"$control\" \"$GITHUB_WORKFLOW_SHA\"")
+                && step.run.contains("GH_STEWARD_TRUSTED_ROOT")
+        })
+    {
+        errors.push(format!(
+            "{name} must bind candidate acquisition and qualification to the trusted workflow SHA and control checkout."
+        ));
+    }
+    if job("publish").is_none_or(|publish| {
+        publish
+            .get("needs")
+            .is_none_or(|needs| !yaml_contains(needs, "verify-candidate"))
+    }) || !text.contains("needs.verify-candidate.outputs.artifact_id")
+        || !text.contains("needs.verify-candidate.outputs.artifact_digest")
+    {
+        errors.push(format!(
+            "{name} trusted publisher must bind the exact immutable verified-candidate artifact ID and digest."
+        ));
+    }
+    if publish_steps.iter().any(|step| {
+        step.uses == CODEX_ACTION
+            || step.run.contains("cargo test")
+            || step.run.contains("working-directory: candidate")
+    }) {
+        errors.push(format!(
+            "{name} publisher must not run Codex or execute candidate source code with write permissions."
+        ));
+    }
+    for required in [
+        "publication/candidate.json",
+        "publication/patch.diff",
+        "publication/result.json",
+        "events/trigger-event.json",
+        "candidate_tree_sha",
+        "verification_job_name:\"Verify publication candidate\"",
+    ] {
+        if !text.contains(required) {
+            errors.push(format!(
+                "{name} must bind exact candidate files and credential-free verification evidence."
+            ));
+            break;
+        }
+    }
+    if !verify_steps.iter().any(|step| {
+        step.run.contains("--argjson capture_id \"$CAPTURE_ID\"")
+            && step.run.contains("--argjson proposal_id \"$PROPOSAL_ID\"")
+            && step.run.contains("CAPTURE_ID\" =~ ^[1-9][0-9]*$")
+            && step.run.contains("PROPOSAL_ID\" =~ ^[1-9][0-9]*$")
+    }) {
+        errors.push(format!(
+            "{name} candidate evidence must preserve upstream artifact IDs as positive JSON integers."
         ));
     }
 }
-
 fn validate_execution_state_trust(
     text: &str,
     payload: &YamlValue,
@@ -718,220 +759,401 @@ fn validate_execution_state_trust(
     let name = "execution_state_sync.yml";
     if !text.contains("\n  pull_request_target:\n") || text.contains("\n  pull_request:\n") {
         errors.push(format!(
-            "{name} must use only the trusted pull_request_target event for automatic PR sync."
+            "{name} must use pull_request_target for automatic PR synchronization."
         ));
     }
-    if !text.contains(
-        "github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository",
-    ) {
+    if !text.contains("github.event.pull_request.head.repo.full_name == github.repository")
+        || !text.contains("github.event_name != 'pull_request_target' ||")
+    {
         errors.push(format!(
-            "{name} must gate pull_request_target runtime acquisition to same-repository pull requests."
+            "{name} must reject fork pull requests before acquisition."
         ));
     }
-    if !text.contains("github.event.pull_request.head.repo.full_name == github.repository") {
+    if !text.contains("cancel-in-progress: false") {
+        errors.push(format!("{name} must not cancel an in-flight mutation run."));
+    }
+    if !text.contains("run-name: Execution State Sync") {
         errors.push(format!(
-            "{name} must reject fork pull requests before private runtime acquisition."
+            "{name} must keep a stable run name for exact recovery identity."
         ));
     }
-    if text.contains("pull_request.head.sha") {
-        errors.push(format!(
-            "{name} must not check out pull-request head content before private runtime use."
-        ));
-    }
+    let trusted_ref = concat!("$", "{{ github.workflow_sha }}");
     let checkouts = steps
         .iter()
         .filter(|step| step.uses.starts_with("actions/checkout@"))
         .collect::<Vec<_>>();
-    let expected_checkout_ref = "${{ github.event_name == 'pull_request_target' && github.event.action != 'closed' && github.event.pull_request.base.sha || github.sha }}";
-    if checkouts.len() != 1 || checkouts[0].checkout_ref != expected_checkout_ref {
-        errors.push(format!(
-            "{name} must use exactly one checkout selecting the trusted pull-request base revision for active PR events and the event's current base revision for closed events."
-        ));
-    } else if checkouts[0].persist_credentials != Some(false) {
-        errors.push(format!(
-            "{name} trusted checkout must disable persisted GitHub credentials."
-        ));
+    if checkouts.len() < 3
+        || checkouts
+            .iter()
+            .any(|step| step.checkout_ref != trusted_ref || step.persist_credentials != Some(false))
+    {
+        errors.push(format!("{name} must check out only the exact trusted workflow source with credentials disabled."));
     }
-
-    if text.contains("ROADMAP_GH_TOKEN:") || text.contains("${{ env.ROADMAP_GH_TOKEN }}") {
-        errors.push(format!(
-            "{name} must not retain the project PAT in job-level or aliased environment."
-        ));
-    }
-    let expected_source =
-        "${{ secrets.GH_PROJECTS_TOKEN != '' && 'GH_PROJECTS_TOKEN' || 'github.token' }}";
-    let sync_job_env = payload
-        .get("jobs")
-        .and_then(|jobs| jobs.get("sync"))
-        .and_then(|job| job.get("env"))
-        .and_then(YamlValue::as_mapping);
-    let source_key = YamlValue::String("ROADMAP_GH_TOKEN_SOURCE".into());
-    if !sync_job_env.is_some_and(|env| {
-        env.len() == 1 && env.get(&source_key).and_then(YamlValue::as_str) == Some(expected_source)
+    if payload.get("env").is_some_and(|env| {
+        yaml_mapping_has_key(env, "GH_TOKEN")
+            || yaml_mapping_has_key(env, "GITHUB_TOKEN")
+            || yaml_contains(env, "secrets.")
     }) {
         errors.push(format!(
-            "{name} sync job environment must contain only the non-secret ROADMAP_GH_TOKEN_SOURCE label."
+            "{name} must not expose credentials at workflow scope."
         ));
     }
-    let root_exposes_project_token = payload.get("env").is_some_and(|env| {
-        yaml_mapping_has_key(env, "GH_TOKEN")
-            || yaml_mapping_has_key(env, "ROADMAP_GH_TOKEN")
-            || yaml_contains(env, "secrets.GH_PROJECTS_TOKEN")
-    });
-    let another_job_exposes_project_token = payload
-        .get("jobs")
-        .and_then(YamlValue::as_mapping)
-        .is_some_and(|jobs| {
-            jobs.iter().any(|(job_name, job)| {
-                job_name.as_str() != Some("sync")
-                    && job.get("env").is_some_and(|env| {
-                        yaml_mapping_has_key(env, "GH_TOKEN")
-                            || yaml_mapping_has_key(env, "ROADMAP_GH_TOKEN")
-                            || yaml_contains(env, "secrets.GH_PROJECTS_TOKEN")
-                    })
-            })
-        });
-    if root_exposes_project_token || another_job_exposes_project_token {
+    let Some(jobs) = payload.get("jobs").and_then(YamlValue::as_mapping) else {
         errors.push(format!(
-            "{name} must keep project credentials out of workflow- and job-level environment."
+            "{name} must isolate preparation from native application."
         ));
+        return;
+    };
+    let prepare_job = jobs.get(YamlValue::String("prepare".into()));
+    let apply_job = jobs.get(YamlValue::String("apply".into()));
+    let (Some(prepare_job), Some(apply_job)) = (prepare_job, apply_job) else {
+        errors.push(format!(
+            "{name} must isolate preparation from native application."
+        ));
+        return;
+    };
+    for (job_name, job) in [("prepare", prepare_job), ("apply", apply_job)] {
+        if job.get("env").is_some_and(|env| {
+            yaml_mapping_has_key(env, "GH_TOKEN")
+                || yaml_mapping_has_key(env, "GITHUB_TOKEN")
+                || yaml_contains(env, "secrets.")
+        }) {
+            errors.push(format!(
+                "{name} {job_name} job must not expose credentials through job environment."
+            ));
+        }
     }
-
-    let expected_token =
-        "${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}";
-    for command in [PROJECT_SNAPSHOT_COMMAND, EXECUTION_STATE_COMMAND] {
+    let prepare_permissions = prepare_job
+        .get("permissions")
+        .and_then(YamlValue::as_mapping);
+    if prepare_permissions.is_none_or(|permissions| {
+        permissions
+            .values()
+            .any(|value| matches!(value.as_str(), Some("write" | "admin")))
+    }) {
+        errors.push(format!("{name} prepare job must remain read-only."));
+    }
+    for (scope, expected) in [("contents", "read"), ("actions", "read")] {
+        if prepare_permissions
+            .and_then(|permissions| permissions.get(YamlValue::String(scope.into())))
+            .and_then(YamlValue::as_str)
+            != Some(expected)
+        {
+            errors.push(format!("{name} prepare job must have {scope}: {expected}."));
+        }
+    }
+    for command in [PROJECT_SNAPSHOT, EXECUTION_PREPARE, EXECUTION_APPLY] {
         let matching = steps
             .iter()
             .filter(|step| step.run.contains(command))
             .collect::<Vec<_>>();
-        if matching.len() != 1 {
-            continue;
-        }
-        let Some(env) = matching[0].raw.get("env").and_then(YamlValue::as_mapping) else {
-            errors.push(format!(
-                "{name} {command} step must receive a step-scoped GH_TOKEN."
-            ));
-            continue;
+        let expected_job = if command == EXECUTION_APPLY {
+            "apply"
+        } else {
+            "prepare"
         };
-        let gh_token_key = YamlValue::String("GH_TOKEN".into());
-        if env.get(&gh_token_key).and_then(YamlValue::as_str) != Some(expected_token)
-            || env.len() != 1
-        {
+        if matching.len() != 1 || matching[0].job != expected_job {
             errors.push(format!(
-                "{name} {command} step must expose only the direct project-token GH_TOKEN."
+                "{name} must define exactly one {command} operation in the {expected_job} job."
             ));
+            continue;
         }
+        validate_step_token(matching[0], PROJECT_TOKEN, name, errors);
     }
-
-    for step in steps.iter().filter(|step| {
-        !step.run.contains(PROJECT_SNAPSHOT_COMMAND) && !step.run.contains(EXECUTION_STATE_COMMAND)
+    let recovery = steps
+        .iter()
+        .find(|step| step.job == "prepare" && step.run.contains("runs recover"));
+    if let Some(step) = recovery {
+        validate_step_token(step, concat!("$", "{{ github.token }}"), name, errors);
+    } else {
+        errors.push(format!(
+            "{name} must read prior workflow history before planning."
+        ));
+    }
+    let apply_handoff = steps
+        .iter()
+        .find(|step| step.job == "apply" && step.run.contains("runs acquire-handoff"));
+    if let Some(step) = apply_handoff {
+        validate_step_token(step, concat!("$", "{{ github.token }}"), name, errors);
+    } else {
+        errors.push(format!(
+            "{name} apply job must acquire an immutable native handoff."
+        ));
+    }
+    if steps.iter().any(|step| {
+        (step.job == "prepare" || step.job == "apply")
+            && (yaml_mapping_has_key(&step.raw, "GH_TOKEN")
+                || yaml_contains(&step.raw, "AGENT_PLUGINS_READ_TOKEN")
+                || yaml_contains(&step.raw, "AGENT_PLUGINS_GIT_TOKEN"))
+            && !step.run.contains(PROJECT_SNAPSHOT)
+            && !step.run.contains(EXECUTION_PREPARE)
+            && !step.run.contains(EXECUTION_APPLY)
+            && !step.run.contains("runs recover")
+            && !step.run.contains("runs acquire-handoff")
+            && !step.run.contains("finalize-gh-steward-run")
     }) {
-        if step.raw.get("env").is_some_and(|env| {
-            yaml_mapping_has_key(env, "GH_TOKEN")
-                || yaml_mapping_has_key(env, "ROADMAP_GH_TOKEN")
-                || yaml_contains(env, "secrets.GH_PROJECTS_TOKEN")
-        }) {
-            errors.push(format!(
-                "{name} must expose the project token only to publisher GitHub operation steps."
-            ));
-        }
+        errors.push(format!("{name} must expose GitHub tokens only to scoped recovery, handoff, Project, or native execution steps."));
     }
 }
-
-fn validate_execution_state_artifacts(steps: &[WorkflowStepView], errors: &mut Vec<String>) {
-    let name = "execution_state_sync.yml";
-    let preparations = steps
-        .iter()
-        .filter(|step| {
-            step.run.contains(".artifacts/execution-state/")
-                && step.run.contains("run-context.json")
-        })
-        .collect::<Vec<_>>();
-    let acquisitions = steps
-        .iter()
-        .filter(|step| step.run.trim() == PREPARE_COMMAND)
-        .collect::<Vec<_>>();
-    if preparations.len() != 1 || acquisitions.len() != 1 {
+fn validate_step_token(
+    authorized: &WorkflowStepView,
+    expected_token: &str,
+    name: &str,
+    errors: &mut Vec<String>,
+) {
+    let Some(env) = authorized.raw.get("env").and_then(YamlValue::as_mapping) else {
         errors.push(format!(
-            "{name} must write exactly one non-secret run-context diagnostic before runtime acquisition."
-        ));
-        return;
-    }
-
-    let preparation = preparations[0];
-    let acquisition = acquisitions[0];
-    if preparation.job != acquisition.job || preparation.ordinal >= acquisition.ordinal {
-        errors.push(format!(
-            "{name} must create its artifact root and diagnostic before runtime acquisition."
-        ));
-    }
-    if preparation.raw.get("id").and_then(YamlValue::as_str) != Some("artifact-root")
-        || !preparation
-            .run
-            .contains("echo \"path=$root\" >> \"$GITHUB_OUTPUT\"")
-    {
-        errors.push(format!(
-            "{name} run-context preparation must publish the artifact-root path output."
-        ));
-    }
-    if yaml_contains(&preparation.raw, "secrets.")
-        || yaml_contains(&preparation.raw, "AGENT_PLUGINS_READ_TOKEN")
-        || yaml_contains(&preparation.raw, "GH_PROJECTS_TOKEN")
-    {
-        errors.push(format!(
-            "{name} run-context preparation must not receive or serialize credentials."
-        ));
-    }
-
-    let uploads = steps
-        .iter()
-        .filter(|step| step.uses.starts_with("actions/upload-artifact@"))
-        .collect::<Vec<_>>();
-    if uploads.len() != 1 {
-        errors.push(format!(
-            "{name} must define exactly one bounded artifact upload."
-        ));
-        return;
-    }
-    let upload = uploads[0];
-    let expected_if = "${{ (failure() || github.event_name == 'workflow_dispatch') && steps.artifact-root.outputs.path != '' }}";
-    if upload.raw.get("if").and_then(YamlValue::as_str) != Some(expected_if) {
-        errors.push(format!(
-            "{name} artifact upload must be failure/manual-only and require a prepared path."
-        ));
-    }
-    let Some(with) = upload.raw.get("with").and_then(YamlValue::as_mapping) else {
-        errors.push(format!(
-            "{name} artifact upload must define its bounded upload inputs."
+            "{name} authorized operation must receive a step-scoped GH_TOKEN."
         ));
         return;
     };
-    for (key, expected) in [
-        ("path", "${{ steps.artifact-root.outputs.path }}"),
-        ("if-no-files-found", "error"),
-    ] {
-        if with
-            .get(YamlValue::String(key.into()))
-            .and_then(YamlValue::as_str)
-            != Some(expected)
-        {
-            errors.push(format!(
-                "{name} artifact upload must set {key} to {expected}."
-            ));
-        }
+    let key = YamlValue::String("GH_TOKEN".into());
+    let unexpected_credential = env.iter().any(|(env_key, value)| {
+        let name = env_key.as_str().unwrap_or_default();
+        env_key != &key
+            && (name.ends_with("_TOKEN")
+                || name.contains("SECRET")
+                || yaml_contains(value, "secrets."))
+    });
+    if env.get(&key).and_then(YamlValue::as_str) != Some(expected_token) || unexpected_credential {
+        errors.push(format!(
+            "{name} authorized operation must receive its expected step-scoped GH_TOKEN and no other credentials."
+        ));
     }
-    if with
-        .get(YamlValue::String("include-hidden-files".into()))
-        .and_then(YamlValue::as_bool)
-        != Some(true)
-        || with
-            .get(YamlValue::String("retention-days".into()))
-            .and_then(YamlValue::as_u64)
-            != Some(14)
+}
+
+fn validate_execution_state_artifacts(
+    text: &str,
+    steps: &[WorkflowStepView],
+    errors: &mut Vec<String>,
+) {
+    let name = "execution_state_sync.yml";
+    let target = steps.iter().find(|step| {
+        step.job == "prepare"
+            && step.get_name() == Some("Resolve exact target and capture event after recovery")
+    });
+    let recovery = steps
+        .iter()
+        .find(|step| step.job == "prepare" && step.run.contains("runs recover"));
+    let fail_closed = steps
+        .iter()
+        .find(|step| step.get_name() == Some("Stop when prior mutation evidence is unavailable"));
+    let preparation = steps
+        .iter()
+        .find(|step| step.job == "prepare" && step.run.contains(EXECUTION_PREPARE));
+    let prepare_upload = steps
+        .iter()
+        .find(|step| step.job == "prepare" && step.uses.starts_with("actions/upload-artifact@"));
+    let apply_handoff = steps
+        .iter()
+        .find(|step| step.job == "apply" && step.run.contains("runs acquire-handoff"));
+    let install_journal = steps
+        .iter()
+        .find(|step| step.job == "apply" && step.run.contains("runs context-install-journal"));
+    let dispatch_intent = steps
+        .iter()
+        .find(|step| step.job == "apply" && step.run.contains("phase=\"dispatching\""));
+    let apply = steps
+        .iter()
+        .find(|step| step.job == "apply" && step.run.contains(EXECUTION_APPLY));
+    let capture_journal = steps
+        .iter()
+        .find(|step| step.job == "apply" && step.run.contains("runs context-capture-journal"));
+    let mark_completed = steps
+        .iter()
+        .find(|step| step.job == "apply" && step.run.contains("runs context-mark-plan"));
+    let apply_uploads = steps
+        .iter()
+        .filter(|step| step.job == "apply" && step.uses.starts_with("actions/upload-artifact@"))
+        .collect::<Vec<_>>();
+    let finalizer = steps
+        .iter()
+        .find(|step| step.job == "apply" && step.run.contains("finalize-gh-steward-run"));
+    let noop_acquire = steps.iter().find(|step| {
+        step.job == "settle_noop"
+            && step.run.contains("runs acquire-handoff")
+            && step.run.contains("--purpose transport")
+    });
+    let noop_finish = steps
+        .iter()
+        .find(|step| step.job == "settle_noop" && step.run.contains("runs finish-noop"));
+    let noop_finalizer = steps
+        .iter()
+        .find(|step| step.job == "settle_noop" && step.run.contains("finalize-gh-steward-run"));
+    let (
+        Some(target),
+        Some(recovery),
+        Some(fail_closed),
+        Some(preparation),
+        Some(prepare_upload),
+        Some(apply_handoff),
+        Some(install_journal),
+        Some(dispatch_intent),
+        Some(apply),
+        Some(capture_journal),
+        Some(mark_completed),
+        Some(finalizer),
+        Some(noop_acquire),
+        Some(noop_finish),
+        Some(noop_finalizer),
+    ) = (
+        target,
+        recovery,
+        fail_closed,
+        preparation,
+        prepare_upload,
+        apply_handoff,
+        install_journal,
+        dispatch_intent,
+        apply,
+        capture_journal,
+        mark_completed,
+        finalizer,
+        noop_acquire,
+        noop_finish,
+        noop_finalizer,
+    )
+    else {
+        errors.push(format!("{name} must retain native target, recovery, plan, handoff, journal, apply, and no-op settlement steps."));
+        return;
+    };
+    if apply_uploads.len() != 2 {
+        errors.push(format!(
+            "{name} must upload one terminal package and one settlement checkpoint."
+        ));
+        return;
+    }
+    let terminal_upload = apply_uploads[0];
+    let checkpoint_upload = apply_uploads[1];
+    if !(recovery.ordinal < target.ordinal && target.ordinal < preparation.ordinal)
+        || !(apply_handoff.ordinal < install_journal.ordinal
+            && install_journal.ordinal < dispatch_intent.ordinal
+            && dispatch_intent.ordinal < apply.ordinal
+            && apply.ordinal < capture_journal.ordinal
+            && capture_journal.ordinal == mark_completed.ordinal
+            && mark_completed.ordinal < terminal_upload.ordinal
+            && terminal_upload.ordinal < finalizer.ordinal
+            && finalizer.ordinal < checkpoint_upload.ordinal)
+    {
+        errors.push(format!("{name} must recover before prepare and capture durable journal evidence before finalization."));
+    }
+    if !fail_closed
+        .raw
+        .get("if")
+        .and_then(YamlValue::as_str)
+        .is_some_and(|condition| {
+            condition.contains("steps.recovery.outputs.outcome == 'recovery_needed'")
+        })
+        || !fail_closed.run.contains("exit 1")
     {
         errors.push(format!(
-            "{name} artifact upload must include hidden files and retain diagnostics for 14 days."
+            "{name} must stop when prior plan/journal recovery is uncertain."
         ));
+    }
+    if !preparation.run.contains("runs context-start")
+        || !preparation.run.contains("runs context-record-plan")
+    {
+        errors.push(format!(
+            "{name} must register the exact execution plan through native context commands."
+        ));
+    }
+    let handoff_with = prepare_upload.raw.get("with");
+    let prepared_package = concat!("$", "{{ steps.package_state.outputs.package }}");
+    if prepare_upload.raw.get("id").and_then(YamlValue::as_str) != Some("upload_prepared")
+        || handoff_with.is_none_or(|with| {
+            !with
+                .get("name")
+                .and_then(YamlValue::as_str)
+                .is_some_and(|name| name.ends_with("-handoff-00"))
+                || with.get("path").and_then(YamlValue::as_str) != Some(prepared_package)
+                || with
+                    .get("include-hidden-files")
+                    .and_then(YamlValue::as_bool)
+                    != Some(true)
+                || with.get("retention-days").and_then(YamlValue::as_i64) != Some(14)
+        })
+    {
+        errors.push(format!(
+            "{name} must upload a bounded immutable prepared handoff from RUNNER_TEMP."
+        ));
+    }
+    if !apply_handoff
+        .raw
+        .get("env")
+        .is_some_and(|env| yaml_contains(env, "needs.prepare.outputs.artifact_id"))
+        || !apply_handoff
+            .raw
+            .get("env")
+            .is_some_and(|env| yaml_contains(env, "needs.prepare.outputs.artifact_digest"))
+        || !apply_handoff.run.contains("--artifact-id")
+        || !apply_handoff.run.contains("--artifact-digest")
+        || apply_handoff.run.contains("--purpose transport")
+        || steps
+            .iter()
+            .any(|step| step.job == "apply" && step.uses.starts_with("actions/download-artifact@"))
+    {
+        errors.push(format!("{name} apply job must acquire the exact immutable handoff ID and digest with apply purpose."));
+    }
+    if !install_journal
+        .raw
+        .get("if")
+        .and_then(YamlValue::as_str)
+        .is_some_and(|condition| condition.contains("needs.prepare.outputs.mode == 'resumed'"))
+        || !install_journal.run.contains("recovery-source.json")
+        || !install_journal.run.contains("context-install-journal")
+    {
+        errors.push(format!("{name} may install a journal only for a resumed package with its exact recovery source."));
+    }
+    if !dispatch_intent.run.contains("dispatching")
+        || !apply.run.contains("--approve-plan-sha")
+        || !apply.run.contains("apply-results/execution.json")
+    {
+        errors.push(format!(
+            "{name} must persist dispatch intent before applying the exact recorded plan."
+        ));
+    }
+    if !capture_journal.run.contains("context-capture-journal")
+        || !capture_journal.run.contains("journal-root")
+        || !mark_completed
+            .run
+            .contains("--name execution --status completed")
+        || !mark_completed.run.contains("apply-results/execution.json")
+    {
+        errors.push(format!("{name} must use native monotonic journal capture and mark completion only from the exact apply result."));
+    }
+    let terminal_package = concat!("$", "{{ runner.temp }}/execution-state-package");
+    if !terminal_upload.raw.get("with").is_some_and(|with| {
+        with.get("name")
+            .and_then(YamlValue::as_str)
+            .is_some_and(|name| name.contains("needs.prepare.outputs.artifact_name"))
+            && with.get("path").and_then(YamlValue::as_str) == Some(terminal_package)
+            && with.get("retention-days").and_then(YamlValue::as_i64) == Some(90)
+    }) || !checkpoint_upload.raw.get("with").is_some_and(|with| {
+        with.get("path")
+            .and_then(YamlValue::as_str)
+            .is_some_and(|path| path.contains("checkpoint_path"))
+    }) || !text.contains("recovery_needed")
+    {
+        errors.push(format!(
+            "{name} must retain run-scoped recovery and terminal settlement artifacts."
+        ));
+    }
+    if !finalizer.run.contains("--artifact-id")
+        || !finalizer.run.contains("--artifact-digest")
+        || !noop_acquire.run.contains("--artifact-id")
+        || !noop_acquire.run.contains("--artifact-digest")
+        || !noop_finish.run.contains("--workflow-sha")
+        || !noop_finalizer.run.contains("--artifact-digest")
+        || !text.contains("needs.apply.result == 'skipped'")
+    {
+        errors.push(format!(
+            "{name} must close failed or no-op attempts with exact artifacts and checkpoints."
+        ));
+    }
+}
+impl WorkflowStepView {
+    fn get_name(&self) -> Option<&str> {
+        self.raw.get("name").and_then(YamlValue::as_str)
     }
 }
 

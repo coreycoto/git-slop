@@ -2,11 +2,15 @@
 
 This directory holds the repo-owned label palette overlay for `git-slop`.
 
-Use the reusable workflow contract from the installed
-`project-management-workflows` plugin from `coreycoto/agent-plugins-private-history` for sync
-and mutation rules.
+Reusable policy guidance comes from the public `coreycoto/agent-plugins`
+packages pinned in `.agents/plugins/marketplace-source.json`; the portable
+`git-slop` Agent Plugin documents this repository's product workflow.
 
-The relevant shared references there are:
+Use `$project-management:project-governance` for label ownership policy and
+`$gh-steward:gh-steward-reviewed-governance` for native snapshots, reviewed
+label plans, exact-hash applies, and durable recovery.
+
+The relevant reusable references are:
 
 - label palette contract
 - GitHub mutation contract

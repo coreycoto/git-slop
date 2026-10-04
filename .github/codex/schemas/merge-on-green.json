@@ -3,34 +3,20 @@
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["noop", "merged", "blocked", "failed"]
+      "enum": ["approved", "noop", "blocked", "failed"]
     },
-    "summary": {
-      "type": "string"
-    },
-    "pr_number": {
-      "type": ["integer", "null"]
-    },
-    "merge_method": {
-      "type": ["string", "null"]
-    },
-    "verified_checks": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "blocking_reasons": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    }
+    "summary": {"type": "string"},
+    "pr_number": {"type": ["integer", "null"]},
+    "approved_plan_sha": {"type": ["string", "null"]},
+    "merge_method": {"type": ["string", "null"]},
+    "verified_checks": {"type": "array", "items": {"type": "string"}},
+    "blocking_reasons": {"type": "array", "items": {"type": "string"}}
   },
   "required": [
     "status",
     "summary",
     "pr_number",
+    "approved_plan_sha",
     "merge_method",
     "verified_checks",
     "blocking_reasons"

@@ -1,28 +1,27 @@
 include!("ci_feedback.rs");
 
-fn validate_agent_plugin_runtime(workflows: &Path, errors: &mut Vec<String>) {
-    for name in AGENT_PLUGIN_WORKFLOWS {
+fn validate_consumer_tool_workflows(workflows: &Path, errors: &mut Vec<String>) {
+    for name in CONSUMER_TOOL_WORKFLOWS {
         let Some(text) = read(&workflows.join(name), errors) else {
             continue;
         };
+        validate_recovery_concurrency(&text, name, errors);
+        if name != "dependency-remediation.yml" {
+            validate_prepared_package_retention(&text, name, errors);
+        }
         for required in [
-            PREPARE_COMMAND,
-            VERIFY_COMMAND,
-            "AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}",
+            "scripts/with-gh-steward.sh --prepare",
+            "scripts/with-gh-steward.sh --verify",
         ] {
             require(&text, required, name, errors);
         }
         for forbidden in [
-            "actions/setup-python",
-            "python-version:",
-            "python -m pip",
-            "pip install",
-            "Install uv",
-            "uv run",
-            "uv sync",
+            "AGENT_PLUGINS_READ_TOKEN",
             "AGENT_PLUGINS_GIT_TOKEN",
+            "agent-plugins-private-history",
+            "PEX_INTERPRETER",
             "python -m agent_plugins",
-            "python -c \"from agent_plugins",
+            "scripts/with-agent-plugins.sh",
             "actions/cache@",
             "RUNNER_TOOL_CACHE",
             "runner.tool_cache",
@@ -32,25 +31,106 @@ fn validate_agent_plugin_runtime(workflows: &Path, errors: &mut Vec<String>) {
         }
     }
 
+    for (name, required) in [
+        (
+            "dependency-remediation.yml",
+            "scripts/prepare-codex-plugins.sh",
+        ),
+        (
+            "governance-reconcile.yml",
+            "scripts/prepare-codex-plugins.sh",
+        ),
+        ("merge-on-green.yml", "scripts/prepare-codex-plugins.sh"),
+        ("execution_state_sync.yml", "gh steward execution apply"),
+    ] {
+        if let Some(text) = read(&workflows.join(name), errors) {
+            require(&text, required, name, errors);
+        }
+    }
     if let Some(text) = read(&workflows.join("execution_state_sync.yml"), errors) {
-        require(
-            &text,
-            "scripts/with-agent-plugins.sh github project-snapshot",
-            "execution_state_sync.yml",
-            errors,
-        );
-        require(
-            &text,
-            "scripts/with-agent-plugins.sh github execution-state",
-            "execution_state_sync.yml",
-            errors,
-        );
+        for required in [
+            "gh steward snapshot project",
+            "gh steward execution prepare",
+            "runs recover",
+            "runs acquire-handoff",
+            "runs context-record-plan",
+            "runs context-install-journal",
+            "runs context-capture-journal",
+            "runs finish-noop",
+            "scripts/finalize-gh-steward-run.sh",
+            "cancel-in-progress: false",
+            "recovery_needed",
+        ] {
+            require(&text, required, "execution_state_sync.yml", errors);
+        }
     }
 
     for name in PUBLIC_RELEASE_WORKFLOWS {
         if let Some(text) = read(&workflows.join(name), errors) {
-            validate_no_private_runtime(name, &text, errors);
+            validate_no_consumer_tools(name, &text, errors);
         }
+    }
+}
+
+fn validate_recovery_concurrency(text: &str, name: &str, errors: &mut Vec<String>) {
+    let Ok(payload) = serde_yaml::from_str::<YamlValue>(text) else {
+        errors.push(format!("{name} must contain valid workflow YAML."));
+        return;
+    };
+    let concurrency = payload.get("concurrency");
+    if concurrency
+        .and_then(|value| value.get("queue"))
+        .and_then(YamlValue::as_str)
+        != Some("max")
+        || concurrency
+            .and_then(|value| value.get("cancel-in-progress"))
+            .and_then(YamlValue::as_bool)
+            != Some(false)
+    {
+        errors.push(format!(
+            "{name} must use concurrency.queue: max and cancel-in-progress: false to preserve pending recovery invocations."
+        ));
+    }
+}
+
+fn validate_prepared_package_retention(text: &str, name: &str, errors: &mut Vec<String>) {
+    let Ok(payload) = serde_yaml::from_str::<YamlValue>(text) else {
+        errors.push(format!("{name} must contain valid workflow YAML."));
+        return;
+    };
+    let Some(steps) = payload
+        .get("jobs")
+        .and_then(|jobs| jobs.get("apply"))
+        .and_then(|job| job.get("steps"))
+        .and_then(YamlValue::as_sequence)
+    else {
+        errors.push(format!("{name} lacks native apply steps for pending package retention."));
+        return;
+    };
+    let qualifier = steps.iter().enumerate().find(|(_, step)| {
+        step.get("id").and_then(YamlValue::as_str) == Some("qualify-prepared")
+    });
+    let upload = steps.iter().enumerate().find(|(_, step)| {
+        step.get("id").and_then(YamlValue::as_str) == Some("terminal_artifact")
+    });
+    let valid = match (qualifier, upload) {
+        (Some((qualifier_index, qualifier)), Some((upload_index, upload))) => {
+            let upload_if = upload.get("if").and_then(YamlValue::as_str).unwrap_or("");
+            qualifier_index < upload_index
+                && qualifier.get("run").and_then(YamlValue::as_str)
+                    .is_some_and(|run| run.contains("runs qualify-prepared"))
+                && qualifier.get("env").and_then(|env| env.get("GH_TOKEN"))
+                    .and_then(YamlValue::as_str) == Some("${{ github.token }}")
+                && upload_if.contains("always()")
+                && !upload_if.contains("qualify-prepared")
+                && qualifier.get("if").and_then(YamlValue::as_str) == Some(upload_if)
+        }
+        _ => false,
+    };
+    if !valid {
+        errors.push(format!(
+            "{name} must qualify pending native work before upload and retain its package even when qualification fails."
+        ));
     }
 }
 
@@ -95,77 +175,206 @@ fn validate_action_versions(repo_root: &Path, workflows: &Path, errors: &mut Vec
 }
 
 fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
-    let contracts: [(&str, &[&str]); 3] = [
+    const UPLOADS: [(&str, &str, &str, &str, &str, u64, Option<bool>); 20] = [
         (
             "dependency-remediation.yml",
-            &[
-                ".artifacts/codex/dependency-remediation.json",
-                ".artifacts/dependency-remediation/",
-            ],
+            "recover",
+            "Upload immutable native recovery handoff",
+            "-handoff-00",
+            "${{ runner.temp }}/dependency-remediation-package",
+            14,
+            Some(true),
+        ),
+        (
+            "dependency-remediation.yml",
+            "publish",
+            "Upload exact dependency-remediation recovery artifact",
+            "outputs.artifact_name",
+            "${{ runner.temp }}/dependency-remediation-package",
+            90,
+            Some(true),
+        ),
+        (
+            "dependency-remediation.yml",
+            "settle-noop",
+            "Upload exact terminal dependency no-op artifact",
+            "outputs.artifact_name",
+            "${{ runner.temp }}/dependency-remediation-package",
+            90,
+            Some(true),
+        ),
+        (
+            "dependency-remediation.yml",
+            "publish",
+            "Upload exact publication settlement checkpoint",
+            "checkpoint_name",
+            "checkpoint_path",
+            90,
+            None,
+        ),
+        (
+            "dependency-remediation.yml",
+            "settle-noop",
+            "Upload exact dependency no-op settlement checkpoint",
+            "checkpoint_name",
+            "checkpoint_path",
+            90,
+            None,
+        ),
+        (
+            "execution_state_sync.yml",
+            "prepare",
+            "Upload exact execution package handoff",
+            "-handoff-00",
+            "${{ steps.package_state.outputs.package }}",
+            14,
+            Some(true),
+        ),
+        (
+            "execution_state_sync.yml",
+            "apply",
+            "Upload exact terminal execution recovery artifact",
+            "outputs.artifact_name",
+            "${{ runner.temp }}/execution-state-package",
+            90,
+            Some(true),
+        ),
+        (
+            "execution_state_sync.yml",
+            "settle_noop",
+            "Upload exact terminal execution no-op artifact",
+            "outputs.artifact_name",
+            "${{ runner.temp }}/execution-state-package",
+            90,
+            Some(true),
+        ),
+        (
+            "execution_state_sync.yml",
+            "apply",
+            "Upload exact execution settlement checkpoint",
+            "checkpoint_name",
+            "checkpoint_path",
+            90,
+            None,
+        ),
+        (
+            "execution_state_sync.yml",
+            "settle_noop",
+            "Upload exact execution no-op settlement checkpoint",
+            "checkpoint_name",
+            "checkpoint_path",
+            90,
+            None,
         ),
         (
             "governance-reconcile.yml",
-            &[
-                ".artifacts/codex/governance-reconcile.json",
-                ".artifacts/github-governance/",
-            ],
+            "prepare",
+            "Upload exact governance handoff for apply or no-op settlement",
+            "-handoff-00",
+            "${{ steps.package_outputs.outputs.package }}",
+            14,
+            Some(true),
+        ),
+        (
+            "governance-reconcile.yml",
+            "apply",
+            "Upload exact governance recovery artifact",
+            "outputs.artifact_name",
+            "${{ runner.temp }}/governance-package",
+            90,
+            Some(true),
+        ),
+        (
+            "governance-reconcile.yml",
+            "settle_noop",
+            "Upload exact terminal governance no-op artifact",
+            "outputs.artifact_name",
+            "${{ runner.temp }}/governance-package",
+            90,
+            Some(true),
+        ),
+        (
+            "governance-reconcile.yml",
+            "apply",
+            "Upload exact governance settlement checkpoint",
+            "checkpoint_name",
+            "checkpoint_path",
+            90,
+            None,
+        ),
+        (
+            "governance-reconcile.yml",
+            "settle_noop",
+            "Upload exact governance no-op settlement checkpoint",
+            "checkpoint_name",
+            "checkpoint_path",
+            90,
+            None,
         ),
         (
             "merge-on-green.yml",
-            &[".artifacts/codex/merge-on-green.json"],
+            "prepare",
+            "Upload immutable merge handoff",
+            "-handoff-00",
+            "${{ runner.temp }}/merge-package",
+            14,
+            Some(true),
+        ),
+        (
+            "merge-on-green.yml",
+            "apply",
+            "Upload exact merge recovery artifact",
+            "outputs.artifact_name",
+            "${{ runner.temp }}/merge-package",
+            90,
+            Some(true),
+        ),
+        (
+            "merge-on-green.yml",
+            "settle_noop",
+            "Upload exact terminal merge no-op artifact",
+            "outputs.artifact_name",
+            "${{ runner.temp }}/merge-package",
+            90,
+            Some(true),
+        ),
+        (
+            "merge-on-green.yml",
+            "apply",
+            "Upload exact merge settlement checkpoint",
+            "checkpoint_name",
+            "checkpoint_path",
+            90,
+            None,
+        ),
+        (
+            "merge-on-green.yml",
+            "settle_noop",
+            "Upload exact merge no-op settlement checkpoint",
+            "checkpoint_name",
+            "checkpoint_path",
+            90,
+            None,
         ),
     ];
-
-    for (name, expected_paths) in contracts {
+    for (name, job, step, artifact_name, artifact_path, days, include_hidden) in UPLOADS {
         let Some(text) = read(&workflows.join(name), errors) else {
             continue;
         };
-        let upload = text
-            .split_once("      - name: Upload ")
-            .map(|(_, tail)| tail);
-        let Some(upload) = upload else {
-            errors.push(format!("{name} must define an upload step."));
+        let Some(payload) = parse_ci_workflow(&text, name, errors) else {
             continue;
         };
-        for expected in [
-            "steps.codex_preflight.outputs.enabled == 'true'",
-            "always()",
-            "include-hidden-files: true",
-            "retention-days: 14",
-        ] {
-            require(upload, expected, name, errors);
-        }
-        require(
-            upload,
-            if name == "dependency-remediation.yml" {
-                "if-no-files-found: warn"
-            } else {
-                "if-no-files-found: error"
-            },
+        validate_artifact_upload(
+            &payload,
             name,
+            job,
+            step,
+            artifact_name,
+            artifact_path,
+            days,
+            include_hidden,
             errors,
         );
-        forbid(upload, "          path: .artifacts\n", name, errors);
-        for path in expected_paths {
-            require(upload, path, name, errors);
-        }
-        if name == "merge-on-green.yml" {
-            require(
-                upload,
-                "steps.merge_preflight.outputs.eligible == 'true'",
-                name,
-                errors,
-            );
-        }
-        if name == "dependency-remediation.yml" {
-            for marker in [
-                "Preserve Codex failure diagnostic",
-                "codex_output_unavailable",
-                "steps.run_codex.outcome",
-            ] {
-                require(&text, marker, name, errors);
-            }
-        }
     }
 
     if let Some(text) = read(&workflows.join("execution_state_sync.yml"), errors) {
@@ -173,32 +382,73 @@ fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
     }
 }
 
-fn validate_execution_state_artifacts(text: &str, errors: &mut Vec<String>) {
-    let name = "execution_state_sync.yml";
-    let artifact_root = text.find("      - name: Prepare artifact root");
-    let runtime_prepare = text.find("      - name: Prepare pinned agent-plugins runtime");
-    if !matches!((artifact_root, runtime_prepare), (Some(root), Some(runtime)) if root < runtime) {
+fn validate_artifact_upload(
+    payload: &YamlValue,
+    workflow_name: &str,
+    job_name: &str,
+    step_name: &str,
+    artifact_name_fragment: &str,
+    artifact_path_fragment: &str,
+    retention_days: u64,
+    include_hidden_files: Option<bool>,
+    errors: &mut Vec<String>,
+) {
+    let step = payload
+        .get("jobs")
+        .and_then(|jobs| jobs.get(job_name))
+        .and_then(|job| job.get("steps"))
+        .and_then(YamlValue::as_sequence)
+        .and_then(|steps| {
+            steps
+                .iter()
+                .find(|step| step.get("name").and_then(YamlValue::as_str) == Some(step_name))
+        });
+    let valid = step.is_some_and(|step| {
+        step.get("uses")
+            .and_then(YamlValue::as_str)
+            .is_some_and(|uses| uses.starts_with("actions/upload-artifact@"))
+            && step.get("with").is_some_and(|with| {
+                with.get("name")
+                    .and_then(YamlValue::as_str)
+                    .is_some_and(|value| value.contains(artifact_name_fragment))
+                    && with
+                        .get("path")
+                        .and_then(YamlValue::as_str)
+                        .is_some_and(|value| value.contains(artifact_path_fragment))
+                    && with.get("retention-days").and_then(YamlValue::as_u64)
+                        == Some(retention_days)
+                    && with.get("if-no-files-found").and_then(YamlValue::as_str) == Some("error")
+                    && include_hidden_files.is_none_or(|expected| {
+                        with.get("include-hidden-files")
+                            .and_then(YamlValue::as_bool)
+                            == Some(expected)
+                    })
+            })
+    });
+    if !valid {
         errors.push(format!(
-            "{name} must create its artifact root before private runtime preparation."
+            "{workflow_name} {job_name} must retain {step_name} with exact immutable artifact identity, path, and retention."
         ));
     }
+}
 
-    let upload = text
-        .split_once("      - name: Upload execution artifacts")
-        .map(|(_, tail)| tail);
-    let Some(upload) = upload else {
-        errors.push(format!("{name} must define its artifact upload."));
-        return;
-    };
-    for expected in [
-        "if: ${{ (failure() || github.event_name == 'workflow_dispatch') && steps.artifact-root.outputs.path != '' }}",
-        "path: ${{ steps.artifact-root.outputs.path }}",
-        "include-hidden-files: true",
-        "if-no-files-found: error",
-        "retention-days: 14",
+fn validate_execution_state_artifacts(text: &str, errors: &mut Vec<String>) {
+    let name = "execution_state_sync.yml";
+    for required in [
+        "cancel-in-progress: false",
+        "runs recover",
+        "runs acquire-handoff",
+        "runs context-record-plan",
+        "runs context-install-journal",
+        "runs context-capture-journal",
+        "runs finish-noop",
+        "scripts/finalize-gh-steward-run.sh",
+        "recovery_needed",
     ] {
-        require(upload, expected, name, errors);
+        require(text, required, name, errors);
     }
+    forbid(text, "cancel-in-progress: true", name, errors);
+    forbid(text, "scripts/recover-execution-state.sh", name, errors);
 }
 
 fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
@@ -377,13 +627,13 @@ fn validate_ci(repo_root: &Path, workflows: &Path, errors: &mut Vec<String>) {
         forbid(&combined, forbidden, "CI workflow family", errors);
     }
     validate_ci_feedback_contract(workflows, errors);
-    validate_runtime_launcher_ci_job(&texts[2].1, texts[2].0, errors);
+    validate_consumer_tool_fixture_jobs(&texts[2].1, texts[2].0, errors);
     validate_windows_action_ci_job(&texts[1].1, texts[1].0, errors);
-    validate_runtime_launcher_fixture(repo_root, errors);
+    validate_consumer_tool_fixtures(repo_root, errors);
 }
 
-fn validate_runtime_launcher_ci_job(text: &str, name: &str, errors: &mut Vec<String>) {
-    const COMMAND: &str = "bash scripts/with-agent-plugins.test.sh";
+fn validate_consumer_tool_fixture_jobs(text: &str, name: &str, errors: &mut Vec<String>) {
+    const COMMAND: &str = "bash scripts/test-consumer-tooling.sh";
     let payload = match serde_yaml::from_str::<YamlValue>(text) {
         Ok(payload) => payload,
         Err(error) => {
@@ -391,19 +641,20 @@ fn validate_runtime_launcher_ci_job(text: &str, name: &str, errors: &mut Vec<Str
             return;
         }
     };
-    let command_is_in_maintainer_contracts = payload
+    let steps = payload
         .get("jobs")
         .and_then(|jobs| jobs.get("maintainer-contracts"))
         .and_then(|job| job.get("steps"))
-        .and_then(YamlValue::as_sequence)
-        .is_some_and(|steps| {
-            steps.iter().any(|step| {
-                step.get("run")
-                    .and_then(YamlValue::as_str)
-                    .is_some_and(|run| run.trim() == COMMAND)
-            })
-        });
-    if !command_is_in_maintainer_contracts {
+        .and_then(YamlValue::as_sequence);
+    let Some(steps) = steps else {
+        errors.push(format!("{name} must define maintainer-contracts steps."));
+        return;
+    };
+    if !steps.iter().any(|step| {
+        step.get("run")
+            .and_then(YamlValue::as_str)
+            .is_some_and(|run| run.trim() == COMMAND)
+    }) {
         errors.push(format!(
             "{name} maintainer-contracts job must run {COMMAND}."
         ));
@@ -541,27 +792,50 @@ fn validate_windows_action_ci_job(text: &str, name: &str, errors: &mut Vec<Strin
     }
 }
 
-fn validate_runtime_launcher_fixture(repo_root: &Path, errors: &mut Vec<String>) {
-    let relative = "scripts/with-agent-plugins.test.sh";
-    let path = repo_root.join(relative);
-    let Ok(metadata) = fs::symlink_metadata(&path) else {
-        errors.push(format!(
-            "{relative} must exist as a regular executable file."
-        ));
-        return;
-    };
-    if !metadata.is_file() {
-        errors.push(format!("{relative} must be a regular file."));
+fn validate_consumer_tool_fixtures(repo_root: &Path, errors: &mut Vec<String>) {
+    const TESTS: [&str; 4] = [
+        "with-gh-steward.test.sh",
+        "prepare-codex-plugins.test.sh",
+        "recover-gh-steward-run.test.sh",
+        "dependency-remediation-paths.test.sh",
+    ];
+    for relative in TESTS {
+        let path = repo_root.join("scripts").join(relative);
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            errors.push(format!("scripts/{relative} must exist as a regular file."));
+            continue;
+        };
+        if !metadata.is_file() {
+            errors.push(format!("scripts/{relative} must be a regular file."));
+        }
     }
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
+    let runner_path = repo_root.join("scripts/test-consumer-tooling.sh");
+    if !fs::symlink_metadata(&runner_path).is_ok_and(|metadata| metadata.is_file()) {
+        errors.push("scripts/test-consumer-tooling.sh must exist as a regular file.".to_owned());
+    }
+    if let Some(runner) = read(&runner_path, errors) {
+        validate_consumer_test_runner(&runner, errors);
+    }
+}
 
-        if metadata.permissions().mode() & 0o111 == 0 {
-            errors.push(format!(
-                "{relative} must be executable as part of the runtime-launcher test contract."
-            ));
+fn validate_consumer_test_runner(text: &str, errors: &mut Vec<String>) {
+    let test_list = text
+        .split_once("for test_script in")
+        .and_then(|(_, remainder)| remainder.split_once("; do"))
+        .map(|(test_list, _)| test_list)
+        .unwrap_or_default();
+    for test in [
+        "with-gh-steward.test.sh",
+        "prepare-codex-plugins.test.sh",
+        "recover-gh-steward-run.test.sh",
+        "dependency-remediation-paths.test.sh",
+    ] {
+        if !test_list
+            .split_whitespace()
+            .any(|entry| entry.trim_end_matches('\\') == test)
+        {
+            errors.push(format!("scripts/test-consumer-tooling.sh must run {test}."));
         }
     }
 }

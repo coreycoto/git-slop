@@ -1,46 +1,38 @@
 {
   "type": "object",
   "properties": {
-    "status": {
-      "type": "string",
-      "enum": ["noop", "patched", "failed"]
-    },
-    "summary": {
-      "type": "string"
-    },
-    "branch": {
-      "type": ["string", "null"]
-    },
-    "pr_url": {
-      "type": ["string", "null"]
-    },
-    "verification": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "changed_files": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "notes": {
-      "type": "array",
-      "items": {
-        "type": "string"
+    "status": { "type": "string", "enum": ["noop", "patched", "failed"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "title": { "type": ["string", "null"] },
+    "body": { "type": ["string", "null"] },
+    "supplemental_patch": { "type": ["string", "null"] },
+    "draft": { "type": "boolean" },
+    "verification": { "type": "array", "items": { "type": "string" } },
+    "changed_files": { "type": "array", "items": { "type": "string" } },
+    "notes": { "type": "array", "items": { "type": "string" } }
+  },
+  "required": ["status", "summary", "title", "body", "supplemental_patch", "draft", "verification", "changed_files", "notes"],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "patched" } } },
+      "then": {
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "body": { "type": "string", "minLength": 1 },
+          "supplemental_patch": { "type": "string", "minLength": 1, "maxLength": 500000 },
+          "changed_files": { "minItems": 1 },
+          "verification": { "minItems": 1 }
+        }
+      },
+      "else": {
+        "properties": {
+          "title": { "type": "null" },
+          "body": { "type": "null" },
+          "supplemental_patch": { "type": "null" },
+          "changed_files": { "maxItems": 0 }
+        }
       }
     }
-  },
-  "required": [
-    "status",
-    "summary",
-    "branch",
-    "pr_url",
-    "verification",
-    "changed_files",
-    "notes"
-  ],
-  "additionalProperties": false
+  ]
 }

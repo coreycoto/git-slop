@@ -31,7 +31,7 @@ Requirements:
 - Cargo
 - Git
 - Node.js 24 or newer for the composite Action tests
-- Bash for the pinned runtime-launcher tests
+- Bash, jq, and Python 3 for offline acquisition and recovery fixtures
 - `actionlint` for workflow validation
 - `cargo-deny` for dependency policy checks
 
@@ -58,15 +58,16 @@ derivation, and finalization live in separate modules under
 `xtask/src/advisor_benchmark/`; keep its status and recommendation derivation in
 the shared engine rather than duplicating it at call sites.
 
-Reusable `agent_plugins` behavior tests, marketplace bootstrap tests, and
-clean-room plugin consumer smoke run in the `coreycoto/agent-plugins-private-history`
-publisher repository. They are intentionally not duplicated here. The
-`scripts/with-agent-plugins.sh` wrapper resolves a private Linux PEX SCIE from
-the exact release, 40-character source revision, archive member, and SHA-256
-digest in `.agents/plugins/marketplace-source.json`. Preparation uses an
-ephemeral per-job directory; verification checks release metadata, archive
-safety, digest, target, and embedded revision before direct CLI execution. It
-does not create or sync a project dependency environment in this repository.
+Reusable project- and product-development guidance is installed from the
+public Agent Plugins source into an isolated `CODEX_HOME`. GitHub API and
+Project behavior belongs in the native Go `gh-steward` extension. The
+consumer-owned `.agents/gh-steward.lock.json` pins its exact source revision
+and four supported release-asset hashes. `scripts/with-gh-steward.sh` stages
+the source-verified release into `RUNNER_TEMP` without changing the global
+extension installation. Its offline verification checks the retained
+attestation receipt, asset digest, version, source revision, cleanliness, and
+target. Do not replace the visible unqualified lock values until the exact
+clean release and all four target assets are qualified.
 
 ## Validation
 
@@ -112,15 +113,18 @@ cargo xtask check-distribution
 ```
 
 Use `cargo xtask validate-codex --require-codex-cli` when the local check must
-also prove that the Codex CLI is installed. To exercise a pinned publisher
-runtime itself, prepare and verify it through `scripts/with-agent-plugins.sh`,
-then use its direct `marketplace` or `github` commands. The read token belongs
-only on the prepare command. Do not add a parallel maintainer runtime or local
-publisher dependency environment; interpreter mode is confined to isolated
-runtime identity verification and the legacy compatibility entry point.
+also prove that Codex CLI is installed. Exercise the stubbed acquisition,
+plugin setup, and recovery contracts without a GitHub provider call:
 
-Keep the execution-state project PAT step-scoped to its two direct operations;
-runtime preparation and verification must not inherit it. For privileged
+```bash
+bash scripts/test-consumer-tooling.sh
+```
+
+Live operations use native `gh steward` commands and the exact saved plan hash.
+Execution-state recovery restores the exact target-specific plan and journal
+from workflow artifacts, and fails with `recovery_needed` if evidence cannot be
+matched. Keep the execution-state project PAT step-scoped to the exact reads
+and writes that need it. For privileged
 `pull_request_target`, keep the repository token on the deliberate Codex
 mutation step, validate and snapshot the trusted base Codex inputs before
 checking out the requested head, and never run head-owned `xtask`, prompts,
@@ -147,8 +151,8 @@ Keep `git-slop` local-first and deterministic:
 - no automatic code mutation, commits, or pushes
 - no GitHub mutation from the public CLI
 - no broad report schema changes without tests and docs
-- no repository-owned maintainer runtime outside Rust; the pinned
-  `agent-plugins` SCIE is acquired as a verified executable
+- no product runtime outside Rust; narrow workflow glue may use shell with the
+  native `gh-steward` CLI and public Agent Plugins
 - no product detector, report, explain, plan, or CLI behavior outside Rust
 
 Validation and dogfood may use private or external repositories, but committed

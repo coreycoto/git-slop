@@ -1,56 +1,11 @@
 # Governance Reconcile
 
-You are running in GitHub Actions inside the `git-slop` repository.
+You are reviewing a captured, read-only governance plan in the `git-slop` repository. The workflow's Codex job has no GitHub mutation token. A separate trusted job may apply only an exact plan that you approve and only within the checked-in label policy.
 
-Use the custom agent `governance_auditor` defined at
-`.codex/agents/governance-auditor.toml`. If that agent is unavailable, stop
-immediately with an actionable error that names the missing agent file.
-Use that agent for the read-only audit and preview phase first; if the preview
-proves that an allowed deterministic auto-fix is needed, the parent run may
-apply that narrow mutation surface afterward.
-Use `$project-management-workflows:github-backlog-mutate`,
-`$project-management-workflows:ensure-quarter-milestones`, and
-`$project-management-workflows:label-palette-design` as the canonical workflow
-skills for this job.
+Use the `governance_auditor` agent from `.codex/agents/governance-auditor.toml`, `$project-management:project-governance`, and `$gh-steward:gh-steward-reviewed-governance`. If an agent or skill is unavailable, return `failed` with an actionable note.
 
-## Read First
+Read `AGENTS.md`, `.codex/README.md`, `config/labels/README.md`, the captured backlog preview, and `.artifacts` package files supplied in the workspace. The only candidate for apply is `.artifacts/github-governance/label-plan.json`, whose complete source snapshot, repository identity, before-values, operations, and `sha256` must all be inspected. It is an unregistered candidate; the trusted workflow records it for apply only after validating your exact approval.
 
-- `AGENTS.md`
-- `.codex/README.md`
-- `config/github/README.md`
-- `config/labels/README.md`
+The policy boundary is the checked-in complete label palette. Only `label-create` and `label-update` operations are eligible. Verify every operation corresponds to a preferred palette entry and that the exact operation list has no extra or out-of-policy mutations. Do not approve empty plans. Do not approve issue, milestone, Project, relationship, or execution-state writes. No milestone target dates or descriptions are supplied here, so quarter milestone work must remain a preview and require authored policy.
 
-## Goal
-
-Reconcile the repo-managed governance surface and emit deterministic preview
-artifacts before any allowed mutation.
-
-## Boundaries
-
-- Use checked-out repo files, `gh`, the workflow GitHub token, the already
-  prepared and verified `agent_plugins` CLI, and local CLI tooling only. The
-  private acquisition token is not available to this task.
-- Do not assume Marketplace-installed connectors are available on the runner.
-- Do not use the GitHub Git Data API.
-- Always generate preview artifacts under `.artifacts/github-governance/`
-  before apply.
-- Allowed auto-fixes are limited to:
-  - current/next quarter milestone create or refresh
-  - repo-managed label palette sync
-- Never auto-mutate:
-  - issue titles
-  - issue bodies
-  - issue milestone assignments
-  - project `Priority` or `Queue Order`
-  - parent/sub-issue links
-
-## Workflow
-
-1. Build the current governance snapshot, issue graph, milestone check, label
-   preview, and summary artifacts.
-2. Decide whether an allowed deterministic auto-fix is needed.
-3. Apply only the allowed mutation surface, if required.
-4. Verify the live GitHub state immediately after any mutation.
-5. Report preview artifacts, applied mutations, and remaining manual work.
-
-Your final response must satisfy the structured output schema for this workflow.
+Return `status: approved` and one `approved_plans` item only when the exact plan passes those checks. Copy its `sha256` into `plan_sha256`, and preserve operation IDs in exact plan order. If you decline the proposal after review, return `declined` or `blocked` with no approved plans and clear reasons. Return `noop` only when no mutation is warranted and `failed` when required evidence cannot be inspected. The plan hash identifies the artifact; it does not create authorization. Do not call GitHub or any mutation command, edit files, or claim that a mutation has happened.

@@ -20,7 +20,7 @@ use toml::Value as TomlValue;
 
 use crate::manifest::project_version;
 
-const EXPECTED_PLUGIN_URL: &str = "https://github.com/coreycoto/agent-plugins-private-history.git";
+const EXPECTED_PLUGIN_URL: &str = "https://github.com/coreycoto/agent-plugins.git";
 const AGENT_PLUGIN_SCHEMA: &str = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
 const GIT_SLOP_MARKETPLACE: &str = ".agents/plugins/marketplace.json";
 const GIT_SLOP_MARKETPLACE_NAME: &str = "git-slop-marketplace";
@@ -134,31 +134,37 @@ const AGENTS: [AgentContract; 5] = [
     AgentContract {
         name: "dependency_patcher",
         path: ".codex/agents/dependency-patcher.toml",
-        skills: &["$project-management-workflows:dependency-remediation"],
+        skills: &[
+            "$project-management:delivery-lifecycle",
+            "$product-development:phased-refactor",
+        ],
     },
     AgentContract {
         name: "docs_taxonomist",
         path: ".codex/agents/docs-taxonomist.toml",
-        skills: &["$project-management-workflows:docs-taxonomy"],
+        skills: &["$project-management:project-governance"],
     },
     AgentContract {
         name: "governance_auditor",
         path: ".codex/agents/governance-auditor.toml",
         skills: &[
-            "$project-management-workflows:ensure-quarter-milestones",
-            "$project-management-workflows:github-backlog-mutate",
-            "$project-management-workflows:label-palette-design",
+            "$project-management:quarter-planning",
+            "$project-management:backlog-planning",
+            "$gh-steward:gh-steward-reviewed-governance",
         ],
     },
     AgentContract {
         name: "merge_gatekeeper",
         path: ".codex/agents/merge-gatekeeper.toml",
-        skills: &["$project-management-workflows:merge-on-green"],
+        skills: &[
+            "$gh-steward:gh-steward-reviewed-merge",
+            "$project-management:delivery-lifecycle",
+        ],
     },
     AgentContract {
         name: "release_publisher",
         path: ".codex/agents/release-publisher.toml",
-        skills: &["$project-management-workflows:release-publish"],
+        skills: &["$project-management:delivery-lifecycle"],
     },
 ];
 
@@ -176,7 +182,7 @@ const WORKFLOWS: [WorkflowContract; 4] = [
         name: "dependency-remediation.yml",
         prompt: ".github/codex/prompts/dependency-remediation.md",
         schema: ".github/codex/schemas/dependency-remediation.json",
-        skill: "$project-management-workflows:dependency-remediation",
+        skill: "$project-management:delivery-lifecycle",
         agent_file: ".codex/agents/dependency-patcher.toml",
         uses_agent_plugins: true,
     },
@@ -184,7 +190,7 @@ const WORKFLOWS: [WorkflowContract; 4] = [
         name: "governance-reconcile.yml",
         prompt: ".github/codex/prompts/governance-reconcile.md",
         schema: ".github/codex/schemas/governance-reconcile.json",
-        skill: "$project-management-workflows:github-backlog-mutate",
+        skill: "$project-management:project-governance",
         agent_file: ".codex/agents/governance-auditor.toml",
         uses_agent_plugins: true,
     },
@@ -192,7 +198,7 @@ const WORKFLOWS: [WorkflowContract; 4] = [
         name: "merge-on-green.yml",
         prompt: ".github/codex/prompts/merge-on-green.md",
         schema: ".github/codex/schemas/merge-on-green.json",
-        skill: "$project-management-workflows:merge-on-green",
+        skill: "$project-management:delivery-lifecycle",
         agent_file: ".codex/agents/merge-gatekeeper.toml",
         uses_agent_plugins: true,
     },
@@ -200,7 +206,7 @@ const WORKFLOWS: [WorkflowContract; 4] = [
         name: "release-publish.yml",
         prompt: ".github/codex/prompts/release-publish.md",
         schema: ".github/codex/schemas/release-publish.json",
-        skill: "$project-management-workflows:release-publish",
+        skill: "$project-management:delivery-lifecycle",
         agent_file: ".codex/agents/release-publisher.toml",
         uses_agent_plugins: false,
     },

@@ -416,27 +416,26 @@ and native archives do not contain it. Its separate committed lockfile pins the
 maintainer dependency graph. Product behavior is implemented and tested in the
 root Rust crate; repository-owned contract validation belongs in `xtask/`.
 
-Private maintainer workflows use a separately published, manifest-pinned
-`agent-plugins` SCIE. The consumer pins its release, source revision, target,
-archive member, and SHA-256 digest. `scripts/with-agent-plugins.sh --prepare`
-acquires it into a per-job directory under `RUNNER_TEMP`; `--verify`
-independently checks release metadata, safe archive extraction, digest, target,
-and embedded revision before execution. The acquisition token is unavailable
-to later commands, and there is no cross-job Actions cache.
+Maintainer workflows use two separately pinned sources. Public Agent Plugins
+supply project- and product-development guidance; the `coreycoto/gh-steward`
+Go extension owns GitHub snapshots, reviewed plans, mutation dispatch and
+durable journals. `.agents/plugins/marketplace-source.json` pins the public
+plugin commit. `.agents/gh-steward.lock.json` pins the native tool source and
+each supported platform's asset SHA-256. `scripts/prepare-codex-plugins.sh`
+installs Codex CLI and plugins under an isolated temporary `CODEX_HOME`.
+`scripts/with-gh-steward.sh --prepare` checks out the exact source and runs its
+release helper, which verifies checksums, GitHub provenance, binary version,
+source commit and platform; `--verify` rechecks the receipt and staged binary.
+Neither step changes global Codex or `gh` extension state, and neither uses the
+old private Python SDK or PEX runtime.
 
-The SCIE embeds its marketplace payload, so installation is offline after
-preparation. Canonical `marketplace`, `github project-snapshot`, and `github
-execution-state` commands invoke its direct CLI. The wrapper's isolated
-interpreter is confined to runtime identity, embedded-marketplace provenance
-verification, and the legacy compatibility entry point. Pull-request jobs
-prepare from trusted base tooling and skip forks when the private secret cannot
-be provided safely. Public Git Slop release jobs never acquire this private
-runtime, and no publisher implementation is stored in this repository.
-
-Execution-state's project credential is step-scoped. Runtime acquisition
-receives only the publisher read token; verification and identity/interpreter
-smoke receive no project token; direct project and execution-state commands
-receive the resolved PAT only for their own step. In the privileged
+Execution-state credentials are step-scoped. Before preparing a new plan, the
+workflow checks the complete workflow-run and named-artifact history for an
+unresolved operation. Its run-scoped artifact binds the repository, target,
+run identity, reviewed plan, apply receipt and exact native operation journal.
+A retry restores and continues that exact plan; absent, expired, incomplete or
+mismatched evidence stops with `recovery_needed`. Concurrency never cancels an
+in-flight mutation run. In the privileged
 dependency-remediation flow, the base checkout is validated and its Codex
 config, profiles, agents, prompt, and schema are copied under `RUNNER_TEMP`
 before the requested head is checked out. The later Codex action consumes only

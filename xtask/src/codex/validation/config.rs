@@ -9,7 +9,8 @@ pub fn validate(repo_root: &Path, require_codex_cli: bool) -> Vec<String> {
     validate_agents(repo_root, &mut errors);
     validate_workflow_assets(repo_root, &mut errors);
     validate_guidance(repo_root, &mut errors);
-    runtime_manifest::validate_agent_plugin_wrapper(repo_root, &mut errors);
+    runtime_manifest::validate_gh_steward_lock(repo_root, &mut errors);
+    runtime_manifest::validate_release_acquisition_wrappers(repo_root, &mut errors);
     runtime_workflows::validate_agent_plugin_workflows(repo_root, &mut errors);
     validate_release_workflow(repo_root, &mut errors);
     validate_product_documentation(repo_root, &mut errors);

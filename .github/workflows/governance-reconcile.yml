@@ -1,26 +1,39 @@
 name: Governance Reconcile
+run-name: "Governance Reconcile #${{ github.run_number }}"
 
 on:
   schedule:
     - cron: "20 11 * * 1"
   workflow_dispatch:
 
+concurrency:
+  group: governance-reconcile-${{ github.repository }}
+  cancel-in-progress: false
+  queue: max
+
 jobs:
-  reconcile:
-    name: Governance reconcile
+  prepare:
+    name: Capture read-only governance plan
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
-      issues: write
-      pull-requests: write
-      repository-projects: write
-    env:
-      GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}
+      issues: read
+      pull-requests: read
+    outputs:
+      outcome: ${{ steps.recover.outputs.outcome }}
+      mode: ${{ steps.package_outputs.outputs.mode }}
+      phase: ${{ steps.package_outputs.outputs.phase }}
+      artifact_name: ${{ steps.recover.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload_handoff.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload_handoff.outputs.artifact-digest }}
     steps:
-      - name: Checkout
+      - name: Checkout trusted workflow tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
@@ -28,72 +41,535 @@ jobs:
       - name: Validate Codex surface
         run: cargo xtask validate-codex
 
+      - name: Acquire attested gh-steward release
+        id: gh_steward
+        run: scripts/with-gh-steward.sh --prepare
+
+      - name: Verify pinned gh-steward receipt
+        run: scripts/with-gh-steward.sh --verify
+
+      - name: Recover exact prior governance plan and journal
+        id: recover
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NAME: Governance Reconcile #${{ github.run_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GH_STEWARD_BIN" runs recover \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
+            --workflow governance-reconcile.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-name "$RUN_NAME" --recovery-key governance-reconcile-global \
+            --package-root "$RUNNER_TEMP/governance-package" --runner-temp "$RUNNER_TEMP" \
+            --policy .agents/gh-steward-recovery-policy.json --github-output "$GITHUB_OUTPUT"
+
+      - name: Stop when exact prior evidence is unavailable
+        if: steps.recover.outputs.outcome == 'recovery_needed'
+        run: |
+          cat "$RUNNER_TEMP/governance-package/recovery-needed.json" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Capture the exact event and initialize a fresh governance context
+        if: steps.recover.outputs.outcome == 'fresh'
+        id: trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/governance-package"
+          install -d -m 0700 "$root/events" "$root/decisions" "$root/previews" "$root/proposals"
+          cp -- "$GITHUB_EVENT_PATH" "$root/events/trigger-event.json"
+          chmod 0600 "$root/events/trigger-event.json"
+          event_sha="$(sha256sum "$root/events/trigger-event.json" | awk '{print $1}')"
+          echo "event_sha=$event_sha" >> "$GITHUB_OUTPUT"
+
       - name: Detect Codex credentials
         id: codex_preflight
+        if: steps.recover.outputs.outcome == 'fresh'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "OPENAI_API_KEY is not configured; skipping Codex reconciliation." >> "$GITHUB_STEP_SUMMARY"
+            echo "OPENAI_API_KEY is not configured; only read-only reconciliation is available." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Prepare pinned agent-plugins runtime
-        if: steps.codex_preflight.outputs.enabled == 'true'
+      - name: Prepare exact native governance candidate
+        id: candidate
+        if: steps.recover.outputs.outcome == 'fresh' && steps.codex_preflight.outputs.enabled == 'true'
         env:
-          AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
-        run: scripts/with-agent-plugins.sh --prepare
-
-      - name: Verify pinned agent-plugins runtime
-        if: steps.codex_preflight.outputs.enabled == 'true'
-        run: scripts/with-agent-plugins.sh --verify
-
-      - name: Prepare pinned Codex runtime
-        if: steps.codex_preflight.outputs.enabled == 'true'
+          GH_TOKEN: ${{ github.token }}
+          RUN_NAME: Governance Reconcile #${{ github.run_number }}
+        shell: bash
         run: |
-          mkdir -p .artifacts/codex .artifacts/github-governance "$RUNNER_TEMP/codex-runtime/.codex"
+          set -euo pipefail
+          root="$RUNNER_TEMP/governance-package"
+          mkdir -p "$root"/{proposals,reviews,apply-results,journal,previews}
+          chmod 0700 "$root" "$root"/{proposals,reviews,apply-results,journal,previews}
+          cp "$GH_STEWARD_RECEIPT" "$root/gh-steward-acquisition.json"
+          jq --slurpfile policy config/labels/label_palette.json \
+            '{kind:"label-palette",policy:$policy[0]}' > "$root/previews/governance-request.json"
+          gh steward governance prepare --repo-root . \
+            --input payload="$root/previews/governance-request.json" \
+            --out "$root/previews/label-plan-envelope.json"
+          jq -S '.data' "$root/previews/label-plan-envelope.json" > "$root/proposals/candidate.json"
+          plan="$root/proposals/candidate.json"
+          plan_sha="$(jq -er '.sha256' "$plan")"
+          [[ "$plan_sha" =~ ^[a-f0-9]{64}$ ]]
+          operation_count="$(jq -er '.operations | length' "$plan")"
+          echo "has_operations=$([ "$operation_count" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned public Agent Plugins in the isolated Codex home
+        if: steps.candidate.outputs.has_operations == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/codex-runtime/.codex"
           cp .codex/config.toml "$RUNNER_TEMP/codex-runtime/.codex/config.toml"
           sed -i 's/^approval_policy = "on-request"$/approval_policy = "never"/' "$RUNNER_TEMP/codex-runtime/.codex/config.toml"
           cp .codex/*.config.toml "$RUNNER_TEMP/codex-runtime/.codex/"
-          scripts/with-agent-plugins.sh marketplace install \
-            --manifest .agents/plugins/marketplace-source.json \
-            --home "$RUNNER_TEMP/codex-runtime"
+          scripts/prepare-codex-plugins.sh "$RUNNER_TEMP/codex-runtime/.codex"
 
-      - name: Run Codex governance reconcile
-        if: steps.codex_preflight.outputs.enabled == 'true'
-        id: run_codex
+      - name: Stage the bounded governance candidate for read-only review
+        if: steps.candidate.outputs.has_operations == 'true'
+        run: |
+          mkdir -p .artifacts/github-governance
+          cp "$RUNNER_TEMP/governance-package/events/trigger-event.json" .artifacts/github-governance/trigger-event.json
+          cp "$RUNNER_TEMP/governance-package/proposals/candidate.json" .artifacts/github-governance/label-plan.json
+
+      - name: Review the exact governance candidate
+        id: review
+        if: steps.candidate.outputs.has_operations == 'true'
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/governance-reconcile.md
-          output-file: .artifacts/codex/governance-reconcile.json
+          output-file: ${{ runner.temp }}/governance-review.json
           codex-home: ${{ runner.temp }}/codex-runtime/.codex
+          codex-version: 0.160.0
+          model: gpt-6-luna
           codex-args: >-
-            ["--model","gpt-5.4-mini","--output-schema",".github/codex/schemas/governance-reconcile.json"]
+            ["--output-schema",".github/codex/schemas/governance-reconcile.json"]
           safety-strategy: drop-sudo
-          sandbox: workspace-write
+          sandbox: workspace-read-only
 
-      - name: Publish structured summary
-        if: steps.codex_preflight.outputs.enabled == 'true' && always()
+      - name: Finalize the trusted governance preparation decision
+        id: prepare
+        if: steps.recover.outputs.outcome == 'fresh'
+        env:
+          CODEX_ENABLED: ${{ steps.codex_preflight.outputs.enabled }}
+          HAS_OPERATIONS: ${{ steps.candidate.outputs.has_operations }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          RUN_NAME: Governance Reconcile #${{ github.run_number }}
+        shell: bash
         run: |
-          if [ -f .artifacts/codex/governance-reconcile.json ]; then
-            {
-              echo '```json'
-              jq . .artifacts/codex/governance-reconcile.json
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          root="$RUNNER_TEMP/governance-package"
+          event="$root/events/trigger-event.json"
+          event_sha="$(sha256sum "$event" | awk '{print $1}')"
+          make_context() {
+            local target="$1" steps_json="$2"
+            jq -n -S --arg workflow_file governance-reconcile.yml --arg repository "$GITHUB_REPOSITORY" \
+              --arg recovery_key governance-reconcile-global --arg run_name "$RUN_NAME" \
+              --arg trusted_source_sha "$GITHUB_WORKFLOW_SHA" --argjson run "$GITHUB_RUN_ID" \
+              --argjson attempt "$GITHUB_RUN_ATTEMPT" --argjson target "$target" --argjson steps "$steps_json" \
+              '{workflow_file:$workflow_file,repository:$repository,recovery_key:$recovery_key,run_name:$run_name,run_id:$run,attempt:$attempt,attempt_target:$target,dispatch_steps:$steps,trusted_source_sha:$trusted_source_sha}' \
+              > "$root/previews/context-start.json"
+            "$GH_STEWARD_BIN" runs context-start --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
+              --package-root "$root" --runner-temp "$RUNNER_TEMP" --input context="$root/previews/context-start.json" \
+              > "$root/previews/context-start-envelope.json"
+          }
+          finish_noop() {
+            local decision="$1" proposal="null" candidate_sha="" review_sha="null"
+            if [ -s "$root/proposals/candidate.json" ]; then
+              candidate_sha="$(sha256sum "$root/proposals/candidate.json" | awk '{print $1}')"
+              if [ -s "$root/proposals/review.json" ]; then review_sha="\"$(sha256sum "$root/proposals/review.json" | awk '{print $1}')\""; fi
+              proposal="$(jq -n -S --arg candidate_sha "$candidate_sha" --argjson review_sha "$review_sha" \
+                '{candidate_sha256:$candidate_sha,review_sha256:$review_sha}')"
+            fi
+            make_context "$(jq -cnS --arg event_sha "$event_sha" '{event_sha256:$event_sha}')" '[]'
+            "$GH_STEWARD_BIN" runs context-phase --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
+              --package-root "$root" --runner-temp "$RUNNER_TEMP" --phase prepared --reason "reviewed preparation ended without an authorized mutation" \
+              > "$root/previews/context-phase-envelope.json"
+            rm -rf -- "$root/previews" "$root/plans" "$root/reviews" "$root/apply-results" "$root/journal"
+            rm -f -- "$root/gh-steward-acquisition.json"
+            jq -n -S --arg decision "$decision" --arg repository "$GITHUB_REPOSITORY" \
+              --arg server_url "$GITHUB_SERVER_URL" --arg workflow_file governance-reconcile.yml \
+              --arg recovery_key governance-reconcile-global --arg workflow_sha "$GITHUB_WORKFLOW_SHA" \
+              --arg event_name "$GITHUB_EVENT_NAME" --arg event_sha "$event_sha" --argjson run "$GITHUB_RUN_ID" \
+              --argjson attempt "$GITHUB_RUN_ATTEMPT" --slurpfile context "$root/run-context.json" \
+              --argjson proposal "$proposal" \
+              '{schema_version:1,decision:$decision,repository:$repository,server_url:$server_url,workflow_file:$workflow_file,run_id:$run,attempt:$attempt,recovery_key:$recovery_key,attempt_target:$context[0].attempt_target,workflow_sha:$workflow_sha,event_name:$event_name,event_sha256:$event_sha} + (if $proposal == null then {} else {proposal:$proposal} end)' \
+              > "$root/decisions/workflow-noop.json"
+            echo 'mode=noop' >> "$GITHUB_OUTPUT"
+          }
+          if [ "$CODEX_ENABLED" != true ]; then
+            finish_noop prerequisite-unavailable
+          elif [ "$HAS_OPERATIONS" != true ]; then
+            finish_noop no-change
+          else
+            [[ "$REVIEW_OUTCOME" == success && -s "$RUNNER_TEMP/governance-review.json" ]]
+            cp -- "$RUNNER_TEMP/governance-review.json" "$root/proposals/review.json"
+            status="$(jq -er '.status' "$root/proposals/review.json")"
+            candidate="$root/proposals/candidate.json"
+            plan_sha="$(jq -er '.sha256' "$candidate")"
+            case "$status" in
+              approved)
+                jq -e --arg sha "$plan_sha" --slurpfile plan "$candidate" \
+                  '.status == "approved" and .approved_plans == [{name:"label-palette",plan_sha256:$sha,operation_ids:($plan[0].operations | map(.id))}]' \
+                  "$root/proposals/review.json" >/dev/null
+                cp -- "$root/proposals/review.json" "$root/reviews/label-palette.json"
+                review_sha="$(sha256sum "$root/reviews/label-palette.json" | awk '{print $1}')"
+                target="$(jq -cnS --arg sha "$plan_sha" '{plan_sha256:$sha}')"
+                make_context "$target" '["Apply exact reviewed label palette plan"]'
+                jq -n -S --arg repository "$GITHUB_REPOSITORY" --arg name label-palette \
+                  --arg command governance-apply --arg review_path reviews/label-palette.json \
+                  --arg review_sha "$review_sha" --slurpfile plan "$candidate" \
+                  '{relative:"plans/label-palette.json",name:$name,command:$command,repository:$repository,plan:$plan[0],review_path:$review_path,review_sha256:$review_sha}' \
+                  > "$root/previews/record-input.json"
+                "$GH_STEWARD_BIN" runs context-record-plan --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+                  --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
+                  --package-root "$root" --runner-temp "$RUNNER_TEMP" --input plan="$root/previews/record-input.json" \
+                  > "$root/previews/context-record-plan-envelope.json"
+                rm -f -- "$candidate" "$root/proposals/review.json"
+                rm -rf -- "$root/previews"
+                rm -f -- "$root/gh-steward-acquisition.json"
+                echo 'mode=prepared' >> "$GITHUB_OUTPUT"
+                ;;
+              declined|noop|blocked|rejected)
+                echo 'mode=noop' >> "$GITHUB_OUTPUT"
+                finish_noop review-declined
+                ;;
+              *) echo "unsupported governance review status: $status" >&2; exit 1 ;;
+            esac
           fi
 
-      - name: Upload governance artifacts
-        if: ${{ always() && steps.codex_preflight.outputs.enabled == 'true' }}
+      - name: Resolve exact package state
+        id: package_outputs
+        if: always() && steps.recover.outputs.outcome != 'recovery_needed'
+        env:
+          RECOVERY_OUTCOME: ${{ steps.recover.outputs.outcome }}
+          PREPARE_MODE: ${{ steps.prepare.outputs.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/governance-package"
+          if [ "$RECOVERY_OUTCOME" = terminal ]; then
+            printf 'mode=terminal\nphase=terminal\npackage=%s\n' "$root" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ -s "$root/run-context.json" ]]
+          phase="$(jq -er '.phase' "$root/run-context.json")"
+          if [ "$RECOVERY_OUTCOME" = resumed ] && [ "$phase" = prepared ]; then mode=resumed
+          elif [ "$RECOVERY_OUTCOME" = fresh ] && [ "$phase" = prepared ] && { [ "$PREPARE_MODE" = noop ] || [ "$PREPARE_MODE" = prepared ]; }; then mode="$PREPARE_MODE"
+          else echo "unexpected recovery package state: $RECOVERY_OUTCOME:$phase" >&2; exit 1
+          fi
+          printf 'package=%s\nphase=%s\nmode=%s\n' "$root" "$phase" "$mode" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact governance handoff for apply or no-op settlement
+        if: always() && steps.package_outputs.outputs.package != '' && (steps.package_outputs.outputs.mode == 'prepared' || steps.package_outputs.outputs.mode == 'resumed' || steps.package_outputs.outputs.mode == 'noop')
+        id: upload_handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: governance-reconcile-artifacts
-          path: |
-            .artifacts/codex/governance-reconcile.json
-            .artifacts/github-governance/
+          name: ${{ steps.recover.outputs.artifact_name }}-handoff-00
+          path: ${{ steps.package_outputs.outputs.package }}
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload a terminal observer artifact without new work
+        if: always() && steps.package_outputs.outputs.mode == 'terminal'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.recover.outputs.artifact_name }}
+          path: ${{ runner.temp }}/governance-package
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+
+  apply:
+    name: Apply only the exact reviewed governance plan
+    needs: prepare
+    if: always() && needs.prepare.result == 'success' && (needs.prepare.outputs.mode == 'prepared' || needs.prepare.outputs.mode == 'resumed')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout trusted apply tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Acquire attested gh-steward release
+        run: scripts/with-gh-steward.sh --prepare
+
+      - name: Verify pinned gh-steward receipt
+        run: scripts/with-gh-steward.sh --verify
+
+      - name: Acquire and verify the exact immutable governance handoff
+        id: handoff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.prepare.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.prepare.outputs.artifact_digest }}
+          RUN_NAME: Governance Reconcile #${{ github.run_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          "$GH_STEWARD_BIN" runs acquire-handoff \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
+            --workflow governance-reconcile.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-name "$RUN_NAME" --recovery-key governance-reconcile-global \
+            --package-root "$RUNNER_TEMP/governance-package" --runner-temp "$RUNNER_TEMP" \
+            --policy .agents/gh-steward-recovery-policy.json --artifact-id "$ARTIFACT_ID" \
+            --artifact-digest "$ARTIFACT_DIGEST"
+
+      - name: Install the exact restored governance journal before resume
+        if: needs.prepare.outputs.mode == 'resumed'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/governance-package"
+          [[ -s "$root/recovery-source.json" ]]
+          journal_dir=".artifacts/gh-steward/journals"
+          install -d -m 0700 "$journal_dir"
+          if find "$root/journal" -type f -name '*.json' -print -quit 2>/dev/null | grep -q .; then
+            "$GH_STEWARD_BIN" runs context-install-journal \
+              --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --policy .agents/gh-steward-recovery-policy.json --package-root "$root" \
+              --runner-temp "$RUNNER_TEMP" --name label-palette --journal-root "$journal_dir"
+          fi
+
+      - name: Restore review and stage exact dispatch context
+        id: stage
+        if: always() && steps.handoff.outcome == 'success'
+        env:
+          RECOVERY_OUTCOME: ${{ needs.prepare.outputs.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/governance-package"
+          [ -s "$root/run-context.json" ] || { echo 'dispatch=false' >> "$GITHUB_OUTPUT"; exit 0; }
+          context_phase="$(jq -er '.phase' "$root/run-context.json")"
+          status="$(jq -r '.status // ""' "$root/reviews/label-palette.json" 2>/dev/null || true)"
+          if [ "$context_phase" = "prepared" ] && [ "$status" = "approved" ]; then
+            plan="$root/plans/label-palette.json"
+            plan_sha="$(jq -er '.sha256' "$plan")"
+            jq -e --arg sha "$plan_sha" --slurpfile plan "$plan" \
+              '.status == "approved" and .approved_plans == [{name:"label-palette",plan_sha256:$sha,operation_ids:($plan[0].operations | map(.id))}]' \
+              "$root/reviews/label-palette.json" >/dev/null
+            jq '.phase="dispatching" | .plans[0].status="dispatching"' \
+              "$root/run-context.json" > "$root/context.tmp"
+            mv "$root/context.tmp" "$root/run-context.json"
+            echo "dispatch=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "dispatch=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply exact reviewed label palette plan
+        id: apply_governance
+        if: steps.stage.outputs.dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/governance-package"
+          plan="$root/plans/label-palette.json"
+          plan_sha="$(jq -er '.sha256' "$plan")"
+          review="$root/reviews/label-palette.json"
+          jq -e --arg sha "$plan_sha" --slurpfile plan "$plan" \
+            '.status == "approved" and (.approved_plans | length == 1 and .[0].name == "label-palette" and .[0].plan_sha256 == $sha and .[0].operation_ids == ($plan[0].operations | map(.id)))' \
+            "$review" >/dev/null
+          gh steward governance apply --repo-root . --input plan="$plan" \
+            --approve-plan-sha "$plan_sha" \
+            --out "$root/apply-results/label-palette.json"
+
+      - name: Capture durable journal and terminal state
+        if: always() && steps.stage.outputs.dispatch == 'true'
+        env:
+          STEP_OUTCOME: ${{ steps.apply_governance.outcome }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/governance-package"
+          journal_dir=".artifacts/gh-steward/journals"
+          if [ -d "$journal_dir" ] && find "$journal_dir" -type f -name '*.json' -print -quit | grep -q .; then
+            "$GH_STEWARD_BIN" runs context-capture-journal \
+              --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --policy .agents/gh-steward-recovery-policy.json --package-root "$root" \
+              --runner-temp "$RUNNER_TEMP" --name label-palette --journal-root "$journal_dir"
+          fi
+          if [ "$STEP_OUTCOME" = success ] && [ -s "$root/apply-results/label-palette.json" ]; then
+            jq -e --arg sha "$(jq -er '.plans[0].sha256' "$root/run-context.json")" \
+              '.data.status == "completed" and .data.plan_sha256 == $sha' \
+              "$root/apply-results/label-palette.json" >/dev/null
+            "$GH_STEWARD_BIN" runs context-mark-plan \
+              --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --policy .agents/gh-steward-recovery-policy.json --package-root "$root" \
+              --runner-temp "$RUNNER_TEMP" --name label-palette --status completed
+          fi
+
+      - name: Publish governance summary
+        if: always()
+        run: |
+          if [ -s "$RUNNER_TEMP/governance-package/reviews/label-palette.json" ]; then
+            { echo '```json'; jq . "$RUNNER_TEMP/governance-package/reviews/label-palette.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -s "$RUNNER_TEMP/governance-package/apply-results/label-palette.json" ]; then
+            { echo '```json'; jq . "$RUNNER_TEMP/governance-package/apply-results/label-palette.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Qualify exact undispatched native plans
+        id: qualify-prepared
+        if: always() && needs.prepare.outputs.artifact_name != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_ROOT: ${{ runner.temp }}/governance-package
+          RUN_NAME: Governance Reconcile
+        run: |
+          set -euo pipefail
+          key="$(jq -er '.recovery_key | select(type == "string" and length > 0)' "$PACKAGE_ROOT/run-context.json")"
+          "$GH_STEWARD_BIN" runs qualify-prepared \
+            --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --workflow governance-reconcile.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-name "$RUN_NAME" --recovery-key "$key" --package-root "$PACKAGE_ROOT" \
+            --runner-temp "$RUNNER_TEMP" --policy .agents/gh-steward-recovery-policy.json \
+            --workflow-sha "$GITHUB_WORKFLOW_SHA"
+
+      - name: Upload exact governance recovery artifact
+        if: always() && needs.prepare.outputs.artifact_name != ''
+        id: terminal_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ needs.prepare.outputs.artifact_name }}
+          path: ${{ runner.temp }}/governance-package
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Finalize exact terminal governance checkpoint
+        id: finalize_checkpoint
+        if: always() && steps.terminal_artifact.outcome == 'success' && steps.terminal_artifact.outputs.artifact-id != '' && steps.stage.outputs.dispatch == 'true' && steps.apply_governance.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.terminal_artifact.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.terminal_artifact.outputs.artifact-digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--workflow governance-reconcile.yml --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --package "$RUNNER_TEMP/governance-package" \
+            --checkpoint "$RUNNER_TEMP/governance-checkpoint" \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST")
+          if [ -f "$RUNNER_TEMP/governance-package/recovery-source.json" ]; then
+            args+=(--recovery-source recovery-source.json)
+          fi
+          scripts/finalize-gh-steward-run.sh "${args[@]}"
+
+      - name: Upload exact governance settlement checkpoint
+        if: always() && steps.finalize_checkpoint.outcome == 'success' && steps.finalize_checkpoint.outputs.outcome == 'checkpoint'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.finalize_checkpoint.outputs.checkpoint_name }}
+          path: ${{ steps.finalize_checkpoint.outputs.checkpoint_path }}
+          if-no-files-found: error
+          retention-days: 90
+
+  settle_noop:
+    name: Settle the governance no-op after the apply job is skipped
+    needs: [prepare, apply]
+    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.mode == 'noop' && needs.apply.result == 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout trusted no-op settlement tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Acquire attested gh-steward release
+        run: scripts/with-gh-steward.sh --prepare
+
+      - name: Verify pinned gh-steward receipt
+        run: scripts/with-gh-steward.sh --verify
+
+      - name: Acquire the exact no-op handoff after the apply path is skipped
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.prepare.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.prepare.outputs.artifact_digest }}
+          RUN_NAME: Governance Reconcile #${{ github.run_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          "$GH_STEWARD_BIN" runs acquire-handoff \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
+            --workflow governance-reconcile.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-name "$RUN_NAME" --recovery-key governance-reconcile-global \
+            --package-root "$RUNNER_TEMP/governance-package" --runner-temp "$RUNNER_TEMP" \
+            --policy .agents/gh-steward-recovery-policy.json --purpose transport \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+          jq -e '.phase == "prepared" and .plans == [] and .dispatch_steps == []' \
+            "$RUNNER_TEMP/governance-package/run-context.json" >/dev/null
+
+      - name: Finish the exact native zero-operation governance receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NAME: Governance Reconcile #${{ github.run_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/governance-package"
+          "$GH_STEWARD_BIN" runs finish-noop \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
+            --workflow governance-reconcile.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-name "$RUN_NAME" --recovery-key governance-reconcile-global \
+            --package-root "$root" --runner-temp "$RUNNER_TEMP" \
+            --policy .agents/gh-steward-recovery-policy.json --workflow-sha "$GITHUB_WORKFLOW_SHA" \
+            > "$RUNNER_TEMP/governance-workflow-noop-envelope.json"
+
+      - name: Upload exact terminal governance no-op artifact
+        id: noop_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ needs.prepare.outputs.artifact_name }}
+          path: ${{ runner.temp }}/governance-package
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Finalize exact governance no-op checkpoint
+        id: noop_checkpoint
+        if: steps.noop_artifact.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.noop_artifact.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.noop_artifact.outputs.artifact-digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/finalize-gh-steward-run.sh \
+            --workflow governance-reconcile.yml --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --package "$RUNNER_TEMP/governance-package" --checkpoint "$RUNNER_TEMP/governance-checkpoint" \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+
+      - name: Upload exact governance no-op settlement checkpoint
+        if: steps.noop_checkpoint.outcome == 'success' && steps.noop_checkpoint.outputs.outcome == 'checkpoint'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.noop_checkpoint.outputs.checkpoint_name }}
+          path: ${{ steps.noop_checkpoint.outputs.checkpoint_path }}
+          if-no-files-found: error
+          retention-days: 90

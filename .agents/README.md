@@ -1,64 +1,47 @@
-# Agent Surface
+# Agent and Tool Surface
 
-This directory carries two separate plugin contracts:
+This directory carries the consumer-owned locks for two independent public
+tooling sources:
 
-- the tracked marketplace-source contract for the installed shared
-  project-management plugin
-- the local Codex marketplace that distributes the portable `git-slop` Agent
-  Plugin
+- `.agents/plugins/marketplace-source.json` pins the public
+  `coreycoto/agent-plugins` source revision and the selected
+  `project-management` and `product-development` plugins.
+- `.agents/gh-steward.lock.json` pins the `coreycoto/gh-steward` source commit
+  and checksums for its four qualified Darwin/Linux assets.
 
-Use these surfaces:
+The portable `git-slop` Agent Plugin is maintained separately in
+`plugins/git-slop` and distributed through this repository's local Codex marketplace manifest at
+`.agents/plugins/marketplace.json`.
 
-- `AGENTS.md`: always-on repo policy
-- `.agents/plugins/marketplace-source.json`: pinned marketplace source manifest
-- `.agents/plugins/marketplace.json`: local Codex marketplace for the portable `git-slop` Agent Plugin
-- `.codex/README.md`: Codex runtime map
+`scripts/prepare-codex-plugins.sh` installs Codex CLI 0.160.0 and the three
+selected plugins into an isolated `CODEX_HOME` under `RUNNER_TEMP`. It uses
+immutable source revisions and does not change a runner's global plugin state.
+The gh-steward source pin comes from its release lock.
 
-`git-slop` consumes the `project-management-workflows` plugin from
-`coreycoto/agent-plugins` through this pinned manifest. The consumer pins the
-publisher source revision, release identity, Linux target, archive member, and
-SHA-256 digest. `scripts/with-agent-plugins.sh --prepare` downloads the private
-PEX SCIE into an ephemeral per-job directory, and a separate `--verify` rejects
-release metadata, embedded revision, digest, or archive-safety mismatches before
-execution. The read token exists only during acquisition. The canonical
-commands are `marketplace`, `github project-snapshot`, and
-`github execution-state`; interpreter mode is internal to runtime identity
-verification and the legacy compatibility entry point.
+`scripts/with-gh-steward.sh --prepare` acquires the exact native release into
+`RUNNER_TEMP` using the source repository's release helper. The helper checks
+the release tag, source commit, checksums, attestation, binary version, target,
+and expected digest. `--verify` rechecks the machine-readable acquisition
+receipt and staged binary before any native workflow command runs. The current
+lock names the published v0.1.0 assets. That executable lacks the new `runs`
+commands, so the prepared recovery workflows cannot be promoted until the
+additional release is qualified and the lock uses its actual source and hashes.
 
-The verified runtime embeds the marketplace payload, so later marketplace
-installation is offline and no command clones the publisher repository.
-Execution-state governance commands still use the resolved project token for
-their intended API calls, but that PAT is scoped only to the two direct
-operation steps. It is absent from preparation, verification, and the publisher
-identity and interpreter smoke checks. No Actions cache, consumer language
-setup, or dependency environment is part of this contract. Bootstrap
-implementation, reusable behavior tests, and clean-room consumer smoke coverage
-stay in `agent-plugins`, not this consumer repository.
+Use `gh steward` for complete live snapshots and reviewed, exact-hash GitHub
+plans. A plan hash identifies the saved artifact; it does not itself grant
+permission. Keep operation journals and receipts after interruption. Do not
+rebuild a plan or replay an ambiguous operation when its saved plan and journal
+cannot be restored.
 
-The public Agent Plugins specification and the private repository named
-`coreycoto/agent-plugins` are separate contracts. The former defines the
-portable `plugins/git-slop/plugin.json` package layout; the latter publishes
-the shared project-management runtime consumed by this repository.
+Pending native plans require `runs qualify-prepared` before package upload. It
+binds the exact current workflow source and positively skipped mutation steps
+to the saved plan, with no journal or apply result for that plan. Qualification
+failure still preserves the package. A prepared-work checkpoint retains an open
+plan across interruptions; only actual terminal receipts establish settlement.
+These source proofs cannot retroactively qualify legacy unknown attempts.
 
-Repo-owned validation belongs to the private standalone Rust `xtask/`
-workspace. Do not add a consumer project dependency sync or duplicated
-publisher implementation here.
-
-`git-slop` also publishes its repo-local Agent Plugin from `plugins/git-slop`.
-Its root `plugin.json` targets Agent Plugins 1.0.0, while this local marketplace
-is the Codex distribution layer. Codex CLI 0.146.0 or newer is required because
-that release first loads Agent Plugins manifests. A metadata-only
-`.codex-plugin/plugin.json` remains as a temporary Codex 0.146.x compatibility
-overlay because 0.146.0 and 0.146.1 do not expose the complete root metadata
-through `plugin/read`; the root manifest remains authoritative and `xtask`
-requires an exact mirror with no component declarations. The plugin owns
-portable product-specific guidance for installing, running, reviewing and
-optionally planning from, and adopting the `git-slop` CLI. Its
-`extensions.com.openai` manifest namespace carries only Codex UI metadata;
-per-skill `agents/openai.yaml` files likewise add only OpenAI presentation and
-the shared Git Slop icon. VS Code, Cursor, GitHub Copilot, and Kiro consume the
-same root manifest and portable `SKILL.md` files without parallel vendor skill
-copies; none currently defines an equivalent packaged per-skill icon overlay.
-It should reference
-`project-management-workflows` only when reviewed `git-slop` output is being
-converted into backlog or governance work.
+The Git Slop Agent Plugin is a portable Agent Plugins package at
+`plugins/git-slop/plugin.json`; Codex-specific presentation stays under its
+`extensions.com.openai` metadata. Reusable project and product development
+workflows come from the selected public plugins, while Git Slop-specific CLI
+usage and adoption guidance stays in this repository's product plugin.

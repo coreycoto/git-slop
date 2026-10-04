@@ -1,0 +1,15 @@
+# actionlint 1.7.12 predates GitHub concurrency.queue. The native workflow
+# validator checks scalar queue: max with cancellation disabled for these paths.
+paths:
+  .github/workflows/dependency-remediation.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'
+  .github/workflows/execution_state_sync.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'
+  .github/workflows/governance-reconcile.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'
+  .github/workflows/merge-on-green.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'

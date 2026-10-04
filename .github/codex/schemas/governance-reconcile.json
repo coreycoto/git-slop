@@ -3,30 +3,37 @@
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["noop", "preview_only", "applied", "failed"]
+      "enum": ["approved", "declined", "noop", "blocked", "rejected", "failed"]
     },
-    "summary": {
-      "type": "string"
-    },
-    "preview_artifacts": {
+    "summary": { "type": "string" },
+    "approved_plans": {
       "type": "array",
       "items": {
-        "type": "string"
-      }
+        "type": "object",
+        "properties": {
+          "name": { "const": "label-palette" },
+          "plan_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "operation_ids": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "minItems": 1
+          }
+        },
+        "required": ["name", "plan_sha256", "operation_ids"],
+        "additionalProperties": false
+      },
+      "maxItems": 1
     },
-    "applied_mutations": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "notes": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    }
+    "preview_artifacts": { "type": "array", "items": { "type": "string" } },
+    "notes": { "type": "array", "items": { "type": "string" } }
   },
-  "required": ["status", "summary", "preview_artifacts", "applied_mutations", "notes"],
-  "additionalProperties": false
+  "required": ["status", "summary", "approved_plans", "preview_artifacts", "notes"],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "approved" } } },
+      "then": { "properties": { "approved_plans": { "minItems": 1 } } },
+      "else": { "properties": { "approved_plans": { "maxItems": 0 } } }
+    }
+  ]
 }

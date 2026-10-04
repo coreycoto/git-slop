@@ -2,7 +2,7 @@ fn validate_removed_surfaces(repo_root: &Path, errors: &mut Vec<String>) {
     for relative in REMOVED_CONSUMER_PATHS {
         if repo_root.join(relative).exists() {
             errors.push(format!(
-                "{relative} should have been removed from the Rust-only maintainer surface."
+                "{relative} should have been removed from the native consumer-tool surface."
             ));
         }
     }

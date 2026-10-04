@@ -2,11 +2,16 @@
 
 This directory holds the repo-owned backlog and project overlay for `git-slop`.
 
-Use the reusable workflow contract from the installed
-`project-management-workflows` plugin from `coreycoto/agent-plugins-private-history` for
-mutation, preview/apply, and artifact rules.
+Reusable policy guidance comes from the public `coreycoto/agent-plugins`
+packages pinned in `.agents/plugins/marketplace-source.json`; the portable
+`git-slop` Agent Plugin documents this repository's product workflow.
 
-The relevant shared references there are:
+Use the public `$project-management:project-governance` and
+`$project-management:backlog-planning` guidance for policy and review. Use
+`$gh-steward:gh-steward-reviewed-governance` for native GitHub snapshots,
+reviewed plans, exact-hash applies, and durable recovery.
+
+The relevant reusable references are:
 
 - backlog/project contract
 - GitHub mutation contract
