@@ -59,7 +59,7 @@ derivation, and finalization live in separate modules under
 the shared engine rather than duplicating it at call sites.
 
 Reusable `agent_plugins` behavior tests, marketplace bootstrap tests, and
-clean-room plugin consumer smoke run in the `coreycoto/agent-plugins`
+clean-room plugin consumer smoke run in the `coreycoto/agent-plugins-private-history`
 publisher repository. They are intentionally not duplicated here. The
 `scripts/with-agent-plugins.sh` wrapper resolves a private Linux PEX SCIE from
 the exact release, 40-character source revision, archive member, and SHA-256

@@ -3,7 +3,7 @@
 This directory holds the repo-owned label palette overlay for `git-slop`.
 
 Use the reusable workflow contract from the installed
-`project-management-workflows` plugin from `coreycoto/agent-plugins` for sync
+`project-management-workflows` plugin from `coreycoto/agent-plugins-private-history` for sync
 and mutation rules.
 
 The relevant shared references there are:

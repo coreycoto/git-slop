@@ -3,7 +3,7 @@
 This directory holds the repo-owned backlog and project overlay for `git-slop`.
 
 Use the reusable workflow contract from the installed
-`project-management-workflows` plugin from `coreycoto/agent-plugins` for
+`project-management-workflows` plugin from `coreycoto/agent-plugins-private-history` for
 mutation, preview/apply, and artifact rules.
 
 The relevant shared references there are:

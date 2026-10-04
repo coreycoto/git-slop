@@ -87,7 +87,7 @@ in another client. When available, the marketplace is Codex's distribution
 layer; the installed package itself remains an Agent Plugins 1.0.0 package.
 
 The Agent Plugins specification is not the same thing as the separate private
-repository named `coreycoto/agent-plugins`; that repository continues to own
+repository named `coreycoto/agent-plugins-private-history`; that repository continues to own
 shared project-management workflow guidance and its prebuilt runtime.
 
 It covers:
@@ -100,7 +100,7 @@ It covers:
 
 It intentionally does not own generic backlog, release, project, or governance
 workflows. When a reviewed `git-slop plan` should become backlog work, use the
-separate `project-management-workflows` plugin from `coreycoto/agent-plugins`.
+separate `project-management-workflows` plugin from `coreycoto/agent-plugins-private-history`.
 
 The public `git-slop` runtime is a native executable. `find` always writes
 schema-5 JSON plus detailed `summary.md` and CI-oriented `health.md`; YAML is
