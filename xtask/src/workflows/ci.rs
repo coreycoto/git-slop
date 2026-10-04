@@ -74,10 +74,16 @@ fn validate_consumer_tool_workflows(workflows: &Path, errors: &mut Vec<String>) 
 }
 
 fn validate_native_plan_transport(text: &str, name: &str, errors: &mut Vec<String>) {
+    let (outer, inner) = match name {
+        "execution_state_sync.yml" => ("execution-sync-prepare", "execution-sync"),
+        "governance-reconcile.yml" => ("governance-prepare", "governance-apply"),
+        "merge-on-green.yml" => ("merge-prepare", "merge-apply"),
+        _ => return,
+    };
+    require(text, &format!("--outer-command {outer}"), name, errors);
+    require(text, &format!("--plan-command {inner}"), name, errors);
     for required in [
         "gh steward plan extract",
-        "--outer-command",
-        "--plan-command",
         "--input \"native-plan=",
         "--review-path",
         "--review-sha256",

@@ -288,6 +288,8 @@ fn signed_plan_transport_rejects_filter_extraction_and_reserialized_inputs() {
         for drifted in [
             valid.replace("gh steward plan extract", "jq extract"),
             valid.replace("--input \"native-plan=", "--input \"plan="),
+            valid.replace("--outer-command ", "--outer-command invalid-"),
+            valid.replace("--plan-command ", "--plan-command invalid-"),
             format!("{valid}\n# jq -S '.data' signed-plan-envelope.json\n"),
         ] {
             let mut errors = Vec::new();

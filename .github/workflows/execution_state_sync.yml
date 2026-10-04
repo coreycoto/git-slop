@@ -252,7 +252,7 @@ jobs:
           plan="$root/proposals/candidate.json"
           gh steward plan extract --repo-root "$GITHUB_WORKSPACE" \
             --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --input "envelope=$RUNNER_TEMP/execution-state-plan-envelope.json" --outer-command execution-prepare \
+            --input "envelope=$RUNNER_TEMP/execution-state-plan-envelope.json" --outer-command execution-sync-prepare \
             --plan-command execution-sync --out "$plan"
           plan_sha="$(jq -er '.sha256' "$plan")"
           [[ "$plan_sha" =~ ^[a-f0-9]{64}$ ]]
