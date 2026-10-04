@@ -41,7 +41,7 @@ cat > "$fixture/.agents/gh-steward.lock.json" <<JSON
 {
   "schema_version": 1,
   "repository": "coreycoto/gh-steward",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "source_revision": "$revision",
   "asset_sha256": {
     "darwin/amd64": "$binary_digest",
@@ -119,7 +119,7 @@ fake_env=(
   "FAKE_GH_LOG=$gh_log"
   "FAKE_BINARY_TEMPLATE=$test_root/gh-steward"
   "FAKE_SOURCE_REVISION=$revision"
-  "FAKE_TOOL_VERSION=0.1.0"
+  "FAKE_TOOL_VERSION=0.2.0"
   "FAKE_TARGET=$target"
   "FAKE_ASSET_SHA256=$binary_digest"
 )

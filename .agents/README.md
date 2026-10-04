@@ -23,9 +23,11 @@ The gh-steward source pin comes from its release lock.
 the release tag, source commit, checksums, attestation, binary version, target,
 and expected digest. `--verify` rechecks the machine-readable acquisition
 receipt and staged binary before any native workflow command runs. The current
-lock names the published v0.1.0 assets. That executable lacks the new `runs`
-commands, so the prepared recovery workflows cannot be promoted until the
-additional release is qualified and the lock uses its actual source and hashes.
+lock names the qualified published v0.2.0 assets at source
+`f69e23987d74cc933ebca5fb90f567b89233c870`, including the shared `runs`
+commands. All four native release gates, independent tagged rebuilds, checksums
+and attestations passed. Consumer workflow promotion still requires its own
+hosted qualification and authorization.
 
 Use `gh steward` for complete live snapshots and reviewed, exact-hash GitHub
 plans. A plan hash identifies the saved artifact; it does not itself grant
