@@ -5,8 +5,8 @@ umask 077
 
 readonly program_name="with-agent-plugins"
 readonly expected_target="x86_64-unknown-linux-gnu"
-readonly expected_repository="coreycoto/agent-plugins"
-readonly expected_source_url="https://github.com/coreycoto/agent-plugins.git"
+readonly expected_repository="coreycoto/agent-plugins-private-history"
+readonly expected_source_url="https://github.com/coreycoto/agent-plugins-private-history.git"
 readonly expected_marketplace_name="agent-plugins-marketplace"
 readonly expected_required_plugin="project-management-workflows"
 readonly expected_release_manifest="release-manifest.json"

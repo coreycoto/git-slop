@@ -1,4 +1,28 @@
 #[test]
+fn legacy_runtime_acquisition_rejects_the_reused_public_repository() {
+    for field in ["source_url", "repository"] {
+        let mut manifest = valid_marketplace_source_manifest();
+        if field == "source_url" {
+            manifest["source_url"] = json!("https://github.com/coreycoto/agent-plugins.git");
+        } else {
+            manifest["runtime_release"]["repository"] = json!("coreycoto/agent-plugins");
+        }
+        let mut errors = Vec::new();
+        validate_marketplace_source_manifest(&manifest, &mut errors);
+        assert!(!errors.is_empty(), "accepted the reused public {field}");
+    }
+    for declaration in [
+        "readonly expected_repository=\"coreycoto/agent-plugins-private-history\"",
+        "readonly expected_source_url=\"https://github.com/coreycoto/agent-plugins-private-history.git\"",
+    ] {
+        let stale = valid_wrapper_fixture().replace(declaration, &declaration.replace("-private-history", ""));
+        let mut errors = Vec::new();
+        validate_agent_plugin_wrapper_text("scripts/with-agent-plugins.sh", &stale, &mut errors);
+        assert!(errors.iter().any(|error| error.contains("pinned acquisition declaration")));
+    }
+}
+
+#[test]
 fn runtime_release_manifest_requires_canonical_immutable_pins() {
     let manifest = valid_marketplace_source_manifest();
     let mut errors = Vec::new();

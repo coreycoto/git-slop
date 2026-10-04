@@ -92,6 +92,8 @@ fn valid_marketplace_source_manifest() -> JsonValue {
 
 fn valid_wrapper_fixture() -> &'static str {
     r#"#!/usr/bin/env bash
+readonly expected_repository="coreycoto/agent-plugins-private-history"
+readonly expected_source_url="https://github.com/coreycoto/agent-plugins-private-history.git"
 manifest=.agents/plugins/marketplace-source.json
 runtime_root="${AGENT_PLUGINS_RUNTIME_ROOT:-${RUNNER_TEMP}/agent-plugins-runtime}"
 [[ -z "${RUNNER_TOOL_CACHE-}" ]] || die "runtime root must not use RUNNER_TOOL_CACHE or an Actions cache"

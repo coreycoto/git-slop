@@ -10,7 +10,7 @@ pub(super) const INSTALLED_PLUGIN_NAME: &str = "project-management-workflows";
 pub(super) const EXPECTED_MARKETPLACE_NAME: &str = "agent-plugins-marketplace";
 pub(super) const EXPECTED_PLUGIN_SHA: &str = "e42f887045a2460a5d33b41bedb0565e5fa0d75d";
 pub(super) const MARKETPLACE_SOURCE_MANIFEST: &str = ".agents/plugins/marketplace-source.json";
-pub(super) const EXPECTED_RUNTIME_REPOSITORY: &str = "coreycoto/agent-plugins";
+pub(super) const EXPECTED_RUNTIME_REPOSITORY: &str = "coreycoto/agent-plugins-private-history";
 pub(super) const EXPECTED_RUNTIME_TAG: &str = "v0.1.0";
 pub(super) const EXPECTED_RUNTIME_VERSION: &str = "0.1.0";
 pub(super) const EXPECTED_RUNTIME_TARGET: &str = "x86_64-unknown-linux-gnu";
@@ -39,7 +39,7 @@ pub(super) fn validate_marketplace_source_manifest(manifest: &JsonValue, errors:
     }
     if json_string(manifest, "source_url") != Some(EXPECTED_PLUGIN_URL) {
         errors
-            .push("Consumer bootstrap manifest must point at coreycoto/agent-plugins.git.".into());
+            .push("Consumer bootstrap manifest must point at coreycoto/agent-plugins-private-history.git.".into());
     }
     match manifest.get("ref") {
         Some(JsonValue::String(revision)) if is_lower_hex(revision, 40) => {
@@ -158,6 +158,16 @@ pub(super) fn validate_agent_plugin_wrapper_text(
     text: &str,
     errors: &mut Vec<String>,
 ) {
+    for declaration in [
+        format!("readonly expected_repository=\"{EXPECTED_RUNTIME_REPOSITORY}\""),
+        format!("readonly expected_source_url=\"{EXPECTED_PLUGIN_URL}\""),
+    ] {
+        if !text.lines().any(|line| line == declaration) {
+            errors.push(format!(
+                "{relative} must retain the pinned acquisition declaration {declaration}."
+            ));
+        }
+    }
     for (required, description) in [
         (
             MARKETPLACE_SOURCE_MANIFEST,

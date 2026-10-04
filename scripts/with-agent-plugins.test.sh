@@ -192,11 +192,11 @@ jq -n \
   --argjson size "$archive_size" '
   {
     marketplace_name: "agent-plugins-marketplace",
-    source_url: "https://github.com/coreycoto/agent-plugins.git",
+    source_url: "https://github.com/coreycoto/agent-plugins-private-history.git",
     ref: $revision,
     required_plugin: "project-management-workflows",
     runtime_release: {
-      repository: "coreycoto/agent-plugins",
+      repository: "coreycoto/agent-plugins-private-history",
       tag: "v0.1.0",
       version: "0.1.0",
       target: "x86_64-unknown-linux-gnu",
@@ -247,7 +247,7 @@ while [[ "$#" -gt 0 ]]; do
     *) exit 65 ;;
   esac
 done
-[[ "$repository" == "coreycoto/agent-plugins" ]]
+[[ "$repository" == "coreycoto/agent-plugins-private-history" ]]
 [[ -n "$destination" && "${#patterns[@]}" == "3" ]]
 for pattern in "${patterns[@]}"; do
   cp "${FAKE_RELEASE_DIR}/${pattern}" "${destination}/${pattern}"
@@ -374,6 +374,26 @@ if GITHUB_ACTIONS="true" \
 fi
 grep -q 'must remain under physical RUNNER_TEMP' "${test_root}/actions-root.out"
 [[ "$(wc -l <"$FAKE_GH_LOG" | tr -d ' ')" == "1" ]]
+
+# The reused public repository cannot serve the private legacy revision/assets.
+# Reject either stale location before invoking the acquisition CLI.
+for field in source_url repository; do
+  jq --arg field "$field" '
+    if $field == "source_url" then
+      .source_url = "https://github.com/coreycoto/agent-plugins.git"
+    else
+      .runtime_release.repository = "coreycoto/agent-plugins"
+    end
+  ' "$base_consumer_manifest" >"${fixture_repo}/.agents/plugins/marketplace-source.json"
+  if RUNNER_TEMP="${test_root}/stale-${field}-runner" \
+    AGENT_PLUGINS_READ_TOKEN="read-token" \
+    "$wrapper" --prepare >"${test_root}/stale-${field}.out" 2>&1; then
+    printf 'stale %s unexpectedly passed acquisition validation\n' "$field" >&2
+    exit 1
+  fi
+  [[ "$(wc -l <"$FAKE_GH_LOG" | tr -d ' ')" == "1" ]]
+done
+cp "$base_consumer_manifest" "${fixture_repo}/.agents/plugins/marketplace-source.json"
 
 # A consumer size pin must remain a positive JSON integer; a quoted byte count
 # fails before acquisition and therefore cannot reach gh.

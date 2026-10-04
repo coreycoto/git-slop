@@ -11,7 +11,7 @@ Use the runtime layers like this:
 - `.codex/agents/*.toml`: custom execution roles
 - `.agents/plugins/marketplace-source.json`: pinned marketplace source manifest
 - `.agents/plugins/marketplace.json`: local Codex marketplace for the portable `git-slop` Agent Plugin
-- installed `project-management-workflows` plugin from `coreycoto/agent-plugins`: canonical reusable workflow contract
+- installed `project-management-workflows` plugin from `coreycoto/agent-plugins-private-history`: canonical legacy reusable workflow contract
 - `plugins/git-slop`: product-owned Agent Plugin for installing, running, interpreting, and adopting `git-slop`
 - `.github/codex/prompts/*`: workflow prompts that explicitly name the custom agents to use
 - `.github/codex/schemas/*`: structured-output schemas for Codex-driven workflows

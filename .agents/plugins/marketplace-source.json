@@ -1,10 +1,10 @@
 {
   "marketplace_name": "agent-plugins-marketplace",
-  "source_url": "https://github.com/coreycoto/agent-plugins.git",
+  "source_url": "https://github.com/coreycoto/agent-plugins-private-history.git",
   "ref": "e42f887045a2460a5d33b41bedb0565e5fa0d75d",
   "required_plugin": "project-management-workflows",
   "runtime_release": {
-    "repository": "coreycoto/agent-plugins",
+    "repository": "coreycoto/agent-plugins-private-history",
     "tag": "v0.1.0",
     "version": "0.1.0",
     "target": "x86_64-unknown-linux-gnu",

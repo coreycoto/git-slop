@@ -20,7 +20,7 @@ use toml::Value as TomlValue;
 
 use crate::manifest::project_version;
 
-const EXPECTED_PLUGIN_URL: &str = "https://github.com/coreycoto/agent-plugins.git";
+const EXPECTED_PLUGIN_URL: &str = "https://github.com/coreycoto/agent-plugins-private-history.git";
 const AGENT_PLUGIN_SCHEMA: &str = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
 const GIT_SLOP_MARKETPLACE: &str = ".agents/plugins/marketplace.json";
 const GIT_SLOP_MARKETPLACE_NAME: &str = "git-slop-marketplace";
