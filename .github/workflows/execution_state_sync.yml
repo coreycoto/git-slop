@@ -250,7 +250,10 @@ jobs:
             exit 1
           fi
           plan="$root/proposals/candidate.json"
-          jq -S '.data' "$RUNNER_TEMP/execution-state-plan-envelope.json" > "$plan"
+          gh steward plan extract --repo-root "$GITHUB_WORKSPACE" \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --input "envelope=$RUNNER_TEMP/execution-state-plan-envelope.json" --outer-command execution-prepare \
+            --plan-command execution-sync --out "$plan"
           plan_sha="$(jq -er '.sha256' "$plan")"
           [[ "$plan_sha" =~ ^[a-f0-9]{64}$ ]]
           operation_count="$(jq -er '.operations | length' "$plan")"
@@ -279,14 +282,11 @@ jobs:
             --package-root "$root" --runner-temp "$RUNNER_TEMP" \
             --input context="$RUNNER_TEMP/execution-state-context-start.json" \
             > "$RUNNER_TEMP/execution-state-context-start-envelope.json"
-          jq -n -S --arg name execution --arg command execution-sync --arg repository "$GITHUB_REPOSITORY" \
-            --arg review_path reviews/execution.json --arg review_sha "$review_sha" --slurpfile plan "$plan" \
-            '{relative:"plans/execution.json",name:$name,command:$command,repository:$repository,plan:$plan[0],review_path:$review_path,review_sha256:$review_sha}' \
-            > "$RUNNER_TEMP/execution-state-record-input.json"
           "$GH_STEWARD_BIN" runs context-record-plan --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
             --package-root "$root" --runner-temp "$RUNNER_TEMP" \
-            --input plan="$RUNNER_TEMP/execution-state-record-input.json" \
+            --input "native-plan=$plan" --name execution --relative plans/execution.json \
+            --plan-command execution-sync --review-path reviews/execution.json --review-sha256 "$review_sha" \
             > "$RUNNER_TEMP/execution-state-record-envelope.json"
           rm -f -- "$plan" "$root/project-snapshot-envelope.json" "$root/project-snapshot.stderr" "$root/project-scope.json"
           rm -f -- "$RUNNER_TEMP/execution-state-selector.json" "$RUNNER_TEMP/execution-state-plan-envelope.json" "$RUNNER_TEMP/execution-state-prepare.stderr"

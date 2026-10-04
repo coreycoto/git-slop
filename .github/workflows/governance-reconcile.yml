@@ -113,7 +113,10 @@ jobs:
           gh steward governance prepare --repo-root . \
             --input payload="$root/previews/governance-request.json" \
             --out "$root/previews/label-plan-envelope.json"
-          jq -S '.data' "$root/previews/label-plan-envelope.json" > "$root/proposals/candidate.json"
+          gh steward plan extract --repo-root "$GITHUB_WORKSPACE" \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --input "envelope=$root/previews/label-plan-envelope.json" --outer-command governance-prepare \
+            --plan-command governance-apply --out "$root/proposals/candidate.json"
           plan="$root/proposals/candidate.json"
           plan_sha="$(jq -er '.sha256' "$plan")"
           [[ "$plan_sha" =~ ^[a-f0-9]{64}$ ]]
@@ -223,14 +226,11 @@ jobs:
                 review_sha="$(sha256sum "$root/reviews/label-palette.json" | awk '{print $1}')"
                 target="$(jq -cnS --arg sha "$plan_sha" '{plan_sha256:$sha}')"
                 make_context "$target" '["Apply exact reviewed label palette plan"]'
-                jq -n -S --arg repository "$GITHUB_REPOSITORY" --arg name label-palette \
-                  --arg command governance-apply --arg review_path reviews/label-palette.json \
-                  --arg review_sha "$review_sha" --slurpfile plan "$candidate" \
-                  '{relative:"plans/label-palette.json",name:$name,command:$command,repository:$repository,plan:$plan[0],review_path:$review_path,review_sha256:$review_sha}' \
-                  > "$root/previews/record-input.json"
                 "$GH_STEWARD_BIN" runs context-record-plan --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
                   --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
-                  --package-root "$root" --runner-temp "$RUNNER_TEMP" --input plan="$root/previews/record-input.json" \
+                  --package-root "$root" --runner-temp "$RUNNER_TEMP" \
+                  --input "native-plan=$candidate" --name label-palette --relative plans/label-palette.json \
+                  --plan-command governance-apply --review-path reviews/label-palette.json --review-sha256 "$review_sha" \
                   > "$root/previews/context-record-plan-envelope.json"
                 rm -f -- "$candidate" "$root/proposals/review.json"
                 rm -rf -- "$root/previews"

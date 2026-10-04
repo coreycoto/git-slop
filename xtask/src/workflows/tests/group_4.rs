@@ -279,6 +279,25 @@ fn native_prepared_policy_binds_each_plan_to_its_own_mutator() {
 }
 
 #[test]
+fn signed_plan_transport_rejects_filter_extraction_and_reserialized_inputs() {
+    for name in ["execution_state_sync.yml", "governance-reconcile.yml", "merge-on-green.yml"] {
+        let valid = workflow_text(name);
+        let mut errors = Vec::new();
+        validate_native_plan_transport(&valid, name, &mut errors);
+        assert!(errors.is_empty(), "{name}: {errors:?}");
+        for drifted in [
+            valid.replace("gh steward plan extract", "jq extract"),
+            valid.replace("--input \"native-plan=", "--input \"plan="),
+            format!("{valid}\n# jq -S '.data' signed-plan-envelope.json\n"),
+        ] {
+            let mut errors = Vec::new();
+            validate_native_plan_transport(&drifted, name, &mut errors);
+            assert!(!errors.is_empty(), "{name} accepted plan reserialization");
+        }
+    }
+}
+
+#[test]
 fn release_publish_workflow_is_exactly_generated_from_stage_fragments() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let rendered = render_release_workflow(root).expect("render release workflow");

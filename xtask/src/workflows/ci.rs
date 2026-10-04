@@ -8,6 +8,7 @@ fn validate_consumer_tool_workflows(workflows: &Path, errors: &mut Vec<String>) 
         validate_recovery_concurrency(&text, name, errors);
         if name != "dependency-remediation.yml" {
             validate_prepared_package_retention(&text, name, errors);
+            validate_native_plan_transport(&text, name, errors);
         }
         for required in [
             "scripts/with-gh-steward.sh --prepare",
@@ -70,6 +71,20 @@ fn validate_consumer_tool_workflows(workflows: &Path, errors: &mut Vec<String>) 
             validate_no_consumer_tools(name, &text, errors);
         }
     }
+}
+
+fn validate_native_plan_transport(text: &str, name: &str, errors: &mut Vec<String>) {
+    for required in [
+        "gh steward plan extract",
+        "--outer-command",
+        "--plan-command",
+        "--input \"native-plan=",
+        "--review-path",
+        "--review-sha256",
+    ] {
+        require(text, required, name, errors);
+    }
+    forbid(text, "jq -S '.data'", name, errors);
 }
 
 fn validate_recovery_concurrency(text: &str, name: &str, errors: &mut Vec<String>) {

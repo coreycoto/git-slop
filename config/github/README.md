@@ -11,6 +11,12 @@ Use the public `$project-management:project-governance` and
 `$gh-steward:gh-steward-reviewed-governance` for native GitHub snapshots,
 reviewed plans, exact-hash applies, and durable recovery.
 
+Hosted callers extract signed plans with `gh steward plan extract` and register
+the original file with `runs context-record-plan --input native-plan=FILE`.
+The native tool owns digest validation and serialization so numeric values keep
+their signed representation. These prepared callers require the corresponding
+qualified gh-steward release and exact lock update before promotion.
+
 The relevant reusable references are:
 
 - backlog/project contract

@@ -168,7 +168,10 @@ jobs:
           root="$RUNNER_TEMP/merge-package"
           gh steward merge prepare --repo-root . --policy config/github/merge-on-green.json \
             --input event="$root/events/workflow-run-event.json" --out "$RUNNER_TEMP/merge-plan-envelope.json"
-          jq -S '.data' "$RUNNER_TEMP/merge-plan-envelope.json" > "$root/proposals/candidate.json"
+          gh steward plan extract --repo-root "$GITHUB_WORKSPACE" \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --input "envelope=$RUNNER_TEMP/merge-plan-envelope.json" --outer-command merge-prepare \
+            --plan-command merge-apply --out "$root/proposals/candidate.json"
           plan="$root/proposals/candidate.json"
           plan_sha="$(jq -er '.sha256' "$plan")"
           [[ "$plan_sha" =~ ^[a-f0-9]{64}$ ]]
@@ -304,13 +307,11 @@ jobs:
                 cp -- "$root/proposals/review.json" "$root/reviews/merge.json"
                 review_sha="$(sha256sum "$root/reviews/merge.json" | awk '{print $1}')"
                 make_context "$target" '["Apply reviewed exact-head merge plan"]'
-                jq -n -S --arg repository "$GITHUB_REPOSITORY" --arg name merge --arg command merge-apply \
-                  --arg review_path reviews/merge.json --arg review_sha "$review_sha" --slurpfile plan "$candidate" \
-                  '{relative:"plans/merge.json",name:$name,command:$command,repository:$repository,plan:$plan[0],review_path:$review_path,review_sha256:$review_sha}' \
-                  > "$RUNNER_TEMP/merge-record-input.json"
                 "$GH_STEWARD_BIN" runs context-record-plan --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
                   --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
-                  --package-root "$root" --runner-temp "$RUNNER_TEMP" --input plan="$RUNNER_TEMP/merge-record-input.json" \
+                  --package-root "$root" --runner-temp "$RUNNER_TEMP" \
+                  --input "native-plan=$candidate" --name merge --relative plans/merge.json \
+                  --plan-command merge-apply --review-path reviews/merge.json --review-sha256 "$review_sha" \
                   > "$RUNNER_TEMP/merge-record-envelope.json"
                 rm -rf -- "$root/proposals" "$root/previews"
                 rm -f -- "$RUNNER_TEMP/merge-plan-envelope.json"
