@@ -1,13 +1,13 @@
 {
   "files": {
-    "dependency-patcher.toml": "bbd737ebdc78ea9e8129c1b2fdc2d3c9a2f98cc2351bb32ca6822f9894a72831",
-    "docs-taxonomist.toml": "c0272c6023f10dd7075a036629b2d434b53e672ad61f42154d430ecfcedb6750",
-    "governance-auditor.toml": "af07b9a0a79aa855b261c510d3a3c4da4cd53c4633cf0cb6ccd6c9294a136376",
-    "merge-gatekeeper.toml": "8cdbf9773e301c3af9e26fa76338c72b7d62959e1280c45311ee2d8aa7630b6a",
-    "release-publisher.toml": "e76357c153da69ae3a27067b11c3e0bad34ad2ee1ab694a4e2019892678cf776"
+    "dependency-patcher.toml": "928d0796a3a014938e8d54642106fdc89e0aca781d27654f5c6285a1a5cefaac",
+    "docs-taxonomist.toml": "224c855179513f1d912531f42df7c74977323945d8977f9652490f2f38f613b4",
+    "governance-auditor.toml": "fcb5d6603ffb06e425b2bb886f7016bda88dea95b727ddd0b531844c4e4e8afd",
+    "merge-gatekeeper.toml": "014ad83560629917b1da9c7727c44ce107f71c22b49b2c7e61d2cadca20a9695",
+    "release-publisher.toml": "a06fce2f0d659e8722e066868c37f3a5083f86e01ea2f51f06a7a8b3d71cadbc"
   },
-  "overlayDigest": "e0d3878cdba1edd4f2dc587fed703439dad83dbc64e6623ef6317c2375f28d36",
+  "overlayDigest": "b1a90d363f1e7db6d7b77477234a79af412c8e475c625a5e8243e6308a982b2b",
   "schemaVersion": 1,
   "source": "coreycoto/agent-plugins:project-management",
-  "sourceRevision": "f534867b58cdc0e5bc2c39723c858dc2d1f03a54"
+  "sourceRevision": "6a06c3d94810e17257ab99f7fd0cdfe0c8794ebb"
 }

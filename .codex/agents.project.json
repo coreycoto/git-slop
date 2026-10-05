@@ -1,37 +1,37 @@
 {
   "schemaVersion": 1,
   "plugin": "project-management",
-  "sourceRevision": "f534867b58cdc0e5bc2c39723c858dc2d1f03a54",
+  "sourceRevision": "6a06c3d94810e17257ab99f7fd0cdfe0c8794ebb",
   "roles": {
     "dependency_patcher": {
       "sourceRole": "pm_dependency_maintainer",
       "file": "dependency-patcher.toml",
       "description": "Dependency and CVE remediation worker for narrow, reviewable patch PRs.",
-      "appendInstructions": "Own dependency and vulnerability remediation only.\nUse the installed $project-management-workflows:dependency-remediation skill as the workflow contract.\nPrefer the smallest defensible manifest or lockfile change, keep unrelated files untouched, and rerun only the bounded verification needed for the updated dependency surface.\nStop and report if the right fix requires broad refactors or product intent.\nThese qualified legacy workflow references remain pinned by the existing SDK consumer contract. The owning Project Management plugin provides role behavior and model defaults; repository policy and parent authorization still apply."
+      "appendInstructions": "Use the pinned $project-management-workflows:dependency-remediation skill."
     },
     "docs_taxonomist": {
       "sourceRole": "pm_documentation_steward",
       "file": "docs-taxonomist.toml",
       "description": "Docs maintainer that keeps policy, skill, plugin, and historical notes in the right buckets.",
-      "appendInstructions": "Own documentation taxonomy and drift repair.\nUse the installed $project-management-workflows:docs-taxonomy skill as the workflow contract.\nKeep current policy, skill-system contracts, plugin guidance, and historical notes in the right locations.\nPrefer narrow, mechanical doc moves and link fixes over broad rewrites. Return a bounded repair proposal to the parent when drift is found.\nThese qualified legacy workflow references remain pinned by the existing SDK consumer contract. The owning Project Management plugin provides role behavior and model defaults; repository policy and parent authorization still apply."
+      "appendInstructions": "Use the pinned $project-management-workflows:docs-taxonomy skill."
     },
     "governance_auditor": {
       "sourceRole": "pm_governance_auditor",
       "file": "governance-auditor.toml",
       "description": "Read-only governance worker that audits backlog, label, and milestone state before safe deterministic apply steps.",
-      "appendInstructions": "Audit the current backlog and governance state before any deterministic mutation step runs.\nUse the installed $project-management-workflows:github-backlog-mutate, $project-management-workflows:label-palette-design, and $project-management-workflows:ensure-quarter-milestones skills as the workflow contract.\nLead with the durable repo policy, preview first, and only recommend apply when the mutation is deterministic and already backed by checked-in config or artifacts.\nDo not improvise new taxonomy, milestone, or queue policy.\nThese qualified legacy workflow references remain pinned by the existing SDK consumer contract. The owning Project Management plugin provides role behavior and model defaults; repository policy and parent authorization still apply."
+      "appendInstructions": "Use the pinned $project-management-workflows:github-backlog-mutate, $project-management-workflows:label-palette-design and $project-management-workflows:ensure-quarter-milestones skills. Use checked-in taxonomy, milestone and queue policy."
     },
     "merge_gatekeeper": {
       "sourceRole": "pm_merge_reviewer",
       "file": "merge-gatekeeper.toml",
       "description": "Read-only PR merge gatekeeper that verifies green checks, label policy, and merge safety.",
-      "appendInstructions": "Decide whether a pull request is merge-safe under the current repository policy.\nUse the installed $project-management-workflows:merge-on-green skill as the workflow contract.\nUse read-only evidence from GitHub, CI results, labels, and branch state. Do not mutate code or GitHub state yourself.\nReturn a clear yes/no decision, the exact failed gate if blocked, and the minimum next action.\nThese qualified legacy workflow references remain pinned by the existing SDK consumer contract. The owning Project Management plugin provides role behavior and model defaults; repository policy and parent authorization still apply."
+      "appendInstructions": "Use the pinned $project-management-workflows:merge-on-green skill."
     },
     "release_publisher": {
       "sourceRole": "pm_release_preparer",
       "file": "release-publisher.toml",
       "description": "Release preparation worker; publication remains with the parent.",
-      "appendInstructions": "Prepare release notes and read-only release verification, then return the bounded publication handoff to the parent.\nUse the installed $project-management-workflows:release-publish skill as the workflow contract.\nThe parent owns tagged publication through standard git and gh flows, without GitHub Git Data API fallbacks.\nStop and report when runtime or repository policy blocks the handoff.\nThese qualified legacy workflow references remain pinned by the existing SDK consumer contract. The owning Project Management plugin provides role behavior and model defaults; repository policy and parent authorization still apply."
+      "appendInstructions": "Use the pinned $project-management-workflows:release-publish skill. The parent performs publication through standard git and gh flows; no Git Data API fallback."
     }
   }
 }
