@@ -124,3 +124,17 @@ Run `cargo xtask validate-codex` after changing this surface and
 `cargo xtask validate-workflows` after changing workflow wiring. Use
 `--require-codex-cli` only when the validation environment is expected to have
 the Codex CLI installed.
+
+## Packaged role ownership
+
+Project Management in `coreycoto/agent-plugins` owns the five maintenance roles.
+`.codex/agents.project.json` pins the exact publisher source and keeps Git Slop's
+existing role IDs, filenames, and qualified legacy workflow assignments as
+project overlays. Generated TOMLs and the plugin-qualified receipt are committed
+for local and hosted Codex discovery. Editing an overlay requires regeneration
+from that clean publisher checkout and review of the resulting diff.
+
+The source selects Luna for documentation and Sol for the other maintenance
+roles. Merge and governance roles inspect evidence; release preparation returns
+a handoff. The parent still owns GitHub writes, merges, and publication. This
+role adoption does not upgrade the separately pinned maintainer SDK.

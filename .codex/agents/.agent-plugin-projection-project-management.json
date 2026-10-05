@@ -1,0 +1,13 @@
+{
+  "files": {
+    "dependency-patcher.toml": "bbd737ebdc78ea9e8129c1b2fdc2d3c9a2f98cc2351bb32ca6822f9894a72831",
+    "docs-taxonomist.toml": "c0272c6023f10dd7075a036629b2d434b53e672ad61f42154d430ecfcedb6750",
+    "governance-auditor.toml": "af07b9a0a79aa855b261c510d3a3c4da4cd53c4633cf0cb6ccd6c9294a136376",
+    "merge-gatekeeper.toml": "8cdbf9773e301c3af9e26fa76338c72b7d62959e1280c45311ee2d8aa7630b6a",
+    "release-publisher.toml": "e76357c153da69ae3a27067b11c3e0bad34ad2ee1ab694a4e2019892678cf776"
+  },
+  "overlayDigest": "e0d3878cdba1edd4f2dc587fed703439dad83dbc64e6623ef6317c2375f28d36",
+  "schemaVersion": 1,
+  "source": "coreycoto/agent-plugins:project-management",
+  "sourceRevision": "f534867b58cdc0e5bc2c39723c858dc2d1f03a54"
+}
