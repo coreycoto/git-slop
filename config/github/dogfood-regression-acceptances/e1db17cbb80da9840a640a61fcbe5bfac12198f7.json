@@ -72,8 +72,8 @@
           "path": "config/github/README.md",
           "reason": "material_score_increase",
           "severity": "notice",
-          "content_sha256": "14aa3beddefe2bf58017b741d5f898f4d3dd0b9e57dcefd7cf7890e32dc225e2",
-          "maximum_slop_score": 19.7
+          "content_sha256": "fcfb5370a57835758462dda8590f154135177f7635fca1432c8a5deb8a149bce",
+          "maximum_slop_score": 21.1
         },
         {
           "path": "config/labels/README.md",
@@ -107,8 +107,8 @@
           "path": "xtask/src/workflows/ci.rs",
           "reason": "worse_band",
           "severity": "notice",
-          "content_sha256": "5f7c42b9d05bdefdf24ee6ffc06ed5ba891aa1fa9b1c9c11cf519256a6c5915d",
-          "maximum_slop_score": 64.4
+          "content_sha256": "f65aa309ba7c90c82c67589daeefaee60a9d294ee66ef3b9a5e84e13f165feaa",
+          "maximum_slop_score": 63.9
         },
         {
           "path": "xtask/src/workflows/tests/group_4.rs",
@@ -116,6 +116,13 @@
           "severity": "notice",
           "content_sha256": "18ab2106a48a1296a0a54de4a69f77865e4d26574a409cfa7c52e5e03b261b41",
           "maximum_slop_score": 23.4
+        },
+        {
+          "path": "xtask/src/workflows/tests/repository_contracts.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "419acf6aea7105c4a5ec1d493342121573a36e33384e33bf03e722e5bf7b53e0",
+          "maximum_slop_score": 25.4
         }
       ]
     }
