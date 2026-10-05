@@ -118,35 +118,35 @@
           "path": ".codex/agents/dependency-patcher.toml",
           "reason": "material_score_increase",
           "severity": "notice",
-          "content_sha256": "928d0796a3a014938e8d54642106fdc89e0aca781d27654f5c6285a1a5cefaac",
+          "content_sha256": "728b0ba165b651496b503b218f020054c74bf7670a5516c7896fa43d84970998",
           "maximum_slop_score": 15.2
         },
         {
           "path": ".codex/agents/docs-taxonomist.toml",
           "reason": "material_score_increase",
           "severity": "notice",
-          "content_sha256": "224c855179513f1d912531f42df7c74977323945d8977f9652490f2f38f613b4",
+          "content_sha256": "792565f8a15dc9ca96c6bcbc3f5363c5ef858efbccee735d8d904fc48db7ab79",
           "maximum_slop_score": 15.0
         },
         {
           "path": ".codex/agents/governance-auditor.toml",
           "reason": "material_score_increase",
           "severity": "notice",
-          "content_sha256": "fcb5d6603ffb06e425b2bb886f7016bda88dea95b727ddd0b531844c4e4e8afd",
+          "content_sha256": "c391559514cd0d49eb488e879271ead9a6f19e88387f25e61d55a6fb0d51d178",
           "maximum_slop_score": 16.4
         },
         {
           "path": ".codex/agents/merge-gatekeeper.toml",
           "reason": "material_score_increase",
           "severity": "notice",
-          "content_sha256": "014ad83560629917b1da9c7727c44ce107f71c22b49b2c7e61d2cadca20a9695",
+          "content_sha256": "91a06b674d2153dab3cbd0e13ab79da19ca7fe4987617458daee869443e949c8",
           "maximum_slop_score": 15.2
         },
         {
           "path": ".codex/agents/release-publisher.toml",
           "reason": "material_score_increase",
           "severity": "notice",
-          "content_sha256": "a06fce2f0d659e8722e066868c37f3a5083f86e01ea2f51f06a7a8b3d71cadbc",
+          "content_sha256": "bae738ee036e212eabcc8c91120b81a98baa88b40cca49e1f24451ca05edcf1b",
           "maximum_slop_score": 19.4
         }
       ]

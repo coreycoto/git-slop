@@ -1,5 +1,5 @@
 # Generated from coreycoto/agent-plugins:project-management; do not edit.
-# Source revision: 6a06c3d94810e17257ab99f7fd0cdfe0c8794ebb; source role: pm_release_preparer.
+# Source revision: b052737bfa16021e7fab85b5b60c2c72ff17c723; source role: pm_release_preparer.
 name = "release_publisher"
 description = "Release preparation worker; publication remains with the parent."
 model = "gpt-6.1-sol"
