@@ -79,7 +79,7 @@ tiktoken-rs = "0.12"
 thiserror = "2.0"
 unicode-normalization = "0.1"
 unicode-segmentation = "1.12"
-zstd = "0.13"
+zstd = "0.14"
 
 [dev-dependencies]
 assert_cmd = "2.1"
