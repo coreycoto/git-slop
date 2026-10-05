@@ -408,6 +408,9 @@ fn validate_dependency_candidate_custody(
     }
 
     let verify_needs = candidate_verify_job.and_then(|job| job.get("needs"));
+    let verify_name = candidate_verify_job
+        .and_then(|job| job.get("name"))
+        .and_then(YamlValue::as_str);
     let verify_apply = verify_steps
         .iter()
         .find(|step| step.run.contains("dependency-remediation apply-candidate"));
@@ -418,7 +421,8 @@ fn validate_dependency_candidate_custody(
     let verify_upload = verify_steps
         .iter()
         .find(|step| step.uses.starts_with("actions/upload-artifact@"));
-    if !yaml_contains(verify_needs.unwrap_or(&YamlValue::Null), "test-candidate")
+    if verify_name != Some("Verify publication candidate")
+        || !yaml_contains(verify_needs.unwrap_or(&YamlValue::Null), "test-candidate")
         || !yaml_contains(verify_needs.unwrap_or(&YamlValue::Null), "capture")
         || !yaml_contains(verify_needs.unwrap_or(&YamlValue::Null), "proposal")
         || verify_steps
@@ -442,7 +446,7 @@ fn validate_dependency_candidate_custody(
             < 2
     {
         errors.push(format!(
-            "{name} must use a fresh trusted job to consume the test job result, revalidate both exact input artifacts, reapply the candidate and create its sole publication evidence."
+            "{name} must use the gh-steward-required unique job name Verify publication candidate in a fresh trusted job to consume the test job result, revalidate both exact input artifacts, reapply the candidate and create its sole publication evidence."
         ));
     }
 }

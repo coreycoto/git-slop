@@ -590,7 +590,7 @@ jobs:
           env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
 
   verify-candidate:
-    name: Independently verify and attest the tested candidate
+    name: Verify publication candidate
     needs: [recover, capture, proposal, test-candidate]
     if: needs.recover.outputs.outcome == 'fresh' && needs.proposal.outputs.ready == 'true' && needs.test-candidate.result == 'success'
     runs-on: ubuntu-latest

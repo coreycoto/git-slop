@@ -20,7 +20,7 @@
           "attempt_target": "workflow_noop",
           "approval": {
             "kind": "local-noop",
-            "workflow_source_sha256": "468eeddc906fd4fc36369e02e5bc1751620f131a617d78ed641a3b07dbc43c64",
+            "workflow_source_sha256": "285e2aaf72928729906cb25bbf2167a6d05f14c0c043f2b2abd7db54ffaa68a9",
             "mutators": [
               {
                 "job": "Settle an exact no-publication decision",

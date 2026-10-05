@@ -280,6 +280,25 @@ fn dependency_candidate_evidence_keeps_upstream_artifact_ids_as_json_integers() 
     );
     assert!(errors.is_empty(), "{errors:?}");
 
+    let wrong_verifier_name = good.replace(
+        "name: Verify publication candidate",
+        "name: Independently verify and attest the tested candidate",
+    );
+    assert_ne!(wrong_verifier_name, good, "job-name fixture did not apply");
+    let mut errors = Vec::new();
+    validate_agent_plugin_workflow_text(
+        "dependency-remediation.yml",
+        &wrong_verifier_name,
+        AgentPluginWorkflowKind::CodexPlugins,
+        &mut errors,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("unique job name Verify publication candidate")),
+        "workflow accepted a name gh-steward cannot match to its successful candidate proof: {errors:?}"
+    );
+
     let candidate = include_str!("../dependency_remediation/candidate.rs");
     let mut errors = Vec::new();
     super::runtime_workflows::validate_dependency_candidate_artifact_ids(candidate, &mut errors);
