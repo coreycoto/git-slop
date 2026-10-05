@@ -1,6 +1,7 @@
 pub mod advisor_benchmark;
 pub mod codex;
 pub mod crates_io;
+pub mod dependency_remediation;
 pub mod developer;
 pub mod distribution;
 pub mod homebrew;

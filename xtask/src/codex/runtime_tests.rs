@@ -277,17 +277,17 @@ fn dependency_candidate_evidence_keeps_upstream_artifact_ids_as_json_integers() 
     );
     assert!(errors.is_empty(), "{errors:?}");
 
-    let quoted_id = good.replace(
-        "--argjson capture_id \"$CAPTURE_ID\"",
-        "--arg capture_id \"$CAPTURE_ID\"",
+    let candidate = include_str!("../dependency_remediation/candidate.rs");
+    let mut errors = Vec::new();
+    super::runtime_workflows::validate_dependency_candidate_artifact_ids(candidate, &mut errors);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let quoted_id = candidate.replace(
+        "Ok(json!({\"id\":id,\"name\":name,\"digest\":digest}))",
+        "Ok(json!({\"id\":id.to_string(),\"name\":name,\"digest\":digest}))",
     );
     let mut errors = Vec::new();
-    validate_agent_plugin_workflow_text(
-        "dependency-remediation.yml",
-        &quoted_id,
-        AgentPluginWorkflowKind::CodexPlugins,
-        &mut errors,
-    );
+    super::runtime_workflows::validate_dependency_candidate_artifact_ids(&quoted_id, &mut errors);
     assert!(
         errors
             .iter()

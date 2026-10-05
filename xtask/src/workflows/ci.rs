@@ -528,6 +528,7 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
             "{name} must retain a bounded pull-request regression enforcement block."
         )),
     }
+    validate_dogfood_failure_evidence(&text, name, errors);
 
     let Some(repo_root) = workflows.parent().and_then(Path::parent) else {
         errors.push(format!("{name} repository root could not be resolved."));
@@ -582,6 +583,43 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
         errors.push(format!(
             "{manifest_name} must never accept a critical regression."
         ));
+    }
+}
+
+fn validate_dogfood_failure_evidence(text: &str, name: &str, errors: &mut Vec<String>) {
+    let enforcement = text
+        .split_once("      - name: Enforce pull-request regressions")
+        .and_then(|(_, tail)| {
+            tail.split_once("      - name: Upload full Dogfood regression evidence on failure")
+        })
+        .map(|(block, _)| block);
+    match enforcement {
+        Some(block) => require(block, "id: regressions", name, errors),
+        None => errors.push(format!(
+            "{name} must identify the Dogfood regression step for failure diagnostics."
+        )),
+    }
+
+    let evidence = text
+        .split_once("      - name: Upload full Dogfood regression evidence on failure")
+        .and_then(|(_, tail)| tail.split_once("      - name: Preview first-adoption comparison"))
+        .map(|(block, _)| block);
+    let Some(evidence) = evidence else {
+        errors.push(format!(
+            "{name} must upload complete Dogfood evidence after a regression failure."
+        ));
+        return;
+    };
+    for required in [
+        "if: failure() && steps.regressions.outcome == 'failure'",
+        "uses: actions/upload-artifact@",
+        "git-slop-dogfood-failure-${{ github.run_id }}-${{ github.run_attempt }}",
+        "${{ runner.temp }}/dogfood-comparison.json",
+        ".slop/latest/report.json",
+        "if-no-files-found: warn",
+        "retention-days: 14",
+    ] {
+        require(evidence, required, name, errors);
     }
 }
 

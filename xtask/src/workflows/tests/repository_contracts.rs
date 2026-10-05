@@ -126,3 +126,33 @@ fn dogfood_regression_acceptance_is_exact_bounded_and_noncritical() {
         .expect("absolute Dogfood policy");
     assert!(verifier < absolute_policy);
 }
+
+#[test]
+fn dogfood_regression_failure_retains_full_reports_only_for_that_failure() {
+    let workflow = workflow_text("dogfood.yml");
+    let enforcement = workflow
+        .split_once("      - name: Enforce pull-request regressions")
+        .and_then(|(_, tail)| {
+            tail.split_once("      - name: Upload full Dogfood regression evidence on failure")
+        })
+        .map(|(block, _)| block)
+        .expect("Dogfood enforcement step precedes its failure artifact");
+    assert!(enforcement.contains("id: regressions"));
+
+    let evidence = workflow
+        .split_once("      - name: Upload full Dogfood regression evidence on failure")
+        .and_then(|(_, tail)| tail.split_once("      - name: Preview first-adoption comparison"))
+        .map(|(block, _)| block)
+        .expect("Dogfood failure evidence step precedes first-adoption preview");
+    for required in [
+        "if: failure() && steps.regressions.outcome == 'failure'",
+        "uses: actions/upload-artifact@",
+        "${{ runner.temp }}/dogfood-comparison.json",
+        ".slop/latest/report.json",
+        "if-no-files-found: warn",
+        "retention-days: 14",
+    ] {
+        assert!(evidence.contains(required), "missing {required}");
+    }
+    assert!(evidence.contains("git-slop-dogfood-failure-${{ github.run_id }}-${{ github.run_attempt }}"));
+}

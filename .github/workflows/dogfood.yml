@@ -102,6 +102,7 @@ jobs:
             | jq -e '.name == "dogfood-pr-base"'
 
       - name: Enforce pull-request regressions
+        id: regressions
         if: github.event_name == 'pull_request' && steps.pr-baseline.outputs.enforce == 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -117,6 +118,18 @@ jobs:
             "$comparison" .slop/latest/report.json "$BASE_SHA" "$HEAD_SHA"
           target/release/git-slop compare --state-dir "$RUNNER_TEMP/dogfood-baselines" \
             --baseline dogfood-pr-base --head .slop/latest/report.json
+
+      - name: Upload full Dogfood regression evidence on failure
+        if: failure() && steps.regressions.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: git-slop-dogfood-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/dogfood-comparison.json
+            .slop/latest/report.json
+          if-no-files-found: warn
+          retention-days: 14
+          include-hidden-files: true
 
       - name: Preview first-adoption comparison
         if: github.event_name == 'pull_request' && steps.pr-baseline.outputs.enforce != 'true'

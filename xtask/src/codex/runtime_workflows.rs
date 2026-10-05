@@ -95,6 +95,14 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
         }
     }
 
+    if let Some(source) = read_text(
+        repo_root,
+        "xtask/src/dependency_remediation/candidate.rs",
+        errors,
+    ) {
+        validate_dependency_candidate_artifact_ids(&source, errors);
+    }
+
     let relative = ".github/workflows/execution_state_sync.yml";
     if let Some(text) = read_text(repo_root, relative, errors) {
         validate_agent_plugin_workflow_text(
@@ -604,6 +612,34 @@ fn validate_dependency_remediation_trust(
             "{name} must test source and the complete candidate in credential-free jobs."
         ));
     }
+    let trusted_xtask = verify_steps.iter().find(|step| {
+        step.run.contains(
+            "cargo build --manifest-path \"$GITHUB_WORKSPACE/xtask/Cargo.toml\" --locked --release",
+        ) && step
+            .run
+            .contains("GIT_SLOP_XTASK_BIN=%s/release/git-slop-xtask")
+    });
+    let candidate_apply = verify_steps.iter().find(|step| {
+        step.run.contains("$GIT_SLOP_XTASK_BIN")
+            && step.run.contains("dependency-remediation apply-candidate")
+    });
+    let candidate_check = verify_steps.iter().find(|step| {
+        step.run.contains("$GIT_SLOP_XTASK_BIN")
+            && step
+                .run
+                .contains("dependency-remediation verify-candidate \"$SOURCE_SHA\"")
+            && step.run.contains("candidate_tree_sha")
+    });
+    if trusted_xtask.is_none_or(|build| {
+        candidate_apply.is_none_or(|apply| build.ordinal >= apply.ordinal)
+            || candidate_check.is_none_or(|check| build.ordinal >= check.ordinal)
+    }) || candidate_apply.is_none()
+        || candidate_check.is_none()
+    {
+        errors.push(format!(
+            "{name} must use a prebuilt trusted xtask to apply and recheck the exact source-bound candidate tree."
+        ));
+    }
 
     let recovery = publish_steps
         .iter()
@@ -730,7 +766,6 @@ fn validate_dependency_remediation_trust(
         "publication/result.json",
         "events/trigger-event.json",
         "candidate_tree_sha",
-        "verification_job_name:\"Verify publication candidate\"",
     ] {
         if !text.contains(required) {
             errors.push(format!(
@@ -740,16 +775,30 @@ fn validate_dependency_remediation_trust(
         }
     }
     if !verify_steps.iter().any(|step| {
-        step.run.contains("--argjson capture_id \"$CAPTURE_ID\"")
-            && step.run.contains("--argjson proposal_id \"$PROPOSAL_ID\"")
-            && step.run.contains("CAPTURE_ID\" =~ ^[1-9][0-9]*$")
-            && step.run.contains("PROPOSAL_ID\" =~ ^[1-9][0-9]*$")
+        step.run
+            .contains("dependency-remediation create-candidate-evidence")
     }) {
         errors.push(format!(
-            "{name} candidate evidence must preserve upstream artifact IDs as positive JSON integers."
+            "{name} candidate evidence must be created by the trusted native adapter."
         ));
     }
 }
+
+pub(super) fn validate_dependency_candidate_artifact_ids(source: &str, errors: &mut Vec<String>) {
+    for required in [
+        "let id = positive_env(&format!(\"{prefix}_ID\"))?;",
+        "Ok(json!({\"id\":id,\"name\":name,\"digest\":digest}))",
+    ] {
+        if !source.contains(required) {
+            errors.push(
+                "dependency-remediation candidate evidence must preserve upstream artifact IDs as positive JSON integers."
+                    .to_owned(),
+            );
+            return;
+        }
+    }
+}
+
 fn validate_execution_state_trust(
     text: &str,
     payload: &YamlValue,

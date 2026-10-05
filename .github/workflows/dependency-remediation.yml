@@ -146,48 +146,14 @@ jobs:
           persist-credentials: false
           ref: ${{ github.workflow_sha }}
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
       - name: Validate exact source event
         id: source
         env:
           EVENT_NAME: ${{ github.event_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/dependency-remediation-capture"
-          mkdir -p "$root/events"
-          cp -- "$GITHUB_EVENT_PATH" "$root/events/trigger-event.json"
-          event_sha="$(sha256sum "$root/events/trigger-event.json" | awk '{print $1}')"
-          if [ "$EVENT_NAME" = pull_request_target ]; then
-            [[ "$(jq -er '.pull_request.head.repo.full_name' "$GITHUB_EVENT_PATH")" == "$GITHUB_REPOSITORY" ]] || { echo 'fork dependency updates are not eligible for trusted publication' >&2; exit 1; }
-            source_repository="$(jq -er '.pull_request.head.repo.full_name' "$GITHUB_EVENT_PATH")"
-            source_ref="$(jq -er '.pull_request.head.ref' "$GITHUB_EVENT_PATH")"
-            source_sha="$(jq -er '.pull_request.head.sha' "$GITHUB_EVENT_PATH")"
-            base_ref="$(jq -er '.pull_request.base.ref' "$GITHUB_EVENT_PATH")"
-            base_sha="$(jq -er '.pull_request.base.sha' "$GITHUB_EVENT_PATH")"
-          [[ "$(jq -er '.pull_request.base.repo.full_name' "$GITHUB_EVENT_PATH")" == "$GITHUB_REPOSITORY" ]]
-          else
-            source_repository="$GITHUB_REPOSITORY"
-            source_ref="$GITHUB_REF_NAME"
-            source_sha="$GITHUB_SHA"
-            base_ref="$GITHUB_REF_NAME"
-            base_sha="$GITHUB_SHA"
-          fi
-          [[ "$source_sha" =~ ^[0-9a-f]{40}$ && "$base_sha" =~ ^[0-9a-f]{40}$ && "$event_sha" =~ ^[0-9a-f]{64}$ ]]
-          git check-ref-format "refs/heads/$source_ref" >/dev/null
-          git check-ref-format "refs/heads/$base_ref" >/dev/null
-          jq -n -S \
-            --arg event_name "$EVENT_NAME" --arg source_repository "$source_repository" \
-            --arg source_ref "$source_ref" --arg source_sha "$source_sha" \
-            --arg base_ref "$base_ref" --arg base_sha "$base_sha" \
-            --arg workflow_sha "$GITHUB_WORKFLOW_SHA" --arg trigger_event_sha256 "$event_sha" \
-            '{event_name:$event_name,source_repository:$source_repository,source_ref:$source_ref,source_sha:$source_sha,base_ref:$base_ref,base_sha:$base_sha,workflow_sha:$workflow_sha,trigger_event_sha256:$trigger_event_sha256}' \
-            > "$root/source.json"
-          [[ "$(jq -er '.trigger_event_sha256' "$root/source.json")" == "$event_sha" ]]
-          {
-            echo "source_sha=$source_sha"
-            echo "base_sha=$base_sha"
-            echo "artifact_name=gh-steward-dependency-remediation-capture-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          } >> "$GITHUB_OUTPUT"
+        run: cargo xtask dependency-remediation capture-source
 
       - name: Checkout the event-bound source for credential-free verification
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -197,9 +163,6 @@ jobs:
           path: source
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
       - name: Capture source diff and run its tests without credentials
         working-directory: source
@@ -345,7 +308,8 @@ jobs:
           cp -- "$RUNNER_TEMP/dependency-remediation-source/events/trigger-event.json" "$root/events/trigger-event.json"
           jq -S . "$result" > "$root/publication/result.json"
           jq -jr '.supplemental_patch' "$root/publication/result.json" > "$root/publication/patch.diff"
-          jq -e '.changed_files | type == "array" and length > 0 and all(.[]; type == "string") and (unique|length) == length' "$root/publication/result.json" >/dev/null
+          cargo xtask --repo-root "$GITHUB_WORKSPACE" \
+            dependency-remediation validate-result "$root/publication/result.json"
           jq -n -S \
             --arg workflow_sha "$GITHUB_WORKFLOW_SHA" \
             --arg capture_id "${{ needs.capture.outputs.artifact_id }}" \
@@ -542,6 +506,17 @@ jobs:
           persist-credentials: false
           ref: ${{ github.workflow_sha }}
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Build trusted dependency-remediation adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/git-slop-xtask-target"
+          cargo build --manifest-path "$GITHUB_WORKSPACE/xtask/Cargo.toml" --locked --release --target-dir "$target"
+          printf 'GIT_SLOP_XTASK_BIN=%s/release/git-slop-xtask\n' "$target" >> "$GITHUB_ENV"
+
       - name: Verify upstream artifact identities and extract bounded source metadata
         id: source
         env:
@@ -589,41 +564,10 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           BASE_REF: ${{ github.ref_name }}
           BASE_SHA: ${{ github.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          source "$GITHUB_WORKSPACE/scripts/dependency-remediation-paths.sh"
-          capture="$RUNNER_TEMP/capture-artifact"
-          proposal="$RUNNER_TEMP/proposal-artifact"
-          cmp "$capture/source.json" "$proposal/source.json"
-          cmp "$capture/source.patch" "$proposal/source.patch"
-          cmp "$capture/verification.json" "$proposal/source-verification.json"
-          cmp "$capture/events/trigger-event.json" "$proposal/events/trigger-event.json"
-          jq -e --arg event "$GITHUB_EVENT_NAME" --arg sha "$GITHUB_WORKFLOW_SHA" \
-            '.event_name == $event and .workflow_sha == $sha and (.source_sha | type == "string" and test("^[0-9a-f]{40}$")) and (.base_sha | type == "string" and test("^[0-9a-f]{40}$")) and .source_repository == env.GITHUB_REPOSITORY' \
-            "$capture/source.json" >/dev/null
-          event_sha="$(sha256sum "$capture/events/trigger-event.json" | awk '{print $1}')"
-          [[ "$(jq -er '.trigger_event_sha256' "$capture/source.json")" == "$event_sha" ]]
-          if [ "$GITHUB_EVENT_NAME" = pull_request_target ]; then
-            jq -e --arg repo "$GITHUB_REPOSITORY" --arg source_ref "$(jq -er '.source_ref' "$capture/source.json")" \
-              --arg source_sha "$(jq -er '.source_sha' "$capture/source.json")" \
-              --arg base_ref "$(jq -er '.base_ref' "$capture/source.json")" \
-              --arg base_sha "$(jq -er '.base_sha' "$capture/source.json")" \
-              '.pull_request.head.repo.full_name == $repo and .pull_request.base.repo.full_name == $repo and .pull_request.head.ref == $source_ref and .pull_request.head.sha == $source_sha and .pull_request.base.ref == $base_ref and .pull_request.base.sha == $base_sha' \
-              "$capture/events/trigger-event.json" >/dev/null
-          else
-            jq -e --arg ref "$BASE_REF" --arg sha "$BASE_SHA" \
-              '.source_ref == $ref and .source_sha == $sha and .base_ref == $ref and .base_sha == $sha' \
-              "$capture/source.json" >/dev/null
-          fi
-          jq -e --slurpfile source "$capture/source.json" \
-            '.status == "passed" and .credential_free == true and .source_sha == $source[0].source_sha' \
-            "$capture/verification.json" >/dev/null
-          dependency_remediation_validate_result_paths "$proposal/publication/result.json"
-          [[ "$(jq -er '.status' "$proposal/publication/result.json")" == patched ]]
-          source_sha="$(jq -er '.source_sha' "$capture/source.json")"
-          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
-          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+        run: >-
+          "$GIT_SLOP_XTASK_BIN" --repo-root "$GITHUB_WORKSPACE"
+          dependency-remediation validate-candidate-inputs
+          "$RUNNER_TEMP/capture-artifact" "$RUNNER_TEMP/proposal-artifact"
 
       - name: Checkout exact event-bound source candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -634,31 +578,23 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-
       - name: Apply exact supplemental patch and verify the complete candidate
         id: verify
         working-directory: candidate
         env:
-          BASE_SHA: ${{ steps.source.outputs.source_sha }}
           SOURCE_SHA: ${{ steps.validated_source.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
-          source "$GITHUB_WORKSPACE/scripts/dependency-remediation-paths.sh"
-          proposal="$RUNNER_TEMP/proposal-artifact"
-          patch="$proposal/publication/patch.diff"
-          result="$proposal/publication/result.json"
-          git -c core.hooksPath=/dev/null apply --cached --check --binary "$patch"
-          git -c core.hooksPath=/dev/null apply --cached --binary "$patch"
-          expected_files="$(jq -cS '.changed_files | sort' "$result")"
-          actual_files="$(dependency_remediation_git_file_list_json "$SOURCE_SHA")"
-          jq -e --argjson expected "$expected_files" --argjson actual "$actual_files" '$expected == $actual' >/dev/null
-          tree_before="$(git write-tree)"
+          "$GIT_SLOP_XTASK_BIN" --repo-root "$GITHUB_WORKSPACE/candidate" \
+            dependency-remediation apply-candidate "$RUNNER_TEMP/proposal-artifact" \
+            "$SOURCE_SHA" "$RUNNER_TEMP/dependency-remediation-candidate-tree.sha"
+          tree_before="$(cat "$RUNNER_TEMP/dependency-remediation-candidate-tree.sha")"
           env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test -p git-slop --all-targets --all-features --locked
           env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
-          [[ -z "$(git diff --name-only)" ]] || { echo 'candidate tests modified tracked source files' >&2; exit 1; }
+          "$GIT_SLOP_XTASK_BIN" --repo-root "$GITHUB_WORKSPACE/candidate" \
+            dependency-remediation verify-candidate "$SOURCE_SHA" \
+            "$RUNNER_TEMP/dependency-remediation-candidate-tree.sha"
           tree_after="$(git write-tree)"
           [[ "$tree_before" == "$tree_after" ]]
           echo "candidate_tree_sha=$tree_after" >> "$GITHUB_OUTPUT"
@@ -673,36 +609,11 @@ jobs:
           PROPOSAL_NAME: ${{ needs.proposal.outputs.artifact_name }}
           PROPOSAL_DIGEST: ${{ needs.proposal.outputs.artifact_digest }}
           CANDIDATE_TREE: ${{ steps.verify.outputs.candidate_tree_sha }}
-        run: |
-          set -euo pipefail
-          [[ "$CAPTURE_ID" =~ ^[1-9][0-9]*$ && "$PROPOSAL_ID" =~ ^[1-9][0-9]*$ ]]
-          [[ "$CAPTURE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ && "$PROPOSAL_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          package="$RUNNER_TEMP/dependency-remediation-candidate"
-          mkdir -p "$package/publication" "$package/events"
-          cp -- "$RUNNER_TEMP/proposal-artifact/publication/patch.diff" "$package/publication/patch.diff"
-          cp -- "$RUNNER_TEMP/proposal-artifact/publication/result.json" "$package/publication/result.json"
-          cp -- "$RUNNER_TEMP/proposal-artifact/events/trigger-event.json" "$package/events/trigger-event.json"
-          event_sha="$(sha256sum "$package/events/trigger-event.json" | awk '{print $1}')"
-          patch_sha="$(sha256sum "$package/publication/patch.diff" | awk '{print $1}')"
-          result_sha="$(sha256sum "$package/publication/result.json" | awk '{print $1}')"
-          source="$RUNNER_TEMP/capture-artifact/source.json"
-          jq -n -S \
-            --arg repository "$GITHUB_REPOSITORY" --arg server_url "$GITHUB_SERVER_URL" \
-            --arg workflow_file dependency-remediation.yml --argjson run "$GITHUB_RUN_ID" \
-            --argjson attempt "$GITHUB_RUN_ATTEMPT" --arg workflow_sha "$GITHUB_WORKFLOW_SHA" \
-            --arg event_name "$GITHUB_EVENT_NAME" --arg event_sha "$event_sha" \
-            --arg source_repository "$(jq -er '.source_repository' "$source")" \
-            --arg source_ref "$(jq -er '.source_ref' "$source")" --arg source_sha "$(jq -er '.source_sha' "$source")" \
-            --arg base_ref "$(jq -er '.base_ref' "$source")" --arg base_sha "$(jq -er '.base_sha' "$source")" \
-            --arg candidate_tree "$CANDIDATE_TREE" --arg patch_sha "$patch_sha" --arg result_sha "$result_sha" \
-            --argjson capture_id "$CAPTURE_ID" --arg capture_name "$CAPTURE_NAME" --arg capture_digest "$CAPTURE_DIGEST" \
-            --argjson proposal_id "$PROPOSAL_ID" --arg proposal_name "$PROPOSAL_NAME" --arg proposal_digest "$PROPOSAL_DIGEST" \
-            '{schema_version:1,repository:$repository,server_url:$server_url,workflow_file:$workflow_file,origin_run_id:$run,origin_run_attempt:$attempt,workflow_sha:$workflow_sha,event_name:$event_name,trigger_event_sha256:$event_sha,source_repository:$source_repository,source_ref:$source_ref,source_sha:$source_sha,base_ref:$base_ref,base_sha:$base_sha,candidate_tree_sha:$candidate_tree,patch_sha256:$patch_sha,result_sha256:$result_sha,upstream_artifacts:{capture:{id:$capture_id,name:$capture_name,digest:$capture_digest},proposal:{id:$proposal_id,name:$proposal_name,digest:$proposal_digest}},verification_job_name:"Verify publication candidate"}' \
-            > "$package/publication/candidate.json"
-          jq -e --arg repo "$GITHUB_REPOSITORY" --arg sha "$GITHUB_WORKFLOW_SHA" \
-            '.repository == $repo and .workflow_sha == $sha and (.source_sha | test("^[0-9a-f]{40}$")) and (.base_sha | test("^[0-9a-f]{40}$")) and (.candidate_tree_sha | test("^[0-9a-f]{40}$")) and (.trigger_event_sha256 | test("^[0-9a-f]{64}$")) and (.patch_sha256 | test("^[0-9a-f]{64}$")) and (.result_sha256 | test("^[0-9a-f]{64}$")) and (.upstream_artifacts.capture.id | type == "number" and . > 0 and floor == .) and (.upstream_artifacts.proposal.id | type == "number" and . > 0 and floor == .)' \
-            "$package/publication/candidate.json" >/dev/null
-          echo "artifact_name=gh-steward-candidate-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+        run: >-
+          "$GIT_SLOP_XTASK_BIN" --repo-root "$GITHUB_WORKSPACE"
+          dependency-remediation create-candidate-evidence
+          "$RUNNER_TEMP/capture-artifact" "$RUNNER_TEMP/proposal-artifact"
+          "$RUNNER_TEMP/dependency-remediation-candidate"
 
       - name: Upload exact immutable candidate handoff
         id: upload_candidate
@@ -737,6 +648,14 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Build trusted dependency-remediation publisher
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/git-slop-xtask-target"
+          cargo build --manifest-path "$GITHUB_WORKSPACE/xtask/Cargo.toml" --locked --release --target-dir "$target"
+          printf 'GIT_SLOP_XTASK_BIN=%s/release/git-slop-xtask\n' "$target" >> "$GITHUB_ENV"
 
       - name: Validate trusted publisher contracts
         run: cargo xtask validate-codex
@@ -792,7 +711,6 @@ jobs:
         run: |
           install -d -m 0700 "$RUNNER_TEMP/trusted-dependency-publisher"
           install -m 0700 "$GH_STEWARD_TRUSTED_ROOT/scripts/dependency-remediation-publish.sh" "$RUNNER_TEMP/trusted-dependency-publisher/dependency-remediation-publish.sh"
-          install -m 0600 "$GH_STEWARD_TRUSTED_ROOT/scripts/dependency-remediation-paths.sh" "$RUNNER_TEMP/trusted-dependency-publisher/dependency-remediation-paths.sh"
           install -m 0700 "$GH_STEWARD_TRUSTED_ROOT/scripts/finalize-gh-steward-run.sh" "$RUNNER_TEMP/trusted-dependency-publisher/finalize-gh-steward-run.sh"
 
       - name: Acquire the exact credential-free verified candidate
