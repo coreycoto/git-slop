@@ -109,6 +109,47 @@
           "maximum_slop_score": 13.8
         }
       ]
+    },
+    {
+      "base_sha": "e1db17cbb80da9840a640a61fcbe5bfac12198f7",
+      "rationale": "Reviewed plugin-owned role adoption: five exact-source projections add specialized model, sandbox and authority guidance while retaining qualified legacy workflows. Redundant project prose was removed and safe multiline rendering restored. Independent review found no correctness defects; all five remain compact/low at 390-434 tokens. Accept only these notice-level content/history increases, with exact hashes and observed score ceilings.",
+      "entries": [
+        {
+          "path": ".codex/agents/dependency-patcher.toml",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "928d0796a3a014938e8d54642106fdc89e0aca781d27654f5c6285a1a5cefaac",
+          "maximum_slop_score": 15.2
+        },
+        {
+          "path": ".codex/agents/docs-taxonomist.toml",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "224c855179513f1d912531f42df7c74977323945d8977f9652490f2f38f613b4",
+          "maximum_slop_score": 15.0
+        },
+        {
+          "path": ".codex/agents/governance-auditor.toml",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "fcb5d6603ffb06e425b2bb886f7016bda88dea95b727ddd0b531844c4e4e8afd",
+          "maximum_slop_score": 16.4
+        },
+        {
+          "path": ".codex/agents/merge-gatekeeper.toml",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "014ad83560629917b1da9c7727c44ce107f71c22b49b2c7e61d2cadca20a9695",
+          "maximum_slop_score": 15.2
+        },
+        {
+          "path": ".codex/agents/release-publisher.toml",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "a06fce2f0d659e8722e066868c37f3a5083f86e01ea2f51f06a7a8b3d71cadbc",
+          "maximum_slop_score": 19.4
+        }
+      ]
     }
   ]
 }
