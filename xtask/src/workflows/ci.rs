@@ -526,46 +526,15 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
             "content_sha256",
             "maximum_slop_score",
             ".severity == \"notice\" or .severity == \"warning\"",
+            "shard_dir=${manifest%.json}",
+            "validate_manifest \"$shard\" \"$shard_base\"",
+            "length == (unique | length)",
             "dogfood regressions exceed or drift from the reviewed acceptance ledger",
         ] {
             require(&verifier, expected, verifier_name, errors);
         }
     }
-
-    let manifest_name = "config/github/dogfood-regression-acceptances.json";
-    let Some(manifest_text) = read(&repo_root.join(manifest_name), errors) else {
-        return;
-    };
-    let manifest: serde_json::Value = match serde_json::from_str(&manifest_text) {
-        Ok(value) => value,
-        Err(error) => {
-            errors.push(format!("{manifest_name} is not valid JSON: {error}"));
-            return;
-        }
-    };
-    if manifest.get("schema_version") != Some(&serde_json::json!(1)) {
-        errors.push(format!("{manifest_name} must use schema version 1."));
-    }
-    let entries = manifest
-        .get("acceptances")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|acceptance| acceptance.get("entries"))
-        .filter_map(serde_json::Value::as_array)
-        .flatten()
-        .collect::<Vec<_>>();
-    if entries.is_empty() {
-        errors.push(format!("{manifest_name} must contain reviewed entries."));
-    }
-    if entries
-        .iter()
-        .any(|entry| entry.get("severity") == Some(&serde_json::json!("critical")))
-    {
-        errors.push(format!(
-            "{manifest_name} must never accept a critical regression."
-        ));
-    }
+    dogfood::validate_acceptance_manifests(repo_root, errors);
 }
 
 fn validate_dogfood_failure_evidence(text: &str, name: &str, errors: &mut Vec<String>) {

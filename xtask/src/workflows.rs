@@ -7,6 +7,8 @@ use serde_yaml::Value as YamlValue;
 
 #[path = "workflows/canary.rs"]
 mod canary;
+#[path = "workflows/dogfood.rs"]
+mod dogfood;
 
 const RELEASE_WORKFLOW_FRAGMENTS: [&str; 10] = [
     "00-header.yml",

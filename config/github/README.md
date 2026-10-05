@@ -29,12 +29,16 @@ The relevant reusable references are:
 - `project_config.json`: canonical GitHub Project identity, fields, and views
 - `dogfood-regression-acceptances.json`: reviewed, base-bound Dogfood regression
   ceilings for intentionally broad changes
+- `dogfood-regression-acceptances/<base-sha>.json`: isolated acceptance shards
+  when a reviewed change should not be recorded in the root manifest itself
 
-Dogfood acceptances are inert unless their exact base SHA matches. Each entry is
-also bound to a path, content digest, reason, non-critical severity, and maximum
-score. New paths, changed content, worse scores, critical regressions, and stale
-base revisions fail closed. The absolute repository policy still runs after an
-accepted comparison.
+The verifier combines the root manifest with canonical SHA-named shards and
+requires schema version 1 for every input and globally unique base SHAs. A
+single root manifest remains supported. Dogfood acceptances are inert unless
+their exact base SHA matches. Each entry is also bound to a path, content digest,
+reason, non-critical severity, and maximum score. New paths, changed content,
+worse scores, critical regressions, and stale base revisions fail closed. The
+absolute repository policy still runs after an accepted comparison.
 
 ## Local Overlay
 
