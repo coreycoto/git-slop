@@ -8,7 +8,10 @@ use super::runtime_manifest::{
     PUBLIC_PLUGIN_NAMES, PUBLIC_PLUGIN_SOURCE, PUBLIC_PLUGIN_SOURCE_SHA,
     validate_gh_steward_lock_manifest, validate_marketplace_source_manifest,
 };
-use super::runtime_workflows::{AgentPluginWorkflowKind, validate_agent_plugin_workflow_text};
+use super::runtime_workflows::{
+    AgentPluginWorkflowKind, validate_agent_plugin_workflow_text,
+    validate_dependency_publication_policy_text,
+};
 use super::{EXPECTED_PLUGIN_URL, validate_release_workflow};
 
 #[test]
@@ -293,6 +296,81 @@ fn dependency_candidate_evidence_keeps_upstream_artifact_ids_as_json_integers() 
             .iter()
             .any(|error| error.contains("positive JSON integers")),
         "{errors:?}"
+    );
+}
+
+#[test]
+fn dependency_candidate_tests_cannot_emit_trusted_evidence_after_untrusted_execution() {
+    let good = include_str!("../../../.github/workflows/dependency-remediation.yml");
+    let inserted = good.replace(
+        "  verify-candidate:\n",
+        concat!(
+            "      - name: Unsafe post-test evidence\n",
+            "        run: cargo xtask dependency-remediation create-candidate-evidence\n",
+            "\n",
+            "  verify-candidate:\n"
+        ),
+    );
+    assert_ne!(
+        inserted, good,
+        "custody regression fixture did not modify workflow"
+    );
+    let mut errors = Vec::new();
+    validate_agent_plugin_workflow_text(
+        "dependency-remediation.yml",
+        &inserted,
+        AgentPluginWorkflowKind::CodexPlugins,
+        &mut errors,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| { error.contains("stop the read-only test job after scrubbed tests") }),
+        "untrusted test job gained a trusted post-test action: {errors:?}"
+    );
+}
+
+#[test]
+fn dependency_publication_is_disabled_for_fresh_and_recovered_runs() {
+    let policy = include_str!("../../../.agents/gh-steward-recovery-policy.json");
+    let workflow = include_str!("../../../.github/workflows/dependency-remediation.yml");
+    let mut errors = Vec::new();
+    validate_dependency_publication_policy_text(policy, workflow, &mut errors);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let enabled = policy.replace(
+        "\"allow_publication\": false",
+        "\"allow_publication\": true",
+    );
+    let mut errors = Vec::new();
+    validate_dependency_publication_policy_text(&enabled, workflow, &mut errors);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("must remain disabled")),
+        "fresh publication was enabled without a native gh-steward mutator: {errors:?}"
+    );
+
+    let unsafe_recovery = workflow.replace(
+        "          cat >> \"$GITHUB_STEP_SUMMARY\" <<'EOF'\n          A prior publication attempt is still recoverable",
+        "          \"$GIT_SLOP_XTASK_BIN\" dependency-remediation publish continue \"$PACKAGE_ROOT\"\n          cat >> \"$GITHUB_STEP_SUMMARY\" <<'EOF'\n          A prior publication attempt is still recoverable",
+    );
+    assert_ne!(
+        unsafe_recovery, workflow,
+        "recovery fixture did not modify workflow"
+    );
+    let mut errors = Vec::new();
+    validate_agent_plugin_workflow_text(
+        "dependency-remediation.yml",
+        &unsafe_recovery,
+        AgentPluginWorkflowKind::CodexPlugins,
+        &mut errors,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("preserve recovered publication holds")),
+        "recovered publication gained a direct Rust continuation: {errors:?}"
     );
 }
 

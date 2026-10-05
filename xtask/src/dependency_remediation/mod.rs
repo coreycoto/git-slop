@@ -1,5 +1,8 @@
+mod artifacts;
 mod candidate;
+mod noop;
 mod paths;
+mod proposal;
 mod publisher;
 mod source;
 
@@ -24,6 +27,52 @@ enum Command {
     /// Capture exact event bytes and bind source/base identities for later jobs.
     CaptureSource,
 
+    /// Test the exact captured source tree without exposing GitHub credentials.
+    VerifySource {
+        #[arg(long)]
+        base_sha: String,
+        #[arg(long)]
+        source_sha: String,
+    },
+
+    /// Verify a run-scoped Actions artifact's exact upstream identity.
+    VerifyArtifact {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        digest: String,
+    },
+
+    /// Collect a bounded Codex result and its exact immutable source inputs.
+    CollectProposal {
+        #[arg(long)]
+        capture: PathBuf,
+        #[arg(long)]
+        result: PathBuf,
+        #[arg(long)]
+        destination: PathBuf,
+        #[arg(long)]
+        workflow_sha: String,
+        #[arg(long)]
+        capture_id: String,
+        #[arg(long)]
+        capture_name: String,
+        #[arg(long)]
+        capture_digest: String,
+    },
+
+    /// Prepare exact no-op inputs before gh-steward records and settles them.
+    PrepareNoop {
+        #[arg(long)]
+        capture: PathBuf,
+        #[arg(long)]
+        package: PathBuf,
+        #[arg(long)]
+        context: PathBuf,
+    },
+
     /// Verify that a proposal reuses the exact credential-free source handoff.
     ValidateCandidateInputs { capture: PathBuf, proposal: PathBuf },
 
@@ -47,7 +96,7 @@ enum Command {
         destination: PathBuf,
     },
 
-    /// Prepare, continue, or verify a trusted publication package.
+    /// Request publication (deferred until gh-steward owns GitHub mutation authority).
     Publish {
         #[arg(value_enum)]
         action: PublishAction,
@@ -74,6 +123,33 @@ impl Args {
                 Ok(())
             }
             Command::CaptureSource => source::capture(),
+            Command::VerifySource {
+                base_sha,
+                source_sha,
+            } => source::verify_source(repo_root, &base_sha, &source_sha),
+            Command::VerifyArtifact { id, name, digest } => artifacts::verify(&id, &name, &digest),
+            Command::CollectProposal {
+                capture,
+                result,
+                destination,
+                workflow_sha,
+                capture_id,
+                capture_name,
+                capture_digest,
+            } => proposal::collect(
+                &capture,
+                &result,
+                &destination,
+                &workflow_sha,
+                &capture_id,
+                &capture_name,
+                &capture_digest,
+            ),
+            Command::PrepareNoop {
+                capture,
+                package,
+                context,
+            } => noop::prepare(&capture, &package, &context),
             Command::ValidateCandidateInputs { capture, proposal } => {
                 source::validate_candidate_inputs(&capture, &proposal)
             }

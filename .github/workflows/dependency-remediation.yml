@@ -149,11 +149,20 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
+      - name: Build trusted dependency-remediation adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/git-slop-xtask-target"
+          cargo build --manifest-path "$GITHUB_WORKSPACE/xtask/Cargo.toml" --locked --release --target-dir "$target"
+          printf 'GIT_SLOP_XTASK_BIN=%s/release/git-slop-xtask\n' "$target" >> "$GITHUB_ENV"
+
       - name: Validate exact source event
         id: source
         env:
           EVENT_NAME: ${{ github.event_name }}
-        run: cargo xtask dependency-remediation capture-source
+        run: >-
+          "$GIT_SLOP_XTASK_BIN" dependency-remediation capture-source
 
       - name: Checkout the event-bound source for credential-free verification
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -165,20 +174,13 @@ jobs:
           persist-credentials: false
 
       - name: Capture source diff and run its tests without credentials
-        working-directory: source
         env:
           BASE_SHA: ${{ steps.source.outputs.base_sha }}
           SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/dependency-remediation-capture"
-          git diff --binary "$BASE_SHA" "$SOURCE_SHA" -- > "$root/source.patch"
-          env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test -p git-slop --all-targets --all-features --locked
-          env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
-          jq -n --arg sha "$SOURCE_SHA" \
-            '{status:"passed",source_sha:$sha,credential_free:true,checks:["cargo test -p git-slop --all-targets --all-features --locked","cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked"]}' \
-            > "$root/verification.json"
+        run: >-
+          "$GIT_SLOP_XTASK_BIN" --repo-root "$GITHUB_WORKSPACE/source"
+          dependency-remediation verify-source --base-sha "$BASE_SHA"
+          --source-sha "$SOURCE_SHA"
 
       - name: Upload immutable source verification handoff
         id: upload_capture
@@ -214,8 +216,17 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
+      - name: Build trusted dependency-remediation adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/git-slop-xtask-target"
+          cargo build --manifest-path "$GITHUB_WORKSPACE/xtask/Cargo.toml" --locked --release --target-dir "$target"
+          printf 'GIT_SLOP_XTASK_BIN=%s/release/git-slop-xtask\n' "$target" >> "$GITHUB_ENV"
+
       - name: Validate trusted Codex surface
-        run: cargo xtask validate-codex
+        run: >-
+          "$GIT_SLOP_XTASK_BIN" validate-codex
 
       - name: Verify immutable capture artifact metadata
         env:
@@ -223,13 +234,9 @@ jobs:
           ARTIFACT_ID: ${{ needs.capture.outputs.artifact_id }}
           ARTIFACT_DIGEST: ${{ needs.capture.outputs.artifact_digest }}
           ARTIFACT_NAME: ${{ needs.capture.outputs.artifact_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID")"
-          jq -e --arg id "$ARTIFACT_ID" --arg name "$ARTIFACT_NAME" --arg digest "$ARTIFACT_DIGEST" \
-            '.id == ($id|tonumber) and .name == $name and .digest == $digest and .expired == false' <<< "$metadata" >/dev/null
+        run: >-
+          "$GIT_SLOP_XTASK_BIN" dependency-remediation verify-artifact
+          --id "$ARTIFACT_ID" --name "$ARTIFACT_NAME" --digest "$ARTIFACT_DIGEST"
 
       - name: Download the exact source capture artifact
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v7
@@ -288,37 +295,19 @@ jobs:
       - name: Collect exact Codex proposal and immutable handoff files
         id: collect
         if: steps.codex_preflight.outputs.enabled == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          result="$RUNNER_TEMP/codex/dependency-remediation.json"
-          [[ -s "$result" ]] || { echo 'Codex did not produce a bounded proposal.' >&2; exit 1; }
-          jq -e 'type == "object" and .status == "patched" and (.supplemental_patch | type == "string" and length > 0)' "$result" >/dev/null || {
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            jq -e '.status == "noop"' "$result" >/dev/null || exit 1
-            echo "noop_reason=no-change" >> "$GITHUB_OUTPUT"
-            echo "Codex found no safe additional remediation; publication was skipped." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          }
-          root="$RUNNER_TEMP/dependency-remediation-proposal"
-          mkdir -p "$root/publication" "$root/events"
-          cp -- "$RUNNER_TEMP/dependency-remediation-source/source.json" "$root/source.json"
-          cp -- "$RUNNER_TEMP/dependency-remediation-source/source.patch" "$root/source.patch"
-          cp -- "$RUNNER_TEMP/dependency-remediation-source/verification.json" "$root/source-verification.json"
-          cp -- "$RUNNER_TEMP/dependency-remediation-source/events/trigger-event.json" "$root/events/trigger-event.json"
-          jq -S . "$result" > "$root/publication/result.json"
-          jq -jr '.supplemental_patch' "$root/publication/result.json" > "$root/publication/patch.diff"
-          cargo xtask --repo-root "$GITHUB_WORKSPACE" \
-            dependency-remediation validate-result "$root/publication/result.json"
-          jq -n -S \
-            --arg workflow_sha "$GITHUB_WORKFLOW_SHA" \
-            --arg capture_id "${{ needs.capture.outputs.artifact_id }}" \
-            --arg capture_name "${{ needs.capture.outputs.artifact_name }}" \
-            --arg capture_digest "${{ needs.capture.outputs.artifact_digest }}" \
-            '{schema_version:1,workflow_sha:$workflow_sha,capture:{id:$capture_id,name:$capture_name,digest:$capture_digest}}' \
-            > "$root/proposal.json"
-          echo "ready=true" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=gh-steward-dependency-remediation-proposal-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+        env:
+          CAPTURE_ARTIFACT_ID: ${{ needs.capture.outputs.artifact_id }}
+          CAPTURE_ARTIFACT_NAME: ${{ needs.capture.outputs.artifact_name }}
+          CAPTURE_ARTIFACT_DIGEST: ${{ needs.capture.outputs.artifact_digest }}
+        run: >-
+          "$GIT_SLOP_XTASK_BIN" dependency-remediation collect-proposal
+          --capture "$RUNNER_TEMP/dependency-remediation-source"
+          --result "$RUNNER_TEMP/codex/dependency-remediation.json"
+          --destination "$RUNNER_TEMP/dependency-remediation-proposal"
+          --workflow-sha "$GITHUB_WORKFLOW_SHA"
+          --capture-id "$CAPTURE_ARTIFACT_ID"
+          --capture-name "$CAPTURE_ARTIFACT_NAME"
+          --capture-digest "$CAPTURE_ARTIFACT_DIGEST"
 
       - name: Record Codex-unavailable no-op
         id: disabled
@@ -340,8 +329,13 @@ jobs:
 
   settle-noop:
     name: Settle an exact no-publication decision
-    needs: [recover, capture, proposal, publish]
-    if: always() && needs.recover.outputs.outcome == 'fresh' && needs.capture.result == 'success' && needs.proposal.result == 'success' && needs.proposal.outputs.ready != 'true' && needs.publish.result == 'skipped'
+    needs: [recover, capture, proposal, test-candidate, verify-candidate, publish]
+    if: >-
+      always() && needs.recover.outputs.outcome == 'fresh' &&
+      needs.capture.result == 'success' && needs.proposal.result == 'success' &&
+      needs.publish.result == 'skipped' &&
+      (needs.proposal.outputs.ready != 'true' ||
+       (needs.test-candidate.result == 'success' && needs.verify-candidate.result == 'success'))
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -357,6 +351,14 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
+      - name: Build trusted dependency-remediation adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/git-slop-xtask-target"
+          cargo build --manifest-path "$GITHUB_WORKSPACE/xtask/Cargo.toml" --locked --release --target-dir "$target"
+          printf 'GIT_SLOP_XTASK_BIN=%s/release/git-slop-xtask\n' "$target" >> "$GITHUB_ENV"
+
       - name: Acquire attested gh-steward release
         run: scripts/with-gh-steward.sh --prepare
 
@@ -369,13 +371,9 @@ jobs:
           CAPTURE_ID: ${{ needs.capture.outputs.artifact_id }}
           CAPTURE_DIGEST: ${{ needs.capture.outputs.artifact_digest }}
           CAPTURE_NAME: ${{ needs.capture.outputs.artifact_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$CAPTURE_ID" =~ ^[1-9][0-9]*$ && "$CAPTURE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$CAPTURE_ID")"
-          jq -e --arg id "$CAPTURE_ID" --arg digest "$CAPTURE_DIGEST" --arg name "$CAPTURE_NAME" \
-            '.id == ($id|tonumber) and .digest == $digest and .name == $name and .expired == false' <<< "$metadata" >/dev/null
+        run: >-
+          "$GIT_SLOP_XTASK_BIN" dependency-remediation verify-artifact
+          --id "$CAPTURE_ID" --name "$CAPTURE_NAME" --digest "$CAPTURE_DIGEST"
 
       - name: Download the exact source capture artifact
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v7
@@ -388,7 +386,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           HANDOFF_ID: ${{ needs.recover.outputs.handoff_id }}
           HANDOFF_DIGEST: ${{ needs.recover.outputs.handoff_digest }}
-          NOOP_DECISION: ${{ needs.proposal.outputs.noop_reason }}
+          NOOP_DECISION: ${{ needs.proposal.outputs.noop_reason || 'prerequisite-unavailable' }}
           RUN_NAME: Dependency Remediation
         shell: bash
         run: |
@@ -403,50 +401,63 @@ jobs:
             --policy .agents/gh-steward-recovery-policy.json \
             --purpose transport \
             --artifact-id "$HANDOFF_ID" --artifact-digest "$HANDOFF_DIGEST"
+      - name: Prepare exact no-op context inputs
+        env:
+          NOOP_DECISION: ${{ needs.proposal.outputs.noop_reason || 'prerequisite-unavailable' }}
+        run: >-
+          "$GIT_SLOP_XTASK_BIN" dependency-remediation prepare-noop
+          --capture "$RUNNER_TEMP/dependency-remediation-noop-capture"
+          --package "$RUNNER_TEMP/dependency-remediation-package"
+          --context "$RUNNER_TEMP/dependency-remediation-noop-context.json"
+
+      - name: Explain the deferred native publication capability
+        if: needs.proposal.outputs.ready == 'true'
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          The exact proposal passed credential-free candidate tests, but automatic publication is deferred. The pinned gh-steward release can validate and acquire recovery evidence, but it does not yet provide an authoritative GitHub publication plan/apply/receipt. No branch push or pull request creation was attempted.
+          EOF
+
+      - name: Start authoritative gh-steward no-op context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NAME: Dependency Remediation
+        shell: bash
+        run: |
+          set -euo pipefail
           root="$RUNNER_TEMP/dependency-remediation-package"
-          capture="$RUNNER_TEMP/dependency-remediation-noop-capture"
-          source="$capture/source.json"
-          event="$capture/events/trigger-event.json"
-          [[ -s "$source" && -s "$event" ]]
-          cmp "$event" "$GITHUB_EVENT_PATH"
-          event_sha="$(sha256sum "$event" | awk '{print $1}')"
-          jq -e --arg event "$GITHUB_EVENT_NAME" --arg workflow_sha "$GITHUB_WORKFLOW_SHA" --arg event_sha "$event_sha" \
-            '.event_name == $event and .workflow_sha == $workflow_sha and .trigger_event_sha256 == $event_sha and (.source_sha | test("^[0-9a-f]{40}$")) and (.base_sha | test("^[0-9a-f]{40}$"))' \
-            "$source" >/dev/null
-          install -d -m 0700 "$root/events" "$root/decisions"
-          cp -- "$event" "$root/events/trigger-event.json"
-          target="$(jq -cS --arg event_sha "$event_sha" --arg source_sha "$(jq -er '.source_sha' "$source")" --arg base_sha "$(jq -er '.base_sha' "$source")" \
-            '{trigger_event_sha256:$event_sha,source_sha:$source_sha,base_sha:$base_sha}')"
-          jq -n -S --arg repository "$GITHUB_REPOSITORY" --arg workflow_file dependency-remediation.yml \
-            --arg recovery_key workflow-history-v2 --arg run_name "$RUN_NAME" \
-            --arg trusted_source_sha "$GITHUB_WORKFLOW_SHA" --argjson run "$GITHUB_RUN_ID" \
-            --argjson attempt "$GITHUB_RUN_ATTEMPT" --argjson target "$target" \
-            '{repository:$repository,workflow_file:$workflow_file,recovery_key:$recovery_key,run_name:$run_name,run_id:$run,attempt:$attempt,attempt_target:$target,dispatch_steps:[],trusted_source_sha:$trusted_source_sha}' \
-            > "$RUNNER_TEMP/dependency-remediation-noop-context.json"
           "$GH_STEWARD_BIN" runs context-start \
             --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
             --policy .agents/gh-steward-recovery-policy.json --package-root "$root" \
             --runner-temp "$RUNNER_TEMP" \
             --input context="$RUNNER_TEMP/dependency-remediation-noop-context.json" \
             > "$RUNNER_TEMP/dependency-remediation-noop-context-envelope.json"
+
+      - name: Record prepared phase through gh-steward
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/dependency-remediation-package"
           "$GH_STEWARD_BIN" runs context-phase \
             --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
             --policy .agents/gh-steward-recovery-policy.json --package-root "$root" \
             --runner-temp "$RUNNER_TEMP" --phase prepared \
             --reason "dependency remediation proposal ended without a verified candidate" \
             > "$RUNNER_TEMP/dependency-remediation-noop-phase-envelope.json"
-          jq -n -S --arg decision "$NOOP_DECISION" --arg repo "$GITHUB_REPOSITORY" \
-            --arg server_url "$GITHUB_SERVER_URL" --arg workflow_file dependency-remediation.yml \
-            --arg recovery_key workflow-history-v2 --arg workflow_sha "$GITHUB_WORKFLOW_SHA" \
-            --arg event_name "$GITHUB_EVENT_NAME" --arg event_sha "$event_sha" --argjson target "$target" \
-            --argjson run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" \
-            '{schema_version:1,decision:$decision,repository:$repo,server_url:$server_url,workflow_file:$workflow_file,run_id:$run,attempt:$attempt,recovery_key:$recovery_key,attempt_target:$target,workflow_sha:$workflow_sha,event_name:$event_name,event_sha256:$event_sha}' \
-            > "$root/decisions/workflow-noop.json"
+
+      - name: Settle terminal decision through gh-steward
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NAME: Dependency Remediation
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/dependency-remediation-package"
           "$GH_STEWARD_BIN" runs finish-noop \
             --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
             --workflow dependency-remediation.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --run-name "$RUN_NAME" --recovery-key workflow-history-v2 \
-            --package-root "$root" --runner-temp "$RUNNER_TEMP" \
+            --run-name "$RUN_NAME" --recovery-key workflow-history-v2 --package-root "$root" --runner-temp "$RUNNER_TEMP" \
             --policy .agents/gh-steward-recovery-policy.json --workflow-sha "$GITHUB_WORKFLOW_SHA" \
             > "$RUNNER_TEMP/dependency-remediation-workflow-noop-envelope.json"
 
@@ -486,20 +497,16 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  verify-candidate:
-    name: Verify publication candidate without credentials
+  test-candidate:
+    name: Test materialized candidate without credentials
     needs: [recover, capture, proposal]
     if: needs.recover.outputs.outcome == 'fresh' && needs.proposal.outputs.ready == 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
-    outputs:
-      artifact_id: ${{ steps.upload_candidate.outputs.artifact-id }}
-      artifact_digest: ${{ steps.upload_candidate.outputs.artifact-digest }}
-      artifact_name: ${{ steps.upload_candidate.outputs.artifact-name }}
     steps:
-      - name: Checkout trusted verification tooling
+      - name: Checkout trusted candidate test tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
@@ -530,20 +537,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for tuple in "$CAPTURE_ID:$CAPTURE_DIGEST" "$PROPOSAL_ID:$PROPOSAL_DIGEST"; do
-            artifact_id="${tuple%%:*}"
-            artifact_digest="${tuple#*:}"
-            [[ "$artifact_id" =~ ^[1-9][0-9]*$ && "$artifact_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-            actual="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id")"
-            case "$artifact_id" in
-              "$CAPTURE_ID") expected_name="$CAPTURE_NAME" ;;
-              *) expected_name="$PROPOSAL_NAME" ;;
-            esac
-            jq -e --arg id "$artifact_id" --arg name "$expected_name" --arg digest "$artifact_digest" \
-              '.id == ($id|tonumber) and .name == $name and .digest == $digest and .expired == false' <<< "$actual" >/dev/null
-          done
           [[ "$CAPTURE_ID" != "$PROPOSAL_ID" ]]
-          [[ -n "$CAPTURE_NAME" && -n "$PROPOSAL_NAME" ]]
+          "$GIT_SLOP_XTASK_BIN" dependency-remediation verify-artifact \
+            --id "$CAPTURE_ID" --name "$CAPTURE_NAME" --digest "$CAPTURE_DIGEST"
+          "$GIT_SLOP_XTASK_BIN" dependency-remediation verify-artifact \
+            --id "$PROPOSAL_ID" --name "$PROPOSAL_NAME" --digest "$PROPOSAL_DIGEST"
           mkdir -p "$RUNNER_TEMP/capture-artifact" "$RUNNER_TEMP/proposal-artifact"
 
       - name: Download exact capture artifact
@@ -578,7 +576,103 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Apply exact supplemental patch and verify the complete candidate
+      - name: Apply exact supplemental patch before credential-free tests
+        working-directory: candidate
+        env:
+          SOURCE_SHA: ${{ steps.validated_source.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GIT_SLOP_XTASK_BIN" --repo-root "$GITHUB_WORKSPACE/candidate" \
+            dependency-remediation apply-candidate "$RUNNER_TEMP/proposal-artifact" \
+            "$SOURCE_SHA" "$RUNNER_TEMP/dependency-remediation-candidate-tree.sha"
+          env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test -p git-slop --all-targets --all-features --locked
+          env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
+
+  verify-candidate:
+    name: Independently verify and attest the tested candidate
+    needs: [recover, capture, proposal, test-candidate]
+    if: needs.recover.outputs.outcome == 'fresh' && needs.proposal.outputs.ready == 'true' && needs.test-candidate.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload_candidate.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload_candidate.outputs.artifact-digest }}
+      artifact_name: ${{ steps.upload_candidate.outputs.artifact-name }}
+    steps:
+      - name: Checkout trusted verification tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Build trusted dependency-remediation verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/git-slop-xtask-target"
+          cargo build --manifest-path "$GITHUB_WORKSPACE/xtask/Cargo.toml" --locked --release --target-dir "$target"
+          printf 'GIT_SLOP_XTASK_BIN=%s/release/git-slop-xtask\n' "$target" >> "$GITHUB_ENV"
+
+      - name: Reacquire and verify exact source and proposal artifacts
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CAPTURE_ID: ${{ needs.capture.outputs.artifact_id }}
+          CAPTURE_NAME: ${{ needs.capture.outputs.artifact_name }}
+          CAPTURE_DIGEST: ${{ needs.capture.outputs.artifact_digest }}
+          PROPOSAL_ID: ${{ needs.proposal.outputs.artifact_id }}
+          PROPOSAL_NAME: ${{ needs.proposal.outputs.artifact_name }}
+          PROPOSAL_DIGEST: ${{ needs.proposal.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CAPTURE_ID" != "$PROPOSAL_ID" ]]
+          "$GIT_SLOP_XTASK_BIN" dependency-remediation verify-artifact \
+            --id "$CAPTURE_ID" --name "$CAPTURE_NAME" --digest "$CAPTURE_DIGEST"
+          "$GIT_SLOP_XTASK_BIN" dependency-remediation verify-artifact \
+            --id "$PROPOSAL_ID" --name "$PROPOSAL_NAME" --digest "$PROPOSAL_DIGEST"
+          mkdir -p "$RUNNER_TEMP/capture-artifact" "$RUNNER_TEMP/proposal-artifact"
+
+      - name: Download exact capture artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v7
+        with:
+          artifact-ids: ${{ needs.capture.outputs.artifact_id }}
+          path: ${{ runner.temp }}/capture-artifact
+
+      - name: Download exact proposal artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v7
+        with:
+          artifact-ids: ${{ needs.proposal.outputs.artifact_id }}
+          path: ${{ runner.temp }}/proposal-artifact
+
+      - name: Revalidate exact source binding and proposal bytes
+        id: validated_source
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          BASE_REF: ${{ github.ref_name }}
+          BASE_SHA: ${{ github.sha }}
+        run: >-
+          "$GIT_SLOP_XTASK_BIN" --repo-root "$GITHUB_WORKSPACE"
+          dependency-remediation validate-candidate-inputs
+          "$RUNNER_TEMP/capture-artifact" "$RUNNER_TEMP/proposal-artifact"
+
+      - name: Checkout exact source for trusted tree verification
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.validated_source.outputs.source_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Reapply and bind exact tested candidate tree
         id: verify
         working-directory: candidate
         env:
@@ -590,8 +684,6 @@ jobs:
             dependency-remediation apply-candidate "$RUNNER_TEMP/proposal-artifact" \
             "$SOURCE_SHA" "$RUNNER_TEMP/dependency-remediation-candidate-tree.sha"
           tree_before="$(cat "$RUNNER_TEMP/dependency-remediation-candidate-tree.sha")"
-          env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test -p git-slop --all-targets --all-features --locked
-          env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked
           "$GIT_SLOP_XTASK_BIN" --repo-root "$GITHUB_WORKSPACE/candidate" \
             dependency-remediation verify-candidate "$SOURCE_SHA" \
             "$RUNNER_TEMP/dependency-remediation-candidate-tree.sha"
@@ -630,235 +722,15 @@ jobs:
           retention-days: 90
 
   publish:
-    name: Publish only the verified candidate
+    name: Preserve recovered publication holds
     needs: [recover, capture, proposal, verify-candidate]
-    if: always() && needs.recover.result == 'success' && contains(fromJSON('["fresh","resumed","terminal"]'), needs.recover.outputs.outcome) && (needs.recover.outputs.outcome != 'fresh' || (needs.proposal.result == 'success' && needs.proposal.outputs.ready == 'true' && needs.verify-candidate.result == 'success'))
+    if: always() && needs.recover.result == 'success' && needs.recover.outputs.outcome == 'resumed'
     runs-on: ubuntu-latest
     permissions:
-      actions: read
-      contents: write
-      pull-requests: write
+      contents: read
     steps:
-      - name: Checkout trusted publisher tooling
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-          ref: ${{ github.workflow_sha }}
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-
-      - name: Build trusted dependency-remediation publisher
-        shell: bash
+      - name: Preserve the exact recovered publication hold
         run: |
-          set -euo pipefail
-          target="$RUNNER_TEMP/git-slop-xtask-target"
-          cargo build --manifest-path "$GITHUB_WORKSPACE/xtask/Cargo.toml" --locked --release --target-dir "$target"
-          printf 'GIT_SLOP_XTASK_BIN=%s/release/git-slop-xtask\n' "$target" >> "$GITHUB_ENV"
-
-      - name: Validate trusted publisher contracts
-        run: cargo xtask validate-codex
-
-      - name: Pin the immutable trusted control worktree
-        shell: bash
-        run: |
-          set -euo pipefail
-          control="$RUNNER_TEMP/gh-steward-control"
-          git worktree add --detach "$control" "$GITHUB_WORKFLOW_SHA"
-          [[ "$(git -C "$control" rev-parse HEAD)" == "$GITHUB_WORKFLOW_SHA" ]]
-          [[ -z "$(git -C "$control" status --porcelain)" ]]
-          printf 'GH_STEWARD_TRUSTED_ROOT=%s\n' "$control" >> "$GITHUB_ENV"
-
-      - name: Acquire attested gh-steward release
-        run: scripts/with-gh-steward.sh --prepare
-
-      - name: Verify pinned gh-steward receipt
-        run: scripts/with-gh-steward.sh --verify
-
-      - name: Acquire and verify the exact native recovery handoff
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RECOVERY_OUTCOME: ${{ needs.recover.outputs.outcome }}
-          HANDOFF_ID: ${{ needs.recover.outputs.handoff_id }}
-          HANDOFF_DIGEST: ${{ needs.recover.outputs.handoff_digest }}
-          RUN_NAME: Dependency Remediation
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ && "$HANDOFF_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          "$GH_STEWARD_BIN" runs acquire-handoff \
-            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
-            --workflow dependency-remediation.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --run-name "$RUN_NAME" --recovery-key workflow-history-v2 \
-            --package-root "$RUNNER_TEMP/dependency-remediation-package" --runner-temp "$RUNNER_TEMP" \
-            --policy .agents/gh-steward-recovery-policy.json --artifact-id "$HANDOFF_ID" \
-            --artifact-digest "$HANDOFF_DIGEST" --purpose transport
-          case "$RECOVERY_OUTCOME" in
-            fresh|terminal)
-              [[ -s "$RUNNER_TEMP/dependency-remediation-package/settlement-chain.json" ]]
-              [[ ! -e "$RUNNER_TEMP/dependency-remediation-package/run-context.json" ]]
-              ;;
-            resumed)
-              [[ -s "$RUNNER_TEMP/dependency-remediation-package/settlement-chain.json" ]]
-              [[ -s "$RUNNER_TEMP/dependency-remediation-package/run-context.json" ]]
-              [[ -s "$RUNNER_TEMP/dependency-remediation-package/recovery-source.json" ]]
-              ;;
-            *) echo "unexpected recovery outcome: $RECOVERY_OUTCOME" >&2; exit 1 ;;
-          esac
-
-      - name: Copy immutable trusted publication adapter before source checkout
-        run: |
-          install -d -m 0700 "$RUNNER_TEMP/trusted-dependency-publisher"
-          install -m 0700 "$GH_STEWARD_TRUSTED_ROOT/scripts/dependency-remediation-publish.sh" "$RUNNER_TEMP/trusted-dependency-publisher/dependency-remediation-publish.sh"
-          install -m 0700 "$GH_STEWARD_TRUSTED_ROOT/scripts/finalize-gh-steward-run.sh" "$RUNNER_TEMP/trusted-dependency-publisher/finalize-gh-steward-run.sh"
-
-      - name: Acquire the exact credential-free verified candidate
-        if: needs.recover.outputs.outcome == 'fresh' && needs.proposal.outputs.ready == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CANDIDATE_ARTIFACT_ID: ${{ needs.verify-candidate.outputs.artifact_id }}
-          CANDIDATE_ARTIFACT_DIGEST: ${{ needs.verify-candidate.outputs.artifact_digest }}
-          RUN_NAME: Dependency Remediation
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$CANDIDATE_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
-          [[ "$CANDIDATE_ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          "$GH_STEWARD_BIN" runs acquire-publication-candidate \
-            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --repo-root "$GH_STEWARD_TRUSTED_ROOT" \
-            --policy .agents/gh-steward-recovery-policy.json \
-            --workflow dependency-remediation.yml \
-            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --run-name "$RUN_NAME" --recovery-key workflow-history-v2 \
-            --package-root "$RUNNER_TEMP/dependency-remediation-package" \
-            --runner-temp "$RUNNER_TEMP" --workflow-sha "$GITHUB_WORKFLOW_SHA" \
-            --artifact-id "$CANDIDATE_ARTIFACT_ID" \
-            --artifact-digest "$CANDIDATE_ARTIFACT_DIGEST"
-
-      - name: Record trusted workflow start time
-        id: run_identity
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          started_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.run_started_at | sub("\\.[0-9]+Z$"; "Z")')"
-          [[ "$started_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
-          echo "started_at=$started_at" >> "$GITHUB_OUTPUT"
-
-      - name: Create fresh run context from verified candidate
-        if: needs.recover.outputs.outcome == 'fresh' && needs.proposal.outputs.ready == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/dependency-remediation-package"
-          candidate="$root/publication/candidate.json"
-          event_sha="$(sha256sum "$root/events/trigger-event.json" | awk '{print $1}')"
-          jq -n -S --arg repository "$GITHUB_REPOSITORY" --arg workflow_file dependency-remediation.yml \
-            --arg recovery_key workflow-history-v2 --arg run_name 'Dependency Remediation' \
-            --arg trusted_source_sha "$GITHUB_WORKFLOW_SHA" --arg source_sha "$(jq -er '.source_sha' "$candidate")" \
-            --arg base_sha "$(jq -er '.base_sha' "$candidate")" --arg event_sha "$event_sha" \
-            --argjson run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" \
-            '{workflow_file:$workflow_file,repository:$repository,recovery_key:$recovery_key,run_name:$run_name,run_id:$run,attempt:$attempt,attempt_target:{source_sha:$source_sha,base_sha:$base_sha,trigger_event_sha256:$event_sha},dispatch_steps:[],trusted_source_sha:$trusted_source_sha}' \
-            > "$RUNNER_TEMP/dependency-remediation-context.json"
-          "$GH_STEWARD_BIN" runs context-start \
-            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --repo-root "$GH_STEWARD_TRUSTED_ROOT" \
-            --policy .agents/gh-steward-recovery-policy.json \
-            --package-root "$root" --runner-temp "$RUNNER_TEMP" \
-            --input context="$RUNNER_TEMP/dependency-remediation-context.json" \
-            > "$RUNNER_TEMP/dependency-remediation-context-envelope.json"
-
-      - name: Prepare exact publication intent
-        if: needs.recover.outputs.outcome == 'fresh' && needs.proposal.outputs.ready == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PACKAGE_ROOT: ${{ runner.temp }}/dependency-remediation-package
-          WORKFLOW_FILE: dependency-remediation.yml
-          WORKFLOW_RUN_NAME: Dependency Remediation
-          RECOVERY_KEY: workflow-history-v2
-          WORKFLOW_RUN_STARTED_AT: ${{ steps.run_identity.outputs.started_at }}
-        run: |
-          "$RUNNER_TEMP/trusted-dependency-publisher/dependency-remediation-publish.sh" prepare "$PACKAGE_ROOT"
-
-      - name: Verify the exact publication candidate before any write
-        if: (needs.recover.outputs.outcome == 'fresh' && needs.proposal.outputs.ready == 'true') || needs.recover.outputs.outcome == 'resumed'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_NAME: Dependency Remediation
-        run: |
-          set -euo pipefail
-          "$GH_STEWARD_BIN" runs verify-publication \
-            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --repo-root "$GH_STEWARD_TRUSTED_ROOT" \
-            --package-root "$RUNNER_TEMP/dependency-remediation-package" \
-            --policy .agents/gh-steward-recovery-policy.json \
-            --workflow dependency-remediation.yml \
-            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --run-name "$RUN_NAME" --recovery-key workflow-history-v2 \
-            --workflow-sha "$GITHUB_WORKFLOW_SHA" --format json
-
-      - name: Continue only the exact positively recoverable publication stage
-        if: (needs.recover.outputs.outcome == 'fresh' && needs.proposal.outputs.ready == 'true') || needs.recover.outputs.outcome == 'resumed'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PACKAGE_ROOT: ${{ runner.temp }}/dependency-remediation-package
-          WORKFLOW_FILE: dependency-remediation.yml
-          WORKFLOW_RUN_NAME: Dependency Remediation
-          RECOVERY_KEY: workflow-history-v2
-          WORKFLOW_RUN_STARTED_AT: ${{ steps.run_identity.outputs.started_at }}
-        run: |
-          "$RUNNER_TEMP/trusted-dependency-publisher/dependency-remediation-publish.sh" continue "$PACKAGE_ROOT"
-
-      - name: Upload exact dependency-remediation recovery artifact
-        if: always() && needs.recover.outputs.artifact_name != '' && needs.recover.outputs.outcome != 'recovery_needed'
-        id: terminal_artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: ${{ needs.recover.outputs.artifact_name }}
-          path: ${{ runner.temp }}/dependency-remediation-package
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Check whether this observer has a current finalizer context
-        id: finalizer_context
-        if: always() && steps.terminal_artifact.outcome == 'success'
-        shell: bash
-        run: |
-          if [ -s "$RUNNER_TEMP/dependency-remediation-package/run-context.json" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Finalize exact terminal publication checkpoint
-        id: finalize_checkpoint
-        if: always() && steps.terminal_artifact.outcome == 'success' && steps.terminal_artifact.outputs.artifact-id != '' && steps.finalizer_context.outputs.present == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: ${{ steps.terminal_artifact.outputs.artifact-id }}
-          ARTIFACT_DIGEST: ${{ steps.terminal_artifact.outputs.artifact-digest }}
-        run: |
-          set -euo pipefail
-          args=(--workflow dependency-remediation.yml --repository "$GITHUB_REPOSITORY" \
-            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --package "$RUNNER_TEMP/dependency-remediation-package" \
-            --checkpoint "$RUNNER_TEMP/dependency-remediation-checkpoint" \
-            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST")
-          if [ -f "$RUNNER_TEMP/dependency-remediation-package/recovery-source.json" ]; then
-            args+=(--recovery-source recovery-source.json)
-          fi
-          GH_STEWARD_TRUSTED_ROOT="$GH_STEWARD_TRUSTED_ROOT" \
-            "$RUNNER_TEMP/trusted-dependency-publisher/finalize-gh-steward-run.sh" "${args[@]}"
-
-      - name: Upload exact publication settlement checkpoint
-        if: always() && steps.finalize_checkpoint.outcome == 'success' && steps.finalize_checkpoint.outputs.outcome == 'checkpoint'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: ${{ steps.finalize_checkpoint.outputs.checkpoint_name }}
-          path: ${{ steps.finalize_checkpoint.outputs.checkpoint_path }}
-          if-no-files-found: error
-          retention-days: 90
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          A prior publication attempt is still recoverable, so its existing native handoff and receipts remain held for an authorized Go gh-steward recovery. The pinned gh-steward release does not yet provide an authoritative GitHub publication plan/apply/receipt. This workflow did not resume the Rust publisher, push a branch, or create a pull request.
+          EOF

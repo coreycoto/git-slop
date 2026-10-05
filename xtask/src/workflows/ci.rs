@@ -206,7 +206,7 @@ struct ArtifactUploadContract {
 }
 
 fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
-    const UPLOADS: [ArtifactUploadContract; 20] = [
+    const UPLOADS: [ArtifactUploadContract; 18] = [
         ArtifactUploadContract {
             workflow_name: "dependency-remediation.yml",
             job_name: "recover",
@@ -218,30 +218,12 @@ fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
         },
         ArtifactUploadContract {
             workflow_name: "dependency-remediation.yml",
-            job_name: "publish",
-            step_name: "Upload exact dependency-remediation recovery artifact",
-            artifact_name_fragment: "outputs.artifact_name",
-            artifact_path_fragment: "${{ runner.temp }}/dependency-remediation-package",
-            retention_days: 90,
-            include_hidden_files: Some(true),
-        },
-        ArtifactUploadContract {
-            workflow_name: "dependency-remediation.yml",
             job_name: "settle-noop",
             step_name: "Upload exact terminal dependency no-op artifact",
             artifact_name_fragment: "outputs.artifact_name",
             artifact_path_fragment: "${{ runner.temp }}/dependency-remediation-package",
             retention_days: 90,
             include_hidden_files: Some(true),
-        },
-        ArtifactUploadContract {
-            workflow_name: "dependency-remediation.yml",
-            job_name: "publish",
-            step_name: "Upload exact publication settlement checkpoint",
-            artifact_name_fragment: "checkpoint_name",
-            artifact_path_fragment: "checkpoint_path",
-            retention_days: 90,
-            include_hidden_files: None,
         },
         ArtifactUploadContract {
             workflow_name: "dependency-remediation.yml",

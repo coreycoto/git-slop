@@ -44,6 +44,75 @@ pub fn capture() -> Result<()> {
     Ok(())
 }
 
+pub fn verify_source(root: &Path, base_sha: &str, source_sha: &str) -> Result<()> {
+    validate_sha40(base_sha)?;
+    validate_sha40(source_sha)?;
+    ensure!(
+        git_text(root, &["rev-parse", "HEAD"])? == source_sha,
+        "source checkout is not the exact captured commit"
+    );
+    ensure!(
+        git_output(
+            root,
+            &["status", "--porcelain", "-z", "--untracked-files=all"]
+        )?
+        .is_empty(),
+        "source checkout must be clean before credential-free verification"
+    );
+
+    let runner_temp = PathBuf::from(required_env("RUNNER_TEMP")?);
+    let output = runner_temp.join("dependency-remediation-capture");
+    write_private(
+        &output.join("source.patch"),
+        &git_output(root, &["diff", "--binary", base_sha, source_sha, "--"])?,
+    )?;
+    run_cargo_test(
+        root,
+        &[
+            "test",
+            "-p",
+            "git-slop",
+            "--all-targets",
+            "--all-features",
+            "--locked",
+        ],
+    )?;
+    run_cargo_test(
+        root,
+        &[
+            "test",
+            "--manifest-path",
+            "xtask/Cargo.toml",
+            "--all-targets",
+            "--all-features",
+            "--locked",
+        ],
+    )?;
+    ensure!(
+        git_text(root, &["rev-parse", "HEAD"])? == source_sha
+            && git_output(
+                root,
+                &["status", "--porcelain", "-z", "--untracked-files=all"]
+            )?
+            .is_empty(),
+        "credential-free source tests changed the captured checkout"
+    );
+    write_json(
+        &output.join("verification.json"),
+        &json!({
+            "status":"passed",
+            "source_sha":source_sha,
+            "credential_free":true,
+            "checks":[
+                "cargo test -p git-slop --all-targets --all-features --locked",
+                "cargo test --manifest-path xtask/Cargo.toml --all-targets --all-features --locked"
+            ]
+        }),
+    )?;
+    println!("exact source passed credential-free tests");
+    Ok(())
+}
+
 fn capture_record(
     event: &Value,
     event_bytes: &[u8],
@@ -245,6 +314,44 @@ fn text_at<'a>(value: &'a Value, path: &[&str]) -> Result<&'a str> {
 
 fn required_env(name: &str) -> Result<String> {
     env::var(name).with_context(|| format!("{name} is required"))
+}
+
+fn run_cargo_test(root: &Path, args: &[&str]) -> Result<()> {
+    let status = Command::new("cargo")
+        .args(args)
+        .current_dir(root)
+        .env_remove("GH_TOKEN")
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("OPENAI_API_KEY")
+        .status()
+        .context("credential-free source test command could not be started")?;
+    ensure!(
+        status.success(),
+        "credential-free source test command failed"
+    );
+    Ok(())
+}
+
+fn git_output(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .context("git could not inspect the exact source checkout")?;
+    ensure!(
+        output.status.success(),
+        "git rejected the exact source identity"
+    );
+    Ok(output.stdout)
+}
+
+fn git_text(root: &Path, args: &[&str]) -> Result<String> {
+    Ok(String::from_utf8(git_output(root, args)?)?
+        .trim()
+        .to_owned())
 }
 fn sha256(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};

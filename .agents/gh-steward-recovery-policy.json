@@ -7,11 +7,11 @@
           "Run Codex dependency remediation"
         ],
         [
-          "Continue only the exact positively recoverable publication stage"
+          "Settle terminal decision through gh-steward"
         ]
       ],
       "reviewed_source_shas": [],
-      "allow_publication": true,
+      "allow_publication": false,
       "plans": {
         "workflow-noop": {
           "command": "workflow-noop",
@@ -20,12 +20,12 @@
           "attempt_target": "workflow_noop",
           "approval": {
             "kind": "local-noop",
-            "workflow_source_sha256": "3270058b8bcc68ecc8860c6c561fb7c25507a7876a9150e2cc3d3aab3f2c9bb0",
+            "workflow_source_sha256": "468eeddc906fd4fc36369e02e5bc1751620f131a617d78ed641a3b07dbc43c64",
             "mutators": [
               {
-                "job": "Publish only the verified candidate",
+                "job": "Settle an exact no-publication decision",
                 "steps": [
-                  "Continue only the exact positively recoverable publication stage"
+                  "Settle terminal decision through gh-steward"
                 ]
               }
             ]

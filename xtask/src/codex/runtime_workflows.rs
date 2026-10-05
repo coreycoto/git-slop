@@ -5,6 +5,8 @@ use serde_yaml::Value as YamlValue;
 use super::{WORKFLOWS, read_text};
 
 mod codex_action;
+mod dependency_remediation;
+pub(super) use dependency_remediation::validate_dependency_candidate_artifact_ids;
 
 pub(super) const GH_STEWARD_PREPARE: &str = "scripts/with-gh-steward.sh --prepare";
 pub(super) const GH_STEWARD_VERIFY: &str = "scripts/with-gh-steward.sh --verify";
@@ -69,7 +71,13 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
             ),
             ("gpt-6-luna", "use the qualified lightweight Codex model"),
         ] {
-            if !text.contains(required) {
+            let present =
+                if workflow.name == "dependency-remediation.yml" && required == VALIDATE_COMMAND {
+                    text.contains("\"$GIT_SLOP_XTASK_BIN\" validate-codex")
+                } else {
+                    text.contains(required)
+                };
+            if !present {
                 errors.push(format!("{} must {description}.", workflow.name));
             }
         }
@@ -93,6 +101,21 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
                 }
             }
         }
+        if workflow.name == "dependency-remediation.yml"
+            && let Some(proposal) = read_text(
+                repo_root,
+                "xtask/src/dependency_remediation/proposal.rs",
+                errors,
+            )
+        {
+            for required in ["source.patch", "source-verification.json"] {
+                if !proposal.contains(required) {
+                    errors.push(format!(
+                        "dependency-remediation trusted proposal adapter must preserve exact {required} handoff bytes."
+                    ));
+                }
+            }
+        }
     }
 
     if let Some(source) = read_text(
@@ -102,6 +125,22 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
     ) {
         validate_dependency_candidate_artifact_ids(&source, errors);
     }
+    if let Some(source) = read_text(
+        repo_root,
+        "xtask/src/dependency_remediation/source.rs",
+        errors,
+    ) {
+        validate_dependency_source_credential_boundary(&source, errors);
+    }
+    if let Some(policy) = read_text(repo_root, ".agents/gh-steward-recovery-policy.json", errors) {
+        if let Some(workflow) = read_text(
+            repo_root,
+            ".github/workflows/dependency-remediation.yml",
+            errors,
+        ) {
+            validate_dependency_publication_policy_text(&policy, &workflow, errors);
+        }
+    }
 
     let relative = ".github/workflows/execution_state_sync.yml";
     if let Some(text) = read_text(repo_root, relative, errors) {
@@ -110,6 +149,74 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
             &text,
             AgentPluginWorkflowKind::ExecutionState,
             errors,
+        );
+    }
+}
+
+fn validate_dependency_source_credential_boundary(source: &str, errors: &mut Vec<String>) {
+    for credential in ["GH_TOKEN", "GITHUB_TOKEN", "OPENAI_API_KEY"] {
+        if !source.contains(&format!(".env_remove(\"{credential}\")")) {
+            errors.push(format!(
+                "dependency-remediation source verification must remove {credential} before running source tests."
+            ));
+            return;
+        }
+    }
+}
+
+pub(super) fn validate_dependency_publication_policy_text(
+    source: &str,
+    workflow_source: &str,
+    errors: &mut Vec<String>,
+) {
+    let policy: serde_json::Value = match serde_json::from_str(source) {
+        Ok(policy) => policy,
+        Err(error) => {
+            errors.push(format!(
+                "dependency-remediation gh-steward policy is invalid JSON: {error}"
+            ));
+            return;
+        }
+    };
+    let workflow = &policy["workflows"]["dependency-remediation.yml"];
+    if workflow["allow_publication"] != serde_json::Value::Bool(false) {
+        errors.push(
+            "dependency-remediation publication must remain disabled until gh-steward owns the GitHub publication plan, apply, and receipt."
+                .to_owned(),
+        );
+    }
+    let mut alternatives = workflow["mutator_step_alternatives"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|alternative| alternative.as_array().into_iter().flatten());
+    if alternatives.any(|step| {
+        step.as_str().is_some_and(|step| {
+            step == "Continue only the exact positively recoverable publication stage"
+        })
+    }) {
+        errors.push(
+            "dependency-remediation recovery policy must not authorize a direct Rust publication continuation."
+                .to_owned(),
+        );
+    }
+    if workflow["plans"]["workflow-noop"]["approval"]["mutators"]
+        != serde_json::json!([{
+            "job": "Settle an exact no-publication decision",
+            "steps": ["Settle terminal decision through gh-steward"]
+        }])
+    {
+        errors.push(
+            "dependency-remediation no-op approval must bind the native terminal no-op step."
+                .to_owned(),
+        );
+    }
+    use sha2::{Digest, Sha256};
+    let expected_digest = hex::encode(Sha256::digest(workflow_source.as_bytes()));
+    if workflow["plans"]["workflow-noop"]["approval"]["workflow_source_sha256"] != expected_digest {
+        errors.push(
+            "dependency-remediation no-op approval must bind the exact current workflow bytes."
+                .to_owned(),
         );
     }
 }
@@ -175,7 +282,9 @@ pub(super) fn validate_agent_plugin_workflow_text(
 
     match name {
         "dependency-remediation.yml" => {
-            validate_dependency_remediation_trust(text, &payload, &steps, errors)
+            dependency_remediation::validate_dependency_remediation_trust(
+                text, &payload, &steps, errors,
+            )
         }
         "execution_state_sync.yml" => {
             validate_execution_state_trust(text, &payload, &steps, errors);
@@ -415,386 +524,6 @@ fn validate_step_order(
                     ));
                 }
             }
-        }
-    }
-}
-
-fn validate_dependency_remediation_trust(
-    text: &str,
-    payload: &YamlValue,
-    steps: &[WorkflowStepView],
-    errors: &mut Vec<String>,
-) {
-    let name = "dependency-remediation.yml";
-    if !text.contains("github.actor == 'dependabot[bot]'") {
-        errors.push(format!(
-            "{name} must restrict pull_request_target execution to Dependabot."
-        ));
-    }
-    let Some(jobs) = payload.get("jobs").and_then(YamlValue::as_mapping) else {
-        errors.push(format!(
-            "{name} must isolate proposal, candidate verification, and trusted publication jobs."
-        ));
-        return;
-    };
-    let job = |job_name: &str| jobs.get(YamlValue::String(job_name.to_owned()));
-    for job_name in ["capture", "proposal", "verify-candidate", "publish"] {
-        let Some(job) = job(job_name) else {
-            errors.push(format!("{name} must define the {job_name} stage."));
-            return;
-        };
-        let permissions = job.get("permissions").and_then(YamlValue::as_mapping);
-        let expected: &[(&str, &str)] = match job_name {
-            "capture" => &[("contents", "read")],
-            "proposal" | "verify-candidate" => &[("actions", "read"), ("contents", "read")],
-            "publish" => &[
-                ("actions", "read"),
-                ("contents", "write"),
-                ("pull-requests", "write"),
-            ],
-            _ => unreachable!(),
-        };
-        if permissions.is_none() {
-            errors.push(format!(
-                "{name} {job_name} job must declare least-privilege permissions."
-            ));
-            continue;
-        }
-        let permissions = permissions.unwrap();
-        for (scope, expected_value) in expected {
-            if permissions
-                .get(YamlValue::String((*scope).to_owned()))
-                .and_then(YamlValue::as_str)
-                != Some(*expected_value)
-            {
-                errors.push(format!(
-                    "{name} {job_name} job must grant {scope}: {expected_value}."
-                ));
-            }
-        }
-        if job.get("env").is_some_and(|env| {
-            yaml_mapping_has_key(env, "GH_TOKEN")
-                || yaml_mapping_has_key(env, "GITHUB_TOKEN")
-                || yaml_contains(env, "secrets.")
-        }) {
-            errors.push(format!(
-                "{name} {job_name} job must not expose credentials through job environment."
-            ));
-        }
-        if job_name != "publish"
-            && permissions
-                .values()
-                .any(|permission| matches!(permission.as_str(), Some("write" | "admin")))
-        {
-            errors.push(format!("{name} {job_name} job must remain read-only."));
-        }
-    }
-
-    let steps_for = |job_name: &str| {
-        steps
-            .iter()
-            .filter(|step| step.job == job_name)
-            .collect::<Vec<_>>()
-    };
-    let capture_steps = steps_for("capture");
-    let proposal_steps = steps_for("proposal");
-    let verify_steps = steps_for("verify-candidate");
-    let publish_steps = steps_for("publish");
-    let trusted_ref = concat!("$", "{{ github.workflow_sha }}");
-    let trusted_only = |job_steps: &[&WorkflowStepView]| {
-        job_steps
-            .iter()
-            .filter(|step| step.uses.starts_with("actions/checkout@"))
-            .all(|step| step.checkout_ref == trusted_ref && step.persist_credentials == Some(false))
-    };
-    let has_trusted_checkout = |job_steps: &[&WorkflowStepView]| {
-        job_steps.iter().any(|step| {
-            step.uses.starts_with("actions/checkout@")
-                && step.checkout_ref == trusted_ref
-                && step.persist_credentials == Some(false)
-        })
-    };
-    let credentials_disabled = |job_steps: &[&WorkflowStepView]| {
-        job_steps
-            .iter()
-            .filter(|step| step.uses.starts_with("actions/checkout@"))
-            .all(|step| step.persist_credentials == Some(false))
-    };
-
-    if !trusted_only(&proposal_steps)
-        || proposal_steps
-            .iter()
-            .filter(|step| step.uses.starts_with("actions/checkout@"))
-            .count()
-            != 1
-    {
-        errors.push(format!(
-            "{name} proposal must use only the exact trusted workflow checkout with credentials disabled."
-        ));
-    }
-    let codex = proposal_steps.iter().find(|step| step.uses == CODEX_ACTION);
-    if codex.is_none_or(|step| {
-        step.raw.get("env").is_some_and(|env| {
-            yaml_mapping_has_key(env, "GH_TOKEN")
-                || yaml_mapping_has_key(env, "GITHUB_TOKEN")
-                || yaml_contains(env, "secrets.GITHUB_TOKEN")
-        })
-    }) {
-        errors.push(format!(
-            "{name} bounded Codex proposal must run without a GitHub token."
-        ));
-    }
-    if proposal_steps.iter().any(|step| {
-        step.uses.starts_with("actions/checkout@")
-            && (step.checkout_ref.contains("pull_request.head")
-                || step.checkout_ref == concat!("$", "{{ github.sha }}"))
-    }) || proposal_steps.iter().any(|step| {
-        step.run.contains("cargo test")
-            || step.run.contains("dependency-remediation-publish.sh")
-            || step.run.contains("working-directory: source")
-    }) {
-        errors.push(format!(
-            "{name} Codex proposal must not check out or execute dependency-head code."
-        ));
-    }
-    for required in [
-        "cp .github/codex/prompts/dependency-remediation.md",
-        "cp .github/codex/schemas/dependency-remediation.json",
-        "scripts/prepare-codex-plugins.sh",
-        "source.patch",
-        "source-verification.json",
-    ] {
-        if !text.contains(required) {
-            errors.push(format!(
-                "{name} must provide bounded trusted proposal input {required}."
-            ));
-        }
-    }
-
-    let source_ref = concat!("$", "{{ steps.source.outputs.source_sha }}");
-    let candidate_ref = concat!("$", "{{ steps.validated_source.outputs.source_sha }}");
-    let source_checkout = capture_steps.iter().any(|step| {
-        step.uses.starts_with("actions/checkout@")
-            && step.checkout_ref == source_ref
-            && step.persist_credentials == Some(false)
-            && step
-                .raw
-                .get("with")
-                .is_some_and(|with| with.get("path").and_then(YamlValue::as_str) == Some("source"))
-    });
-    let candidate_checkout = verify_steps.iter().any(|step| {
-        step.uses.starts_with("actions/checkout@")
-            && step.checkout_ref == candidate_ref
-            && step.persist_credentials == Some(false)
-            && step.raw.get("with").is_some_and(|with| {
-                with.get("path").and_then(YamlValue::as_str) == Some("candidate")
-            })
-    });
-    if !has_trusted_checkout(&capture_steps)
-        || !source_checkout
-        || !credentials_disabled(&capture_steps)
-        || !has_trusted_checkout(&verify_steps)
-        || !candidate_checkout
-        || !credentials_disabled(&verify_steps)
-    {
-        errors.push(format!(
-            "{name} capture and candidate verification must use exact event-bound source checkouts without persisted credentials."
-        ));
-    }
-    if !capture_steps.iter().any(|step| {
-        step.run
-            .contains("env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test")
-    }) || !verify_steps.iter().any(|step| {
-        step.run
-            .contains("env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY cargo test")
-    }) {
-        errors.push(format!(
-            "{name} must test source and the complete candidate in credential-free jobs."
-        ));
-    }
-    let trusted_xtask = verify_steps.iter().find(|step| {
-        step.run.contains(
-            "cargo build --manifest-path \"$GITHUB_WORKSPACE/xtask/Cargo.toml\" --locked --release",
-        ) && step
-            .run
-            .contains("GIT_SLOP_XTASK_BIN=%s/release/git-slop-xtask")
-    });
-    let candidate_apply = verify_steps.iter().find(|step| {
-        step.run.contains("$GIT_SLOP_XTASK_BIN")
-            && step.run.contains("dependency-remediation apply-candidate")
-    });
-    let candidate_check = verify_steps.iter().find(|step| {
-        step.run.contains("$GIT_SLOP_XTASK_BIN")
-            && step
-                .run
-                .contains("dependency-remediation verify-candidate \"$SOURCE_SHA\"")
-            && step.run.contains("candidate_tree_sha")
-    });
-    if trusted_xtask.is_none_or(|build| {
-        candidate_apply.is_none_or(|apply| build.ordinal >= apply.ordinal)
-            || candidate_check.is_none_or(|check| build.ordinal >= check.ordinal)
-    }) || candidate_apply.is_none()
-        || candidate_check.is_none()
-    {
-        errors.push(format!(
-            "{name} must use a prebuilt trusted xtask to apply and recheck the exact source-bound candidate tree."
-        ));
-    }
-
-    let recovery = publish_steps
-        .iter()
-        .find(|step| step.run.contains("runs acquire-handoff"));
-    let candidate_acquire = publish_steps
-        .iter()
-        .find(|step| step.run.contains("runs acquire-publication-candidate"));
-    let context_start = publish_steps
-        .iter()
-        .find(|step| step.run.contains("runs context-start"));
-    let prepare_intent = publish_steps.iter().find(|step| {
-        step.run.contains("dependency-remediation-publish.sh") && step.run.contains(" prepare ")
-    });
-    let verify_publication = publish_steps
-        .iter()
-        .find(|step| step.run.contains("runs verify-publication"));
-    let publish_write = publish_steps.iter().find(|step| {
-        step.run.contains("dependency-remediation-publish.sh") && step.run.contains(" continue ")
-    });
-    let terminal_upload = publish_steps
-        .iter()
-        .find(|step| step.uses.starts_with("actions/upload-artifact@"));
-    let finalizer = publish_steps.iter().find(|step| {
-        step.run.contains("finalize-gh-steward-run.sh") && step.run.contains("args=(--workflow")
-    });
-    let (
-        Some(recovery),
-        Some(candidate_acquire),
-        Some(context_start),
-        Some(prepare_intent),
-        Some(verify_publication),
-        Some(publish_write),
-        Some(terminal_upload),
-        Some(finalizer),
-    ) = (
-        recovery,
-        candidate_acquire,
-        context_start,
-        prepare_intent,
-        verify_publication,
-        publish_write,
-        terminal_upload,
-        finalizer,
-    )
-    else {
-        errors.push(format!(
-            "{name} publisher must acquire recovery and candidate evidence, create a native context, verify before writes, and finalize its terminal artifact."
-        ));
-        return;
-    };
-    if !trusted_only(&publish_steps)
-        || publish_steps
-            .iter()
-            .filter(|step| step.uses.starts_with("actions/checkout@"))
-            .count()
-            != 1
-    {
-        errors.push(format!(
-            "{name} publisher must use only one exact trusted checkout with credentials disabled."
-        ));
-    }
-    if !(recovery.ordinal < candidate_acquire.ordinal
-        && candidate_acquire.ordinal < context_start.ordinal
-        && context_start.ordinal < prepare_intent.ordinal
-        && prepare_intent.ordinal < verify_publication.ordinal
-        && verify_publication.ordinal < publish_write.ordinal
-        && publish_write.ordinal < terminal_upload.ordinal
-        && terminal_upload.ordinal < finalizer.ordinal)
-    {
-        errors.push(format!(
-            "{name} publisher step order must be recovery < candidate < context < intent < verify < write < artifact < finalize; observed {:?}.",
-            [recovery.ordinal, candidate_acquire.ordinal, context_start.ordinal, prepare_intent.ordinal,
-                verify_publication.ordinal, publish_write.ordinal, terminal_upload.ordinal, finalizer.ordinal]
-        ));
-    }
-    if !candidate_acquire
-        .run
-        .contains("--workflow-sha \"$GITHUB_WORKFLOW_SHA\"")
-        || !candidate_acquire
-            .run
-            .contains("--artifact-id \"$CANDIDATE_ARTIFACT_ID\"")
-        || !candidate_acquire
-            .run
-            .contains("--artifact-digest \"$CANDIDATE_ARTIFACT_DIGEST\"")
-        || !verify_publication
-            .run
-            .contains("--workflow-sha \"$GITHUB_WORKFLOW_SHA\"")
-        || !verify_publication
-            .run
-            .contains("--repo-root \"$GH_STEWARD_TRUSTED_ROOT\"")
-        || !publish_steps.iter().any(|step| {
-            step.run
-                .contains("git worktree add --detach \"$control\" \"$GITHUB_WORKFLOW_SHA\"")
-                && step.run.contains("GH_STEWARD_TRUSTED_ROOT")
-        })
-    {
-        errors.push(format!(
-            "{name} must bind candidate acquisition and qualification to the trusted workflow SHA and control checkout."
-        ));
-    }
-    if job("publish").is_none_or(|publish| {
-        publish
-            .get("needs")
-            .is_none_or(|needs| !yaml_contains(needs, "verify-candidate"))
-    }) || !text.contains("needs.verify-candidate.outputs.artifact_id")
-        || !text.contains("needs.verify-candidate.outputs.artifact_digest")
-    {
-        errors.push(format!(
-            "{name} trusted publisher must bind the exact immutable verified-candidate artifact ID and digest."
-        ));
-    }
-    if publish_steps.iter().any(|step| {
-        step.uses == CODEX_ACTION
-            || step.run.contains("cargo test")
-            || step.run.contains("working-directory: candidate")
-    }) {
-        errors.push(format!(
-            "{name} publisher must not run Codex or execute candidate source code with write permissions."
-        ));
-    }
-    for required in [
-        "publication/candidate.json",
-        "publication/patch.diff",
-        "publication/result.json",
-        "events/trigger-event.json",
-        "candidate_tree_sha",
-    ] {
-        if !text.contains(required) {
-            errors.push(format!(
-                "{name} must bind exact candidate files and credential-free verification evidence."
-            ));
-            break;
-        }
-    }
-    if !verify_steps.iter().any(|step| {
-        step.run
-            .contains("dependency-remediation create-candidate-evidence")
-    }) {
-        errors.push(format!(
-            "{name} candidate evidence must be created by the trusted native adapter."
-        ));
-    }
-}
-
-pub(super) fn validate_dependency_candidate_artifact_ids(source: &str, errors: &mut Vec<String>) {
-    for required in [
-        "let id = positive_env(&format!(\"{prefix}_ID\"))?;",
-        "Ok(json!({\"id\":id,\"name\":name,\"digest\":digest}))",
-    ] {
-        if !source.contains(required) {
-            errors.push(
-                "dependency-remediation candidate evidence must preserve upstream artifact IDs as positive JSON integers."
-                    .to_owned(),
-            );
-            return;
         }
     }
 }

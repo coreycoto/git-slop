@@ -50,7 +50,30 @@ impl Package {
     }
 }
 
-pub(super) fn run(trusted_root: &Path, action: &str, package: &Path) -> Result<()> {
+pub(super) fn run(trusted_root: &Path, action: &str, _package: &Path) -> Result<()> {
+    let trusted_root =
+        std::fs::canonicalize(trusted_root).context("trusted control checkout is unavailable")?;
+    reject_deferred_publication(&trusted_root, action)
+}
+
+fn reject_deferred_publication(trusted_root: &Path, action: &str) -> Result<()> {
+    let policy = read_json(&trusted_root.join(".agents/gh-steward-recovery-policy.json"))?;
+    let allow_publication =
+        policy["workflows"]["dependency-remediation.yml"]["allow_publication"].as_bool();
+    ensure!(
+        allow_publication == Some(false),
+        "dependency-remediation policy must explicitly keep publication disabled"
+    );
+    bail!(
+        "dependency-remediation {action} is deferred: the pinned gh-steward release does not yet provide an authoritative GitHub publication plan, apply, and receipt"
+    )
+}
+
+#[allow(
+    dead_code,
+    reason = "the Rust publisher stays unreachable until gh-steward owns GitHub mutation authority"
+)]
+fn run_enabled(trusted_root: &Path, action: &str, package: &Path) -> Result<()> {
     let package = Package::new(package)?;
     let trusted_root =
         std::fs::canonicalize(trusted_root).context("trusted control checkout is unavailable")?;
@@ -90,5 +113,59 @@ fn continue_publication(root: &Path, package: &Package) -> Result<()> {
             "completed" => return Ok(()),
             _ => bail!("saved publication has an unsupported or ambiguous continuation stage"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run;
+    use serde_json::json;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn write_policy(root: &std::path::Path, allow_publication: bool) {
+        let path = root.join(".agents/gh-steward-recovery-policy.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            path,
+            serde_json::to_vec(&json!({
+                "workflows": {
+                    "dependency-remediation.yml": {
+                        "allow_publication": allow_publication
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn fresh_prepare_and_recovered_continue_fail_before_touching_packages() {
+        let temp = TempDir::new().unwrap();
+        write_policy(temp.path(), false);
+        let package = temp.path().join("not-created");
+
+        for action in ["prepare", "continue"] {
+            let error = run(temp.path(), action, &package).unwrap_err();
+            assert!(error.to_string().contains("is deferred"), "{error:#}");
+            assert!(!package.exists(), "{action} touched the package");
+        }
+    }
+
+    #[test]
+    fn publication_cannot_be_reenabled_without_native_gh_steward_authority() {
+        let temp = TempDir::new().unwrap();
+        write_policy(temp.path(), true);
+        let package = temp.path().join("not-created");
+
+        let error = run(temp.path(), "continue", &package).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("must explicitly keep publication disabled"),
+            "{error:#}"
+        );
+        assert!(!package.exists());
     }
 }
