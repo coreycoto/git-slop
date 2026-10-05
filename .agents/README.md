@@ -23,8 +23,8 @@ The gh-steward source pin comes from its release lock.
 the release tag, source commit, checksums, attestation, binary version, target,
 and expected digest. `--verify` rechecks the machine-readable acquisition
 receipt and staged binary before any native workflow command runs. The current
-lock names the qualified published v0.2.0 assets at source
-`f69e23987d74cc933ebca5fb90f567b89233c870`, including the shared `runs`
+lock names the qualified published v0.3.0 assets at source
+`93b519af9cf71a95289b0a7c8718d8cab0b7017e`, including the shared `runs`
 commands. All four native release gates, independent tagged rebuilds, checksums
 and attestations passed. Consumer workflow promotion still requires its own
 hosted qualification and authorization.
