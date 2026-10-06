@@ -5,6 +5,7 @@
     }
 
     include!("repository_contracts.rs");
+    include!("dogfood.rs");
 
     #[test]
     fn release_publish_contract_rejects_boundary_regressions() {
