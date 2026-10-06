@@ -9,8 +9,8 @@
           "path": ".agents/README.md",
           "reason": "material_score_increase",
           "severity": "notice",
-          "content_sha256": "4c0a8a113e8b6db71ffff77e0e570e6759bc0ec8b1b09a4f8fa3b7bc92e70c59",
-          "maximum_slop_score": 31.7
+          "content_sha256": "3af5a6bc188ff4444af0c59546de7f37f00add7d8f7e7bd799e6987238ebf361",
+          "maximum_slop_score": 32.6
         },
         {
           "path": ".github/codex/prompts/dependency-remediation.md",
@@ -79,8 +79,8 @@
           "path": "xtask/src/codex/runtime_manifest.rs",
           "reason": "material_score_increase",
           "severity": "notice",
-          "content_sha256": "bb41a019f798248558189b4d68c55df17ff8252194fc26aa503e4ce4fa8cbba8",
-          "maximum_slop_score": 25.5
+          "content_sha256": "7bb99bcd71617f4d6e3b2a22f4b18b45526e6ba3de856da17cce993bab39b968",
+          "maximum_slop_score": 26.2
         },
         {
           "path": "xtask/src/codex/runtime_tests.rs",
