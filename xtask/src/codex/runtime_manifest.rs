@@ -13,7 +13,7 @@ pub(super) const CODEX_CLI_VERSION: &str = "0.160.0";
 pub(super) const MARKETPLACE_SOURCE_MANIFEST: &str = ".agents/plugins/marketplace-source.json";
 pub(super) const GH_STEWARD_LOCK_MANIFEST: &str = ".agents/gh-steward.lock.json";
 pub(super) const GH_STEWARD_REPOSITORY: &str = "coreycoto/gh-steward";
-pub(super) const GH_STEWARD_VERSION: &str = "0.4.0";
+pub(super) const GH_STEWARD_VERSION: &str = "0.4.1";
 pub(super) const GH_STEWARD_WRAPPER: &str = "scripts/with-gh-steward.sh";
 pub(super) const CODEX_PLUGIN_SETUP: &str = "scripts/prepare-codex-plugins.sh";
 
