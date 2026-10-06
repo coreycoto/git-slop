@@ -118,20 +118,25 @@ and checksum outputs, and includes `release-manifest.json` in `SHA256SUMS`.
 the declared formula path; the rendered formula builds from the immutable
 `static.crates.io` URL and SHA-256 in that manifest.
 
-The separately published `agent-plugins` maintainer runtime is an eager Linux
-x86_64 PEX SCIE invoked only by trusted Codex/governance workflows through
-`scripts/with-agent-plugins.sh`. The consumer manifest pins its source revision,
-release coordinates, archive member, byte size, and SHA-256. Workflows acquire
-it into an ephemeral `RUNNER_TEMP` root with a step-scoped
-`AGENT_PLUGINS_READ_TOKEN`, verify it again without credentials, and never put
-it in an Actions cache. Direct `marketplace` and `github` CLI commands are the
-normal interface; the wrapper confines interpreter mode to runtime identity,
-embedded-marketplace provenance verification, and the legacy compatibility
-entry point. The runtime is not part of this xtask or the public `git-slop`
-product runtime.
+Public Agent Plugins supply the selected project- and product-development
+guidance. The `coreycoto/gh-steward` Go extension supplies native GitHub
+snapshots, reviewed plans, exact-hash applies and durable operation journals.
+Consumer locks bind both sources. `scripts/prepare-codex-plugins.sh` keeps the
+Codex CLI and plugins under an isolated temporary `CODEX_HOME`;
+`scripts/with-gh-steward.sh` stages a source-pinned, checksum- and
+attestation-verified native tool under `RUNNER_TEMP`. Neither installs
+globally or loads the private Agent Development publisher. The four platform
+asset hashes and exact tool commit must be qualified before acquisition can
+succeed; unqualified lock values fail closed.
 
-`validate-codex` and `validate-workflows` fail closed on malformed runtime pins,
-legacy source or dependency acquisition, implicit downloads, misplaced
-acquisition credentials, persistent cache use, indirect CLI shims, unsafe
-pull-request checkout ordering, or coupling the private runtime to public
-release publication.
+Execution-state recovery persists the exact repository, target, run identity,
+reviewed plan, apply receipt and native journal as a target-specific workflow
+artifact. The workflow searches complete run and artifact inventories before
+preparing any new plan. It resumes only from matching evidence and fails with
+`recovery_needed` when evidence is missing, expired, incomplete or mismatched.
+`cancel-in-progress` remains disabled to preserve dispatch state.
+
+`validate-codex` and `validate-workflows` check immutable plugin and tool pins,
+acquisition scripts, isolated setup, workflow credential scope, trusted
+pull-request ordering, cross-run recovery, and public release independence
+from consumer tooling.

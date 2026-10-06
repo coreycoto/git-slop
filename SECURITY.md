@@ -22,10 +22,10 @@ Include:
 This policy covers the native Rust `git-slop` CLI, Cargo source package,
 checksummed release archives, Homebrew formula, GitHub Action installer and
 runner, checked-in plugin guidance, and the private standalone Rust `xtask`
-validation and release tooling. Workflow use of the manifest-pinned external
-`agent-plugins` prebuilt runtime is also in scope at this repository's
-invocation boundary; its implementation is maintained in the publisher
-repository.
+validation and release tooling. Workflow acquisition of the manifest-pinned
+`gh-steward` native extension and selected public Agent Plugins sources is in
+scope at this repository's consumer boundary; each publisher maintains its
+own implementation and release process.
 
 Out of scope:
 
@@ -67,30 +67,27 @@ release triggers a same-repository `github.token` relay with no named secret,
 followed by a separately protected `main`-branch Homebrew handoff; only its
 final dispatch step receives the existing `HOMEBREW_TAP_DISPATCH_TOKEN`.
 
-Private maintainer workflows have a separate acquisition boundary. The
-consumer manifest pins the publisher source revision and archive SHA-256; the
-wrapper must also validate release metadata, the exact Linux target and archive
-member, safe extraction, and the SCIE's embedded revision. The read token is
-scoped only to preparation, the verified runtime lives under the job's
-ephemeral runner directory without Actions caching, and subsequent marketplace
-and governance commands run from embedded content without network acquisition.
-Fork pull requests do not receive this secret, and pull-request-controlled code
-must never perform preparation. The public release workflow never receives or
-uses the private runtime token.
+Maintainer workflows acquire the native extension from an exact source
+revision and target-specific digest, verify the publisher's attested release,
+and stage it under ephemeral runner storage. Codex CLI and selected public
+plugins are installed only under a temporary `CODEX_HOME`; no global extension
+or plugin installation is changed. No private publisher runtime, read token,
+Python SDK, or PEX is used.
 
-Execution-state sync runs on `pull_request_target` and checks out only trusted
-base content before acquiring the private runtime. Active PR events pin the
-base revision carried by the PR payload; a closed event uses the event's
-current trusted base SHA so a merged PR cannot resurrect the pre-merge runtime
-launcher. Its project credential is separate from runtime acquisition and is
-not job-scoped: only the direct project snapshot and execution-state steps
-receive that resolved `GH_TOKEN`. Preparation, offline verification, and
-publisher identity/interpreter smoke therefore cannot inherit the project PAT.
+Execution-state sync runs on `pull_request_target` using trusted base content.
+Repository and Project credentials remain step-scoped to the reads and writes
+that need them. Before a new plan, the workflow reads complete workflow and
+artifact history. After dispatch, its run-scoped artifact retains the exact
+target, run identity, reviewed plan, apply receipt, and native journal. A retry
+may continue only from matching complete evidence; missing, expired,
+truncated, mismatched, or ambiguous recovery state produces `recovery_needed`
+and blocks a fresh plan. Target concurrency never cancels an in-flight run,
+and uncertain writes are not replayed automatically.
 
 For privileged `pull_request_target` automation, the workflow first checks out
 and validates the trusted base, then snapshots its Codex config, profiles,
 agents, prompt, and output schema under the ephemeral runner directory. Only
-after runtime verification and embedded marketplace installation does it check
+after source verification and isolated plugin installation does it check
 out the requested head, without persisted checkout credentials. No head-owned
 maintainer code or Codex control file is executed; `github.token` is exposed
 only to the deliberate Codex mutation step.

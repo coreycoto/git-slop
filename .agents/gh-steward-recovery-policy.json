@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "workflows": {
+    "dependency-remediation.yml": {
+      "mutator_step_alternatives": [
+        [
+          "Run Codex dependency remediation"
+        ],
+        [
+          "Settle terminal decision through gh-steward"
+        ]
+      ],
+      "reviewed_source_shas": [],
+      "allow_publication": false,
+      "plans": {
+        "workflow-noop": {
+          "command": "workflow-noop",
+          "domain_profile": "workflow-noop",
+          "allowed_operation_kinds": [],
+          "attempt_target": "workflow_noop",
+          "approval": {
+            "kind": "local-noop",
+            "workflow_source_sha256": "285e2aaf72928729906cb25bbf2167a6d05f14c0c043f2b2abd7db54ffaa68a9",
+            "mutators": [
+              {
+                "job": "Settle an exact no-publication decision",
+                "steps": [
+                  "Settle terminal decision through gh-steward"
+                ]
+              }
+            ]
+          },
+          "event": {
+            "kind": "workflow_noop",
+            "path": "events/trigger-event.json"
+          },
+          "parent_merge": null
+        }
+      }
+    },
+    "execution_state_sync.yml": {
+      "mutator_step_alternatives": [
+        [
+          "Sync issue and project state"
+        ],
+        [
+          "Apply or recover exact reviewed execution plan"
+        ],
+        [
+          "Apply exact reviewed execution plan"
+        ]
+      ],
+      "reviewed_source_shas": [],
+      "allow_publication": false,
+      "plans": {
+        "execution": {
+          "command": "execution-sync",
+          "domain_profile": "execution",
+          "allowed_operation_kinds": [
+            "issue-reopen",
+            "issue-close",
+            "issue-comment-upsert",
+            "project-membership-add",
+            "project-field-set"
+          ],
+          "attempt_target": "plan_set",
+          "approval": {
+            "kind": "reviewed-dispatch",
+            "approval_input": "approve_plan_sha",
+            "reviewed_run_input": "plan_run_id",
+            "required_inputs": {
+              "operation": "apply"
+            }
+          },
+          "event": {
+            "kind": "workflow_dispatch",
+            "path": "events/dispatch-event.json"
+          },
+          "parent_merge": null,
+          "prepared_recovery": {
+            "workflow_source_sha256": "0d89f97f8bfcfff47a90ce43cd67ff0df5ebc4bfbbdbb63a0e1c45d32d98f744",
+            "mutators": [
+              {
+                "job": "Apply separately approved execution-state plan",
+                "steps": [
+                  "Apply exact reviewed execution plan"
+                ]
+              }
+            ]
+          }
+        },
+        "workflow-noop": {
+          "command": "workflow-noop",
+          "domain_profile": "workflow-noop",
+          "allowed_operation_kinds": [],
+          "attempt_target": "workflow_noop",
+          "approval": {
+            "kind": "local-noop",
+            "workflow_source_sha256": "0d89f97f8bfcfff47a90ce43cd67ff0df5ebc4bfbbdbb63a0e1c45d32d98f744",
+            "mutators": [
+              {
+                "job": "Apply separately approved execution-state plan",
+                "steps": [
+                  "Apply exact reviewed execution plan"
+                ]
+              }
+            ]
+          },
+          "event": {
+            "kind": "workflow_noop",
+            "path": "events/trigger-event.json"
+          },
+          "parent_merge": null
+        }
+      }
+    },
+    "governance-reconcile.yml": {
+      "mutator_step_alternatives": [
+        [
+          "Run Codex governance reconcile"
+        ],
+        [
+          "Apply exact reviewed label palette plan"
+        ]
+      ],
+      "reviewed_source_shas": [],
+      "allow_publication": false,
+      "plans": {
+        "label-palette": {
+          "command": "governance-apply",
+          "domain_profile": "governance",
+          "allowed_operation_kinds": [
+            "label-create",
+            "label-update"
+          ],
+          "attempt_target": "single_plan_sha256",
+          "approval": {
+            "kind": "git-slop-governance"
+          },
+          "event": null,
+          "parent_merge": null,
+          "prepared_recovery": {
+            "workflow_source_sha256": "bc2d600371245a6281ad63840e12d79009e1d228ca3b7acb507cfdaff441bf36",
+            "mutators": [
+              {
+                "job": "Apply only the exact reviewed governance plan",
+                "steps": [
+                  "Apply exact reviewed label palette plan"
+                ]
+              }
+            ]
+          }
+        },
+        "workflow-noop": {
+          "command": "workflow-noop",
+          "domain_profile": "workflow-noop",
+          "allowed_operation_kinds": [],
+          "attempt_target": "workflow_noop",
+          "approval": {
+            "kind": "local-noop",
+            "workflow_source_sha256": "bc2d600371245a6281ad63840e12d79009e1d228ca3b7acb507cfdaff441bf36",
+            "mutators": [
+              {
+                "job": "Apply only the exact reviewed governance plan",
+                "steps": [
+                  "Apply exact reviewed label palette plan"
+                ]
+              }
+            ]
+          },
+          "event": {
+            "kind": "workflow_noop",
+            "path": "events/trigger-event.json"
+          },
+          "parent_merge": null
+        }
+      }
+    },
+    "merge-on-green.yml": {
+      "mutator_step_alternatives": [
+        [
+          "Run Codex merge gate"
+        ],
+        [
+          "Apply reviewed exact-head merge plan"
+        ]
+      ],
+      "reviewed_source_shas": [],
+      "allow_publication": false,
+      "plans": {
+        "merge": {
+          "command": "merge-apply",
+          "domain_profile": "merge",
+          "allowed_operation_kinds": [
+            "pull-request-merge"
+          ],
+          "attempt_target": "single_plan_sha256",
+          "approval": {
+            "kind": "git-slop-merge"
+          },
+          "event": {
+            "kind": "workflow_run",
+            "path": "events/workflow-run-event.json"
+          },
+          "parent_merge": null,
+          "prepared_recovery": {
+            "workflow_source_sha256": "03ccfa4be75e40a2647f201a2babb788cc5f3df893a8a1ac40678acd355d9890",
+            "mutators": [
+              {
+                "job": "Apply only the exact reviewed merge plan",
+                "steps": [
+                  "Apply reviewed exact-head merge plan"
+                ]
+              }
+            ]
+          }
+        },
+        "workflow-noop": {
+          "command": "workflow-noop",
+          "domain_profile": "workflow-noop",
+          "allowed_operation_kinds": [],
+          "attempt_target": "workflow_noop",
+          "approval": {
+            "kind": "local-noop",
+            "workflow_source_sha256": "03ccfa4be75e40a2647f201a2babb788cc5f3df893a8a1ac40678acd355d9890",
+            "mutators": [
+              {
+                "job": "Apply only the exact reviewed merge plan",
+                "steps": [
+                  "Apply reviewed exact-head merge plan"
+                ]
+              }
+            ]
+          },
+          "event": {
+            "kind": "workflow_noop",
+            "path": "events/trigger-event.json"
+          },
+          "parent_merge": null
+        }
+      }
+    }
+  }
+}

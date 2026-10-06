@@ -1,0 +1,12 @@
+{
+  "statuses": {
+    "done": "Done",
+    "active": "In Progress",
+    "todo": "Todo"
+  },
+  "status_field": "Status",
+  "pr_link_marker_prefix": "<!-- execution-pr-link",
+  "pr_link_number_pattern": "<!-- execution-pr-link issue=(?P<number>[1-9][0-9]*) -->",
+  "linked_issue_marker_prefix": "<!-- execution-linked-issue:",
+  "link_state_marker_prefix": "<!-- execution-link-state:"
+}

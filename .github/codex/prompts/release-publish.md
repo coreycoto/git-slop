@@ -5,8 +5,7 @@ You are running in GitHub Actions inside the `git-slop` repository.
 Use the custom agent `release_publisher` defined at
 `.codex/agents/release-publisher.toml`. If that agent is unavailable, stop
 immediately with an actionable error that names the missing agent file.
-Use `$project-management-workflows:release-publish` as the canonical workflow
-skill for this job.
+Use `$project-management:delivery-lifecycle` for the checked-in delivery policy.
 
 ## Read First
 
@@ -24,8 +23,8 @@ normal release path's only manual approval.
 
 - Use checked-out repo files, Cargo and the private `xtask`, `gh`, GitHub
   tokens, and local CLI tooling only.
-- This public release workflow must not acquire or invoke the private
-  `agent-plugins` runtime and must not receive its read token.
+- This public product release workflow must not acquire consumer plugin or
+  `gh-steward` tooling, and must not receive consumer-only credentials.
 - Do not assume Marketplace-installed connectors are available on the runner.
 - Do not use the GitHub Git Data API.
 - Treat the crates.io package digest, full source revision, exact semver tag,

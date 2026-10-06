@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "workflow_name": "CI",
+  "workflow_event": "pull_request",
+  "required_label": "auto-merge",
+  "pass_bucket": "pass",
+  "merge_method": "merge",
+  "branch_patterns": ["codex/*"],
+  "trusted_logins": ["dependabot[bot]", "renovate[bot]"]
+}

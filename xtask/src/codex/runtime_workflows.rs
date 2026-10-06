@@ -5,28 +5,33 @@ use serde_yaml::Value as YamlValue;
 use super::{WORKFLOWS, read_text};
 
 mod codex_action;
+mod dependency_remediation;
+mod execution_state;
+pub(super) use dependency_remediation::validate_dependency_candidate_artifact_ids;
+pub(super) use execution_state::validate_policy_text as validate_execution_policy_text;
 
-pub(super) const PREPARE_COMMAND: &str = "scripts/with-agent-plugins.sh --prepare";
-pub(super) const VERIFY_COMMAND: &str = "scripts/with-agent-plugins.sh --verify";
-pub(super) const MARKETPLACE_COMMAND: &str = "scripts/with-agent-plugins.sh marketplace install";
-pub(super) const PROJECT_SNAPSHOT_COMMAND: &str =
-    "scripts/with-agent-plugins.sh github project-snapshot";
-pub(super) const EXECUTION_STATE_COMMAND: &str =
-    "scripts/with-agent-plugins.sh github execution-state";
-
-const VALIDATE_COMMAND: &str = "cargo xtask validate-codex";
+pub(super) const GH_STEWARD_PREPARE: &str = "scripts/with-gh-steward.sh --prepare";
+pub(super) const GH_STEWARD_VERIFY: &str = "scripts/with-gh-steward.sh --verify";
+pub(super) const CODEX_PLUGIN_SETUP: &str = "scripts/prepare-codex-plugins.sh";
+pub(super) const CODEX_ACTION: &str =
+    "openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e";
+pub(super) const VALIDATE_COMMAND: &str = "cargo xtask validate-codex";
 const CODEX_CONFIG_COPY_COMMAND: &str =
     "cp .codex/config.toml \"$RUNNER_TEMP/codex-runtime/.codex/config.toml\"";
 const CODEX_PROFILE_COPY_COMMAND: &str =
     "cp .codex/*.config.toml \"$RUNNER_TEMP/codex-runtime/.codex/\"";
 const CODEX_HOME_INPUT: &str = "codex-home: ${{ runner.temp }}/codex-runtime/.codex";
-const CODEX_ACTION: &str = "openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e";
 const CODEX_APPROVAL_OVERRIDE: &str =
     "sed -i 's/^approval_policy = \"on-request\"$/approval_policy = \"never\"/'";
+const PROJECT_SNAPSHOT: &str = "\"$GH_STEWARD_BIN\" snapshot project";
+const EXECUTION_PREPARE: &str = "\"$GH_STEWARD_BIN\" execution prepare";
+const EXECUTION_APPLY: &str = "\"$GH_STEWARD_BIN\" execution apply";
+const PROJECT_TOKEN: &str =
+    "${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AgentPluginWorkflowKind {
-    Marketplace,
+    CodexPlugins,
     ExecutionState,
 }
 
@@ -52,7 +57,7 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
         validate_agent_plugin_workflow_text(
             workflow.name,
             &text,
-            AgentPluginWorkflowKind::Marketplace,
+            AgentPluginWorkflowKind::CodexPlugins,
             errors,
         );
         for (required, description) in [
@@ -66,8 +71,15 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
                 CODEX_HOME_INPUT,
                 "pass the isolated Codex home to codex-action",
             ),
+            ("gpt-6-luna", "use the qualified lightweight Codex model"),
         ] {
-            if !text.contains(required) {
+            let present =
+                if workflow.name == "dependency-remediation.yml" && required == VALIDATE_COMMAND {
+                    text.contains("\"$GIT_SLOP_XTASK_BIN\" validate-codex")
+                } else {
+                    text.contains(required)
+                };
+            if !present {
                 errors.push(format!("{} must {description}.", workflow.name));
             }
         }
@@ -91,6 +103,52 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
                 }
             }
         }
+        if workflow.name == "dependency-remediation.yml"
+            && let Some(proposal) = read_text(
+                repo_root,
+                "xtask/src/dependency_remediation/proposal.rs",
+                errors,
+            )
+        {
+            for required in ["source.patch", "source-verification.json"] {
+                if !proposal.contains(required) {
+                    errors.push(format!(
+                        "dependency-remediation trusted proposal adapter must preserve exact {required} handoff bytes."
+                    ));
+                }
+            }
+        }
+    }
+
+    if let Some(source) = read_text(
+        repo_root,
+        "xtask/src/dependency_remediation/candidate.rs",
+        errors,
+    ) {
+        validate_dependency_candidate_artifact_ids(&source, errors);
+    }
+    if let Some(source) = read_text(
+        repo_root,
+        "xtask/src/dependency_remediation/source.rs",
+        errors,
+    ) {
+        validate_dependency_source_credential_boundary(&source, errors);
+    }
+    if let Some(policy) = read_text(repo_root, ".agents/gh-steward-recovery-policy.json", errors) {
+        if let Some(workflow) = read_text(
+            repo_root,
+            ".github/workflows/dependency-remediation.yml",
+            errors,
+        ) {
+            validate_dependency_publication_policy_text(&policy, &workflow, errors);
+        }
+        if let Some(workflow) = read_text(
+            repo_root,
+            ".github/workflows/execution_state_sync.yml",
+            errors,
+        ) {
+            validate_execution_policy_text(&policy, &workflow, errors);
+        }
     }
 
     let relative = ".github/workflows/execution_state_sync.yml";
@@ -104,64 +162,109 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
     }
 }
 
+fn validate_dependency_source_credential_boundary(source: &str, errors: &mut Vec<String>) {
+    for credential in ["GH_TOKEN", "GITHUB_TOKEN", "OPENAI_API_KEY"] {
+        if !source.contains(&format!(".env_remove(\"{credential}\")")) {
+            errors.push(format!(
+                "dependency-remediation source verification must remove {credential} before running source tests."
+            ));
+            return;
+        }
+    }
+}
+
+pub(super) fn validate_dependency_publication_policy_text(
+    source: &str,
+    workflow_source: &str,
+    errors: &mut Vec<String>,
+) {
+    let policy: serde_json::Value = match serde_json::from_str(source) {
+        Ok(policy) => policy,
+        Err(error) => {
+            errors.push(format!(
+                "dependency-remediation gh-steward policy is invalid JSON: {error}"
+            ));
+            return;
+        }
+    };
+    let workflow = &policy["workflows"]["dependency-remediation.yml"];
+    if workflow["allow_publication"] != serde_json::Value::Bool(false) {
+        errors.push(
+            "dependency-remediation publication must remain disabled until gh-steward owns the GitHub publication plan, apply, and receipt."
+                .to_owned(),
+        );
+    }
+    let mut alternatives = workflow["mutator_step_alternatives"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|alternative| alternative.as_array().into_iter().flatten());
+    if alternatives.any(|step| {
+        step.as_str().is_some_and(|step| {
+            step == "Continue only the exact positively recoverable publication stage"
+        })
+    }) {
+        errors.push(
+            "dependency-remediation recovery policy must not authorize a direct Rust publication continuation."
+                .to_owned(),
+        );
+    }
+    if workflow["plans"]["workflow-noop"]["approval"]["mutators"]
+        != serde_json::json!([{
+            "job": "Settle an exact no-publication decision",
+            "steps": ["Settle terminal decision through gh-steward"]
+        }])
+    {
+        errors.push(
+            "dependency-remediation no-op approval must bind the native terminal no-op step."
+                .to_owned(),
+        );
+    }
+    use sha2::{Digest, Sha256};
+    let expected_digest = hex::encode(Sha256::digest(workflow_source.as_bytes()));
+    if workflow["plans"]["workflow-noop"]["approval"]["workflow_source_sha256"] != expected_digest {
+        errors.push(
+            "dependency-remediation no-op approval must bind the exact current workflow bytes."
+                .to_owned(),
+        );
+    }
+}
+
 pub(super) fn validate_agent_plugin_workflow_text(
     name: &str,
     text: &str,
     kind: AgentPluginWorkflowKind,
     errors: &mut Vec<String>,
 ) {
-    for (required, description) in [
-        (PREPARE_COMMAND, "explicitly acquire the pinned runtime"),
-        (VERIFY_COMMAND, "verify the acquired runtime offline"),
-        (
-            "AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}",
-            "scope the read-only token to runtime acquisition",
-        ),
-    ] {
-        if !text.contains(required) {
-            errors.push(format!("{name} must {description}."));
-        }
+    if kind == AgentPluginWorkflowKind::CodexPlugins && !text.contains(CODEX_PLUGIN_SETUP) {
+        errors.push(format!(
+            "{name} must install the selected public plugins into isolated Codex state."
+        ));
     }
-
-    match kind {
-        AgentPluginWorkflowKind::Marketplace => {
-            if !text.contains(MARKETPLACE_COMMAND) {
-                errors.push(format!(
-                    "{name} must install the marketplace through the direct runtime CLI."
-                ));
-            }
-        }
-        AgentPluginWorkflowKind::ExecutionState => {
-            for (required, description) in [
-                (
-                    PROJECT_SNAPSHOT_COMMAND,
-                    "run project-snapshot through the direct runtime CLI",
-                ),
-                (
-                    EXECUTION_STATE_COMMAND,
-                    "run execution-state through the direct runtime CLI",
-                ),
-            ] {
-                if !text.contains(required) {
-                    errors.push(format!("{name} must {description}."));
-                }
-            }
-        }
+    if kind == AgentPluginWorkflowKind::CodexPlugins && !text.contains("gpt-6-luna") {
+        errors.push(format!("{name} must use the qualified gpt-6-luna model."));
+    }
+    if kind == AgentPluginWorkflowKind::ExecutionState
+        && [PROJECT_SNAPSHOT, EXECUTION_PREPARE, EXECUTION_APPLY]
+            .iter()
+            .any(|command| !text.contains(command))
+    {
+        errors.push(format!(
+            "{name} must use the verified native binary for Project snapshots and reviewed execution prepare/apply."
+        ));
     }
 
     for forbidden in [
-        "actions/setup-python",
-        "python-version:",
-        "python -m pip",
-        "pip install",
-        "Install uv",
-        "uv run",
-        "uv sync",
+        "agent-plugins-private-history",
+        "AGENT_PLUGINS_READ_TOKEN",
         "AGENT_PLUGINS_GIT_TOKEN",
-        "git ls-remote",
-        "insteadOf",
+        "PEX_INTERPRETER",
         "python -m agent_plugins",
         "python -c \"from agent_plugins",
+        "actions/setup-python",
+        "python-version:",
+        "uv run",
+        "uv sync",
         "actions/cache@",
         "RUNNER_TOOL_CACHE",
         "runner.tool_cache",
@@ -182,17 +285,22 @@ pub(super) fn validate_agent_plugin_workflow_text(
     let Some(steps) = workflow_step_views(&payload, name, errors) else {
         return;
     };
-    validate_acquisition_token_scope(&payload, &steps, name, errors);
-    validate_runtime_step_order(&steps, name, kind, errors);
+    validate_acquisition_scope(&payload, &steps, name, kind, errors);
+    validate_step_order(&steps, name, kind, errors);
+    if steps.iter().any(|step| step.run.contains("gh steward ")) {
+        errors.push(format!("{name} must invoke the verified GH_STEWARD_BIN directly; a PATH entry does not register a GitHub CLI extension."));
+    }
     codex_action::validate_args(&steps, name, errors);
 
     match name {
         "dependency-remediation.yml" => {
-            validate_dependency_remediation_trust(text, &payload, &steps, errors)
+            dependency_remediation::validate_dependency_remediation_trust(
+                text, &payload, &steps, errors,
+            )
         }
         "execution_state_sync.yml" => {
-            validate_execution_state_trust(text, &payload, &steps, errors);
-            validate_execution_state_artifacts(&steps, errors);
+            execution_state::validate_trust(text, &payload, &steps, errors);
+            execution_state::validate_artifacts(text, &steps, errors);
         }
         _ => {}
     }
@@ -247,690 +355,214 @@ fn workflow_step_views(
     Some(views)
 }
 
-fn validate_acquisition_token_scope(
+fn validate_acquisition_scope(
     payload: &YamlValue,
     steps: &[WorkflowStepView],
     name: &str,
+    kind: AgentPluginWorkflowKind,
     errors: &mut Vec<String>,
 ) {
-    let acquisitions = steps
+    let prepares = steps
         .iter()
-        .filter(|step| step.run.contains(PREPARE_COMMAND))
+        .filter(|step| step.run.trim() == GH_STEWARD_PREPARE)
         .collect::<Vec<_>>();
-    if acquisitions.len() != 1 {
+    let verifies = steps
+        .iter()
+        .filter(|step| step.run.trim() == GH_STEWARD_VERIFY)
+        .collect::<Vec<_>>();
+    let plugin_setup = steps
+        .iter()
+        .filter(|step| step.run.contains(CODEX_PLUGIN_SETUP))
+        .collect::<Vec<_>>();
+    let codex = steps
+        .iter()
+        .filter(|step| step.uses == CODEX_ACTION)
+        .collect::<Vec<_>>();
+    let wants_plugins = kind == AgentPluginWorkflowKind::CodexPlugins;
+    if (wants_plugins && plugin_setup.len() != 1)
+        || (!wants_plugins && !plugin_setup.is_empty())
+        || (wants_plugins && codex.len() != 1)
+    {
         errors.push(format!(
-            "{name} must define exactly one dedicated agent-plugins acquisition step."
+            "{name} must have one dedicated native acquisition and verification pair, with isolated plugin install and Codex action only when needed."
         ));
         return;
     }
-    let acquisition = acquisitions[0];
-    if acquisition.run.trim() != PREPARE_COMMAND {
-        errors.push(format!(
-            "{name} acquisition step must run only {PREPARE_COMMAND}."
-        ));
-    }
-
-    let Some(env) = acquisition.raw.get("env").and_then(YamlValue::as_mapping) else {
-        errors.push(format!(
-            "{name} acquisition step must define a step-scoped token environment."
-        ));
-        return;
-    };
-    let token_key = YamlValue::String("AGENT_PLUGINS_READ_TOKEN".into());
-    let expected_secret = "${{ secrets.AGENT_PLUGINS_READ_TOKEN }}";
-    if env.get(&token_key).and_then(YamlValue::as_str) != Some(expected_secret) {
-        errors.push(format!(
-            "{name} acquisition step must map AGENT_PLUGINS_READ_TOKEN directly from its \
-             namesake secret."
-        ));
-    }
-    if env.len() != 1 {
-        errors.push(format!(
-            "{name} acquisition step must expose only AGENT_PLUGINS_READ_TOKEN."
-        ));
-    }
-
-    if let Some(mapping) = acquisition.raw.as_mapping() {
-        for (key, value) in mapping {
-            if key.as_str() != Some("env")
-                && (yaml_contains(key, "AGENT_PLUGINS_READ_TOKEN")
-                    || yaml_contains(value, "AGENT_PLUGINS_READ_TOKEN"))
-            {
-                errors.push(format!(
-                    "{name} acquisition token must not appear outside the step env mapping."
-                ));
-                break;
-            }
-        }
-    }
-    for (key, value) in env {
-        if key != &token_key
-            && (yaml_contains(key, "AGENT_PLUGINS_READ_TOKEN")
-                || yaml_contains(value, "AGENT_PLUGINS_READ_TOKEN"))
-        {
+    let mut native_jobs = std::collections::BTreeSet::new();
+    native_jobs.extend(prepares.iter().map(|step| step.job.as_str()));
+    native_jobs.extend(verifies.iter().map(|step| step.job.as_str()));
+    for job in &native_jobs {
+        let job_prepares = prepares
+            .iter()
+            .filter(|step| step.job.as_str() == *job)
+            .collect::<Vec<_>>();
+        let job_verifies = verifies
+            .iter()
+            .filter(|step| step.job.as_str() == *job)
+            .collect::<Vec<_>>();
+        if job_prepares.len() != 1 || job_verifies.len() != 1 {
             errors.push(format!(
-                "{name} acquisition token must not be aliased through another environment key."
+                "{name} job {job} must contain exactly one native acquisition and verification pair."
             ));
-            break;
+            continue;
         }
-    }
-
-    for step in steps {
-        if step.ordinal != acquisition.ordinal
-            && yaml_contains(&step.raw, "AGENT_PLUGINS_READ_TOKEN")
-        {
+        if job_prepares[0].ordinal >= job_verifies[0].ordinal {
             errors.push(format!(
-                "{name} must keep AGENT_PLUGINS_READ_TOKEN only in the dedicated acquisition step."
+                "{name} job {job} must verify its acquired binary before using it."
             ));
         }
     }
-    if let Some(root) = payload.as_mapping() {
-        for (key, value) in root {
-            if key.as_str() == Some("jobs") {
-                continue;
+    for step in prepares
+        .iter()
+        .chain(verifies.iter())
+        .chain(plugin_setup.iter())
+    {
+        if !step
+            .raw
+            .get("env")
+            .is_none_or(|env| env.as_mapping().is_some_and(|env| env.is_empty()))
+            && step.raw.get("env").is_some_and(|env| {
+                yaml_contains(env, "GH_TOKEN")
+                    || yaml_contains(env, "GITHUB_TOKEN")
+                    || yaml_contains(env, "secrets.")
+            })
+        {
+            errors.push(format!(
+                "{name} acquisition and isolated plugin setup must not receive GitHub tokens or other workflow secrets."
+            ));
+        }
+    }
+    if text_has_legacy_credentials_or_runtime(payload) {
+        errors.push(format!(
+            "{name} must not define legacy publisher tokens or the Python runtime anywhere in workflow structure."
+        ));
+    }
+}
+
+fn text_has_legacy_credentials_or_runtime(payload: &YamlValue) -> bool {
+    [
+        "AGENT_PLUGINS_READ_TOKEN",
+        "AGENT_PLUGINS_GIT_TOKEN",
+        "PEX_INTERPRETER",
+        "agent-plugins-private-history",
+    ]
+    .iter()
+    .any(|needle| yaml_contains(payload, needle))
+}
+
+fn validate_step_order(
+    steps: &[WorkflowStepView],
+    name: &str,
+    kind: AgentPluginWorkflowKind,
+    errors: &mut Vec<String>,
+) {
+    let jobs = steps
+        .iter()
+        .map(|step| step.job.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    for job in jobs {
+        let job_steps = steps
+            .iter()
+            .filter(|step| step.job == job)
+            .collect::<Vec<_>>();
+        let prepare = job_steps
+            .iter()
+            .find(|step| step.run.trim() == GH_STEWARD_PREPARE)
+            .copied();
+        let verify = job_steps
+            .iter()
+            .find(|step| step.run.trim() == GH_STEWARD_VERIFY)
+            .copied();
+        let native_commands = job_steps
+            .iter()
+            .filter(|step| {
+                step.run.contains("\"$GH_STEWARD_BIN\" ")
+                    && step.run.trim() != GH_STEWARD_PREPARE
+                    && step.run.trim() != GH_STEWARD_VERIFY
+            })
+            .copied()
+            .collect::<Vec<_>>();
+        if !native_commands.is_empty() && (prepare.is_none() || verify.is_none()) {
+            errors.push(format!(
+                "{name} job {job} must acquire and verify gh-steward before running native commands."
+            ));
+        }
+        if let (Some(prepare), Some(verify)) = (prepare, verify) {
+            let checkout_before = job_steps.iter().any(|step| {
+                step.ordinal < prepare.ordinal
+                    && step.uses.starts_with("actions/checkout@")
+                    && step.persist_credentials == Some(false)
+            });
+            if !checkout_before {
+                errors.push(format!(
+                    "{name} job {job} must check out trusted source with persisted credentials disabled before native acquisition."
+                ));
             }
-            if yaml_contains(key, "AGENT_PLUGINS_READ_TOKEN")
-                || yaml_contains(value, "AGENT_PLUGINS_READ_TOKEN")
+            if prepare.ordinal >= verify.ordinal
+                || native_commands
+                    .iter()
+                    .any(|step| step.ordinal <= verify.ordinal)
             {
                 errors.push(format!(
-                    "{name} must not define AGENT_PLUGINS_READ_TOKEN outside job steps."
+                    "{name} job {job} must verify the acquired binary before running native commands."
                 ));
             }
         }
     }
-    if let Some(jobs) = payload.get("jobs").and_then(YamlValue::as_mapping) {
-        for (_, job) in jobs {
-            if let Some(job) = job.as_mapping() {
-                for (key, value) in job {
-                    if key.as_str() == Some("steps") {
-                        continue;
-                    }
-                    if yaml_contains(key, "AGENT_PLUGINS_READ_TOKEN")
-                        || yaml_contains(value, "AGENT_PLUGINS_READ_TOKEN")
-                    {
-                        errors.push(format!(
-                            "{name} must not define AGENT_PLUGINS_READ_TOKEN at job scope."
-                        ));
-                    }
+
+    if kind == AgentPluginWorkflowKind::CodexPlugins {
+        let plugins = steps
+            .iter()
+            .find(|step| step.run.contains(CODEX_PLUGIN_SETUP));
+        let codex = steps.iter().find(|step| step.uses == CODEX_ACTION);
+        if let (Some(plugins), Some(codex)) = (plugins, codex)
+            && (plugins.job != codex.job || plugins.ordinal >= codex.ordinal)
+        {
+            errors.push(format!(
+                "{name} must install pinned plugins before Codex executes in the same read-only review job."
+            ));
+        }
+    }
+
+    if kind == AgentPluginWorkflowKind::ExecutionState {
+        for command in [PROJECT_SNAPSHOT, EXECUTION_PREPARE, EXECUTION_APPLY] {
+            for step in steps.iter().filter(|step| step.run.contains(command)) {
+                let verify = steps.iter().find(|candidate| {
+                    candidate.job == step.job && candidate.run.trim() == GH_STEWARD_VERIFY
+                });
+                if verify.is_none_or(|verify| verify.ordinal >= step.ordinal) {
+                    errors.push(format!(
+                        "{name} must run {command} only after verifying the exact tool acquisition in its job."
+                    ));
                 }
             }
         }
     }
 }
 
-fn validate_runtime_step_order(
-    steps: &[WorkflowStepView],
+fn validate_step_token(
+    authorized: &WorkflowStepView,
+    expected_token: &str,
     name: &str,
-    kind: AgentPluginWorkflowKind,
     errors: &mut Vec<String>,
 ) {
-    let acquisitions = steps
-        .iter()
-        .filter(|step| step.run.contains(PREPARE_COMMAND))
-        .collect::<Vec<_>>();
-    let verifications = steps
-        .iter()
-        .filter(|step| step.run.contains(VERIFY_COMMAND))
-        .collect::<Vec<_>>();
-    if acquisitions.len() != 1 || verifications.len() != 1 {
-        if verifications.len() != 1 {
-            errors.push(format!(
-                "{name} must define exactly one separate offline runtime verification step."
-            ));
-        }
+    let Some(env) = authorized.raw.get("env").and_then(YamlValue::as_mapping) else {
+        errors.push(format!(
+            "{name} authorized operation must receive a step-scoped GH_TOKEN."
+        ));
         return;
-    }
-    let acquisition = acquisitions[0];
-    let verification = verifications[0];
-    if verification.run.trim() != VERIFY_COMMAND {
-        errors.push(format!(
-            "{name} verification step must run only {VERIFY_COMMAND}."
-        ));
-    }
-    if acquisition.job != verification.job || acquisition.ordinal >= verification.ordinal {
-        errors.push(format!(
-            "{name} must verify the runtime after acquisition in the same job."
-        ));
-    }
-    if yaml_contains(&verification.raw, "AGENT_PLUGINS_READ_TOKEN") {
-        errors.push(format!(
-            "{name} offline verification step must not receive AGENT_PLUGINS_READ_TOKEN."
-        ));
-    }
-
-    let direct_commands = match kind {
-        AgentPluginWorkflowKind::Marketplace => [MARKETPLACE_COMMAND, ""].as_slice(),
-        AgentPluginWorkflowKind::ExecutionState => {
-            [PROJECT_SNAPSHOT_COMMAND, EXECUTION_STATE_COMMAND].as_slice()
-        }
     };
-    for command in direct_commands.iter().filter(|command| !command.is_empty()) {
-        let matches = steps
-            .iter()
-            .filter(|step| step.run.contains(command))
-            .collect::<Vec<_>>();
-        if matches.len() != 1 {
-            errors.push(format!(
-                "{name} must invoke {command} exactly once through the direct CLI."
-            ));
-            continue;
-        }
-        let direct = matches[0];
-        if direct.job != verification.job || direct.ordinal <= verification.ordinal {
-            errors.push(format!(
-                "{name} must invoke {command} only after offline runtime verification."
-            ));
-        }
-        if yaml_contains(&direct.raw, "AGENT_PLUGINS_READ_TOKEN") {
-            errors.push(format!(
-                "{name} direct runtime commands must not receive AGENT_PLUGINS_READ_TOKEN."
-            ));
-        }
-    }
-
-    let checkout_before_acquisition = steps.iter().any(|step| {
-        step.job == acquisition.job
-            && step.ordinal < acquisition.ordinal
-            && step.uses.starts_with("actions/checkout@")
+    let key = YamlValue::String("GH_TOKEN".into());
+    let unexpected_credential = env.iter().any(|(env_key, value)| {
+        let name = env_key.as_str().unwrap_or_default();
+        env_key != &key
+            && (name.ends_with("_TOKEN")
+                || name.contains("SECRET")
+                || yaml_contains(value, "secrets."))
     });
-    if !checkout_before_acquisition {
+    if env.get(&key).and_then(YamlValue::as_str) != Some(expected_token) || unexpected_credential {
         errors.push(format!(
-            "{name} must check out trusted wrapper and manifest content before acquisition."
-        ));
-    }
-}
-
-fn validate_dependency_remediation_trust(
-    text: &str,
-    payload: &YamlValue,
-    steps: &[WorkflowStepView],
-    errors: &mut Vec<String>,
-) {
-    let name = "dependency-remediation.yml";
-    if !text.contains("github.actor == 'dependabot[bot]'") {
-        errors.push(format!(
-            "{name} must restrict pull_request_target execution to Dependabot."
-        ));
-    }
-    let checkouts = steps
-        .iter()
-        .filter(|step| step.job == "remediate" && step.uses.starts_with("actions/checkout@"))
-        .collect::<Vec<_>>();
-    let Some(first) = checkouts.first() else {
-        errors.push(format!("{name} must check out the trusted base revision."));
-        return;
-    };
-    if checkouts.len() != 2 {
-        errors.push(format!(
-            "{name} must define exactly the trusted-base and requested-head checkouts."
-        ));
-    }
-    if !first.checkout_ref.contains("pull_request.base.sha") {
-        errors.push(format!(
-            "{name} first checkout must select the trusted pull-request base revision."
-        ));
-    }
-    if first.persist_credentials != Some(false) {
-        errors.push(format!(
-            "{name} trusted-base checkout must disable persisted GitHub credentials."
-        ));
-    }
-    let steps = steps
-        .iter()
-        .filter(|step| step.job == first.job)
-        .collect::<Vec<_>>();
-    let head_checkouts = checkouts
-        .iter()
-        .filter(|step| step.checkout_ref.contains("pull_request.head.sha"))
-        .collect::<Vec<_>>();
-    if head_checkouts.len() != 1 {
-        errors.push(format!(
-            "{name} must define exactly one explicit requested-head checkout."
-        ));
-        return;
-    }
-    let head = head_checkouts[0];
-    if head.persist_credentials != Some(false) {
-        errors.push(format!(
-            "{name} requested-head checkout must disable persisted GitHub credentials."
-        ));
-    }
-
-    let validations = steps
-        .iter()
-        .filter(|step| step.run.trim() == VALIDATE_COMMAND)
-        .collect::<Vec<_>>();
-    let rust_setups = steps
-        .iter()
-        .filter(|step| step.uses.starts_with("dtolnay/rust-toolchain@"))
-        .collect::<Vec<_>>();
-    let acquisitions = steps
-        .iter()
-        .filter(|step| step.run.trim() == PREPARE_COMMAND)
-        .collect::<Vec<_>>();
-    let verifications = steps
-        .iter()
-        .filter(|step| step.run.trim() == VERIFY_COMMAND)
-        .collect::<Vec<_>>();
-    let snapshots = steps
-        .iter()
-        .filter(|step| step.run.contains("cp -R .codex/agents/."))
-        .collect::<Vec<_>>();
-    let marketplaces = steps
-        .iter()
-        .filter(|step| step.run.contains(MARKETPLACE_COMMAND))
-        .collect::<Vec<_>>();
-    let codex_steps = steps
-        .iter()
-        .filter(|step| step.uses == CODEX_ACTION)
-        .collect::<Vec<_>>();
-    if rust_setups.len() != 1
-        || validations.len() != 1
-        || acquisitions.len() != 1
-        || verifications.len() != 1
-        || snapshots.len() != 1
-        || marketplaces.len() != 1
-        || codex_steps.len() != 1
-    {
-        errors.push(format!(
-            "{name} must define one trusted Rust setup, validation, acquisition, verification, \
-             runtime-input snapshot, marketplace install, and Codex mutation step."
-        ));
-        return;
-    }
-    let rust_setup = rust_setups[0];
-    let validation = validations[0];
-    let acquisition = acquisitions[0];
-    let verification = verifications[0];
-    let snapshot = snapshots[0];
-    let marketplace = marketplaces[0];
-    let codex = codex_steps[0];
-    let all_in_trusted_job = [
-        rust_setup,
-        validation,
-        acquisition,
-        verification,
-        snapshot,
-        marketplace,
-        head,
-        codex,
-    ]
-    .iter()
-    .all(|step| step.job == first.job);
-    if !all_in_trusted_job
-        || !(first.ordinal < rust_setup.ordinal
-            && rust_setup.ordinal < validation.ordinal
-            && validation.ordinal < acquisition.ordinal
-            && acquisition.ordinal < verification.ordinal
-            && verification.ordinal < snapshot.ordinal
-            && snapshot.ordinal < marketplace.ordinal
-            && marketplace.ordinal < head.ordinal
-            && head.ordinal < codex.ordinal)
-    {
-        errors.push(format!(
-            "{name} must set up Rust, validate, acquire, verify, snapshot, and install from \
-             trusted base content in one job before the requested-head checkout and Codex mutation."
-        ));
-    }
-
-    for required in [
-        "trusted_root=\"$RUNNER_TEMP/dependency-remediation-trusted\"",
-        "codex_home=\"$RUNNER_TEMP/codex-runtime/.codex\"",
-        "cp .codex/config.toml \"$codex_home/config.toml\"",
-        "sed -i 's/^approval_policy = \"on-request\"$/approval_policy = \"never\"/' \"$codex_home/config.toml\"",
-        "cp .codex/*.config.toml \"$codex_home/\"",
-        "cp -R .codex/agents/. \"$codex_home/agents/\"",
-        "cp .github/codex/prompts/dependency-remediation.md",
-        "\"$trusted_root/dependency-remediation.md\"",
-        "cp .github/codex/schemas/dependency-remediation.json",
-        "\"$trusted_root/dependency-remediation.json\"",
-    ] {
-        if !snapshot.run.contains(required) {
-            errors.push(format!(
-                "{name} trusted runtime-input snapshot must include {required}."
-            ));
-        }
-    }
-
-    for step in steps.iter().filter(|step| step.ordinal > head.ordinal) {
-        for forbidden in [
-            "cargo xtask",
-            ".codex/config.toml",
-            ".codex/agents/",
-            ".config.toml",
-            ".github/codex/prompts/",
-            ".github/codex/schemas/",
-        ] {
-            if step.run.contains(forbidden) {
-                errors.push(format!(
-                    "{name} must not use requested-head Codex inputs after checkout: {forbidden}."
-                ));
-            }
-        }
-    }
-
-    let Some(codex_env) = codex.raw.get("env").and_then(YamlValue::as_mapping) else {
-        errors.push(format!(
-            "{name} Codex mutation step must receive a step-scoped GH_TOKEN."
-        ));
-        return;
-    };
-    let gh_token_key = YamlValue::String("GH_TOKEN".into());
-    if codex_env.get(&gh_token_key).and_then(YamlValue::as_str) != Some("${{ github.token }}")
-        || codex_env.len() != 1
-    {
-        errors.push(format!(
-            "{name} Codex mutation step must expose only GH_TOKEN from github.token."
-        ));
-    }
-    let root_exposes_token = payload.get("env").is_some_and(|env| {
-        yaml_mapping_has_key(env, "GH_TOKEN") || yaml_contains(env, "github.token")
-    });
-    let job_exposes_token = payload
-        .get("jobs")
-        .and_then(YamlValue::as_mapping)
-        .is_some_and(|jobs| {
-            jobs.values().any(|job| {
-                job.get("env").is_some_and(|env| {
-                    yaml_mapping_has_key(env, "GH_TOKEN") || yaml_contains(env, "github.token")
-                })
-            })
-        });
-    if root_exposes_token || job_exposes_token {
-        errors.push(format!(
-            "{name} must not expose github.token through workflow- or job-level environment."
-        ));
-    }
-    for step in steps.iter().filter(|step| step.ordinal != codex.ordinal) {
-        if step
-            .raw
-            .get("env")
-            .is_some_and(|env| yaml_mapping_has_key(env, "GH_TOKEN"))
-            || yaml_contains(&step.raw, "github.token")
-        {
-            errors.push(format!(
-                "{name} must expose github.token only to the deliberate Codex mutation step."
-            ));
-        }
-    }
-
-    let Some(inputs) = codex.raw.get("with") else {
-        errors.push(format!(
-            "{name} Codex mutation step must define trusted inputs."
-        ));
-        return;
-    };
-    let allowed_inputs = [
-        "allow-bot-users",
-        "codex-home",
-        "openai-api-key",
-        "output-file",
-        "output-schema-file",
-        "prompt-file",
-        "safety-strategy",
-        "sandbox",
-    ];
-    if let Some(mapping) = inputs.as_mapping() {
-        for key in mapping.keys().filter_map(YamlValue::as_str) {
-            if !allowed_inputs.contains(&key) {
-                errors.push(format!(
-                    "{name} Codex mutation step uses unsupported pinned action input {key}."
-                ));
-            }
-        }
-    }
-    for (key, expected) in [
-        (
-            "prompt-file",
-            "${{ runner.temp }}/dependency-remediation-trusted/dependency-remediation.md",
-        ),
-        (
-            "output-schema-file",
-            "${{ runner.temp }}/dependency-remediation-trusted/dependency-remediation.json",
-        ),
-    ] {
-        if inputs.get(key).and_then(YamlValue::as_str) != Some(expected) {
-            errors.push(format!(
-                "{name} Codex mutation step must use trusted absolute {key} {expected}."
-            ));
-        }
-    }
-    if inputs.get("codex-args").is_some() {
-        errors.push(format!(
-            "{name} Codex mutation step must use its trusted config without extra Codex args."
-        ));
-    }
-    if inputs.get("allow-bots").is_some()
-        || inputs.get("allow-bot-users").and_then(YamlValue::as_str) != Some("dependabot[bot]")
-    {
-        errors.push(format!(
-            "{name} must trust Dependabot through allow-bot-users, never Boolean allow-bots."
-        ));
-    }
-}
-
-fn validate_execution_state_trust(
-    text: &str,
-    payload: &YamlValue,
-    steps: &[WorkflowStepView],
-    errors: &mut Vec<String>,
-) {
-    let name = "execution_state_sync.yml";
-    if !text.contains("\n  pull_request_target:\n") || text.contains("\n  pull_request:\n") {
-        errors.push(format!(
-            "{name} must use only the trusted pull_request_target event for automatic PR sync."
-        ));
-    }
-    if !text.contains(
-        "github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository",
-    ) {
-        errors.push(format!(
-            "{name} must gate pull_request_target runtime acquisition to same-repository pull requests."
-        ));
-    }
-    if !text.contains("github.event.pull_request.head.repo.full_name == github.repository") {
-        errors.push(format!(
-            "{name} must reject fork pull requests before private runtime acquisition."
-        ));
-    }
-    if text.contains("pull_request.head.sha") {
-        errors.push(format!(
-            "{name} must not check out pull-request head content before private runtime use."
-        ));
-    }
-    let checkouts = steps
-        .iter()
-        .filter(|step| step.uses.starts_with("actions/checkout@"))
-        .collect::<Vec<_>>();
-    let expected_checkout_ref = "${{ github.event_name == 'pull_request_target' && github.event.action != 'closed' && github.event.pull_request.base.sha || github.sha }}";
-    if checkouts.len() != 1 || checkouts[0].checkout_ref != expected_checkout_ref {
-        errors.push(format!(
-            "{name} must use exactly one checkout selecting the trusted pull-request base revision for active PR events and the event's current base revision for closed events."
-        ));
-    } else if checkouts[0].persist_credentials != Some(false) {
-        errors.push(format!(
-            "{name} trusted checkout must disable persisted GitHub credentials."
-        ));
-    }
-
-    if text.contains("ROADMAP_GH_TOKEN:") || text.contains("${{ env.ROADMAP_GH_TOKEN }}") {
-        errors.push(format!(
-            "{name} must not retain the project PAT in job-level or aliased environment."
-        ));
-    }
-    let expected_source =
-        "${{ secrets.GH_PROJECTS_TOKEN != '' && 'GH_PROJECTS_TOKEN' || 'github.token' }}";
-    let sync_job_env = payload
-        .get("jobs")
-        .and_then(|jobs| jobs.get("sync"))
-        .and_then(|job| job.get("env"))
-        .and_then(YamlValue::as_mapping);
-    let source_key = YamlValue::String("ROADMAP_GH_TOKEN_SOURCE".into());
-    if !sync_job_env.is_some_and(|env| {
-        env.len() == 1 && env.get(&source_key).and_then(YamlValue::as_str) == Some(expected_source)
-    }) {
-        errors.push(format!(
-            "{name} sync job environment must contain only the non-secret ROADMAP_GH_TOKEN_SOURCE label."
-        ));
-    }
-    let root_exposes_project_token = payload.get("env").is_some_and(|env| {
-        yaml_mapping_has_key(env, "GH_TOKEN")
-            || yaml_mapping_has_key(env, "ROADMAP_GH_TOKEN")
-            || yaml_contains(env, "secrets.GH_PROJECTS_TOKEN")
-    });
-    let another_job_exposes_project_token = payload
-        .get("jobs")
-        .and_then(YamlValue::as_mapping)
-        .is_some_and(|jobs| {
-            jobs.iter().any(|(job_name, job)| {
-                job_name.as_str() != Some("sync")
-                    && job.get("env").is_some_and(|env| {
-                        yaml_mapping_has_key(env, "GH_TOKEN")
-                            || yaml_mapping_has_key(env, "ROADMAP_GH_TOKEN")
-                            || yaml_contains(env, "secrets.GH_PROJECTS_TOKEN")
-                    })
-            })
-        });
-    if root_exposes_project_token || another_job_exposes_project_token {
-        errors.push(format!(
-            "{name} must keep project credentials out of workflow- and job-level environment."
-        ));
-    }
-
-    let expected_token =
-        "${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}";
-    for command in [PROJECT_SNAPSHOT_COMMAND, EXECUTION_STATE_COMMAND] {
-        let matching = steps
-            .iter()
-            .filter(|step| step.run.contains(command))
-            .collect::<Vec<_>>();
-        if matching.len() != 1 {
-            continue;
-        }
-        let Some(env) = matching[0].raw.get("env").and_then(YamlValue::as_mapping) else {
-            errors.push(format!(
-                "{name} {command} step must receive a step-scoped GH_TOKEN."
-            ));
-            continue;
-        };
-        let gh_token_key = YamlValue::String("GH_TOKEN".into());
-        if env.get(&gh_token_key).and_then(YamlValue::as_str) != Some(expected_token)
-            || env.len() != 1
-        {
-            errors.push(format!(
-                "{name} {command} step must expose only the direct project-token GH_TOKEN."
-            ));
-        }
-    }
-
-    for step in steps.iter().filter(|step| {
-        !step.run.contains(PROJECT_SNAPSHOT_COMMAND) && !step.run.contains(EXECUTION_STATE_COMMAND)
-    }) {
-        if step.raw.get("env").is_some_and(|env| {
-            yaml_mapping_has_key(env, "GH_TOKEN")
-                || yaml_mapping_has_key(env, "ROADMAP_GH_TOKEN")
-                || yaml_contains(env, "secrets.GH_PROJECTS_TOKEN")
-        }) {
-            errors.push(format!(
-                "{name} must expose the project token only to publisher GitHub operation steps."
-            ));
-        }
-    }
-}
-
-fn validate_execution_state_artifacts(steps: &[WorkflowStepView], errors: &mut Vec<String>) {
-    let name = "execution_state_sync.yml";
-    let preparations = steps
-        .iter()
-        .filter(|step| {
-            step.run.contains(".artifacts/execution-state/")
-                && step.run.contains("run-context.json")
-        })
-        .collect::<Vec<_>>();
-    let acquisitions = steps
-        .iter()
-        .filter(|step| step.run.trim() == PREPARE_COMMAND)
-        .collect::<Vec<_>>();
-    if preparations.len() != 1 || acquisitions.len() != 1 {
-        errors.push(format!(
-            "{name} must write exactly one non-secret run-context diagnostic before runtime acquisition."
-        ));
-        return;
-    }
-
-    let preparation = preparations[0];
-    let acquisition = acquisitions[0];
-    if preparation.job != acquisition.job || preparation.ordinal >= acquisition.ordinal {
-        errors.push(format!(
-            "{name} must create its artifact root and diagnostic before runtime acquisition."
-        ));
-    }
-    if preparation.raw.get("id").and_then(YamlValue::as_str) != Some("artifact-root")
-        || !preparation
-            .run
-            .contains("echo \"path=$root\" >> \"$GITHUB_OUTPUT\"")
-    {
-        errors.push(format!(
-            "{name} run-context preparation must publish the artifact-root path output."
-        ));
-    }
-    if yaml_contains(&preparation.raw, "secrets.")
-        || yaml_contains(&preparation.raw, "AGENT_PLUGINS_READ_TOKEN")
-        || yaml_contains(&preparation.raw, "GH_PROJECTS_TOKEN")
-    {
-        errors.push(format!(
-            "{name} run-context preparation must not receive or serialize credentials."
-        ));
-    }
-
-    let uploads = steps
-        .iter()
-        .filter(|step| step.uses.starts_with("actions/upload-artifact@"))
-        .collect::<Vec<_>>();
-    if uploads.len() != 1 {
-        errors.push(format!(
-            "{name} must define exactly one bounded artifact upload."
-        ));
-        return;
-    }
-    let upload = uploads[0];
-    let expected_if = "${{ (failure() || github.event_name == 'workflow_dispatch') && steps.artifact-root.outputs.path != '' }}";
-    if upload.raw.get("if").and_then(YamlValue::as_str) != Some(expected_if) {
-        errors.push(format!(
-            "{name} artifact upload must be failure/manual-only and require a prepared path."
-        ));
-    }
-    let Some(with) = upload.raw.get("with").and_then(YamlValue::as_mapping) else {
-        errors.push(format!(
-            "{name} artifact upload must define its bounded upload inputs."
-        ));
-        return;
-    };
-    for (key, expected) in [
-        ("path", "${{ steps.artifact-root.outputs.path }}"),
-        ("if-no-files-found", "error"),
-    ] {
-        if with
-            .get(YamlValue::String(key.into()))
-            .and_then(YamlValue::as_str)
-            != Some(expected)
-        {
-            errors.push(format!(
-                "{name} artifact upload must set {key} to {expected}."
-            ));
-        }
-    }
-    if with
-        .get(YamlValue::String("include-hidden-files".into()))
-        .and_then(YamlValue::as_bool)
-        != Some(true)
-        || with
-            .get(YamlValue::String("retention-days".into()))
-            .and_then(YamlValue::as_u64)
-            != Some(14)
-    {
-        errors.push(format!(
-            "{name} artifact upload must include hidden files and retain diagnostics for 14 days."
+            "{name} authorized operation must receive its expected step-scoped GH_TOKEN and no other credentials."
         ));
     }
 }

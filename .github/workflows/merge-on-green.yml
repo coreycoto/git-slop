@@ -1,4 +1,5 @@
 name: Merge On Green
+run-name: "Merge CI ${{ github.event.workflow_run.id || 'none' }} PR ${{ github.event.workflow_run.pull_requests[0].number || 'manual' }}"
 
 on:
   workflow_run:
@@ -6,165 +7,642 @@ on:
     types: [completed]
   workflow_dispatch:
 
+concurrency:
+  group: gh-steward-recovery-${{ github.repository }}-merge-on-green
+  cancel-in-progress: false
+  queue: max
+
 jobs:
-  merge:
-    name: Merge eligible automation PR
+  prepare:
+    name: Capture and prepare the exact CI merge candidate
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: write
-    env:
-      GH_TOKEN: ${{ github.token }}
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      eligible: ${{ steps.preflight.outputs.eligible }}
+      trigger_decision: ${{ steps.preflight.outputs.trigger_decision }}
+      ci_run_id: ${{ steps.preflight.outputs.ci_run_id }}
+      pr_number: ${{ steps.preflight.outputs.pr_number }}
+      recovery_key: ${{ steps.preflight.outputs.recovery_key }}
+      run_name: ${{ steps.preflight.outputs.run_name }}
+      outcome: ${{ steps.recover.outputs.outcome }}
+      mode: ${{ steps.package_state.outputs.mode }}
+      phase: ${{ steps.package_state.outputs.phase }}
+      has_operations: ${{ steps.candidate.outputs.has_operations }}
+      artifact_name: ${{ steps.recover.outputs.artifact_name }}
+      handoff_id: ${{ steps.upload_handoff.outputs.artifact-id }}
+      handoff_digest: ${{ steps.upload_handoff.outputs.artifact-digest }}
     steps:
-      - name: Checkout
+      - name: Checkout trusted merge tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
 
-      - name: Preflight eligible merge candidate
-        id: merge_preflight
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Validate Codex and workflow contracts
+        run: cargo xtask validate-codex
+
+      - name: Acquire attested gh-steward release
+        id: gh_steward
+        run: scripts/with-gh-steward.sh --prepare
+
+      - name: Verify pinned gh-steward receipt
+        run: scripts/with-gh-steward.sh --verify
+
+      - name: Record exact workflow-run identity and eligibility
+        id: preflight
         env:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_PATH: ${{ github.event_path }}
-          REPOSITORY: ${{ github.repository }}
+          RUN_NAME: "Merge CI ${{ github.event.workflow_run.id || 'none' }} PR ${{ github.event.workflow_run.pull_requests[0].number || 'manual' }}"
         shell: bash
         run: |
           set -euo pipefail
-
-          finish() {
-            local eligible="$1"
-            local reason="$2"
-            local pr_number="${3:-}"
-            {
-              echo "eligible=$eligible"
-              echo "pr_number=$pr_number"
-            } >> "$GITHUB_OUTPUT"
-            echo "Merge preflight: $reason" >> "$GITHUB_STEP_SUMMARY"
-            echo "$reason"
-          }
-
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            finish true "manual dispatch requested; running merge gate"
-            exit 0
-          fi
-
-          if [ "$(jq -r '.workflow_run.conclusion // ""' "$EVENT_PATH")" != "success" ]; then
-            finish false "CI workflow_run was not successful; skipping Codex merge gate"
-            exit 0
-          fi
-
-          pr_number="$(jq -r '.workflow_run.pull_requests[0].number // empty' "$EVENT_PATH")"
-          head_sha="$(jq -r '.workflow_run.head_sha // empty' "$EVENT_PATH")"
-          if [ -z "$pr_number" ] && [ -n "$head_sha" ]; then
-            associated_prs=""
-            if associated_prs="$(
-              gh api \
-                -H "Accept: application/vnd.github+json" \
-                "repos/${REPOSITORY}/commits/${head_sha}/pulls"
-            )"; then
-              pr_number="$(jq -r '.[0].number // empty' <<< "$associated_prs")"
+          event_sha="$(sha256sum "$EVENT_PATH" | awk '{print $1}')"
+          [[ "$event_sha" =~ ^[0-9a-f]{64}$ ]]
+          eligible=false
+          decision=eligible
+          ci_run_id=''
+          ci_attempt=''
+          pr_number=''
+          recovery_key="event-noop-$event_sha"
+          if [ "$EVENT_NAME" != workflow_run ]; then
+            decision=ineligible-trigger
+            echo 'Manual dispatch has no exact CI workflow_run target and remains ineligible.' >> "$GITHUB_STEP_SUMMARY"
+          elif ! jq -e '
+            (.workflow_run.id | type == "number" and . > 0 and . == floor) and
+            (.workflow_run.run_attempt | type == "number" and . > 0 and . == floor) and
+            (.workflow_run.head_sha | type == "string" and test("^[a-f0-9]{40}$")) and
+            ((.workflow_run.pull_requests // []) | length) == 1 and
+            ((.workflow_run.pull_requests[0].number // 0) | type == "number" and . > 0 and . == floor)
+          ' "$EVENT_PATH" >/dev/null; then
+            decision=ineligible-trigger
+            echo 'The workflow_run has no unambiguous exact PR target; it is retained as an event-bound no-op.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            eligible=true
+            ci_run_id="$(jq -er '.workflow_run.id' "$EVENT_PATH")"
+            ci_attempt="$(jq -er '.workflow_run.run_attempt' "$EVENT_PATH")"
+            pr_number="$(jq -er '.workflow_run.pull_requests[0].number' "$EVENT_PATH")"
+            recovery_key="merge-ci-$ci_run_id-pr-$pr_number"
+            if ! jq -e '.workflow_run.conclusion == "success" and .workflow_run.status == "completed"' "$EVENT_PATH" >/dev/null; then
+              decision=ineligible-trigger
             fi
           fi
-          if [ -z "$pr_number" ]; then
-            finish false "CI workflow_run has no associated pull request; skipping Codex"
-            exit 0
+          {
+            echo "run_name=$RUN_NAME"
+            echo "event_sha=$event_sha"
+            echo "eligible=$eligible"
+            echo "trigger_decision=$decision"
+            echo "ci_run_id=$ci_run_id"
+            echo "ci_attempt=$ci_attempt"
+            echo "pr_number=$pr_number"
+            echo "recovery_key=$recovery_key"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Recover the exact prior merge plan and journal
+        id: recover
+        if: steps.preflight.outputs.recovery_key != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY_KEY: ${{ steps.preflight.outputs.recovery_key }}
+          RUN_NAME: ${{ steps.preflight.outputs.run_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GH_STEWARD_BIN" runs recover \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
+            --workflow merge-on-green.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-name "$RUN_NAME" --recovery-key "$RECOVERY_KEY" \
+            --package-root "$RUNNER_TEMP/merge-package" --runner-temp "$RUNNER_TEMP" \
+            --policy .agents/gh-steward-recovery-policy.json --github-output "$GITHUB_OUTPUT"
+
+      - name: Stop when exact prior evidence is unavailable
+        if: steps.recover.outputs.outcome == 'recovery_needed'
+        shell: bash
+        run: |
+          if [ -s "$RUNNER_TEMP/merge-package/recovery-needed.json" ]; then
+            cat "$RUNNER_TEMP/merge-package/recovery-needed.json" >> "$GITHUB_STEP_SUMMARY"
           fi
+          exit 1
 
-          if ! pr_json="$(
-            gh pr view "$pr_number" \
-              --repo "$REPOSITORY" \
-              --json headRefName,labels
-          )"; then
-            finish false "could not inspect PR #${pr_number}; skipping Codex"
-            exit 0
-          fi
+      - name: Capture exact triggering event before planning
+        if: steps.recover.outputs.outcome == 'fresh'
+        env:
+          EVENT_SHA: ${{ steps.preflight.outputs.event_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/merge-package"
+          install -d -m 0700 "$root/events" "$root/decisions" "$root/plans" "$root/reviews" "$root/apply-results" "$root/journal" "$root/previews" "$root/proposals"
+          cp -- "$GITHUB_EVENT_PATH" "$root/events/workflow-run-event.json"
+          cp -- "$GITHUB_EVENT_PATH" "$root/events/trigger-event.json"
+          chmod 0600 "$root/events/workflow-run-event.json" "$root/events/trigger-event.json"
+          event_sha="$(sha256sum "$root/events/trigger-event.json" | awk '{print $1}')"
+          [[ "$event_sha" == "$EVENT_SHA" ]]
 
-          branch="$(jq -r '.headRefName // ""' <<< "$pr_json")"
-          if [[ "$branch" != codex/* ]]; then
-            finish false "PR #${pr_number} branch is not codex/*; skipping Codex" "$pr_number"
-            exit 0
-          fi
-          if ! jq -e '(.labels // []) | any(.name == "auto-merge")' \
-            <<< "$pr_json" >/dev/null; then
-            finish false "PR #${pr_number} lacks auto-merge label; skipping Codex" "$pr_number"
-            exit 0
-          fi
-
-          finish true "PR #${pr_number} passed cheap eligibility preflight" "$pr_number"
-
-      - name: Set up Rust
-        if: steps.merge_preflight.outputs.eligible == 'true'
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-
-      - name: Validate Codex surface
-        if: steps.merge_preflight.outputs.eligible == 'true'
-        run: cargo xtask validate-codex
-
-      - name: Detect Codex credentials
-        if: steps.merge_preflight.outputs.eligible == 'true'
+      - name: Detect Codex credentials for an eligible fresh CI run
         id: codex_preflight
+        if: steps.recover.outputs.outcome == 'fresh' && steps.preflight.outputs.trigger_decision == 'eligible'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "OPENAI_API_KEY is not configured; skipping Codex merge gate." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          fi
+          if [ -z "$OPENAI_API_KEY" ]; then echo 'enabled=false' >> "$GITHUB_OUTPUT"; else echo 'enabled=true' >> "$GITHUB_OUTPUT"; fi
 
-      - name: Prepare pinned agent-plugins runtime
-        if: steps.codex_preflight.outputs.enabled == 'true'
+      - name: Prepare exact-head native merge plan
+        id: candidate
+        if: steps.recover.outputs.outcome == 'fresh' && steps.preflight.outputs.trigger_decision == 'eligible'
         env:
-          AGENT_PLUGINS_READ_TOKEN: ${{ secrets.AGENT_PLUGINS_READ_TOKEN }}
-        run: scripts/with-agent-plugins.sh --prepare
-
-      - name: Verify pinned agent-plugins runtime
-        if: steps.codex_preflight.outputs.enabled == 'true'
-        run: scripts/with-agent-plugins.sh --verify
-
-      - name: Prepare pinned Codex runtime
-        if: steps.codex_preflight.outputs.enabled == 'true'
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ steps.preflight.outputs.ci_run_id }}
+          CI_ATTEMPT: ${{ steps.preflight.outputs.ci_attempt }}
+          PR_NUMBER: ${{ steps.preflight.outputs.pr_number }}
+        shell: bash
         run: |
-          mkdir -p .artifacts/codex "$RUNNER_TEMP/codex-runtime/.codex"
+          set -euo pipefail
+          root="$RUNNER_TEMP/merge-package"
+          "$GH_STEWARD_BIN" merge prepare --repo-root . --policy config/github/merge-on-green.json \
+            --input event="$root/events/workflow-run-event.json" --out "$RUNNER_TEMP/merge-plan-envelope.json"
+          "$GH_STEWARD_BIN" plan extract --repo-root "$GITHUB_WORKSPACE" \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --input "envelope=$RUNNER_TEMP/merge-plan-envelope.json" --outer-command merge-prepare \
+            --plan-command merge-apply --out "$root/proposals/candidate.json"
+          plan="$root/proposals/candidate.json"
+          plan_sha="$(jq -er '.sha256' "$plan")"
+          [[ "$plan_sha" =~ ^[a-f0-9]{64}$ ]]
+          jq -e --argjson pr "$PR_NUMBER" --arg sha "$(jq -er '.workflow_run.head_sha' "$root/events/workflow-run-event.json")" \
+            '(.operations | type == "array") and all(.[]; .kind == "pull-request-merge") and all(.[]; .target.number == $pr and .target.head_sha == $sha)' \
+            "$plan" >/dev/null
+          operation_count="$(jq -er '.operations | length' "$plan")"
+          echo "has_operations=$([ "$operation_count" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned public Codex plugins in the isolated Codex home
+        if: steps.candidate.outputs.has_operations == 'true' && steps.codex_preflight.outputs.enabled == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/codex-runtime/.codex"
           cp .codex/config.toml "$RUNNER_TEMP/codex-runtime/.codex/config.toml"
           sed -i 's/^approval_policy = "on-request"$/approval_policy = "never"/' "$RUNNER_TEMP/codex-runtime/.codex/config.toml"
           cp .codex/*.config.toml "$RUNNER_TEMP/codex-runtime/.codex/"
-          scripts/with-agent-plugins.sh marketplace install \
-            --manifest .agents/plugins/marketplace-source.json \
-            --home "$RUNNER_TEMP/codex-runtime"
+          scripts/prepare-codex-plugins.sh "$RUNNER_TEMP/codex-runtime/.codex"
 
-      - name: Run Codex merge gate
-        if: steps.codex_preflight.outputs.enabled == 'true'
-        id: run_codex
+      - name: Stage the exact merge candidate for read-only review
+        if: steps.candidate.outputs.has_operations == 'true' && steps.codex_preflight.outputs.enabled == 'true'
+        run: |
+          mkdir -p .artifacts/github-merge
+          cp "$RUNNER_TEMP/merge-package/events/workflow-run-event.json" .artifacts/github-merge/workflow-run-event.json
+          cp "$RUNNER_TEMP/merge-package/proposals/candidate.json" .artifacts/github-merge/merge-plan.json
+
+      - name: Review the captured exact-head merge candidate
+        id: codex
+        if: steps.candidate.outputs.has_operations == 'true' && steps.codex_preflight.outputs.enabled == 'true'
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/merge-on-green.md
-          output-file: .artifacts/codex/merge-on-green.json
+          output-file: ${{ runner.temp }}/merge-review.json
           codex-home: ${{ runner.temp }}/codex-runtime/.codex
+          codex-version: 0.160.0
+          model: gpt-6-luna
           codex-args: >-
-            ["--model","gpt-5.6-luna","--output-schema",".github/codex/schemas/merge-on-green.json"]
+            ["--output-schema",".github/codex/schemas/merge-on-green.json"]
           safety-strategy: drop-sudo
-          sandbox: workspace-write
+          sandbox: workspace-read-only
 
-      - name: Publish structured summary
-        if: steps.codex_preflight.outputs.enabled == 'true' && always()
+      - name: Finalize the trusted merge preparation decision
+        id: prepare
+        if: steps.recover.outputs.outcome == 'fresh'
+        env:
+          TRIGGER_DECISION: ${{ steps.preflight.outputs.trigger_decision }}
+          RECOVERY_KEY: ${{ steps.preflight.outputs.recovery_key }}
+          RUN_NAME: ${{ steps.preflight.outputs.run_name }}
+          HAS_OPERATIONS: ${{ steps.candidate.outputs.has_operations }}
+          CODEX_ENABLED: ${{ steps.codex_preflight.outputs.enabled }}
+          REVIEW_OUTCOME: ${{ steps.codex.outcome }}
+          CI_RUN_ID: ${{ steps.preflight.outputs.ci_run_id }}
+          CI_ATTEMPT: ${{ steps.preflight.outputs.ci_attempt }}
+          PR_NUMBER: ${{ steps.preflight.outputs.pr_number }}
+          EVENT_SHA: ${{ steps.preflight.outputs.event_sha }}
+        shell: bash
         run: |
-          if [ -f .artifacts/codex/merge-on-green.json ]; then
-            {
-              echo '```json'
-              jq . .artifacts/codex/merge-on-green.json
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          root="$RUNNER_TEMP/merge-package"
+          make_context() {
+            local target="$1" steps_json="$2"
+            jq -n -S --arg workflow_file merge-on-green.yml --arg repository "$GITHUB_REPOSITORY" \
+              --arg recovery_key "$RECOVERY_KEY" --arg run_name "$RUN_NAME" \
+              --arg trusted_source_sha "$GITHUB_WORKFLOW_SHA" --argjson run "$GITHUB_RUN_ID" \
+              --argjson attempt "$GITHUB_RUN_ATTEMPT" --argjson target "$target" --argjson steps "$steps_json" \
+              '{workflow_file:$workflow_file,repository:$repository,recovery_key:$recovery_key,run_name:$run_name,run_id:$run,attempt:$attempt,attempt_target:$target,dispatch_steps:$steps,trusted_source_sha:$trusted_source_sha}' \
+              > "$RUNNER_TEMP/merge-context-start.json"
+            "$GH_STEWARD_BIN" runs context-start --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
+              --package-root "$root" --runner-temp "$RUNNER_TEMP" \
+              --input context="$RUNNER_TEMP/merge-context-start.json" > "$RUNNER_TEMP/merge-context-start-envelope.json"
+          }
+          finish_noop() {
+            local decision="$1" target="$2" proposal=null candidate_sha review_sha
+            if [ -s "$root/proposals/candidate.json" ]; then
+              candidate_sha="$(sha256sum "$root/proposals/candidate.json" | awk '{print $1}')"
+              if [ -s "$root/proposals/review.json" ]; then
+                review_sha="$(sha256sum "$root/proposals/review.json" | awk '{print $1}')"
+                proposal="$(jq -cnS --arg candidate_sha "$candidate_sha" --arg review_sha "$review_sha" '{candidate_sha256:$candidate_sha,review_sha256:$review_sha}')"
+              else
+                proposal="$(jq -cnS --arg candidate_sha "$candidate_sha" '{candidate_sha256:$candidate_sha,review_sha256:null}')"
+              fi
+            fi
+            make_context "$target" '[]'
+            "$GH_STEWARD_BIN" runs context-phase --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
+              --package-root "$root" --runner-temp "$RUNNER_TEMP" --phase prepared \
+              --reason "merge candidate ended without an authorized mutation" > "$RUNNER_TEMP/merge-context-phase-envelope.json"
+            rm -rf -- "$root/plans" "$root/reviews" "$root/apply-results" "$root/journal" "$root/previews"
+            rm -f -- "$root/events/workflow-run-event.json"
+            jq -n -S --arg decision "$decision" --arg repository "$GITHUB_REPOSITORY" \
+              --arg server_url "$GITHUB_SERVER_URL" --arg workflow_file merge-on-green.yml \
+              --arg recovery_key "$RECOVERY_KEY" --arg workflow_sha "$GITHUB_WORKFLOW_SHA" \
+              --arg event_name "$GITHUB_EVENT_NAME" --arg event_sha "$EVENT_SHA" --argjson run "$GITHUB_RUN_ID" \
+              --argjson attempt "$GITHUB_RUN_ATTEMPT" --argjson target "$target" --argjson proposal "$proposal" \
+              '{schema_version:1,decision:$decision,repository:$repository,server_url:$server_url,workflow_file:$workflow_file,run_id:$run,attempt:$attempt,recovery_key:$recovery_key,attempt_target:$target,workflow_sha:$workflow_sha,event_name:$event_name,event_sha256:$event_sha} + (if $proposal == null then {} else {proposal:$proposal} end)' \
+              > "$root/decisions/workflow-noop.json"
+            echo 'mode=noop' >> "$GITHUB_OUTPUT"
+          }
+          if [ "$TRIGGER_DECISION" = ineligible-trigger ]; then
+            if [[ "$RECOVERY_KEY" == event-noop-* ]]; then
+              target="$(jq -cnS --arg event_sha "$EVENT_SHA" '{event_sha256:$event_sha}')"
+            else
+              target="$(jq -cnS --arg head_sha "$(jq -er '.workflow_run.head_sha' "$root/events/workflow-run-event.json")" \
+                --arg event_sha "$EVENT_SHA" --argjson ci_run_id "$CI_RUN_ID" --argjson ci_attempt "$CI_ATTEMPT" \
+                --argjson pr_number "$PR_NUMBER" '{ci_run_id:$ci_run_id,ci_run_attempt:$ci_attempt,pr_number:$pr_number,head_sha:$head_sha,trigger_event_sha256:$event_sha}')"
+            fi
+            finish_noop ineligible-trigger "$target"
+          elif [ "$HAS_OPERATIONS" != true ]; then
+            target="$(jq -cnS --arg head_sha "$(jq -er '.workflow_run.head_sha' "$root/events/workflow-run-event.json")" \
+              --arg event_sha "$EVENT_SHA" --argjson ci_run_id "$CI_RUN_ID" --argjson ci_attempt "$CI_ATTEMPT" \
+              --argjson pr_number "$PR_NUMBER" '{ci_run_id:$ci_run_id,ci_run_attempt:$ci_attempt,pr_number:$pr_number,head_sha:$head_sha,trigger_event_sha256:$event_sha}')"
+            finish_noop no-change "$target"
+          elif [ "$CODEX_ENABLED" != true ]; then
+            rm -f -- "$root/proposals/candidate.json"
+            target="$(jq -cnS --arg head_sha "$(jq -er '.workflow_run.head_sha' "$root/events/workflow-run-event.json")" \
+              --arg event_sha "$EVENT_SHA" --argjson ci_run_id "$CI_RUN_ID" --argjson ci_attempt "$CI_ATTEMPT" \
+              --argjson pr_number "$PR_NUMBER" '{ci_run_id:$ci_run_id,ci_run_attempt:$ci_attempt,pr_number:$pr_number,head_sha:$head_sha,trigger_event_sha256:$event_sha}')"
+            finish_noop prerequisite-unavailable "$target"
+          else
+            [[ "$REVIEW_OUTCOME" == success && -s "$RUNNER_TEMP/merge-review.json" ]]
+            cp -- "$RUNNER_TEMP/merge-review.json" "$root/proposals/review.json"
+            status="$(jq -er '.status' "$root/proposals/review.json")"
+            candidate="$root/proposals/candidate.json"
+            plan_sha="$(jq -er '.sha256' "$candidate")"
+            target="$(jq -cnS --arg sha "$plan_sha" '{plan_sha256:$sha}')"
+            case "$status" in
+              approved)
+                merge_method="$(jq -er '.operations[0].target.merge_method' "$candidate")"
+                jq -e --arg sha "$plan_sha" --arg method "$merge_method" --argjson pr "$PR_NUMBER" \
+                  '.status == "approved" and .approved_plan_sha == $sha and .pr_number == $pr and .merge_method == $method and (.blocking_reasons | length == 0) and (.verified_checks | length > 0)' \
+                  "$root/proposals/review.json" >/dev/null
+                cp -- "$root/proposals/review.json" "$root/reviews/merge.json"
+                review_sha="$(sha256sum "$root/reviews/merge.json" | awk '{print $1}')"
+                make_context "$target" '["Apply reviewed exact-head merge plan"]'
+                "$GH_STEWARD_BIN" runs context-record-plan --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+                  --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
+                  --package-root "$root" --runner-temp "$RUNNER_TEMP" \
+                  --input "native-plan=$candidate" --name merge --relative plans/merge.json \
+                  --plan-command merge-apply --review-path reviews/merge.json --review-sha256 "$review_sha" \
+                  > "$RUNNER_TEMP/merge-record-envelope.json"
+                rm -rf -- "$root/proposals" "$root/previews"
+                rm -f -- "$RUNNER_TEMP/merge-plan-envelope.json"
+                echo 'mode=prepared' >> "$GITHUB_OUTPUT"
+                ;;
+              noop|blocked|declined|rejected)
+                finish_noop review-declined "$target"
+                ;;
+              *) echo "unsupported merge review status: $status" >&2; exit 1 ;;
+            esac
           fi
 
-      - name: Upload merge-gate artifacts
-        if: ${{ always() && steps.merge_preflight.outputs.eligible == 'true' && steps.codex_preflight.outputs.enabled == 'true' }}
+      - name: Resolve the exact package outcome
+        id: package_state
+        if: always() && steps.recover.outputs.outcome != 'recovery_needed'
+        env:
+          RECOVERY_OUTCOME: ${{ steps.recover.outputs.outcome }}
+          PREPARE_MODE: ${{ steps.prepare.outputs.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/merge-package"
+          if [ "$RECOVERY_OUTCOME" = terminal ]; then
+            printf 'mode=terminal\nphase=terminal\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$RECOVERY_OUTCOME" = fresh ] && { [ "$PREPARE_MODE" = noop ] || [ "$PREPARE_MODE" = prepared ]; }; then
+            printf 'mode=%s\nphase=prepared\n' "$PREPARE_MODE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          phase="$(jq -er '.phase' "$root/run-context.json")"
+          case "$RECOVERY_OUTCOME:$phase" in
+            fresh:prepared)
+              if [ -s "$root/decisions/workflow-noop.json" ]; then mode=noop; else mode=prepared; fi
+              ;;
+            resumed:prepared|resumed:dispatching) mode=resumed ;;
+            *) echo "unexpected recovery package state: $phase" >&2; exit 1 ;;
+          esac
+          printf 'mode=%s\nphase=%s\n' "$mode" "$phase" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable merge handoff
+        id: upload_handoff
+        if: always() && (steps.package_state.outputs.mode == 'prepared' || steps.package_state.outputs.mode == 'resumed' || steps.package_state.outputs.mode == 'noop')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: merge-on-green-artifacts
-          path: .artifacts/codex/merge-on-green.json
+          name: ${{ steps.recover.outputs.artifact_name }}-handoff-00
+          path: ${{ runner.temp }}/merge-package
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload terminal observer artifact without new work
+        if: always() && steps.package_state.outputs.mode == 'terminal'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.recover.outputs.artifact_name }}
+          path: ${{ runner.temp }}/merge-package
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+
+  apply:
+    name: Apply only the exact reviewed merge plan
+    needs: prepare
+    if: always() && needs.prepare.result == 'success' && (needs.prepare.outputs.mode == 'prepared' || needs.prepare.outputs.mode == 'resumed')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout trusted merge tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Acquire attested gh-steward release
+        run: scripts/with-gh-steward.sh --prepare
+
+      - name: Verify pinned gh-steward receipt
+        run: scripts/with-gh-steward.sh --verify
+
+      - name: Acquire the exact immutable merge handoff
+        id: handoff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_ID: ${{ needs.prepare.outputs.handoff_id }}
+          HANDOFF_DIGEST: ${{ needs.prepare.outputs.handoff_digest }}
+          RECOVERY_KEY: ${{ needs.prepare.outputs.recovery_key }}
+          RUN_NAME: ${{ needs.prepare.outputs.run_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ && "$HANDOFF_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          "$GH_STEWARD_BIN" runs acquire-handoff \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
+            --workflow merge-on-green.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-name "$RUN_NAME" --recovery-key "$RECOVERY_KEY" \
+            --package-root "$RUNNER_TEMP/merge-package" --runner-temp "$RUNNER_TEMP" \
+            --policy .agents/gh-steward-recovery-policy.json \
+            --artifact-id "$HANDOFF_ID" --artifact-digest "$HANDOFF_DIGEST"
+
+      - name: Install the exact restored merge journal before resume
+        if: needs.prepare.outputs.mode == 'resumed'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/merge-package"
+          [[ -s "$root/recovery-source.json" ]]
+          journal_dir=".artifacts/gh-steward/journals"
+          install -d -m 0700 "$journal_dir"
+          if find "$root/journal" -type f -name '*.json' -print -quit 2>/dev/null | grep -q .; then
+            "$GH_STEWARD_BIN" runs context-install-journal \
+              --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --policy .agents/gh-steward-recovery-policy.json --package-root "$root" \
+              --runner-temp "$RUNNER_TEMP" --name merge --journal-root "$journal_dir"
+          fi
+
+      - name: Verify the recorded review and stage the exact dispatch context
+        id: stage
+        if: always() && steps.handoff.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/merge-package"
+          context="$root/run-context.json"
+          phase="$(jq -er '.phase' "$context")"
+          if [ "$phase" != prepared ]; then
+            echo 'dispatch=false' >> "$GITHUB_OUTPUT"
+            echo "The recovered merge phase is $phase; no merge write will be replayed." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          plan="$root/plans/merge.json"
+          plan_sha="$(jq -er '.sha256' "$plan")"
+          review="$root/reviews/merge.json"
+          [[ -s "$review" ]]
+          pr_number="$(jq -er '.operations[0].target.number' "$plan")"
+          merge_method="$(jq -er '.operations[0].target.merge_method' "$plan")"
+          jq -e --arg sha "$plan_sha" --arg method "$merge_method" --argjson pr "$pr_number" \
+            '.status == "approved" and .approved_plan_sha == $sha and .pr_number == $pr and .merge_method == $method and (.blocking_reasons | length == 0) and (.verified_checks | length > 0)' \
+            "$review" >/dev/null
+          jq '.phase="dispatching" | .plans[0].status="dispatching"' "$context" > "$root/context.tmp"
+          mv "$root/context.tmp" "$context"
+          echo 'dispatch=true' >> "$GITHUB_OUTPUT"
+
+      - name: Apply reviewed exact-head merge plan
+        id: apply_merge
+        if: steps.stage.outputs.dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/merge-package"
+          plan="$root/plans/merge.json"
+          plan_sha="$(jq -er '.sha256' "$plan")"
+          "$GH_STEWARD_BIN" merge apply --repo-root . --input plan="$plan" \
+            --approve-plan-sha "$plan_sha" --out "$root/apply-results/merge.json"
+
+      - name: Capture durable merge journal and terminal result
+        if: always() && steps.stage.outputs.dispatch == 'true'
+        env:
+          APPLY_OUTCOME: ${{ steps.apply_merge.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/merge-package"
+          journal_dir=".artifacts/gh-steward/journals"
+          if [ -d "$journal_dir" ] && find "$journal_dir" -type f -name '*.json' -print -quit | grep -q .; then
+            "$GH_STEWARD_BIN" runs context-capture-journal \
+              --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --policy .agents/gh-steward-recovery-policy.json --package-root "$root" \
+              --runner-temp "$RUNNER_TEMP" --name merge --journal-root "$journal_dir"
+          fi
+          if [ "$APPLY_OUTCOME" = success ] && [ -s "$root/apply-results/merge.json" ]; then
+            jq -e --arg sha "$(jq -er '.plans[0].sha256' "$root/run-context.json")" \
+              '.data.status == "completed" and .data.plan_sha256 == $sha' \
+              "$root/apply-results/merge.json" >/dev/null
+            "$GH_STEWARD_BIN" runs context-mark-plan \
+              --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --policy .agents/gh-steward-recovery-policy.json --package-root "$root" \
+              --runner-temp "$RUNNER_TEMP" --name merge --status completed
+          fi
+
+      - name: Qualify exact undispatched native plans
+        id: qualify-prepared
+        if: always() && needs.prepare.outputs.artifact_name != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_ROOT: ${{ runner.temp }}/merge-package
+          RUN_NAME: ${{ needs.prepare.outputs.run_name }}
+        run: |
+          set -euo pipefail
+          key="$(jq -er '.recovery_key | select(type == "string" and length > 0)' "$PACKAGE_ROOT/run-context.json")"
+          "$GH_STEWARD_BIN" runs qualify-prepared \
+            --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --workflow merge-on-green.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-name "$RUN_NAME" --recovery-key "$key" --package-root "$PACKAGE_ROOT" \
+            --runner-temp "$RUNNER_TEMP" --policy .agents/gh-steward-recovery-policy.json \
+            --workflow-sha "$GITHUB_WORKFLOW_SHA"
+
+      - name: Upload exact merge recovery artifact
+        if: always() && needs.prepare.outputs.artifact_name != ''
+        id: terminal_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ needs.prepare.outputs.artifact_name }}
+          path: ${{ runner.temp }}/merge-package
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Finalize exact terminal merge checkpoint
+        id: finalize_checkpoint
+        if: always() && steps.terminal_artifact.outcome == 'success' && steps.terminal_artifact.outputs.artifact-id != '' && steps.apply_merge.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.terminal_artifact.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.terminal_artifact.outputs.artifact-digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--workflow merge-on-green.yml --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --package "$RUNNER_TEMP/merge-package" --checkpoint "$RUNNER_TEMP/merge-checkpoint" \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST")
+          if [ -f "$RUNNER_TEMP/merge-package/recovery-source.json" ]; then args+=(--recovery-source recovery-source.json); fi
+          scripts/finalize-gh-steward-run.sh "${args[@]}"
+
+      - name: Upload exact merge settlement checkpoint
+        if: always() && steps.finalize_checkpoint.outcome == 'success' && steps.finalize_checkpoint.outputs.outcome == 'checkpoint'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.finalize_checkpoint.outputs.checkpoint_name }}
+          path: ${{ steps.finalize_checkpoint.outputs.checkpoint_path }}
+          if-no-files-found: error
+          retention-days: 90
+
+  settle_noop:
+    name: Settle the merge no-op after the apply job is skipped
+    needs: [prepare, apply]
+    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.mode == 'noop' && needs.apply.result == 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout trusted no-op settlement tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Acquire attested gh-steward release
+        run: scripts/with-gh-steward.sh --prepare
+
+      - name: Verify pinned gh-steward receipt
+        run: scripts/with-gh-steward.sh --verify
+
+      - name: Acquire the exact no-op handoff after the apply path is skipped
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_ID: ${{ needs.prepare.outputs.handoff_id }}
+          HANDOFF_DIGEST: ${{ needs.prepare.outputs.handoff_digest }}
+          RECOVERY_KEY: ${{ needs.prepare.outputs.recovery_key }}
+          RUN_NAME: ${{ needs.prepare.outputs.run_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$HANDOFF_ID" =~ ^[1-9][0-9]*$ && "$HANDOFF_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          "$GH_STEWARD_BIN" runs acquire-handoff \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
+            --workflow merge-on-green.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-name "$RUN_NAME" --recovery-key "$RECOVERY_KEY" \
+            --package-root "$RUNNER_TEMP/merge-package" --runner-temp "$RUNNER_TEMP" \
+            --policy .agents/gh-steward-recovery-policy.json --purpose transport \
+            --artifact-id "$HANDOFF_ID" --artifact-digest "$HANDOFF_DIGEST"
+          jq -e '.phase == "prepared" and .plans == [] and .dispatch_steps == []' \
+            "$RUNNER_TEMP/merge-package/run-context.json" >/dev/null
+
+      - name: Finish the exact native zero-operation merge receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NAME: ${{ needs.prepare.outputs.run_name }}
+          RECOVERY_KEY: ${{ needs.prepare.outputs.recovery_key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/merge-package"
+          "$GH_STEWARD_BIN" runs finish-noop \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
+            --workflow merge-on-green.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-name "$RUN_NAME" --recovery-key "$RECOVERY_KEY" \
+            --package-root "$root" --runner-temp "$RUNNER_TEMP" \
+            --policy .agents/gh-steward-recovery-policy.json --workflow-sha "$GITHUB_WORKFLOW_SHA" \
+            > "$RUNNER_TEMP/merge-workflow-noop-envelope.json"
+
+      - name: Upload exact terminal merge no-op artifact
+        id: noop_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ needs.prepare.outputs.artifact_name }}
+          path: ${{ runner.temp }}/merge-package
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Finalize exact merge no-op checkpoint
+        id: noop_checkpoint
+        if: steps.noop_artifact.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.noop_artifact.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.noop_artifact.outputs.artifact-digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/finalize-gh-steward-run.sh \
+            --workflow merge-on-green.yml --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --package "$RUNNER_TEMP/merge-package" --checkpoint "$RUNNER_TEMP/merge-checkpoint" \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+
+      - name: Upload exact merge no-op settlement checkpoint
+        if: steps.noop_checkpoint.outcome == 'success' && steps.noop_checkpoint.outputs.outcome == 'checkpoint'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.noop_checkpoint.outputs.checkpoint_name }}
+          path: ${{ steps.noop_checkpoint.outputs.checkpoint_path }}
+          if-no-files-found: error
+          retention-days: 90

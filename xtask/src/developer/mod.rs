@@ -21,7 +21,7 @@ pub enum Gate {
     PublicRust,
     MaintainerContracts,
     Action,
-    Wrapper,
+    ConsumerTooling,
     WorkflowLint,
     SupplyChain,
 }
@@ -30,7 +30,7 @@ const ALL_GATES: [Gate; 6] = [
     Gate::PublicRust,
     Gate::MaintainerContracts,
     Gate::Action,
-    Gate::Wrapper,
+    Gate::ConsumerTooling,
     Gate::WorkflowLint,
     Gate::SupplyChain,
 ];
@@ -41,7 +41,7 @@ impl Gate {
             Self::PublicRust => "public-rust",
             Self::MaintainerContracts => "maintainer-contracts",
             Self::Action => "action",
-            Self::Wrapper => "agent-plugins-wrapper",
+            Self::ConsumerTooling => "consumer-tooling",
             Self::WorkflowLint => "workflow-lint",
             Self::SupplyChain => "supply-chain",
         }
@@ -112,8 +112,19 @@ pub fn classify_paths(paths: &[String]) -> BTreeSet<Gate> {
             gates.insert(Gate::Action);
             matched = true;
         }
-        if path.starts_with("scripts/with-agent-plugins") {
-            gates.insert(Gate::Wrapper);
+        if [
+            "scripts/with-gh-steward",
+            "scripts/prepare-codex-plugins",
+            "scripts/recover-gh-steward-run",
+            "scripts/finalize-gh-steward-run",
+            "scripts/dependency-remediation-publish",
+            "scripts/dependency-remediation-paths",
+            "scripts/test-consumer-tooling",
+        ]
+        .iter()
+        .any(|prefix| path.starts_with(prefix))
+        {
+            gates.insert(Gate::ConsumerTooling);
             matched = true;
         }
         if path == "action.yml"
@@ -402,10 +413,10 @@ fn run_gate(repo_root: &Path, gate: Gate, quiet: bool) -> Result<()> {
                 quiet,
             )
         }
-        Gate::Wrapper => run(
+        Gate::ConsumerTooling => run(
             repo_root,
             "bash",
-            &["scripts/with-agent-plugins.test.sh"],
+            &["scripts/test-consumer-tooling.sh"],
             quiet,
         ),
         Gate::WorkflowLint => run(repo_root, "actionlint", &[], quiet),
@@ -668,7 +679,17 @@ mod tests {
         assert!(action.contains(&Gate::MaintainerContracts));
         assert!(action.contains(&Gate::WorkflowLint));
         assert!(gates(&[".github/workflows/ci.yml"]).contains(&Gate::WorkflowLint));
-        assert!(gates(&["scripts/with-agent-plugins.sh"]).contains(&Gate::Wrapper));
+        for path in [
+            "scripts/with-gh-steward.sh",
+            "scripts/prepare-codex-plugins.sh",
+            "scripts/recover-gh-steward-run.sh",
+            "scripts/finalize-gh-steward-run.sh",
+            "scripts/dependency-remediation-publish.sh",
+            "scripts/dependency-remediation-paths.sh",
+            "scripts/test-consumer-tooling.sh",
+        ] {
+            assert!(gates(&[path]).contains(&Gate::ConsumerTooling), "{path}");
+        }
         for path in ["Cargo.lock", "deny.toml", "Brewfile"] {
             assert!(gates(&[path]).contains(&Gate::SupplyChain), "{path}");
         }
