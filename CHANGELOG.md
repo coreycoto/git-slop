@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.16.5 - Unreleased
+
+Fix compact-report path explanations and compare text that omitted real score
+movements (#149, #153). Retain bounded Dogfood failure context alongside the
+complete existing artifacts (#152). Update the Rust dependency graph while
+preserving report identifiers, machine contracts, and Rust 1.85 support (#165,
+#167).
+
+This candidate also includes the portable plugin refactor handoff and native
+maintainer cutover merged since 0.16.4. Dependency publication remains held
+pending #157; source qualification does not settle historical operations.
+
+See the [complete numbered 0.16.5 release notes](docs/releases/0.16.5.md).
+
 ## 0.16.4 - 2026-10-01
 
 Fix JavaScript and TypeScript inline-test detection so ordinary `.test()` and

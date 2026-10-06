@@ -9,12 +9,15 @@ trusted.
 Windows users should follow the
 [PowerShell archive guide](archive-install-windows.md).
 
+The example pins version 0.16.5. Confirm its immutable GitHub Release and
+matching assets are public before running these commands.
+
 ## Unix
 
 Set `target` to the supported archive target for the host, then run:
 
 ```bash
-release=v0.16.4
+release=v0.16.5
 target=x86_64-unknown-linux-gnu
 version="${release#v}"
 archive="git-slop-${release}-${target}.tar.gz"
