@@ -134,8 +134,8 @@ jobs:
             verification_status=$?
             {
               printf '\n### Dogfood regression verification failed\n\n'
-              printf 'Exact source: base `%s`, head `%s`.\n\n' "$BASE_SHA" "$HEAD_SHA"
-              printf 'The bounded, escaped comparison is in the job log. Download `git-slop-dogfood-failure-%s-%s` for the complete comparison and head report, including regression paths, scores and content hashes.\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+              printf 'Exact source: base %s, head %s.\n\n' "$BASE_SHA" "$HEAD_SHA"
+              printf 'The bounded, escaped comparison is in the job log. Download git-slop-dogfood-failure-%s-%s for the complete comparison and head report, including regression paths, scores and content hashes.\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
             } >> "$GITHUB_STEP_SUMMARY"
             exit "$verification_status"
           fi

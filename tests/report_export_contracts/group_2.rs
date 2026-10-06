@@ -58,7 +58,10 @@ fn compare_text_ranks_score_movements_before_bounding_without_changing_machine_p
     for (report, files) in [(&mut base, base_files), (&mut head, head_files)] {
         report["files"] = json!(files);
         report["folders"] = json!([]);
-        report["action_queue"] = json!([]);
+        report["action_queue"] = json!([
+            {"path": "evidence-00.rs"},
+            {"path": "z-improved.rs"}
+        ]);
         report["collection_metadata"]["files"] = json!({"total": 22, "returned": 22, "limit": null, "truncated": false});
         report["collection_metadata"]["folders"] = json!({"total": 0, "returned": 0, "limit": null, "truncated": false});
     }
@@ -79,6 +82,8 @@ fn compare_text_ranks_score_movements_before_bounding_without_changing_machine_p
         assert!(text.contains("worsened_files=1, improved_files=1"), "{text}");
         assert!(text.contains("Top Worsened Files\n- z-worsened\\n::warning::.rs: 20.0 -> 30.0 (delta=10.0)"), "{text}");
         assert!(text.contains("Top Improved Files\n- z-improved.rs: 20.0 -> 10.0 (delta=-10.0)"), "{text}");
+        assert!(text.contains("Queue Movement\n- none"), "{text}");
+        assert!(!text.contains("unchanged_position"), "{text}");
         assert!(!text.contains("\n::warning::"), "untrusted path created a physical line");
     }
 
@@ -113,6 +118,32 @@ fn compare_text_ranks_score_movements_before_bounding_without_changing_machine_p
         assert_eq!(page["pagination"]["file_deltas"]["offset"], offset);
         assert_eq!(page["pagination"]["file_deltas"]["has_more"], has_more);
     }
+}
+
+#[test]
+fn compare_text_queue_movement_omits_unchanged_positions_with_machine_detail_flags() {
+    let directory = TempDir::new().expect("temporary report directory");
+    let mut base = load_fixture("compare_base_report.json");
+    let mut head = base.clone();
+    head["repo"]["head_sha"] = json!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    base["action_queue"] = json!([{"path": "src/a.py"}, {"path": "src/b.py"}]);
+    head["action_queue"] = json!([{"path": "src/a.py"}, {"path": "src/gone.py"}]);
+    let base = write_report(&directory, "base-queue.json", &base);
+    let head = write_report(&directory, "head-queue.json", &head);
+    let output = command()
+        .args(["compare", "--base"])
+        .arg(&base)
+        .arg("--head")
+        .arg(&head)
+        .args(["--top", "1", "--detail", "full", "--offset", "1", "--limit", "1"])
+        .output()
+        .expect("changed-only queue");
+    assert_success(&output);
+    let text = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
+    let queue = text.split("Queue Movement\n").nth(1).expect("queue section");
+    assert!(queue.contains("src/gone.py: newly_queued"), "{text}");
+    assert!(!queue.contains("src/b.py") && !queue.contains("src/a.py"), "{text}");
+    assert!(!queue.contains("unchanged_position"), "{text}");
 }
 
 #[test]
