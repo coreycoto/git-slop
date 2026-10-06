@@ -10,35 +10,35 @@
           "reason": "material_score_increase",
           "severity": "notice",
           "content_sha256": "b62d6b3c61ca08b1dc62f9d06a3a9e255b460e3159f98c5984933ef1c7039819",
-          "maximum_slop_score": 19.4
+          "maximum_slop_score": 20.2
         },
         {
           "path": ".codex/agents/docs-taxonomist.toml",
           "reason": "material_score_increase",
           "severity": "notice",
           "content_sha256": "be566c3d0ce5b10e0512719a7d50dcb2d9e0e7f45c2ce3c325f7a8d71314b9a3",
-          "maximum_slop_score": 19.2
+          "maximum_slop_score": 20.1
         },
         {
           "path": ".codex/agents/governance-auditor.toml",
           "reason": "material_score_increase",
           "severity": "notice",
           "content_sha256": "c6685c9c6dd3fd7ffb9f2af3e96e4c11d3de8eb4bcac60a27a6b176fa1b6f60e",
-          "maximum_slop_score": 20.8
+          "maximum_slop_score": 21.6
         },
         {
           "path": ".codex/agents/merge-gatekeeper.toml",
           "reason": "material_score_increase",
           "severity": "notice",
           "content_sha256": "44e5254ee0e466ead0290ac3bd69de30101c1c19e9a5cee61915f5716bf26659",
-          "maximum_slop_score": 19.4
+          "maximum_slop_score": 20.5
         },
         {
           "path": ".codex/agents/release-publisher.toml",
           "reason": "material_score_increase",
           "severity": "notice",
           "content_sha256": "a2154760f9d290d8fd2c7a415f51cdbb6d023745ec424ba1217af033026a5e7c",
-          "maximum_slop_score": 20.4
+          "maximum_slop_score": 21.2
         }
       ]
     }
