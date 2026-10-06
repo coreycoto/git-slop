@@ -123,3 +123,4 @@ fn item_by_path<'a>(items: &'a Value, path: &str) -> &'a Value {
 include!("report_export_contracts/group_1.rs");
 include!("report_export_contracts/group_2.rs");
 include!("report_export_contracts/group_3.rs");
+include!("report_export_contracts/compare_presentation.rs");

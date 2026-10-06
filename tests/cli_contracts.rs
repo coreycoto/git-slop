@@ -75,3 +75,4 @@ fn assert_prompt_pack_safety(pack: &Path) -> Value {
 include!("cli_contracts/group_1.rs");
 include!("cli_contracts/group_2.rs");
 include!("cli_contracts/group_3.rs");
+include!("cli_contracts/report_lookup.rs");

@@ -1,13 +1,13 @@
 use super::*;
 
+mod lookup;
 mod render;
 
 pub use render::{render_explain_summary_text, render_explain_text};
 
 fn build_path_explain(report: &Value, target_path: &str) -> Result<Value> {
     let target_path = normalized_path(target_path);
-    let record = resolved_record(report, &target_path)
-        .ok_or_else(|| anyhow!("No record found for '{target_path}'."))?;
+    let record = lookup::require_path_record(report, &target_path)?;
     let record_type = string(record.get("record_type"));
     let target = json!({
         "kind": "path",

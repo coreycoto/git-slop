@@ -549,9 +549,10 @@ fn run_compare(repo_root: &Path, args: CompareArgs) -> Result<i32> {
         Ok(payload) => payload,
         Err(error) => return usage_error(error),
     };
-    let output = match bounded_compare_output(
+    let text_output = matches!(args.format, CompareFormat::Text);
+    let mut output = match bounded_compare_output(
         &payload,
-        args.detail,
+        if text_output { CompareDetail::Top } else { args.detail },
         top,
         args.offset,
         args.limit,
@@ -560,7 +561,11 @@ fn run_compare(repo_root: &Path, args: CompareArgs) -> Result<i32> {
         Ok(output) => output,
         Err(error) => return usage_error(error),
     };
-    let mut output = output;
+    if text_output {
+        // Text ranks each score direction before applying --top, while queue
+        // output retains the changed-only filter and bounds above.
+        output["file_deltas"] = payload["file_deltas"].clone();
+    }
     if let Some(materialized) = materialized.as_ref() {
         output["baseline_materialization"] = json!({
             "reference": args.base_ref,
