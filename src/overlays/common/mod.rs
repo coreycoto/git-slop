@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
-use blake2::Blake2bVar;
-use blake2::digest::{Update, VariableOutput};
+use blake2::{Blake2b128, Digest};
 
 pub(super) const ORGANIZATION_ANALYSIS_STATUS: &str = "experimental";
 pub(super) const ORGANIZATION_ANALYSIS_VERSION: u64 = 2;
@@ -14,15 +13,12 @@ pub(super) fn stable_id(kind: &str, parts: &[&str]) -> String {
     // Match the public v1 ID contract: BLAKE2b with a 16-byte digest over every
     // NUL-terminated part (including the kind), then retain 12 hex characters
     // for the public identifier.
-    let mut hasher = Blake2bVar::new(16).expect("valid BLAKE2b output size");
+    let mut hasher = Blake2b128::new();
     for part in std::iter::once(kind).chain(parts.iter().copied()) {
         hasher.update(part.as_bytes());
-        hasher.update(&[0]);
+        hasher.update([0]);
     }
-    let mut digest = [0_u8; 16];
-    hasher
-        .finalize_variable(&mut digest)
-        .expect("BLAKE2b output size is fixed");
+    let digest = hasher.finalize();
     format!("{kind}-{}", hex::encode(&digest[..6]))
 }
 
@@ -177,6 +173,22 @@ mod tests {
             stable_id("duplicate_set", &["src/a.rs", "src/b.rs"]),
             "duplicate_set-db01f3038ceb"
         );
+    }
+
+    #[test]
+    fn ids_preserve_empty_parts_boundaries_and_utf8() {
+        // Golden vectors from Python hashlib.blake2b(digest_size=16).
+        let cases: &[(&[&str], &str)] = &[
+            (&[], "duplicate_set-e2bd6e6def39"),
+            (&[""], "duplicate_set-392d1fe9fdf1"),
+            (&["ab", "c"], "duplicate_set-72f5b54ddad0"),
+            (&["a", "bc"], "duplicate_set-67dc577cf92a"),
+            (&["src/é.rs", "src/🦀.rs"], "duplicate_set-2dcb7f0de80f"),
+            (&["src/b.rs", "src/a.rs"], "duplicate_set-a9c60f6950bf"),
+        ];
+        for (parts, expected) in cases {
+            assert_eq!(stable_id("duplicate_set", parts), *expected, "{parts:?}");
+        }
     }
 
     #[test]
