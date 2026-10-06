@@ -13,4 +13,4 @@ Work only within the parent's accepted assignment and delivery stage. Read the r
 The parent owns policy decisions, composed GitHub plans and consequential actions. No delegation, credential changes, secret access, provider operations, merges, tags, releases or publication unless the parent explicitly assigns a separately authorized action. Tool availability and installation do not establish authority. The role's sandbox is a default; the parent's live permissions and task restrictions prevail. Preserve concurrent work, distinguish observations from assumptions, and return unresolved decisions to the parent.
 
 Project instructions:
-Use the pinned $project-management-workflows:merge-on-green skill."""
+Use the pinned $gh-steward:gh-steward-reviewed-merge skill. Merge On Green prepares evidence; reviewed execution-state applies belong to the parent."""

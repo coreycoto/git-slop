@@ -1,12 +1,12 @@
 {
   "files": {
-    "dependency-patcher.toml": "728b0ba165b651496b503b218f020054c74bf7670a5516c7896fa43d84970998",
-    "docs-taxonomist.toml": "792565f8a15dc9ca96c6bcbc3f5363c5ef858efbccee735d8d904fc48db7ab79",
-    "governance-auditor.toml": "c391559514cd0d49eb488e879271ead9a6f19e88387f25e61d55a6fb0d51d178",
-    "merge-gatekeeper.toml": "91a06b674d2153dab3cbd0e13ab79da19ca7fe4987617458daee869443e949c8",
-    "release-publisher.toml": "bae738ee036e212eabcc8c91120b81a98baa88b40cca49e1f24451ca05edcf1b"
+    "dependency-patcher.toml": "b62d6b3c61ca08b1dc62f9d06a3a9e255b460e3159f98c5984933ef1c7039819",
+    "docs-taxonomist.toml": "be566c3d0ce5b10e0512719a7d50dcb2d9e0e7f45c2ce3c325f7a8d71314b9a3",
+    "governance-auditor.toml": "c6685c9c6dd3fd7ffb9f2af3e96e4c11d3de8eb4bcac60a27a6b176fa1b6f60e",
+    "merge-gatekeeper.toml": "44e5254ee0e466ead0290ac3bd69de30101c1c19e9a5cee61915f5716bf26659",
+    "release-publisher.toml": "a2154760f9d290d8fd2c7a415f51cdbb6d023745ec424ba1217af033026a5e7c"
   },
-  "overlayDigest": "b048f76df7167b3bac4da4b20da184ae27d7433414a85bb30efc1fa77decfcf8",
+  "overlayDigest": "4ea039079ce15dd6f3cc909d6c2c4c456eb7e6d78f10ca3434f84a378cdfeff6",
   "schemaVersion": 1,
   "source": "coreycoto/agent-plugins:project-management",
   "sourceRevision": "b052737bfa16021e7fab85b5b60c2c72ff17c723"

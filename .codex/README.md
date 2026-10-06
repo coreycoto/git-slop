@@ -1,124 +1,80 @@
 # Codex Runtime
 
-This directory defines the repo-local Codex runtime surface for `git-slop`.
+This directory defines the repo-local Codex runtime surface for `git-slop`:
 
-Use the runtime layers like this:
+- `AGENTS.md`: always-on repository policy
+- `config.toml`, `ci_*.config.toml`, and `rules/`: local profiles and approval
+  boundaries
+- `agents/*.toml`: narrow execution roles
+- `.agents/plugins/marketplace-source.json`: immutable source pin for the
+  public `coreycoto/agent-plugins` project-management and product-development
+  Agent Plugins
+- `.agents/gh-steward.lock.json`: exact native `gh-steward` source revision and
+  four-platform release checksums
+- `plugins/git-slop`: portable Git Slop product instructions
+- `.github/codex/prompts/*` and `.github/codex/schemas/*`: contracts for Codex
+  workflows
+- `xtask/`: repository-owned validation for Codex, workflows, and release
+  contracts
 
-- `AGENTS.md`: always-on repo-global execution rules
-- `.codex/config.toml`: project-scoped defaults and app permissions
-- `.codex/ci_*.config.toml`: standalone non-interactive profiles loaded by `--profile`
-- `.codex/rules/*.rules`: interactive approval prompts for sensitive shell commands
-- `.codex/agents/*.toml`: custom execution roles
-- `.agents/plugins/marketplace-source.json`: pinned marketplace source manifest
-- `.agents/plugins/marketplace.json`: local Codex marketplace for the portable `git-slop` Agent Plugin
-- installed `project-management-workflows` plugin from `coreycoto/agent-plugins`: canonical reusable workflow contract
-- `plugins/git-slop`: product-owned Agent Plugin for installing, running, interpreting, and adopting `git-slop`
-- `.github/codex/prompts/*`: workflow prompts that explicitly name the custom agents to use
-- `.github/codex/schemas/*`: structured-output schemas for Codex-driven workflows
-- `xtask/`: private standalone Rust validation and release automation for repo-owned contracts
-- `scripts/with-agent-plugins.sh`: isolated launcher for the manifest-pinned prebuilt runtime
+`scripts/prepare-codex-plugins.sh` installs the pinned Codex CLI and selected
+plugins into an isolated `CODEX_HOME` under `RUNNER_TEMP`.
+`scripts/with-gh-steward.sh` acquires and verifies the matching attested native tool release
+without changing the runner's global extension installation. The release
+helper and acquisition receipt bind the binary to its exact source commit,
+version, platform, checksums, and GitHub provenance. Unqualified lock values
+are intentionally rejected until the final clean source and four release
+digests are supplied.
 
-The consumer-owned boundary is the immutable marketplace-source manifest and
-workflow invocation. The manifest pins both source revision and release archive
-digest; the wrapper verifies release metadata, target, archive safety, and the
-SCIE's embedded revision. The `agent-plugins` publisher owns marketplace
-bootstrap implementation, reusable runtime behavior tests, and clean-room
-consumer smoke. Repo-owned validation stays in the private standalone Rust
-`xtask/` workspace; this repository does not carry a parallel maintainer
-runtime.
+Reusable project and product development workflow guidance comes from the
+public Agent Plugins source. GitHub repository operations use `gh` and the
+native `gh-steward` extension. Its reviewed plans bind exact repository,
+Project, source inventory, and before-state; `--approve-plan-sha` identifies a
+plan but does not grant permission. After an interrupted operation, restore
+the exact plan and durable journal. If evidence has expired or cannot be
+matched to the target and run, stop with `recovery_needed` instead of preparing
+a replacement plan.
 
-## Approval And Publication
+## Approval and Publication
 
-Interactive local sessions should default to `approval_policy = "on-request"`.
-Non-interactive CI profiles should use `approval_policy = "never"` and rely on
-explicit workflow permissions instead of fresh approvals.
+Interactive local sessions default to `approval_policy = "on-request"`.
+Non-interactive CI profiles use `approval_policy = "never"` and rely on the
+workflow's explicit permission scope and checked-in policy. Privileged
+`pull_request_target` workflows use the trusted base checkout, do not persist
+checkout credentials, and keep GitHub tokens on the steps that need them.
 
-Codex profiles are standalone files named `<profile>.config.toml`. Workflows
-copy both the base config and these profile files into their isolated
-`CODEX_HOME`, then install the pinned, embedded marketplace through the direct
-`marketplace` CLI exposed by `scripts/with-agent-plugins.sh`. Each job prepares
-the SCIE under `RUNNER_TEMP` with the read token scoped to that step, verifies it
-without the token, and performs no further publisher acquisition afterward. The
-embedded marketplace installs offline; GitHub commands retain the workflow's
-GitHub token for their intended API calls. Do not add Actions caching, project
-dependency synchronization, consumer language-runtime setup, or legacy
-`[profiles.<name>]` tables to `.codex/config.toml`. Workflow calls use the
-direct CLI; interpreter mode is confined to isolated identity verification and
-the legacy compatibility entry point.
+The execution-state workflow accepts only manual default-branch dispatches.
+`prepare` reads one PR or issue and retains a signed preview, then closes only
+that read-only invocation as a native no-op. `apply` is a separate dispatch
+with the reviewed preparation run and exact plan hash. Its independent job
+records the operator event before native dispatch; generating a hash grants no
+apply authority. Both jobs invoke the verified `$GH_STEWARD_BIN` directly.
 
-Execution-state sync uses `pull_request_target` so the workflow definition and
-runtime launcher both come from the trusted base. Active PR events pin the
-payload's base SHA; closed events use the event's current base SHA so merge
-processing uses the launcher that is actually on the base branch. The workflow
-writes a non-secret run-context diagnostic before runtime acquisition, making
-early failures uploadable. It scopes its project token to its two direct GitHub
-operations, so publisher verification and interpreter smoke do not inherit the
-PAT. Fork pull requests that cannot safely receive the acquisition secret skip
-the private-runtime job.
+A noncanceling repository concurrency queue preserves all invocations. Before
+new work, native recovery inspects complete workflow/artifact history. Resumed
+work retains the original approval, plan and durable journal. Missing evidence
+or changed approval inputs produce a retained hold, with no replacement plan
+or success checkpoint. Preview-only receipts cannot settle legacy unknown
+attempts; reviewed source allowlists stay empty.
 
-Privileged `pull_request_target` workflows validate the trusted base and
-snapshot its Codex config, profiles, agents, prompt, and schema under
-`RUNNER_TEMP` before checking out the requested head. They do not execute
-head-owned maintainer tooling, use head-owned Codex inputs, or persist checkout
-credentials. The repository token is supplied only to the deliberate Codex
-mutation step. The public release workflow never acquires or invokes this
-private runtime.
+Prefer `git push`, `gh release`, and `gh pr merge`; prompt before those commands
+in interactive sessions. Do not use the GitHub Git Data API to publish unless
+the user explicitly requests that fallback.
 
-Codex Action 1.12 rejects `--profile` and `-p` in protected runs. Its four
-maintainer workflows copy the trusted base configuration into their isolated
-Codex home and set `approval_policy = "never"` there before marketplace
-installation or requested-head checkout. Keep `safety-strategy: drop-sudo` and
-`sandbox: workspace-write`; pass only supported model and schema arguments.
+## Custom Agents
 
-Publication rules:
+Custom agents should stay narrow, match the workflow prompt that invokes them,
+and reference plugin-owned skills instead of copying reusable policy. The
+current workflow roles are `dependency_patcher`, `merge_gatekeeper`, and
+`governance_auditor`; `docs_taxonomist` and `release_publisher` support their
+separate on-demand and release workflows.
 
-- prefer `git push`, `gh release`, and `gh pr merge`
-- prompt before those commands in interactive sessions
-- do not fall back to GitHub Git Data API publication unless the user explicitly requests it
-
-## Custom Agent Boundary
-
-Custom agents are specialized workers, not always-on policy.
-
-They should:
-
-- stay narrow and opinionated
-- match the workflow prompts that explicitly ask Codex to use them
-- reference plugin-owned skills for workflow contract
-- keep only role, sandbox, model, and delegation guidance
-- avoid becoming the primary store for reusable workflow or repo policy
-
-The portable `git-slop` Agent Plugin is the canonical reusable guidance surface
-for the product CLI itself. Its root `plugin.json` follows Agent Plugins 1.0.0;
-Codex discovers the four skills directly, and the intended plugin-level Codex
-UI metadata lives under `extensions.com.openai`. Keep the metadata-only
-`.codex-plugin/plugin.json` as an exact Codex 0.146.x compatibility mirror until
-a shipped Codex app-server resolves the root metadata without it; never add
-skills, MCP servers, apps, or hooks to that overlay. Each skill keeps its
-portable behavior in `SKILL.md`; optional `agents/openai.yaml` files provide
-only OpenAI UI labels, starter prompts, and the shared Git Slop icon. VS Code,
-Cursor, GitHub Copilot, and Kiro load those same portable skills without
-client-specific copies. Keep
-generic backlog, governance, and release workflows in the installed
-`project-management-workflows` plugin.
-
-Current project-scoped agents:
-
-- `dependency_patcher`
-- `merge_gatekeeper`
-- `governance_auditor`
-- `docs_taxonomist`
-- `release_publisher`
-
-## Workflow Assets
-
-Documentation taxonomy is maintained on demand through `docs_taxonomist`.
-Deterministic Codex and workflow validation runs in CI.
-
-Codex-driven GitHub Actions should keep their task contract in checked-in
-prompt and schema files. The schema files are workflow-owned assets. They are
-not auto-discovered by Codex or by custom agents; workflows must pass them
-explicitly via `--output-schema`.
+The portable `git-slop` Agent Plugin's root manifest is authoritative under Agent
+Plugins 1.0.0. Optional Codex interface metadata lives under
+`extensions.com.openai`; the compatibility metadata mirror remains minimal.
+Keep reusable project governance in the public `project-management` plugin,
+product refactoring in `product-development`, and Git Slop product guidance in
+`plugins/git-slop`.
 
 Run `cargo xtask validate-codex` after changing this surface and
 `cargo xtask validate-workflows` after changing workflow wiring. Use
@@ -129,13 +85,14 @@ the Codex CLI installed.
 
 Project Management in `coreycoto/agent-plugins` owns the five maintenance roles.
 `.codex/agents.project.json` pins the exact publisher source and keeps Git Slop's
-existing role IDs, filenames, and qualified legacy workflow assignments as
-project overlays. Generated TOMLs and the plugin-qualified receipt are committed
-for local and hosted Codex discovery. Editing an overlay requires regeneration
+existing role IDs, filenames, and repository policy as project overlays.
+Generated TOMLs and the plugin-qualified receipt are committed for local and
+hosted Codex discovery. Editing an overlay requires regeneration
 from that clean publisher checkout and review of the resulting diff.
 
 The source selects Luna for documentation and Sol for the other maintenance
 roles. Merge and governance roles inspect evidence; release preparation returns
 a handoff. The parent still owns GitHub writes, merges, and publication.
-Role projections are versioned independently of the maintainer runtime.
+Role projections are pinned independently of the installed skill packages and
+maintainer runtime; the existing public skill pin provides their referenced guidance.
 The parent owns runtime acquisition and approval of workflow operations.

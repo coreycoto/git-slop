@@ -27,10 +27,22 @@ fi
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 
-if ! jq -e '
+shard_dir=
+if [[ $manifest == *.json ]]; then
+  shard_dir=${manifest%.json}
+fi
+manifest_inputs=("$manifest")
+
+validate_manifest() {
+  local path=$1
+  local shard_base=${2:-}
+  jq -e --arg shard_base "$shard_base" '
   (.schema_version == 1)
   and (.acceptances | type == "array")
   and ([.acceptances[].base_sha] | length == (unique | length))
+  and (if $shard_base == "" then true
+       else (.acceptances | length == 1 and .[0].base_sha == $shard_base)
+       end)
   and all(.acceptances[];
     (.base_sha | type == "string" and test("^[0-9a-f]{40}$"))
     and (.rationale | type == "string" and length > 0 and length <= 500)
@@ -47,8 +59,51 @@ if ! jq -e '
       and (.maximum_slop_score | type == "number" and . >= 0 and . <= 100)
     )
   )
-' "$manifest" >/dev/null; then
+  ' "$path" >/dev/null 2>&1
+}
+
+if ! validate_manifest "$manifest"; then
   echo "dogfood regression acceptance manifest is invalid" >&2
+  exit 1
+fi
+
+if [[ -n $shard_dir ]]; then
+  if [[ -L $shard_dir ]]; then
+    echo "dogfood regression acceptance shard directory must not be a symlink" >&2
+    exit 1
+  fi
+  if [[ -e $shard_dir ]]; then
+    if [[ ! -d $shard_dir ]]; then
+      echo "dogfood regression acceptance shard path is not a directory" >&2
+      exit 1
+    fi
+    shopt -s nullglob dotglob
+    shard_paths=("$shard_dir"/*)
+    shopt -u nullglob dotglob
+    for shard in "${shard_paths[@]}"; do
+      shard_name=${shard##*/}
+      shard_base=${shard_name%.json}
+      if [[ -L $shard || ! -f $shard || $shard_name != "$shard_base.json" || ! $shard_base =~ ^[0-9a-f]{40}$ ]]; then
+        echo "dogfood regression acceptance shard directory contains an invalid entry" >&2
+        exit 1
+      fi
+      if ! validate_manifest "$shard" "$shard_base"; then
+        echo "dogfood regression acceptance shard is invalid or mismatched" >&2
+        exit 1
+      fi
+      manifest_inputs+=("$shard")
+    done
+  fi
+fi
+
+jq -s '{schema_version: 1, acceptances: [.[].acceptances[]]}' \
+  "${manifest_inputs[@]}" >"$scratch/combined.json"
+if ! jq -e '
+  (.schema_version == 1)
+  and ([.acceptances[].base_sha] | length == (unique | length))
+  and (.acceptances | length > 0)
+' "$scratch/combined.json" >/dev/null 2>&1; then
+  echo "dogfood regression acceptance base identities must be globally unique" >&2
   exit 1
 fi
 
@@ -91,7 +146,7 @@ jq --slurpfile head "$head_report" '
 jq --arg base "$base_sha" '
   [.acceptances[] | select(.base_sha == $base)]
   | if length == 0 then {entries: []} else .[0] end
-' "$manifest" >"$scratch/active.json"
+' "$scratch/combined.json" >"$scratch/active.json"
 
 if ! jq -e --slurpfile actual "$scratch/actual.json" '
   .entries as $accepted

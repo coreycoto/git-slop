@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use git_slop_xtask::{
-    codex, crates_io, developer, distribution, finish_validation, homebrew, issue_forms, manifest,
-    release, release_status, repository, sbom, workflows,
+    codex, crates_io, dependency_remediation, developer, distribution, execution_state,
+    finish_validation, homebrew, issue_forms, manifest, release, release_status, repository, sbom,
+    workflows,
 };
 
 mod advisor_cli;
@@ -76,6 +77,12 @@ enum Command {
 
     /// Validate GitHub Actions workflow contracts.
     ValidateWorkflows,
+
+    /// Run trusted repo-specific dependency-remediation adapters.
+    DependencyRemediation(dependency_remediation::Args),
+
+    /// Run private execution-state workflow input and evidence adapters.
+    ExecutionStateAdapter(execution_state::CliArgs),
 
     /// Generate the public release workflow from independently reviewed stage fragments.
     GenerateReleaseWorkflow {
@@ -233,6 +240,8 @@ fn run(cli: Cli) -> Result<()> {
         Command::ValidateWorkflows => {
             finish_validation("Workflow contracts", workflows::validate(&repo_root))
         }
+        Command::DependencyRemediation(args) => args.run(&repo_root),
+        Command::ExecutionStateAdapter(args) => args.run(),
         Command::GenerateReleaseWorkflow { check } => {
             workflows::generate_release_workflow(&repo_root, check)?;
             println!(

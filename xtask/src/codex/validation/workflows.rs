@@ -80,18 +80,16 @@ fn validate_release_workflow(repo_root: &Path, errors: &mut Vec<String>) {
         for forbidden in [
             "AGENT_PLUGINS_READ_TOKEN",
             "AGENT_PLUGINS_GIT_TOKEN",
-            runtime_manifest::AGENT_PLUGIN_WRAPPER,
+            runtime_manifest::GH_STEWARD_WRAPPER,
+            runtime_manifest::CODEX_PLUGIN_SETUP,
             runtime_manifest::MARKETPLACE_SOURCE_MANIFEST,
-            runtime_manifest::EXPECTED_RUNTIME_ARCHIVE,
-            runtime_manifest::EXPECTED_RUNTIME_REPOSITORY,
-            runtime_manifest::EXPECTED_MARKETPLACE_NAME,
-            "agent-plugins-runtime",
-            "coreycoto/agent-plugins",
+            runtime_manifest::GH_STEWARD_LOCK_MANIFEST,
+            runtime_manifest::GH_STEWARD_REPOSITORY,
         ] {
             if text.contains(forbidden) {
                 errors.push(format!(
-                    "{label} must keep public release publication decoupled from private \
-                     agent-plugins runtime surface {forbidden}."
+                    "{label} must keep public Git Slop releases independent of consumer \
+                     plugin and gh-steward acquisition surface {forbidden}."
                 ));
             }
         }

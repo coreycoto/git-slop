@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "acceptances": [
+    {
+      "base_sha": "e1db17cbb80da9840a640a61fcbe5bfac12198f7",
+      "rationale": "Reviewed native cutover preserves exact approval, complete history, isolated credentials and immutable handoffs. The new execution helper was split by lifecycle phase; no size warning is accepted for it. Retain independent workflow guards and tests; defer ci.rs table modularization until this cutover is promoted. Accept only these exact notice/warning contents at observed ceilings; absolute policy, detectors, all other regressions and disabled publication remain enforced.",
+      "entries": [
+        {
+          "path": ".agents/README.md",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "3af5a6bc188ff4444af0c59546de7f37f00add7d8f7e7bd799e6987238ebf361",
+          "maximum_slop_score": 32.6
+        },
+        {
+          "path": ".github/codex/prompts/dependency-remediation.md",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "398299c89f7feb81dc86a4fdc1331f6fe58127d37e9a41e0da74e7674bf94a1f",
+          "maximum_slop_score": 21.9
+        },
+        {
+          "path": ".github/codex/prompts/governance-reconcile.md",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "8eeabb0a3f6092d74a340d6aa44e6fe531ae36c14f20180f58e1eae9c92ed0e0",
+          "maximum_slop_score": 23.8
+        },
+        {
+          "path": ".github/codex/schemas/dependency-remediation.json",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "e98e6edf454396f2a3006eb8de5ce00abc1125271effaa66ffc9cdc0bc1a37a7",
+          "maximum_slop_score": 8.6
+        },
+        {
+          "path": ".github/workflows/dependency-remediation.yml",
+          "reason": "worse_band",
+          "severity": "warning",
+          "content_sha256": "285e2aaf72928729906cb25bbf2167a6d05f14c0c043f2b2abd7db54ffaa68a9",
+          "maximum_slop_score": 75.3
+        },
+        {
+          "path": ".github/workflows/execution_state_sync.yml",
+          "reason": "worse_band",
+          "severity": "warning",
+          "content_sha256": "0d89f97f8bfcfff47a90ce43cd67ff0df5ebc4bfbbdbb63a0e1c45d32d98f744",
+          "maximum_slop_score": 83.0
+        },
+        {
+          "path": ".github/workflows/governance-reconcile.yml",
+          "reason": "worse_band",
+          "severity": "warning",
+          "content_sha256": "bc2d600371245a6281ad63840e12d79009e1d228ca3b7acb507cfdaff441bf36",
+          "maximum_slop_score": 68.8
+        },
+        {
+          "path": ".github/workflows/merge-on-green.yml",
+          "reason": "worse_band",
+          "severity": "warning",
+          "content_sha256": "03ccfa4be75e40a2647f201a2babb788cc5f3df893a8a1ac40678acd355d9890",
+          "maximum_slop_score": 75.7
+        },
+        {
+          "path": "config/github/README.md",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "3f434cd195129e363e73113934ac4a15fa4d3b38ea82c74cae610906b519b90e",
+          "maximum_slop_score": 21.8
+        },
+        {
+          "path": "config/labels/README.md",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "c87b8295d282d7c6e97d0fc611a8b3f103fc99b01f10032028aea04ba9b9ded8",
+          "maximum_slop_score": 12.8
+        },
+        {
+          "path": "xtask/src/codex/runtime_manifest.rs",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "7bb99bcd71617f4d6e3b2a22f4b18b45526e6ba3de856da17cce993bab39b968",
+          "maximum_slop_score": 26.2
+        },
+        {
+          "path": "xtask/src/codex/runtime_tests.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "80caed0a3774be40599b9f810e59ae87974b284c28f62a3387ad196e58a0f9ca",
+          "maximum_slop_score": 49.1
+        },
+        {
+          "path": "xtask/src/workflows/ci.rs",
+          "reason": "worse_band",
+          "severity": "warning",
+          "content_sha256": "7ac290f82f93030e3ed8f17929b2f1a1c90c1854b9bc5af5e5fc0aab825d18a6",
+          "maximum_slop_score": 67.1
+        },
+        {
+          "path": "xtask/src/workflows/tests/group_4.rs",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "45e153c0681613b1e1ea046fb1761950141b7cd5223066e50deea787b6161c8e",
+          "maximum_slop_score": 26.8
+        },
+        {
+          "path": "xtask/src/workflows/tests/repository_contracts.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "52295904e1cc9b0d53555e536b6b5f2e3e3d97996bfdc26077dd49ed2c05f144",
+          "maximum_slop_score": 29.4
+        }
+      ]
+    }
+  ]
+}
