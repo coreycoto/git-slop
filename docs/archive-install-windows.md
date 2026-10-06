@@ -3,8 +3,11 @@
 Use this PowerShell guide for a direct Windows archive installation. Use
 `aarch64-pc-windows-msvc` instead on Windows ARM64.
 
+The example pins version 0.16.5. Confirm its immutable GitHub Release and
+matching assets are public before running these commands.
+
 ```powershell
-$Release = "v0.16.4"
+$Release = "v0.16.5"
 $Target = "x86_64-pc-windows-msvc"
 $Version = $Release.TrimStart("v")
 $Archive = "git-slop-$Release-$Target.zip"
