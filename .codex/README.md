@@ -136,5 +136,6 @@ from that clean publisher checkout and review of the resulting diff.
 
 The source selects Luna for documentation and Sol for the other maintenance
 roles. Merge and governance roles inspect evidence; release preparation returns
-a handoff. The parent still owns GitHub writes, merges, and publication. This
-role adoption does not upgrade the separately pinned maintainer SDK.
+a handoff. The parent still owns GitHub writes, merges, and publication.
+Role projections are versioned independently of the maintainer runtime.
+The parent owns runtime acquisition and approval of workflow operations.
