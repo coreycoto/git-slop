@@ -10,7 +10,7 @@ use super::runtime_manifest::{
 };
 use super::runtime_workflows::{
     AgentPluginWorkflowKind, validate_agent_plugin_workflow_text,
-    validate_dependency_publication_policy_text,
+    validate_dependency_publication_policy_text, validate_execution_policy_text,
 };
 use super::{EXPECTED_PLUGIN_URL, validate_release_workflow};
 
@@ -199,6 +199,7 @@ fn execution_workflow_keeps_native_recovery_and_trusted_apply_handoff() {
 
     let untrusted_checkout =
         good.replacen("persist-credentials: false", "persist-credentials: true", 1);
+    assert_ne!(untrusted_checkout, good);
     let mut errors = Vec::new();
     validate_agent_plugin_workflow_text(
         "execution_state_sync.yml",
@@ -214,6 +215,7 @@ fn execution_workflow_keeps_native_recovery_and_trusted_apply_handoff() {
     );
 
     let unbound_handoff = good.replace("runs acquire-handoff", "runs fetch-handoff");
+    assert_ne!(unbound_handoff, good);
     let mut errors = Vec::new();
     validate_agent_plugin_workflow_text(
         "execution_state_sync.yml",
@@ -230,6 +232,7 @@ fn execution_workflow_keeps_native_recovery_and_trusted_apply_handoff() {
 
     let unbound_restored_journal =
         good.replace("          [[ -s \"$root/recovery-source.json\" ]]\n", "");
+    assert_ne!(unbound_restored_journal, good);
     let mut errors = Vec::new();
     validate_agent_plugin_workflow_text(
         "execution_state_sync.yml",
@@ -253,6 +256,7 @@ fn execution_workflow_keeps_native_recovery_and_trusted_apply_handoff() {
         ]
         .concat(),
     );
+    assert_ne!(untrusted_job_credential, good);
     let mut errors = Vec::new();
     validate_agent_plugin_workflow_text(
         "execution_state_sync.yml",
@@ -266,6 +270,152 @@ fn execution_workflow_keeps_native_recovery_and_trusted_apply_handoff() {
             .any(|error| error.contains("job must not expose credentials")),
         "{errors:?}"
     );
+}
+
+#[test]
+fn execution_preparation_cannot_become_automatic_or_approve_its_own_plan() {
+    let good = include_str!("../../../.github/workflows/execution_state_sync.yml");
+    for (changed, expected) in [
+        (
+            good.replace(
+                "on:\n  workflow_dispatch:",
+                "on:\n  pull_request_target:\n  workflow_dispatch:",
+            ),
+            "only manual workflow_dispatch",
+        ),
+        (
+            good.replace("default: prepare", "default: apply"),
+            "default to prepare",
+        ),
+        (
+            good.replace(
+                "inputs.operation == 'apply'",
+                "inputs.operation == 'prepare'",
+            ),
+            "matching manual operation",
+        ),
+        (
+            good.replace(
+                "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+                "true",
+            ),
+            "default branch",
+        ),
+        (
+            good.replace(
+                "  apply:\n    name:",
+                "  apply:\n    needs: prepare\n    name:",
+            ),
+            "independently",
+        ),
+        (
+            good.replacen("issues: read", "issues: write", 1),
+            "prepare job must remain read-only",
+        ),
+        (
+            good.replace("runs context-phase", "runs context-observe"),
+            "plan-free native no-op",
+        ),
+        (
+            good.replace("--purpose transport", "--purpose apply"),
+            "immutable native handoff",
+        ),
+        (
+            good.replace(
+                "APPROVED_SHA: ${{ inputs.approve_plan_sha }}",
+                "APPROVED_SHA: ${{ steps.execution_plan.outputs.plan_sha }}",
+            ),
+            "current operator-selected",
+        ),
+        (
+            good.replace(
+                "--approve-plan-sha \"$APPROVED_SHA\"",
+                "--approve-plan-sha \"$PLAN_SHA\"",
+            ),
+            "exact approval",
+        ),
+        (
+            good.replace(
+                "&& steps.resumed_plan.outputs.journal_action == 'install'",
+                "",
+            ),
+            "exact recovery source",
+        ),
+        (
+            good.replace(
+                ".data.status == \"completed\" and .data.plan_sha256 == $sha",
+                ".data.status == \"completed\"",
+            ),
+            "exact typed completion",
+        ),
+    ] {
+        assert_ne!(changed, good, "mutation for {expected} did not apply");
+        let mut errors = Vec::new();
+        validate_agent_plugin_workflow_text(
+            "execution_state_sync.yml",
+            &changed,
+            AgentPluginWorkflowKind::ExecutionState,
+            &mut errors,
+        );
+        assert!(
+            errors.iter().any(|error| error.contains(expected)),
+            "mutation for {expected} escaped: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn execution_recovery_policy_binds_separate_review_and_current_source_without_legacy_authority() {
+    use sha2::{Digest, Sha256};
+    let workflow = include_str!("../../../.github/workflows/execution_state_sync.yml");
+    let mut policy: JsonValue = serde_json::from_str(include_str!(
+        "../../../.agents/gh-steward-recovery-policy.json"
+    ))
+    .unwrap();
+    let digest = hex::encode(Sha256::digest(workflow.as_bytes()));
+    policy["workflows"]["execution_state_sync.yml"]["plans"]["execution"]["prepared_recovery"]["workflow_source_sha256"] =
+        json!(digest);
+    policy["workflows"]["execution_state_sync.yml"]["plans"]["workflow-noop"]["approval"]["workflow_source_sha256"] =
+        json!(digest);
+    let mut errors = Vec::new();
+    validate_execution_policy_text(&policy.to_string(), workflow, &mut errors);
+    assert!(errors.is_empty(), "{errors:?}");
+    for (pointer, value) in [
+        (
+            "/workflows/execution_state_sync.yml/plans/execution/approval/kind",
+            json!("computed-hash"),
+        ),
+        (
+            "/workflows/execution_state_sync.yml/plans/execution/approval/required_inputs/operation",
+            json!("prepare"),
+        ),
+        (
+            "/workflows/execution_state_sync.yml/plans/execution/event/path",
+            json!("events/trigger-event.json"),
+        ),
+        (
+            "/workflows/execution_state_sync.yml/reviewed_source_shas",
+            json!(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]),
+        ),
+        (
+            "/workflows/execution_state_sync.yml/allow_publication",
+            json!(true),
+        ),
+        (
+            "/workflows/execution_state_sync.yml/plans/execution/prepared_recovery/mutators/0/steps/0",
+            json!("Prepare execution plan"),
+        ),
+        (
+            "/workflows/execution_state_sync.yml/plans/workflow-noop/approval/workflow_source_sha256",
+            json!("a".repeat(64)),
+        ),
+    ] {
+        let mut changed = policy.clone();
+        *changed.pointer_mut(pointer).unwrap() = value;
+        let mut errors = Vec::new();
+        validate_execution_policy_text(&changed.to_string(), workflow, &mut errors);
+        assert!(!errors.is_empty(), "policy mutation escaped: {pointer}");
+    }
 }
 
 #[test]

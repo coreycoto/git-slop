@@ -6,7 +6,9 @@ use super::{WORKFLOWS, read_text};
 
 mod codex_action;
 mod dependency_remediation;
+mod execution_state;
 pub(super) use dependency_remediation::validate_dependency_candidate_artifact_ids;
+pub(super) use execution_state::validate_policy_text as validate_execution_policy_text;
 
 pub(super) const GH_STEWARD_PREPARE: &str = "scripts/with-gh-steward.sh --prepare";
 pub(super) const GH_STEWARD_VERIFY: &str = "scripts/with-gh-steward.sh --verify";
@@ -21,9 +23,9 @@ const CODEX_PROFILE_COPY_COMMAND: &str =
 const CODEX_HOME_INPUT: &str = "codex-home: ${{ runner.temp }}/codex-runtime/.codex";
 const CODEX_APPROVAL_OVERRIDE: &str =
     "sed -i 's/^approval_policy = \"on-request\"$/approval_policy = \"never\"/'";
-const PROJECT_SNAPSHOT: &str = "gh steward snapshot project";
-const EXECUTION_PREPARE: &str = "gh steward execution prepare";
-const EXECUTION_APPLY: &str = "gh steward execution apply";
+const PROJECT_SNAPSHOT: &str = "\"$GH_STEWARD_BIN\" snapshot project";
+const EXECUTION_PREPARE: &str = "\"$GH_STEWARD_BIN\" execution prepare";
+const EXECUTION_APPLY: &str = "\"$GH_STEWARD_BIN\" execution apply";
 const PROJECT_TOKEN: &str =
     "${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}";
 
@@ -140,6 +142,13 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
         ) {
             validate_dependency_publication_policy_text(&policy, &workflow, errors);
         }
+        if let Some(workflow) = read_text(
+            repo_root,
+            ".github/workflows/execution_state_sync.yml",
+            errors,
+        ) {
+            validate_execution_policy_text(&policy, &workflow, errors);
+        }
     }
 
     let relative = ".github/workflows/execution_state_sync.yml";
@@ -241,7 +250,7 @@ pub(super) fn validate_agent_plugin_workflow_text(
             .any(|command| !text.contains(command))
     {
         errors.push(format!(
-            "{name} must use gh steward for Project snapshots and reviewed execution prepare/apply."
+            "{name} must use the verified native binary for Project snapshots and reviewed execution prepare/apply."
         ));
     }
 
@@ -278,6 +287,9 @@ pub(super) fn validate_agent_plugin_workflow_text(
     };
     validate_acquisition_scope(&payload, &steps, name, kind, errors);
     validate_step_order(&steps, name, kind, errors);
+    if steps.iter().any(|step| step.run.contains("gh steward ")) {
+        errors.push(format!("{name} must invoke the verified GH_STEWARD_BIN directly; a PATH entry does not register a GitHub CLI extension."));
+    }
     codex_action::validate_args(&steps, name, errors);
 
     match name {
@@ -287,8 +299,8 @@ pub(super) fn validate_agent_plugin_workflow_text(
             )
         }
         "execution_state_sync.yml" => {
-            validate_execution_state_trust(text, &payload, &steps, errors);
-            validate_execution_state_artifacts(text, &steps, errors);
+            execution_state::validate_trust(text, &payload, &steps, errors);
+            execution_state::validate_artifacts(text, &steps, errors);
         }
         _ => {}
     }
@@ -464,7 +476,7 @@ fn validate_step_order(
         let native_commands = job_steps
             .iter()
             .filter(|step| {
-                step.run.contains("gh steward ")
+                step.run.contains("\"$GH_STEWARD_BIN\" ")
                     && step.run.trim() != GH_STEWARD_PREPARE
                     && step.run.trim() != GH_STEWARD_VERIFY
             })
@@ -528,151 +540,6 @@ fn validate_step_order(
     }
 }
 
-fn validate_execution_state_trust(
-    text: &str,
-    payload: &YamlValue,
-    steps: &[WorkflowStepView],
-    errors: &mut Vec<String>,
-) {
-    let name = "execution_state_sync.yml";
-    if !text.contains("\n  pull_request_target:\n") || text.contains("\n  pull_request:\n") {
-        errors.push(format!(
-            "{name} must use pull_request_target for automatic PR synchronization."
-        ));
-    }
-    if !text.contains("github.event.pull_request.head.repo.full_name == github.repository")
-        || !text.contains("github.event_name != 'pull_request_target' ||")
-    {
-        errors.push(format!(
-            "{name} must reject fork pull requests before acquisition."
-        ));
-    }
-    if !text.contains("cancel-in-progress: false") {
-        errors.push(format!("{name} must not cancel an in-flight mutation run."));
-    }
-    if !text.contains("run-name: Execution State Sync") {
-        errors.push(format!(
-            "{name} must keep a stable run name for exact recovery identity."
-        ));
-    }
-    let trusted_ref = concat!("$", "{{ github.workflow_sha }}");
-    let checkouts = steps
-        .iter()
-        .filter(|step| step.uses.starts_with("actions/checkout@"))
-        .collect::<Vec<_>>();
-    if checkouts.len() < 3
-        || checkouts
-            .iter()
-            .any(|step| step.checkout_ref != trusted_ref || step.persist_credentials != Some(false))
-    {
-        errors.push(format!("{name} must check out only the exact trusted workflow source with credentials disabled."));
-    }
-    if payload.get("env").is_some_and(|env| {
-        yaml_mapping_has_key(env, "GH_TOKEN")
-            || yaml_mapping_has_key(env, "GITHUB_TOKEN")
-            || yaml_contains(env, "secrets.")
-    }) {
-        errors.push(format!(
-            "{name} must not expose credentials at workflow scope."
-        ));
-    }
-    let Some(jobs) = payload.get("jobs").and_then(YamlValue::as_mapping) else {
-        errors.push(format!(
-            "{name} must isolate preparation from native application."
-        ));
-        return;
-    };
-    let prepare_job = jobs.get(YamlValue::String("prepare".into()));
-    let apply_job = jobs.get(YamlValue::String("apply".into()));
-    let (Some(prepare_job), Some(apply_job)) = (prepare_job, apply_job) else {
-        errors.push(format!(
-            "{name} must isolate preparation from native application."
-        ));
-        return;
-    };
-    for (job_name, job) in [("prepare", prepare_job), ("apply", apply_job)] {
-        if job.get("env").is_some_and(|env| {
-            yaml_mapping_has_key(env, "GH_TOKEN")
-                || yaml_mapping_has_key(env, "GITHUB_TOKEN")
-                || yaml_contains(env, "secrets.")
-        }) {
-            errors.push(format!(
-                "{name} {job_name} job must not expose credentials through job environment."
-            ));
-        }
-    }
-    let prepare_permissions = prepare_job
-        .get("permissions")
-        .and_then(YamlValue::as_mapping);
-    if prepare_permissions.is_none_or(|permissions| {
-        permissions
-            .values()
-            .any(|value| matches!(value.as_str(), Some("write" | "admin")))
-    }) {
-        errors.push(format!("{name} prepare job must remain read-only."));
-    }
-    for (scope, expected) in [("contents", "read"), ("actions", "read")] {
-        if prepare_permissions
-            .and_then(|permissions| permissions.get(YamlValue::String(scope.into())))
-            .and_then(YamlValue::as_str)
-            != Some(expected)
-        {
-            errors.push(format!("{name} prepare job must have {scope}: {expected}."));
-        }
-    }
-    for command in [PROJECT_SNAPSHOT, EXECUTION_PREPARE, EXECUTION_APPLY] {
-        let matching = steps
-            .iter()
-            .filter(|step| step.run.contains(command))
-            .collect::<Vec<_>>();
-        let expected_job = if command == EXECUTION_APPLY {
-            "apply"
-        } else {
-            "prepare"
-        };
-        if matching.len() != 1 || matching[0].job != expected_job {
-            errors.push(format!(
-                "{name} must define exactly one {command} operation in the {expected_job} job."
-            ));
-            continue;
-        }
-        validate_step_token(matching[0], PROJECT_TOKEN, name, errors);
-    }
-    let recovery = steps
-        .iter()
-        .find(|step| step.job == "prepare" && step.run.contains("runs recover"));
-    if let Some(step) = recovery {
-        validate_step_token(step, concat!("$", "{{ github.token }}"), name, errors);
-    } else {
-        errors.push(format!(
-            "{name} must read prior workflow history before planning."
-        ));
-    }
-    let apply_handoff = steps
-        .iter()
-        .find(|step| step.job == "apply" && step.run.contains("runs acquire-handoff"));
-    if let Some(step) = apply_handoff {
-        validate_step_token(step, concat!("$", "{{ github.token }}"), name, errors);
-    } else {
-        errors.push(format!(
-            "{name} apply job must acquire an immutable native handoff."
-        ));
-    }
-    if steps.iter().any(|step| {
-        (step.job == "prepare" || step.job == "apply")
-            && (yaml_mapping_has_key(&step.raw, "GH_TOKEN")
-                || yaml_contains(&step.raw, "AGENT_PLUGINS_READ_TOKEN")
-                || yaml_contains(&step.raw, "AGENT_PLUGINS_GIT_TOKEN"))
-            && !step.run.contains(PROJECT_SNAPSHOT)
-            && !step.run.contains(EXECUTION_PREPARE)
-            && !step.run.contains(EXECUTION_APPLY)
-            && !step.run.contains("runs recover")
-            && !step.run.contains("runs acquire-handoff")
-            && !step.run.contains("finalize-gh-steward-run")
-    }) {
-        errors.push(format!("{name} must expose GitHub tokens only to scoped recovery, handoff, Project, or native execution steps."));
-    }
-}
 fn validate_step_token(
     authorized: &WorkflowStepView,
     expected_token: &str,
@@ -697,241 +564,6 @@ fn validate_step_token(
         errors.push(format!(
             "{name} authorized operation must receive its expected step-scoped GH_TOKEN and no other credentials."
         ));
-    }
-}
-
-fn validate_execution_state_artifacts(
-    text: &str,
-    steps: &[WorkflowStepView],
-    errors: &mut Vec<String>,
-) {
-    let name = "execution_state_sync.yml";
-    let target = steps.iter().find(|step| {
-        step.job == "prepare"
-            && step.get_name() == Some("Resolve exact target and capture event after recovery")
-    });
-    let recovery = steps
-        .iter()
-        .find(|step| step.job == "prepare" && step.run.contains("runs recover"));
-    let fail_closed = steps
-        .iter()
-        .find(|step| step.get_name() == Some("Stop when prior mutation evidence is unavailable"));
-    let preparation = steps
-        .iter()
-        .find(|step| step.job == "prepare" && step.run.contains(EXECUTION_PREPARE));
-    let prepare_upload = steps
-        .iter()
-        .find(|step| step.job == "prepare" && step.uses.starts_with("actions/upload-artifact@"));
-    let apply_handoff = steps
-        .iter()
-        .find(|step| step.job == "apply" && step.run.contains("runs acquire-handoff"));
-    let install_journal = steps
-        .iter()
-        .find(|step| step.job == "apply" && step.run.contains("runs context-install-journal"));
-    let dispatch_intent = steps
-        .iter()
-        .find(|step| step.job == "apply" && step.run.contains("phase=\"dispatching\""));
-    let apply = steps
-        .iter()
-        .find(|step| step.job == "apply" && step.run.contains(EXECUTION_APPLY));
-    let capture_journal = steps
-        .iter()
-        .find(|step| step.job == "apply" && step.run.contains("runs context-capture-journal"));
-    let mark_completed = steps
-        .iter()
-        .find(|step| step.job == "apply" && step.run.contains("runs context-mark-plan"));
-    let apply_uploads = steps
-        .iter()
-        .filter(|step| step.job == "apply" && step.uses.starts_with("actions/upload-artifact@"))
-        .collect::<Vec<_>>();
-    let finalizer = steps
-        .iter()
-        .find(|step| step.job == "apply" && step.run.contains("finalize-gh-steward-run"));
-    let noop_acquire = steps.iter().find(|step| {
-        step.job == "settle_noop"
-            && step.run.contains("runs acquire-handoff")
-            && step.run.contains("--purpose transport")
-    });
-    let noop_finish = steps
-        .iter()
-        .find(|step| step.job == "settle_noop" && step.run.contains("runs finish-noop"));
-    let noop_finalizer = steps
-        .iter()
-        .find(|step| step.job == "settle_noop" && step.run.contains("finalize-gh-steward-run"));
-    let (
-        Some(target),
-        Some(recovery),
-        Some(fail_closed),
-        Some(preparation),
-        Some(prepare_upload),
-        Some(apply_handoff),
-        Some(install_journal),
-        Some(dispatch_intent),
-        Some(apply),
-        Some(capture_journal),
-        Some(mark_completed),
-        Some(finalizer),
-        Some(noop_acquire),
-        Some(noop_finish),
-        Some(noop_finalizer),
-    ) = (
-        target,
-        recovery,
-        fail_closed,
-        preparation,
-        prepare_upload,
-        apply_handoff,
-        install_journal,
-        dispatch_intent,
-        apply,
-        capture_journal,
-        mark_completed,
-        finalizer,
-        noop_acquire,
-        noop_finish,
-        noop_finalizer,
-    )
-    else {
-        errors.push(format!("{name} must retain native target, recovery, plan, handoff, journal, apply, and no-op settlement steps."));
-        return;
-    };
-    if apply_uploads.len() != 2 {
-        errors.push(format!(
-            "{name} must upload one terminal package and one settlement checkpoint."
-        ));
-        return;
-    }
-    let terminal_upload = apply_uploads[0];
-    let checkpoint_upload = apply_uploads[1];
-    if !(recovery.ordinal < target.ordinal && target.ordinal < preparation.ordinal)
-        || !(apply_handoff.ordinal < install_journal.ordinal
-            && install_journal.ordinal < dispatch_intent.ordinal
-            && dispatch_intent.ordinal < apply.ordinal
-            && apply.ordinal < capture_journal.ordinal
-            && capture_journal.ordinal == mark_completed.ordinal
-            && mark_completed.ordinal < terminal_upload.ordinal
-            && terminal_upload.ordinal < finalizer.ordinal
-            && finalizer.ordinal < checkpoint_upload.ordinal)
-    {
-        errors.push(format!("{name} must recover before prepare and capture durable journal evidence before finalization."));
-    }
-    if !fail_closed
-        .raw
-        .get("if")
-        .and_then(YamlValue::as_str)
-        .is_some_and(|condition| {
-            condition.contains("steps.recovery.outputs.outcome == 'recovery_needed'")
-        })
-        || !fail_closed.run.contains("exit 1")
-    {
-        errors.push(format!(
-            "{name} must stop when prior plan/journal recovery is uncertain."
-        ));
-    }
-    if !preparation.run.contains("runs context-start")
-        || !preparation.run.contains("runs context-record-plan")
-    {
-        errors.push(format!(
-            "{name} must register the exact execution plan through native context commands."
-        ));
-    }
-    let handoff_with = prepare_upload.raw.get("with");
-    let prepared_package = concat!("$", "{{ steps.package_state.outputs.package }}");
-    if prepare_upload.raw.get("id").and_then(YamlValue::as_str) != Some("upload_prepared")
-        || handoff_with.is_none_or(|with| {
-            !with
-                .get("name")
-                .and_then(YamlValue::as_str)
-                .is_some_and(|name| name.ends_with("-handoff-00"))
-                || with.get("path").and_then(YamlValue::as_str) != Some(prepared_package)
-                || with
-                    .get("include-hidden-files")
-                    .and_then(YamlValue::as_bool)
-                    != Some(true)
-                || with.get("retention-days").and_then(YamlValue::as_i64) != Some(14)
-        })
-    {
-        errors.push(format!(
-            "{name} must upload a bounded immutable prepared handoff from RUNNER_TEMP."
-        ));
-    }
-    if !apply_handoff
-        .raw
-        .get("env")
-        .is_some_and(|env| yaml_contains(env, "needs.prepare.outputs.artifact_id"))
-        || !apply_handoff
-            .raw
-            .get("env")
-            .is_some_and(|env| yaml_contains(env, "needs.prepare.outputs.artifact_digest"))
-        || !apply_handoff.run.contains("--artifact-id")
-        || !apply_handoff.run.contains("--artifact-digest")
-        || apply_handoff.run.contains("--purpose transport")
-        || steps
-            .iter()
-            .any(|step| step.job == "apply" && step.uses.starts_with("actions/download-artifact@"))
-    {
-        errors.push(format!("{name} apply job must acquire the exact immutable handoff ID and digest with apply purpose."));
-    }
-    if !install_journal
-        .raw
-        .get("if")
-        .and_then(YamlValue::as_str)
-        .is_some_and(|condition| condition.contains("needs.prepare.outputs.mode == 'resumed'"))
-        || !install_journal.run.contains("recovery-source.json")
-        || !install_journal.run.contains("context-install-journal")
-    {
-        errors.push(format!("{name} may install a journal only for a resumed package with its exact recovery source."));
-    }
-    if !dispatch_intent.run.contains("dispatching")
-        || !apply.run.contains("--approve-plan-sha")
-        || !apply.run.contains("apply-results/execution.json")
-    {
-        errors.push(format!(
-            "{name} must persist dispatch intent before applying the exact recorded plan."
-        ));
-    }
-    if !capture_journal.run.contains("context-capture-journal")
-        || !capture_journal.run.contains("journal-root")
-        || !mark_completed
-            .run
-            .contains("--name execution --status completed")
-        || !mark_completed.run.contains("apply-results/execution.json")
-    {
-        errors.push(format!("{name} must use native monotonic journal capture and mark completion only from the exact apply result."));
-    }
-    let terminal_package = concat!("$", "{{ runner.temp }}/execution-state-package");
-    if !terminal_upload.raw.get("with").is_some_and(|with| {
-        with.get("name")
-            .and_then(YamlValue::as_str)
-            .is_some_and(|name| name.contains("needs.prepare.outputs.artifact_name"))
-            && with.get("path").and_then(YamlValue::as_str) == Some(terminal_package)
-            && with.get("retention-days").and_then(YamlValue::as_i64) == Some(90)
-    }) || !checkpoint_upload.raw.get("with").is_some_and(|with| {
-        with.get("path")
-            .and_then(YamlValue::as_str)
-            .is_some_and(|path| path.contains("checkpoint_path"))
-    }) || !text.contains("recovery_needed")
-    {
-        errors.push(format!(
-            "{name} must retain run-scoped recovery and terminal settlement artifacts."
-        ));
-    }
-    if !finalizer.run.contains("--artifact-id")
-        || !finalizer.run.contains("--artifact-digest")
-        || !noop_acquire.run.contains("--artifact-id")
-        || !noop_acquire.run.contains("--artifact-digest")
-        || !noop_finish.run.contains("--workflow-sha")
-        || !noop_finalizer.run.contains("--artifact-digest")
-        || !text.contains("needs.apply.result == 'skipped'")
-    {
-        errors.push(format!(
-            "{name} must close failed or no-op attempts with exact artifacts and checkpoints."
-        ));
-    }
-}
-impl WorkflowStepView {
-    fn get_name(&self) -> Option<&str> {
-        self.raw.get("name").and_then(YamlValue::as_str)
     }
 }
 

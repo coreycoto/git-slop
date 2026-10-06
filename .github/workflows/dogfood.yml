@@ -63,12 +63,21 @@ jobs:
       - name: Verify committed adoption metadata
         run: target/release/git-slop init --check
 
-      - name: Run detector
+      - name: Fix analysis clock to the exact source revision
+        id: analysis-clock
         shell: bash
         run: |
           set -euo pipefail
+          printf 'as_of=%s\n' "$(git show -s --format=%cI HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Run detector
+        shell: bash
+        env:
+          ANALYSIS_AS_OF: ${{ steps.analysis-clock.outputs.as_of }}
+        run: |
+          set -euo pipefail
           detector_log="$RUNNER_TEMP/git-slop-find.log"
-          if ! target/release/git-slop find >"$detector_log" 2>&1; then
+          if ! target/release/git-slop find --as-of "$ANALYSIS_AS_OF" >"$detector_log" 2>&1; then
             echo "Git Slop detector failed. Raw output is suppressed because repository paths are untrusted." >&2
             exit 1
           fi
@@ -80,6 +89,7 @@ jobs:
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ANALYSIS_AS_OF: ${{ steps.analysis-clock.outputs.as_of }}
         run: |
           set -euo pipefail
           base_worktree="$RUNNER_TEMP/git-slop-base"
@@ -95,7 +105,7 @@ jobs:
           GIT_CONFIG_COUNT=1 \
           GIT_CONFIG_KEY_0=core.excludesfile \
           GIT_CONFIG_VALUE_0="$RUNNER_TEMP/dogfood-base-excludes" \
-            target/release/git-slop --repo "$base_worktree" find --quiet --no-progress --no-cache \
+            target/release/git-slop --repo "$base_worktree" find --as-of "$ANALYSIS_AS_OF" --quiet --no-progress --no-cache \
             --state-dir "$RUNNER_TEMP/base-state" --output-dir "$RUNNER_TEMP/base-output"
           target/release/git-slop baseline --state-dir "$RUNNER_TEMP/dogfood-baselines" ensure \
             --name dogfood-pr-base --report "$RUNNER_TEMP/base-output/latest/report.json" --format json \

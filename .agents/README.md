@@ -22,9 +22,12 @@ The gh-steward source pin comes from its release lock.
 `RUNNER_TEMP` using the source repository's release helper. The helper checks
 the release tag, source commit, checksums, attestation, binary version, target,
 and expected digest. `--verify` rechecks the machine-readable acquisition
-receipt and staged binary before any native workflow command runs. The current
-lock names the qualified published v0.3.0 assets at source
-`93b519af9cf71a95289b0a7c8718d8cab0b7017e`, including the shared `runs`
+receipt and staged binary before any native workflow command runs. Hosted
+callers invoke the quoted `$GH_STEWARD_BIN` path directly. A binary on `PATH`
+does not register a `gh` extension; acquisition does not change the host
+extension installation. The current
+lock names the qualified published v0.4.0 assets at source
+`799fb1d7e99af09e78962175b2aae7aa868abd36`, including the shared `runs`
 commands. All four native release gates, independent tagged rebuilds, checksums
 and attestations passed. Consumer workflow promotion still requires its own
 hosted qualification and authorization.
@@ -47,3 +50,20 @@ The Git Slop Agent Plugin is a portable Agent Plugins package at
 `extensions.com.openai` metadata. Reusable project and product development
 workflows come from the selected public plugins, while Git Slop-specific CLI
 usage and adoption guidance stays in this repository's product plugin.
+
+Execution State Sync is manual and runs only from the default branch. Choose
+`operation=prepare` with exactly one whole-number `pr_number` or `issue_number`
+to obtain a read-only preview. Review `previews/execution.json` in that run's
+immutable handoff. A separate `operation=apply` dispatch names its
+`plan_run_id` and exact `approve_plan_sha`; preparation never submits the
+computed hash as its own approval. The apply package records the original
+manual approval event and uses a native `plan-set-<digest>` recovery identity.
+A retry restores those original approval bytes, plan and journal; conflicting
+inputs retain diagnostics and stop before dispatch or settlement.
+
+Preparation closes only its own positively observed preview-only no-op, using
+the native receipt, artifact and checkpoint protocol. It does not settle old
+unknown workflow attempts. Complete-history recovery still runs before any new
+work, source allowlists remain empty, and dependency publication remains
+disabled pending #157. Source validation does not authorize a live dispatch,
+historical settlement, Project write, or host installation.

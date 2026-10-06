@@ -4,6 +4,7 @@ pub mod crates_io;
 pub mod dependency_remediation;
 pub mod developer;
 pub mod distribution;
+pub mod execution_state;
 pub mod homebrew;
 pub mod issue_forms;
 pub mod manifest;

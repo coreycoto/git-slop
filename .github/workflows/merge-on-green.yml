@@ -166,9 +166,9 @@ jobs:
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/merge-package"
-          gh steward merge prepare --repo-root . --policy config/github/merge-on-green.json \
+          "$GH_STEWARD_BIN" merge prepare --repo-root . --policy config/github/merge-on-green.json \
             --input event="$root/events/workflow-run-event.json" --out "$RUNNER_TEMP/merge-plan-envelope.json"
-          gh steward plan extract --repo-root "$GITHUB_WORKSPACE" \
+          "$GH_STEWARD_BIN" plan extract --repo-root "$GITHUB_WORKSPACE" \
             --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --input "envelope=$RUNNER_TEMP/merge-plan-envelope.json" --outer-command merge-prepare \
             --plan-command merge-apply --out "$root/proposals/candidate.json"
@@ -470,7 +470,7 @@ jobs:
           root="$RUNNER_TEMP/merge-package"
           plan="$root/plans/merge.json"
           plan_sha="$(jq -er '.sha256' "$plan")"
-          gh steward merge apply --repo-root . --input plan="$plan" \
+          "$GH_STEWARD_BIN" merge apply --repo-root . --input plan="$plan" \
             --approve-plan-sha "$plan_sha" --out "$root/apply-results/merge.json"
 
       - name: Capture durable merge journal and terminal result

@@ -42,7 +42,10 @@ fn validate_consumer_tool_workflows(workflows: &Path, errors: &mut Vec<String>) 
             "scripts/prepare-codex-plugins.sh",
         ),
         ("merge-on-green.yml", "scripts/prepare-codex-plugins.sh"),
-        ("execution_state_sync.yml", "gh steward execution apply"),
+        (
+            "execution_state_sync.yml",
+            "\"$GH_STEWARD_BIN\" execution apply",
+        ),
     ] {
         if let Some(text) = read(&workflows.join(name), errors) {
             require(&text, required, name, errors);
@@ -50,8 +53,8 @@ fn validate_consumer_tool_workflows(workflows: &Path, errors: &mut Vec<String>) 
     }
     if let Some(text) = read(&workflows.join("execution_state_sync.yml"), errors) {
         for required in [
-            "gh steward snapshot project",
-            "gh steward execution prepare",
+            "\"$GH_STEWARD_BIN\" snapshot project",
+            "\"$GH_STEWARD_BIN\" execution prepare",
             "runs recover",
             "runs acquire-handoff",
             "runs context-record-plan",
@@ -83,7 +86,7 @@ fn validate_native_plan_transport(text: &str, name: &str, errors: &mut Vec<Strin
     require(text, &format!("--outer-command {outer}"), name, errors);
     require(text, &format!("--plan-command {inner}"), name, errors);
     for required in [
-        "gh steward plan extract",
+        "\"$GH_STEWARD_BIN\" plan extract",
         "--input \"native-plan=",
         "--review-path",
         "--review-sha256",
@@ -125,25 +128,39 @@ fn validate_prepared_package_retention(text: &str, name: &str, errors: &mut Vec<
         .and_then(|job| job.get("steps"))
         .and_then(YamlValue::as_sequence)
     else {
-        errors.push(format!("{name} lacks native apply steps for pending package retention."));
+        errors.push(format!(
+            "{name} lacks native apply steps for pending package retention."
+        ));
         return;
     };
     let qualifier = steps.iter().enumerate().find(|(_, step)| {
-        step.get("id").and_then(YamlValue::as_str) == Some("qualify-prepared")
+        step.get("id").and_then(YamlValue::as_str)
+            == Some(if name == "execution_state_sync.yml" {
+                "qualify_prepared"
+            } else {
+                "qualify-prepared"
+            })
     });
-    let upload = steps.iter().enumerate().find(|(_, step)| {
-        step.get("id").and_then(YamlValue::as_str) == Some("terminal_artifact")
-    });
+    let upload = steps
+        .iter()
+        .enumerate()
+        .find(|(_, step)| step.get("id").and_then(YamlValue::as_str) == Some("terminal_artifact"));
     let valid = match (qualifier, upload) {
         (Some((qualifier_index, qualifier)), Some((upload_index, upload))) => {
             let upload_if = upload.get("if").and_then(YamlValue::as_str).unwrap_or("");
             qualifier_index < upload_index
-                && qualifier.get("run").and_then(YamlValue::as_str)
+                && qualifier
+                    .get("run")
+                    .and_then(YamlValue::as_str)
                     .is_some_and(|run| run.contains("runs qualify-prepared"))
-                && qualifier.get("env").and_then(|env| env.get("GH_TOKEN"))
-                    .and_then(YamlValue::as_str) == Some("${{ github.token }}")
+                && qualifier
+                    .get("env")
+                    .and_then(|env| env.get("GH_TOKEN"))
+                    .and_then(YamlValue::as_str)
+                    == Some("${{ github.token }}")
                 && upload_if.contains("always()")
                 && !upload_if.contains("qualify-prepared")
+                && !upload_if.contains("qualify_prepared")
                 && qualifier.get("if").and_then(YamlValue::as_str) == Some(upload_if)
         }
         _ => false,
@@ -237,16 +254,16 @@ fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
         ArtifactUploadContract {
             workflow_name: "execution_state_sync.yml",
             job_name: "prepare",
-            step_name: "Upload exact execution package handoff",
+            step_name: "Upload preview transport handoff",
             artifact_name_fragment: "-handoff-00",
-            artifact_path_fragment: "${{ steps.package_state.outputs.package }}",
+            artifact_path_fragment: "${{ runner.temp }}/execution-state-package",
             retention_days: 14,
             include_hidden_files: Some(true),
         },
         ArtifactUploadContract {
             workflow_name: "execution_state_sync.yml",
             job_name: "apply",
-            step_name: "Upload exact terminal execution recovery artifact",
+            step_name: "Upload exact native execution recovery package",
             artifact_name_fragment: "outputs.artifact_name",
             artifact_path_fragment: "${{ runner.temp }}/execution-state-package",
             retention_days: 90,
@@ -254,8 +271,8 @@ fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
         },
         ArtifactUploadContract {
             workflow_name: "execution_state_sync.yml",
-            job_name: "settle_noop",
-            step_name: "Upload exact terminal execution no-op artifact",
+            job_name: "prepare",
+            step_name: "Upload exact terminal native package",
             artifact_name_fragment: "outputs.artifact_name",
             artifact_path_fragment: "${{ runner.temp }}/execution-state-package",
             retention_days: 90,
@@ -264,7 +281,7 @@ fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
         ArtifactUploadContract {
             workflow_name: "execution_state_sync.yml",
             job_name: "apply",
-            step_name: "Upload exact execution settlement checkpoint",
+            step_name: "Upload the exact native settlement checkpoint",
             artifact_name_fragment: "checkpoint_name",
             artifact_path_fragment: "checkpoint_path",
             retention_days: 90,
@@ -272,8 +289,8 @@ fn validate_artifacts(workflows: &Path, errors: &mut Vec<String>) {
         },
         ArtifactUploadContract {
             workflow_name: "execution_state_sync.yml",
-            job_name: "settle_noop",
-            step_name: "Upload exact execution no-op settlement checkpoint",
+            job_name: "prepare",
+            step_name: "Upload the exact native settlement checkpoint",
             artifact_name_fragment: "checkpoint_name",
             artifact_path_fragment: "checkpoint_path",
             retention_days: 90,
@@ -398,9 +415,7 @@ fn validate_artifact_upload(
         .and_then(|steps| {
             steps
                 .iter()
-                .find(|step| {
-                    step.get("name").and_then(YamlValue::as_str) == Some(upload.step_name)
-                })
+                .find(|step| step.get("name").and_then(YamlValue::as_str) == Some(upload.step_name))
         });
     let valid = step.is_some_and(|step| {
         step.get("uses")
@@ -510,6 +525,7 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
             "{name} must retain a bounded pull-request regression enforcement block."
         )),
     }
+    validate_dogfood_analysis_clock(&text, name, errors);
     validate_dogfood_failure_evidence(&text, name, errors);
 
     let Some(repo_root) = workflows.parent().and_then(Path::parent) else {
@@ -535,6 +551,60 @@ fn validate_dogfood(workflows: &Path, errors: &mut Vec<String>) {
         }
     }
     dogfood::validate_acceptance_manifests(repo_root, errors);
+}
+
+fn validate_dogfood_analysis_clock(text: &str, name: &str, errors: &mut Vec<String>) {
+    let Ok(payload) = serde_yaml::from_str::<YamlValue>(text) else {
+        return;
+    };
+    let steps = payload
+        .get("jobs")
+        .and_then(|jobs| jobs.get("dogfood"))
+        .and_then(|job| job.get("steps"))
+        .and_then(YamlValue::as_sequence);
+    let Some(steps) = steps else {
+        return;
+    };
+    let clock = steps
+        .iter()
+        .position(|step| step.get("id").and_then(YamlValue::as_str) == Some("analysis-clock"));
+    let valid_clock = clock.is_some_and(|index| {
+        steps[index]
+            .get("run")
+            .and_then(YamlValue::as_str)
+            .is_some_and(|run| run.contains("git show -s --format=%cI HEAD"))
+    });
+    let scans = steps
+        .iter()
+        .enumerate()
+        .filter(|(_, step)| {
+            step.get("run")
+                .and_then(YamlValue::as_str)
+                .is_some_and(|run| {
+                    run.contains("target/release/git-slop find")
+                        || run.contains("--repo \"$base_worktree\" find")
+                })
+        })
+        .collect::<Vec<_>>();
+    if !valid_clock
+        || scans.len() != 2
+        || scans.iter().any(|(index, step)| {
+            clock.is_none_or(|clock| clock >= *index)
+                || step
+                    .get("env")
+                    .and_then(|env| env.get("ANALYSIS_AS_OF"))
+                    .and_then(YamlValue::as_str)
+                    != Some("${{ steps.analysis-clock.outputs.as_of }}")
+                || !step
+                    .get("run")
+                    .and_then(YamlValue::as_str)
+                    .is_some_and(|run| run.contains("--as-of \"$ANALYSIS_AS_OF\""))
+        })
+    {
+        errors.push(format!(
+            "{name} must evaluate both revisions at the same exact-head analysis clock."
+        ));
+    }
 }
 
 fn validate_dogfood_failure_evidence(text: &str, name: &str, errors: &mut Vec<String>) {

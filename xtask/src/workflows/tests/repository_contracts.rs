@@ -139,23 +139,36 @@ fn dogfood_verifier_supports_single_manifest_and_adjacent_shards() {
     let mut root_acceptance = dogfood_acceptance(base_sha, digest);
     write_dogfood_manifest(&manifest_path, vec![root_acceptance.clone()]);
     let run = |base: &str| {
-        run_dogfood_verifier(root, &manifest_path, &comparison_path, &report_path, base, head_sha)
+        run_dogfood_verifier(
+            root,
+            &manifest_path,
+            &comparison_path,
+            &report_path,
+            base,
+            head_sha,
+        )
     };
     assert!(run(base_sha).status.success());
-    assert!(!run("cccccccccccccccccccccccccccccccccccccccc").status.success());
+    assert!(
+        !run("cccccccccccccccccccccccccccccccccccccccc")
+            .status
+            .success()
+    );
 
     let extensionless_manifest_path = fixture.path().join("legacy-acceptances");
     write_dogfood_manifest(&extensionless_manifest_path, vec![root_acceptance.clone()]);
-    assert!(run_dogfood_verifier(
-        root,
-        &extensionless_manifest_path,
-        &comparison_path,
-        &report_path,
-        base_sha,
-        head_sha,
-    )
-    .status
-    .success());
+    assert!(
+        run_dogfood_verifier(
+            root,
+            &extensionless_manifest_path,
+            &comparison_path,
+            &report_path,
+            base_sha,
+            head_sha,
+        )
+        .status
+        .success()
+    );
 
     root_acceptance["entries"][0]["maximum_slop_score"] = serde_json::json!(11.9);
     write_dogfood_manifest(&manifest_path, vec![root_acceptance.clone()]);
@@ -172,7 +185,10 @@ fn dogfood_verifier_supports_single_manifest_and_adjacent_shards() {
     assert!(run(base_sha).status.success());
 
     write_dogfood_manifest(&manifest_path, vec![root_acceptance.clone()]);
-    assert!(!run(base_sha).status.success(), "duplicate base across inputs");
+    assert!(
+        !run(base_sha).status.success(),
+        "duplicate base across inputs"
+    );
 
     write_dogfood_manifest(&manifest_path, vec![unrelated.clone()]);
     let mut invalid_schema = serde_json::json!({
@@ -184,8 +200,7 @@ fn dogfood_verifier_supports_single_manifest_and_adjacent_shards() {
 
     invalid_schema["schema_version"] = serde_json::json!(1);
     for severity in ["error", "critical"] {
-        invalid_schema["acceptances"][0]["entries"][0]["severity"] =
-            serde_json::json!(severity);
+        invalid_schema["acceptances"][0]["entries"][0]["severity"] = serde_json::json!(severity);
         fs::write(&shard_path, serde_json::to_vec(&invalid_schema).unwrap()).unwrap();
         assert!(
             !run(base_sha).status.success(),
@@ -203,7 +218,10 @@ fn dogfood_verifier_supports_single_manifest_and_adjacent_shards() {
 
     drifted_report["files"][0]["content_sha256"] = serde_json::json!(digest);
     fs::write(&report_path, serde_json::to_vec(&drifted_report).unwrap()).unwrap();
-    assert!(run(base_sha).status.success(), "restored accepted content digest");
+    assert!(
+        run(base_sha).status.success(),
+        "restored accepted content digest"
+    );
 
     let mut comparison: serde_json::Value =
         serde_json::from_slice(&fs::read(&comparison_path).unwrap()).unwrap();
@@ -264,7 +282,11 @@ fn dogfood_native_author_validation_inspects_root_and_shard_manifests() {
 
     write_dogfood_manifest(&root_path, vec![dogfood_acceptance(base, digest)]);
     let duplicate_errors = validate();
-    assert!(duplicate_errors.iter().any(|error| error.contains("schema")));
+    assert!(
+        duplicate_errors
+            .iter()
+            .any(|error| error.contains("schema"))
+    );
 
     write_dogfood_manifest(&root_path, vec![dogfood_acceptance(other_base, digest)]);
     let invalid_schema = serde_json::json!({
@@ -309,5 +331,30 @@ fn dogfood_regression_failure_retains_full_reports_only_for_that_failure() {
     ] {
         assert!(evidence.contains(required), "missing {required}");
     }
-    assert!(evidence.contains("git-slop-dogfood-failure-${{ github.run_id }}-${{ github.run_attempt }}"));
+    assert!(
+        evidence
+            .contains("git-slop-dogfood-failure-${{ github.run_id }}-${{ github.run_attempt }}")
+    );
+}
+
+#[test]
+fn dogfood_retries_share_the_exact_source_clock_without_loosening_limits() {
+    let good = workflow_text("dogfood.yml");
+    let mut errors = Vec::new();
+    validate_dogfood_analysis_clock(&good, "dogfood.yml", &mut errors);
+    assert!(errors.is_empty(), "{errors:?}");
+    for (from, to) in [
+        ("git show -s --format=%cI HEAD", "date -u +%FT%TZ"),
+        ("--as-of \"$ANALYSIS_AS_OF\"", ""),
+        (
+            "ANALYSIS_AS_OF: ${{ steps.analysis-clock.outputs.as_of }}",
+            "ANALYSIS_AS_OF: ${{ github.event.pull_request.base.sha }}",
+        ),
+    ] {
+        let changed = good.replacen(from, to, 1);
+        assert_ne!(changed, good, "mutation must alter the real workflow");
+        let mut errors = Vec::new();
+        validate_dogfood_analysis_clock(&changed, "dogfood.yml", &mut errors);
+        assert!(!errors.is_empty(), "accepted unstable comparison: {from}");
+    }
 }

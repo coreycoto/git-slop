@@ -4,23 +4,30 @@ run-name: Execution State Sync
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        description: Prepare a plan for review or apply a plan from a prior successful run.
+        required: true
+        type: choice
+        default: prepare
+        options:
+          - prepare
+          - apply
       pr_number:
-        description: Optional pull request number to resync manually.
+        description: Pull request number to prepare; use instead of issue_number.
         required: false
         type: string
       issue_number:
-        description: Optional issue number to resync manually when no PR number is supplied.
+        description: Issue number to prepare; use instead of pr_number.
         required: false
         type: string
-  pull_request_target:
-    types:
-      - opened
-      - edited
-      - reopened
-      - synchronize
-      - ready_for_review
-      - converted_to_draft
-      - closed
+      plan_run_id:
+        description: Successful Execution State Sync run that uploaded the plan to apply.
+        required: false
+        type: string
+      approve_plan_sha:
+        description: Exact 64-character plan SHA after reviewing the plan artifact.
+        required: false
+        type: string
 
 concurrency:
   group: execution-state-${{ github.repository }}
@@ -29,8 +36,8 @@ concurrency:
 
 jobs:
   prepare:
-    name: Prepare read-only execution plan
-    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
+    name: Prepare execution-state plan
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'prepare' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -38,16 +45,6 @@ jobs:
       issues: read
       pull-requests: read
       repository-projects: read
-    outputs:
-      outcome: ${{ steps.recovery.outputs.outcome }}
-      artifact_name: ${{ steps.recovery.outputs.artifact_name }}
-      mode: ${{ steps.package_state.outputs.mode }}
-      phase: ${{ steps.package_state.outputs.phase }}
-      artifact_id: ${{ steps.upload_prepared.outputs.artifact-id }}
-      artifact_digest: ${{ steps.upload_prepared.outputs.artifact-digest }}
-      target_kind: ${{ steps.target.outputs.kind }}
-      target_number: ${{ steps.target.outputs.number }}
-      project_available: ${{ steps.project_access.outputs.available }}
     steps:
       - name: Checkout trusted execution-state tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -68,10 +65,11 @@ jobs:
       - name: Verify pinned gh-steward receipt
         run: scripts/with-gh-steward.sh --verify
 
-      - name: Recover exact prior execution plan and journal
+      - name: Recover exact prior execution history
         id: recovery
         env:
           GH_TOKEN: ${{ github.token }}
+          RUN_NAME: Execution State Sync
         shell: bash
         run: |
           set -euo pipefail
@@ -91,258 +89,279 @@ jobs:
           fi
           exit 1
 
-      - name: Resolve exact target and capture event after recovery
-        id: target
-        if: steps.recovery.outputs.outcome == 'fresh'
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
-          INPUT_PR_NUMBER: ${{ inputs.pr_number || '' }}
-          INPUT_ISSUE_NUMBER: ${{ inputs.issue_number || '' }}
-          RUN_NAME: Execution State Sync
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = pull_request_target ]; then
-            kind=pull-request
-            value="$PR_NUMBER"
-          elif [ -n "$INPUT_PR_NUMBER" ] && [ -z "$INPUT_ISSUE_NUMBER" ]; then
-            kind=pull-request
-            value="$INPUT_PR_NUMBER"
-          elif [ -n "$INPUT_ISSUE_NUMBER" ] && [ -z "$INPUT_PR_NUMBER" ]; then
-            kind=issue
-            value="$INPUT_ISSUE_NUMBER"
-          else
-            echo 'workflow_dispatch requires exactly one of pr_number or issue_number' >&2
-            exit 1
-          fi
-          [[ "$value" =~ ^[1-9][0-9]*$ ]] || { echo 'sync target must be a positive whole number' >&2; exit 1; }
-          initial_root="$RUNNER_TEMP/execution-state-initial"
-          install -d -m 0700 "$initial_root/events"
-          cp -- "$GITHUB_EVENT_PATH" "$initial_root/events/dispatch-event.json"
-          cp -- "$GITHUB_EVENT_PATH" "$initial_root/events/trigger-event.json"
-          chmod 0600 "$initial_root/events/dispatch-event.json"
-          event_sha="$(sha256sum "$initial_root/events/dispatch-event.json" | awk '{print $1}')"
-          [[ "$event_sha" =~ ^[a-f0-9]{64}$ ]]
-          {
-            echo "kind=$kind"
-            echo "number=$value"
-            echo "event_sha=$event_sha"
-            echo "initial_root=$initial_root"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Initialize package for a new exact target
-        if: steps.recovery.outputs.outcome == 'fresh'
-        env:
-          INITIAL_ROOT: ${{ steps.target.outputs.initial_root }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/execution-state-package"
-          install -d -m 0700 "$root"/{plans,reviews,apply-results,journal,previews,proposals,decisions}
-          cp -R "$INITIAL_ROOT/." "$root/"
-
-      - name: Resolve exact Project scope
-        id: project_access
-        if: steps.recovery.outputs.outcome == 'fresh'
-        env:
-          GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}
-          ARTIFACT_ROOT: ${{ runner.temp }}/execution-state-package
-        shell: bash
-        run: |
-          set -euo pipefail
-          owner="$(jq -er '.backlog_project.owner_login' config/github/project_config.json)"
-          number="$(jq -er '.backlog_project.number' config/github/project_config.json)"
-          expected_title="$(jq -er '.backlog_project.title' config/github/project_config.json)"
-          if gh steward snapshot project --repo-root . --project-owner "$owner" \
-            --project-owner-type User --project-number "$number" \
-            --out "$ARTIFACT_ROOT/project-snapshot-envelope.json" \
-            2> "$ARTIFACT_ROOT/project-snapshot.stderr"; then
-            jq -e --arg owner "$owner" --arg title "$expected_title" --argjson number "$number" \
-              '.data.project.owner_login == $owner and .data.project.owner_type == "User" and .data.project.title == $title and .data.project.number == $number and (.data.project.id | type == "string" and length > 0)' \
-              "$ARTIFACT_ROOT/project-snapshot-envelope.json" >/dev/null
-            jq --arg host "${GITHUB_SERVER_URL#https://}" \
-              '{host:$host,owner:.data.project.owner_login,owner_type:.data.project.owner_type,number:.data.project.number,id:.data.project.id,title:.data.project.title}' \
-              "$ARTIFACT_ROOT/project-snapshot-envelope.json" > "$ARTIFACT_ROOT/project-scope.json"
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo 'Project read was unavailable; issue and PR state can still sync without Project field writes.' >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Prepare exact execution sync plan
-        id: execution_plan
-        if: steps.recovery.outputs.outcome == 'fresh'
-        env:
-          GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}
-          ARTIFACT_ROOT: ${{ runner.temp }}/execution-state-package
-          TARGET_KIND: ${{ steps.target.outputs.kind }}
-          TARGET_NUMBER: ${{ steps.target.outputs.number }}
-          PROJECT_AVAILABLE: ${{ steps.project_access.outputs.available }}
-          RUN_NAME: Execution State Sync
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$ARTIFACT_ROOT"
-          make_context() {
-            local target="$1" steps_json="$2"
-            jq -n -S --arg workflow_file execution_state_sync.yml --arg repository "$GITHUB_REPOSITORY" \
-              --arg recovery_key workflow-history-v2 --arg run_name "$RUN_NAME" \
-              --arg trusted_source_sha "$GITHUB_WORKFLOW_SHA" --argjson run "$GITHUB_RUN_ID" \
-              --argjson attempt "$GITHUB_RUN_ATTEMPT" --argjson target "$target" --argjson steps "$steps_json" \
-              '{workflow_file:$workflow_file,repository:$repository,recovery_key:$recovery_key,run_name:$run_name,run_id:$run,attempt:$attempt,attempt_target:$target,dispatch_steps:$steps,trusted_source_sha:$trusted_source_sha}' \
-              > "$RUNNER_TEMP/execution-state-context-start.json"
-            "$GH_STEWARD_BIN" runs context-start --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-              --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
-              --package-root "$root" --runner-temp "$RUNNER_TEMP" \
-              --input context="$RUNNER_TEMP/execution-state-context-start.json" \
-              > "$RUNNER_TEMP/execution-state-context-start-envelope.json"
-          }
-          finish_noop() {
-            local decision="$1" proposal=null event_sha target candidate_sha
-            event_sha="$(sha256sum "$root/events/trigger-event.json" | awk '{print $1}')"
-            target="$(jq -cnS --arg kind "$TARGET_KIND" --arg event_sha "$event_sha" --argjson number "$TARGET_NUMBER" \
-              '{target:{kind:$kind,number:$number},event_sha256:$event_sha}')"
-            if [ -s "$root/proposals/candidate.json" ]; then
-              candidate_sha="$(sha256sum "$root/proposals/candidate.json" | awk '{print $1}')"
-              proposal="$(jq -cnS --arg candidate_sha "$candidate_sha" '{candidate_sha256:$candidate_sha,review_sha256:null}')"
-            fi
-            make_context "$target" '[]'
-            "$GH_STEWARD_BIN" runs context-phase --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-              --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
-              --package-root "$root" --runner-temp "$RUNNER_TEMP" --phase prepared \
-              --reason "execution preparation ended without an authorized mutation" \
-              > "$RUNNER_TEMP/execution-state-context-phase-envelope.json"
-            rm -rf -- "$root/plans" "$root/reviews" "$root/apply-results" "$root/journal" "$root/previews"
-            rm -f -- "$root/events/dispatch-event.json"
-            rm -f -- "$root/project-snapshot-envelope.json" "$root/project-snapshot.stderr" \
-              "$root/project-scope.json" "$root/selector.json" "$root/plan-envelope.json" "$root/prepare.stderr"
-            jq -n -S --arg decision "$decision" --arg repository "$GITHUB_REPOSITORY" \
-              --arg server_url "$GITHUB_SERVER_URL" --arg workflow_file execution_state_sync.yml \
-              --arg recovery_key workflow-history-v2 --arg workflow_sha "$GITHUB_WORKFLOW_SHA" \
-              --arg event_name "$GITHUB_EVENT_NAME" --arg event_sha "$event_sha" --argjson run "$GITHUB_RUN_ID" \
-              --argjson attempt "$GITHUB_RUN_ATTEMPT" --slurpfile context "$root/run-context.json" \
-              --argjson proposal "$proposal" \
-              '{schema_version:1,decision:$decision,repository:$repository,server_url:$server_url,workflow_file:$workflow_file,run_id:$run,attempt:$attempt,recovery_key:$recovery_key,attempt_target:$context[0].attempt_target,workflow_sha:$workflow_sha,event_name:$event_name,event_sha256:$event_sha} + (if $proposal == null then {} else {proposal:$proposal} end)' \
-              > "$root/decisions/workflow-noop.json"
-            echo 'mode=noop' >> "$GITHUB_OUTPUT"
-          }
-          if [ "$PROJECT_AVAILABLE" = true ]; then
-            jq -n --arg kind "$TARGET_KIND" --argjson number "$TARGET_NUMBER" \
-              --slurpfile project "$root/project-scope.json" \
-              '{issue_number:(if $kind == "issue" then $number else 0 end),pull_request_number:(if $kind == "pull-request" then $number else 0 end),skip_project_sync:false,project:$project[0]}' \
-              > "$RUNNER_TEMP/execution-state-selector.json"
-          else
-            jq -n --arg kind "$TARGET_KIND" --argjson number "$TARGET_NUMBER" \
-              '{issue_number:(if $kind == "issue" then $number else 0 end),pull_request_number:(if $kind == "pull-request" then $number else 0 end),skip_project_sync:true,project:null}' \
-              > "$RUNNER_TEMP/execution-state-selector.json"
-          fi
-          if ! gh steward execution prepare --repo-root . --policy config/github/execution-state.json \
-            --input selector="$RUNNER_TEMP/execution-state-selector.json" \
-            --out "$RUNNER_TEMP/execution-state-plan-envelope.json" 2> "$RUNNER_TEMP/execution-state-prepare.stderr"; then
-            if grep -Fq 'pull request does not identify one unambiguous linked issue' "$RUNNER_TEMP/execution-state-prepare.stderr"; then
-              decision=no-change
-              finish_noop "$decision"
-              echo 'The exact PR has no unambiguous linked issue to synchronize; no provider write was attempted.' >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            cat "$RUNNER_TEMP/execution-state-prepare.stderr" >&2
-            exit 1
-          fi
-          plan="$root/proposals/candidate.json"
-          gh steward plan extract --repo-root "$GITHUB_WORKSPACE" \
-            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --input "envelope=$RUNNER_TEMP/execution-state-plan-envelope.json" --outer-command execution-sync-prepare \
-            --plan-command execution-sync --out "$plan"
-          plan_sha="$(jq -er '.sha256' "$plan")"
-          [[ "$plan_sha" =~ ^[a-f0-9]{64}$ ]]
-          operation_count="$(jq -er '.operations | length' "$plan")"
-          if [ "$operation_count" -eq 0 ]; then
-            decision=no-change
-            finish_noop "$decision"
-            echo 'Native execution planning found no operations; no provider write was attempted.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          event_sha="$(sha256sum "$root/events/dispatch-event.json" | awk '{print $1}')"
-          jq -n --arg repo "$GITHUB_REPOSITORY" --arg sha "$plan_sha" --arg event_sha "$event_sha" \
-            --argjson number "$TARGET_NUMBER" --argjson run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" \
-            --arg kind "$TARGET_KIND" \
-            '{schema_version:1,workflow_file:"execution_state_sync.yml",repository:$repo,workflow_run_id:$run,workflow_run_attempt:$attempt,name:"execution",command:"execution-sync",plan_sha256:$sha,target:{kind:$kind,number:$number},event_path:"events/dispatch-event.json",event_sha256:$event_sha}' \
-            > "$root/reviews/execution.json"
-          review_sha="$(sha256sum "$root/reviews/execution.json" | awk '{print $1}')"
-          target="$(jq -cnS --arg sha "$plan_sha" --arg kind "$TARGET_KIND" --arg event_sha "$event_sha" --argjson number "$TARGET_NUMBER" '{plan_sha256:$sha,target:{kind:$kind,number:$number},event_sha256:$event_sha}')"
-          jq -n -S --arg workflow_file execution_state_sync.yml --arg repository "$GITHUB_REPOSITORY" \
-            --arg recovery_key workflow-history-v2 --arg run_name "$RUN_NAME" \
-            --arg trusted_source_sha "$GITHUB_WORKFLOW_SHA" --argjson run "$GITHUB_RUN_ID" \
-            --argjson attempt "$GITHUB_RUN_ATTEMPT" --argjson target "$target" \
-            '{workflow_file:$workflow_file,repository:$repository,recovery_key:$recovery_key,run_name:$run_name,run_id:$run,attempt:$attempt,attempt_target:$target,dispatch_steps:["Apply or recover exact reviewed execution plan"],trusted_source_sha:$trusted_source_sha}' \
-            > "$RUNNER_TEMP/execution-state-context-start.json"
-          "$GH_STEWARD_BIN" runs context-start --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
-            --package-root "$root" --runner-temp "$RUNNER_TEMP" \
-            --input context="$RUNNER_TEMP/execution-state-context-start.json" \
-            > "$RUNNER_TEMP/execution-state-context-start-envelope.json"
-          "$GH_STEWARD_BIN" runs context-record-plan --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
-            --package-root "$root" --runner-temp "$RUNNER_TEMP" \
-            --input "native-plan=$plan" --name execution --relative plans/execution.json \
-            --plan-command execution-sync --review-path reviews/execution.json --review-sha256 "$review_sha" \
-            > "$RUNNER_TEMP/execution-state-record-envelope.json"
-          rm -f -- "$plan" "$root/project-snapshot-envelope.json" "$root/project-snapshot.stderr" "$root/project-scope.json"
-          rm -f -- "$RUNNER_TEMP/execution-state-selector.json" "$RUNNER_TEMP/execution-state-plan-envelope.json" "$RUNNER_TEMP/execution-state-prepare.stderr"
-          echo 'mode=prepared' >> "$GITHUB_OUTPUT"
-
-      - name: Resolve exact execution package state
-        id: package_state
-        if: always() && steps.recovery.outputs.outcome != 'recovery_needed'
-        env:
-          RECOVERY_OUTCOME: ${{ steps.recovery.outputs.outcome }}
-          PREPARE_MODE: ${{ steps.execution_plan.outputs.mode }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/execution-state-package"
-          if [ "$RECOVERY_OUTCOME" = terminal ]; then
-            printf 'mode=terminal\nphase=terminal\npackage=%s\n' "$root" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          [[ -s "$root/run-context.json" ]]
-          phase="$(jq -er '.phase' "$root/run-context.json")"
-          if [ "$RECOVERY_OUTCOME" = resumed ]; then mode=resumed
-          elif [ "$RECOVERY_OUTCOME" = fresh ] && { [ "$PREPARE_MODE" = noop ] || [ "$PREPARE_MODE" = prepared ]; }; then mode="$PREPARE_MODE"
-          else echo "unexpected recovery package state: $RECOVERY_OUTCOME:$phase" >&2; exit 1
-          fi
-          {
-            echo "mode=$mode"
-            echo "phase=$phase"
-            echo "package=$root"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Upload exact execution package handoff
-        if: always() && steps.package_state.outputs.package != '' && (steps.package_state.outputs.mode == 'prepared' || steps.package_state.outputs.mode == 'resumed' || steps.package_state.outputs.mode == 'noop') && steps.recovery.outputs.outcome != 'recovery_needed'
-        id: upload_prepared
+      - name: Retain held recovery diagnostic outside the recovery stream
+        if: always() && steps.recovery.outputs.outcome == 'recovery_needed'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ${{ steps.recovery.outputs.artifact_name }}-handoff-00
-          path: ${{ steps.package_state.outputs.package }}
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload a terminal observer artifact without new work
-        if: always() && steps.package_state.outputs.mode == 'terminal'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: ${{ steps.recovery.outputs.artifact_name }}
-          path: ${{ steps.package_state.outputs.package }}
+          name: execution-state-recovery-needed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/execution-state-package
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 90
 
+      - name: Require a separate apply for restored execution state
+        if: steps.recovery.outputs.outcome == 'resumed'
+        shell: bash
+        run: |
+          echo 'Recovery restored an exact prior execution. Dispatch operation=apply with its reviewed plan run and SHA; this prepare run will not create a replacement preview or no-op receipt.' >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Retain restored execution evidence outside the recovery stream
+        if: always() && steps.recovery.outputs.outcome == 'resumed'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-state-resumed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/execution-state-package
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Retain settled rerun observation outside the recovery stream
+        if: always() && steps.recovery.outputs.outcome == 'terminal'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-state-terminal-observer-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/execution-state-package
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Resolve exact prepare target
+        id: target
+        if: steps.recovery.outputs.outcome == 'fresh'
+        env:
+          OPERATION: ${{ inputs.operation }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          INPUT_PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+          INPUT_APPROVE_PLAN_SHA: ${{ inputs.approve_plan_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo xtask execution-state-adapter prepare-target \
+            --operation "$OPERATION" --pr-number "$INPUT_PR_NUMBER" --issue-number "$INPUT_ISSUE_NUMBER" \
+            --plan-run-id "$INPUT_PLAN_RUN_ID" --approve-plan-sha "$INPUT_APPROVE_PLAN_SHA" \
+            --event "$GITHUB_EVENT_PATH" --initial-root "$RUNNER_TEMP/execution-state-initial" \
+            --diagnostics-root "$RUNNER_TEMP/execution-state-diagnostics" --github-output "$GITHUB_OUTPUT"
+
+      - name: Initialize package for the exact target
+        if: steps.recovery.outputs.outcome == 'fresh' && steps.target.outcome == 'success'
+        env:
+          INITIAL_ROOT: ${{ runner.temp }}/execution-state-initial
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/execution-state-package"
+          install -d -m 0700 "$root"/{plans,reviews,apply-results,journal,previews,proposals,decisions,events}
+          cp -R "$INITIAL_ROOT/." "$root/"
+
+      - name: Resolve exact Project scope
+        id: project_access
+        if: steps.recovery.outputs.outcome == 'fresh' && steps.target.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}
+          DIAGNOSTICS_ROOT: ${{ runner.temp }}/execution-state-diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$DIAGNOSTICS_ROOT"
+          owner="$(jq -er '.backlog_project.owner_login' config/github/project_config.json)"
+          number="$(jq -er '.backlog_project.number' config/github/project_config.json)"
+          expected_title="$(jq -er '.backlog_project.title' config/github/project_config.json)"
+          if "$GH_STEWARD_BIN" snapshot project --repo-root "$GITHUB_WORKSPACE" \
+            --project-owner "$owner" --project-owner-type User --project-number "$number" \
+            --out "$DIAGNOSTICS_ROOT/project-snapshot-envelope.json" \
+            2> "$DIAGNOSTICS_ROOT/project-snapshot.stderr"; then
+            cargo xtask execution-state-adapter project-snapshot \
+              --snapshot "$DIAGNOSTICS_ROOT/project-snapshot-envelope.json" --owner "$owner" \
+              --title "$expected_title" --number "$number" --host "${GITHUB_SERVER_URL#https://}" \
+              --output "$DIAGNOSTICS_ROOT/project-scope.json"
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'Project read was unavailable; issue and pull request state can still be prepared without Project field writes.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Prepare exact native execution preview
+        id: execution_plan
+        if: steps.recovery.outputs.outcome == 'fresh' && steps.target.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}
+          DIAGNOSTICS_ROOT: ${{ runner.temp }}/execution-state-diagnostics
+          PACKAGE_ROOT: ${{ runner.temp }}/execution-state-package
+          TARGET_KIND: ${{ steps.target.outputs.kind }}
+          TARGET_NUMBER: ${{ steps.target.outputs.number }}
+          PROJECT_AVAILABLE: ${{ steps.project_access.outputs.available }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$DIAGNOSTICS_ROOT"
+          cargo xtask execution-state-adapter prepare-selector \
+            --kind "$TARGET_KIND" --number "$TARGET_NUMBER" --project-available "$PROJECT_AVAILABLE" \
+            --project-scope "$root/project-scope.json" --output "$RUNNER_TEMP/execution-state-selector.json"
+          "$GH_STEWARD_BIN" execution prepare --repo-root "$GITHUB_WORKSPACE" \
+            --policy config/github/execution-state.json \
+            --input "selector=$RUNNER_TEMP/execution-state-selector.json" \
+            --out "$RUNNER_TEMP/execution-state-plan-envelope.json" \
+            2> "$RUNNER_TEMP/execution-state-prepare.stderr"
+          plan="$PACKAGE_ROOT/previews/execution.json"
+          "$GH_STEWARD_BIN" plan extract --repo-root "$GITHUB_WORKSPACE" \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --input "envelope=$RUNNER_TEMP/execution-state-plan-envelope.json" \
+            --outer-command execution-sync-prepare --plan-command execution-sync --out "$plan"
+          "$GH_STEWARD_BIN" plan validate --repo-root "$GITHUB_WORKSPACE" \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --input "plan=$plan" \
+            --plan-command execution-sync > "$RUNNER_TEMP/execution-state-plan-validation.json"
+
+      - name: Create preview-only no-op context
+        id: noop_context
+        if: steps.execution_plan.outcome == 'success'
+        env:
+          RUN_NAME: Execution State Sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/execution-state-package"
+          cargo xtask execution-state-adapter prepare-noop \
+            --package-root "$root" --run-temp "$RUNNER_TEMP" --repository "$GITHUB_REPOSITORY" \
+            --server-url "$GITHUB_SERVER_URL" --run-name "$RUN_NAME" --workflow-sha "$GITHUB_WORKFLOW_SHA" \
+            --event-name "$GITHUB_EVENT_NAME" --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" --github-output "$GITHUB_OUTPUT"
+          "$GH_STEWARD_BIN" runs context-start --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
+            --package-root "$root" --runner-temp "$RUNNER_TEMP" \
+            --input "context=$RUNNER_TEMP/execution-state-noop-context.json" \
+            > "$RUNNER_TEMP/execution-state-noop-context-envelope.json"
+          "$GH_STEWARD_BIN" runs context-phase --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
+            --package-root "$root" --runner-temp "$RUNNER_TEMP" --phase prepared \
+            --reason 'execution planning is retained for a separately approved apply' \
+            > "$RUNNER_TEMP/execution-state-noop-phase-envelope.json"
+          if [ -e "$root/decisions/workflow-noop.json" ]; then
+            echo 'refusing to replace an existing native no-op decision' >&2
+            exit 1
+          fi
+          cp -- "$RUNNER_TEMP/execution-state-noop-decision.json" "$root/decisions/workflow-noop.json"
+          chmod 0600 "$root/decisions/workflow-noop.json"
+
+      - name: Finish the exact native preview-only receipt
+        id: finish_noop
+        if: steps.noop_context.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NAME: Execution State Sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GH_STEWARD_BIN" runs finish-noop \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
+            --workflow execution_state_sync.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-name "$RUN_NAME" --recovery-key workflow-history-v2 \
+            --package-root "$RUNNER_TEMP/execution-state-package" --runner-temp "$RUNNER_TEMP" \
+            --policy .agents/gh-steward-recovery-policy.json --workflow-sha "$GITHUB_WORKFLOW_SHA" \
+            --github-output "$GITHUB_OUTPUT" > "$RUNNER_TEMP/execution-state-workflow-noop-envelope.json"
+
+      - name: Publish execution preview summary
+        if: steps.finish_noop.outcome == 'success'
+        env:
+          PLAN_SHA: ${{ steps.noop_context.outputs.plan_sha }}
+          TARGET_KIND: ${{ steps.target.outputs.kind }}
+          TARGET_NUMBER: ${{ steps.target.outputs.number }}
+          PROJECT_AVAILABLE: ${{ steps.project_access.outputs.available }}
+        shell: bash
+        run: |
+          {
+            echo '# Execution State Sync'
+            echo
+            echo "- repository: $GITHUB_REPOSITORY"
+            echo "- target: $TARGET_KIND #$TARGET_NUMBER"
+            echo "- backlog Project access: ${PROJECT_AVAILABLE:-not-needed}"
+            echo '- mode: preview only; no provider changes were applied'
+            echo "- reviewed plan SHA: $PLAN_SHA"
+            echo "- next step: review this run's previews/execution.json, then dispatch operation=apply with plan_run_id=$GITHUB_RUN_ID and approve_plan_sha=$PLAN_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload exact terminal native package
+        if: always() && steps.finish_noop.outcome == 'success'
+        id: terminal_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.recovery.outputs.artifact_name }}
+          path: ${{ runner.temp }}/execution-state-package
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload preview transport handoff
+        if: always() && steps.terminal_artifact.outcome == 'success' && steps.noop_context.outputs.ready == 'true'
+        id: handoff_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.recovery.outputs.artifact_name }}-handoff-00
+          path: ${{ runner.temp }}/execution-state-package
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Finalize the exact native execution checkpoint
+        id: finalize_checkpoint
+        if: always() && steps.terminal_artifact.outcome == 'success' && steps.handoff_artifact.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.terminal_artifact.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.terminal_artifact.outputs.artifact-digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/finalize-gh-steward-run.sh \
+            --workflow execution_state_sync.yml --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --package "$RUNNER_TEMP/execution-state-package" \
+            --checkpoint "$RUNNER_TEMP/execution-state-checkpoint" \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+
+      - name: Upload the exact native settlement checkpoint
+        if: steps.finalize_checkpoint.outputs.outcome == 'checkpoint'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.finalize_checkpoint.outputs.checkpoint_name }}
+          path: ${{ steps.finalize_checkpoint.outputs.checkpoint_path }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Retain failed prepare evidence outside the recovery stream
+        if: always() && steps.recovery.outputs.outcome == 'fresh' && steps.terminal_artifact.outcome != 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-state-prepare-failed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/execution-state-package
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Retain failed prepare Project diagnostics separately
+        if: always() && steps.recovery.outputs.outcome == 'fresh' && steps.terminal_artifact.outcome != 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-state-prepare-diagnostics-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/execution-state-diagnostics
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Retain native recovery command failure evidence
+        if: always() && steps.recovery.outcome == 'failure' && steps.recovery.outputs.outcome == ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-state-recovery-error-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/execution-state-package
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 90
+
   apply:
-    name: Apply only the immutable reviewed execution plan
-    needs: prepare
-    if: needs.prepare.result == 'success' && (needs.prepare.outputs.mode == 'prepared' || needs.prepare.outputs.mode == 'resumed')
+    name: Apply separately approved execution-state plan
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'apply' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -351,12 +370,15 @@ jobs:
       pull-requests: write
       repository-projects: write
     steps:
-      - name: Checkout trusted apply tooling
+      - name: Checkout trusted execution-state tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.workflow_sha }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
       - name: Acquire attested gh-steward release
         run: scripts/with-gh-steward.sh --prepare
@@ -364,128 +386,294 @@ jobs:
       - name: Verify pinned gh-steward receipt
         run: scripts/with-gh-steward.sh --verify
 
-      - name: Acquire and verify the exact immutable execution handoff
+      - name: Validate apply inputs and derive the exact plan-set identity
+        id: apply_inputs
         env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: ${{ needs.prepare.outputs.artifact_id }}
-          ARTIFACT_DIGEST: ${{ needs.prepare.outputs.artifact_digest }}
-          RUN_NAME: Execution State Sync
+          OPERATION: ${{ inputs.operation }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+          APPROVED_SHA: ${{ inputs.approve_plan_sha }}
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          "$GH_STEWARD_BIN" runs acquire-handoff \
+          cargo xtask execution-state-adapter validate-apply-inputs \
+            --operation "$OPERATION" --pr-number "$INPUT_PR_NUMBER" --issue-number "$INPUT_ISSUE_NUMBER" \
+            --plan-run-id "$PLAN_RUN_ID" --approve-plan-sha "$APPROVED_SHA" \
+            --event "$GITHUB_EVENT_PATH" --target "$RUNNER_TEMP/execution-state-plan-set.json" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Recover exact prior apply history
+        id: recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NAME: Execution State Sync
+          RECOVERY_KEY: ${{ steps.apply_inputs.outputs.recovery_key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GH_STEWARD_BIN" runs recover \
             --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
             --workflow execution_state_sync.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-          --run-name "$RUN_NAME" --recovery-key workflow-history-v2 \
-          --package-root "$RUNNER_TEMP/execution-state-package" --runner-temp "$RUNNER_TEMP" \
-          --policy .agents/gh-steward-recovery-policy.json \
-            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+            --run-name "$RUN_NAME" --recovery-key "$RECOVERY_KEY" \
+            --package-root "$RUNNER_TEMP/execution-state-package" --runner-temp "$RUNNER_TEMP" \
+            --policy .agents/gh-steward-recovery-policy.json --github-output "$GITHUB_OUTPUT"
 
-      - name: Bind the package to this prepare artifact and observer
-        id: package
+      - name: Stop when prior apply evidence is unavailable
+        if: steps.recovery.outputs.outcome == 'recovery_needed'
+        shell: bash
+        run: |
+          if [ -s "$RUNNER_TEMP/execution-state-package/recovery-needed.json" ]; then
+            cat "$RUNNER_TEMP/execution-state-package/recovery-needed.json" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 1
+
+      - name: Retain held apply recovery diagnostic outside the recovery stream
+        if: always() && steps.recovery.outputs.outcome == 'recovery_needed'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-state-apply-recovery-needed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/execution-state-package
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Report settled apply rerun without new work
+        if: steps.recovery.outputs.outcome == 'terminal'
+        shell: bash
+        run: |
+          echo 'This rerun is already covered by a positive terminal settlement; no plan was acquired or applied.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain settled apply observer evidence outside the recovery stream
+        if: always() && steps.recovery.outputs.outcome == 'terminal'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-state-apply-terminal-observer-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/execution-state-package
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Acquire the exact reviewed preview plan
+        id: source_plan
+        if: steps.recovery.outputs.outcome == 'fresh'
         env:
-          EXPECTED_OUTCOME: ${{ needs.prepare.outputs.outcome }}
-          EXPECTED_MODE: ${{ needs.prepare.outputs.mode }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_NAME: Execution State Sync
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_run="$RUNNER_TEMP/execution-state-current-run.json"
+          selected_run="$RUNNER_TEMP/execution-state-selected-run.json"
+          artifact_pages="$RUNNER_TEMP/execution-state-artifact-pages.jsonl"
+          selection="$RUNNER_TEMP/execution-state-handoff-selection.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$current_run"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PLAN_RUN_ID" > "$selected_run"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$PLAN_RUN_ID/artifacts?per_page=100" > "$artifact_pages"
+          cargo xtask execution-state-adapter select-handoff \
+            --current-run "$current_run" --selected-run "$selected_run" --artifact-pages "$artifact_pages" \
+            --repository "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" \
+            --default-branch "$DEFAULT_BRANCH" --run-name "$RUN_NAME" --plan-run-id "$PLAN_RUN_ID" \
+            --output "$selection"
+          source_attempt="$(jq -er '.source_attempt | select(type == "number" and . >= 1 and floor == .) | tostring' "$selection")"
+          artifact_id="$(jq -er '.artifact_id | select(type == "number" and . >= 1 and floor == .) | tostring' "$selection")"
+          artifact_digest="$(jq -er '.artifact_digest | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))' "$selection")"
+          source_package="$RUNNER_TEMP/execution-state-approved-source"
+          "$GH_STEWARD_BIN" runs acquire-handoff \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
+            --workflow execution_state_sync.yml --run-id "$PLAN_RUN_ID" --attempt "$source_attempt" \
+            --run-name "$RUN_NAME" --recovery-key workflow-history-v2 \
+            --package-root "$source_package" --runner-temp "$RUNNER_TEMP" \
+            --policy .agents/gh-steward-recovery-policy.json --purpose transport \
+            --artifact-id "$artifact_id" --artifact-digest "$artifact_digest" \
+            > "$RUNNER_TEMP/execution-state-handoff-envelope.json"
+          plan="$source_package/previews/execution.json"
+          "$GH_STEWARD_BIN" plan validate --repo-root "$GITHUB_WORKSPACE" \
+            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --input "plan=$plan" \
+            --plan-command execution-sync > "$RUNNER_TEMP/execution-state-approved-plan-validation.json"
+          {
+            echo "source_run_attempt=$source_attempt"
+            echo "package_root=$source_package"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build the exact reviewed-dispatch context
+        id: review_context
+        if: steps.source_plan.outcome == 'success'
+        env:
+          RUN_NAME: Execution State Sync
+          PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+          SOURCE_ATTEMPT: ${{ steps.source_plan.outputs.source_run_attempt }}
+          APPROVED_SHA: ${{ inputs.approve_plan_sha }}
+          RECOVERY_KEY: ${{ steps.apply_inputs.outputs.recovery_key }}
+          SOURCE_PACKAGE: ${{ steps.source_plan.outputs.package_root }}
+          TARGET_PATH: ${{ steps.apply_inputs.outputs.target_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo xtask execution-state-adapter prepare-apply \
+            --current-event "$GITHUB_EVENT_PATH" --source-package "$SOURCE_PACKAGE" \
+            --package-root "$RUNNER_TEMP/execution-state-package" --target "$TARGET_PATH" \
+            --run-temp "$RUNNER_TEMP" --repository "$GITHUB_REPOSITORY" --run-name "$RUN_NAME" \
+            --workflow-sha "$GITHUB_WORKFLOW_SHA" --current-run-id "$GITHUB_RUN_ID" \
+            --current-attempt "$GITHUB_RUN_ATTEMPT" --plan-run-id "$PLAN_RUN_ID" \
+            --source-attempt "$SOURCE_ATTEMPT" --approve-plan-sha "$APPROVED_SHA" \
+            --recovery-key "$RECOVERY_KEY" --github-output "$GITHUB_OUTPUT"
+
+      - name: Register the exact reviewed plan for this apply dispatch
+        id: fresh_context
+        if: steps.review_context.outcome == 'success'
+        env:
+          REVIEW_SHA: ${{ steps.review_context.outputs.review_sha256 }}
+          SOURCE_PACKAGE: ${{ steps.source_plan.outputs.package_root }}
         shell: bash
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/execution-state-package"
-          jq -e --arg repo "$GITHUB_REPOSITORY" --arg workflow_sha "$GITHUB_WORKFLOW_SHA" \
-            --arg expected_outcome "$EXPECTED_OUTCOME" --arg expected_mode "$EXPECTED_MODE" \
-            --argjson run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" \
-            '.repository == $repo and .workflow_file == "execution_state_sync.yml" and .workflow_run_id == $run and .workflow_run_attempt == $attempt and (.workflow_sha | type == "string" and test("^[0-9a-f]{40}$")) and ($expected_outcome != "fresh" or .workflow_sha == $workflow_sha) and ((.plans | type == "array") and (if $expected_mode == "noop" then length == 0 else length == 1 end))' \
-            "$root/run-context.json" >/dev/null
-          phase="$(jq -er '.phase' "$root/run-context.json")"
-          expected_phase=prepared
-          [[ "$phase" == "$expected_phase" ]] || { echo "refusing to replay a non-prepared execution phase: $phase" >&2; exit 1; }
-          echo "package_root=$root" >> "$GITHUB_OUTPUT"
+          plan="$SOURCE_PACKAGE/previews/execution.json"
+          "$GH_STEWARD_BIN" runs context-start --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
+            --package-root "$root" --runner-temp "$RUNNER_TEMP" \
+            --input "context=$RUNNER_TEMP/execution-state-apply-context-start.json" \
+            > "$RUNNER_TEMP/execution-state-apply-context-start-envelope.json"
+          "$GH_STEWARD_BIN" runs context-record-plan --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
+            --package-root "$root" --runner-temp "$RUNNER_TEMP" \
+            --input "native-plan=$plan" --name execution --relative plans/execution.json \
+            --plan-command execution-sync --review-path reviews/execution.json --review-sha256 "$REVIEW_SHA" \
+            > "$RUNNER_TEMP/execution-state-apply-record-envelope.json"
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+          echo 'authorization_matches=true' >> "$GITHUB_OUTPUT"
+
+      - name: Check restored apply inputs without changing retained approval
+        id: resumed_plan
+        if: steps.recovery.outputs.outcome == 'resumed'
+        env:
+          PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+          APPROVED_SHA: ${{ inputs.approve_plan_sha }}
+          RECOVERY_KEY: ${{ steps.apply_inputs.outputs.recovery_key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo xtask execution-state-adapter check-resumed-apply \
+            --package-root "$RUNNER_TEMP/execution-state-package" --repository "$GITHUB_REPOSITORY" \
+            --plan-run-id "$PLAN_RUN_ID" --approve-plan-sha "$APPROVED_SHA" \
+            --recovery-key "$RECOVERY_KEY" --github-output "$GITHUB_OUTPUT"
+          if [ "$(awk -F= '$1 == "authorization_matches" { value=$2 } END { print value }' "$GITHUB_OUTPUT")" != true ]; then
+            echo 'New operator inputs do not match the exact restored plan and reviewed source run; the saved plan, event, review and journal remain unchanged.' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Install the exact restored execution journal before resume
-        if: needs.prepare.outputs.mode == 'resumed'
+        if: steps.resumed_plan.outputs.authorization_matches == 'true' && steps.resumed_plan.outputs.journal_action == 'install'
         shell: bash
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/execution-state-package"
           [[ -s "$root/recovery-source.json" ]]
-          journal_dir=".artifacts/gh-steward/journals"
+          journal_dir="$GITHUB_WORKSPACE/.artifacts/gh-steward/journals"
           install -d -m 0700 "$journal_dir"
-          if find "$root/journal" -type f -name '*.json' -print -quit 2>/dev/null | grep -q .; then
-            "$GH_STEWARD_BIN" runs context-install-journal \
-              --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-              --policy .agents/gh-steward-recovery-policy.json --package-root "$root" \
-              --runner-temp "$RUNNER_TEMP" --name execution --journal-root "$journal_dir"
-          fi
+          "$GH_STEWARD_BIN" runs context-install-journal \
+            --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --policy .agents/gh-steward-recovery-policy.json --package-root "$root" \
+            --runner-temp "$RUNNER_TEMP" --name execution --journal-root "$journal_dir" \
+            > "$RUNNER_TEMP/execution-state-install-journal-envelope.json"
 
-      - name: Mark exact execution plan dispatching before the native apply
-        if: needs.prepare.outputs.mode == 'prepared' || needs.prepare.outputs.mode == 'resumed'
-        env:
-          PACKAGE_ROOT: ${{ runner.temp }}/execution-state-package
-        run: |
-          set -euo pipefail
-          jq '.phase="dispatching" | .plans[0].status="dispatching"' "$PACKAGE_ROOT/run-context.json" > "$PACKAGE_ROOT/context.tmp"
-          mv "$PACKAGE_ROOT/context.tmp" "$PACKAGE_ROOT/run-context.json"
-
-      - name: Apply or recover exact reviewed execution plan
-        id: execution_apply
-        if: needs.prepare.outputs.mode == 'prepared' || needs.prepare.outputs.mode == 'resumed'
-        env:
-          GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}
-          PACKAGE_ROOT: ${{ runner.temp }}/execution-state-package
+      - name: Mark exact execution plan dispatching
+        id: mark_dispatching
+        if: steps.fresh_context.outputs.authorization_matches == 'true' || steps.resumed_plan.outputs.authorization_matches == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          root="$PACKAGE_ROOT"
-          plan="$root/plans/execution.json"
-          plan_sha="$(jq -er '.sha256' "$plan")"
-          gh steward execution apply --repo-root . --input plan="$plan" \
-            --approve-plan-sha "$plan_sha" --out "$root/apply-results/execution.json"
-          jq -e --arg sha "$plan_sha" '.data.status == "completed" and .data.plan_sha256 == $sha' \
-            "$root/apply-results/execution.json" >/dev/null
+          "$GH_STEWARD_BIN" runs context-mark-plan --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --repo-root "$GITHUB_WORKSPACE" --policy .agents/gh-steward-recovery-policy.json \
+            --package-root "$RUNNER_TEMP/execution-state-package" --runner-temp "$RUNNER_TEMP" \
+            --name execution --status dispatching \
+            > "$RUNNER_TEMP/execution-state-mark-dispatching-envelope.json"
 
-      - name: Capture exact execution journal and mark completed only with its result
-        if: always() && steps.package.outcome == 'success'
+      - name: Apply exact reviewed execution plan
+        id: execution_apply
+        if: steps.mark_dispatching.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN != '' && secrets.GH_PROJECTS_TOKEN || github.token }}
+          PACKAGE_ROOT: ${{ runner.temp }}/execution-state-package
+          APPROVED_SHA: ${{ inputs.approve_plan_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          plan="$PACKAGE_ROOT/plans/execution.json"
+          "$GH_STEWARD_BIN" execution apply --repo-root "$GITHUB_WORKSPACE" \
+            --input "plan=$plan" --approve-plan-sha "$APPROVED_SHA" \
+            --out "$PACKAGE_ROOT/apply-results/execution.json"
+          jq -e --arg sha "$APPROVED_SHA" \
+            '.data.status == "completed" and .data.plan_sha256 == $sha' \
+            "$PACKAGE_ROOT/apply-results/execution.json" >/dev/null
+
+      - name: Capture the exact execution journal and complete only its typed result
+        if: always() && steps.mark_dispatching.outcome == 'success'
         env:
           APPLY_OUTCOME: ${{ steps.execution_apply.outcome }}
         shell: bash
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/execution-state-package"
-          journal_dir=".artifacts/gh-steward/journals"
+          journal_dir="$GITHUB_WORKSPACE/.artifacts/gh-steward/journals"
           if [ -d "$journal_dir" ] && find "$journal_dir" -type f -name '*.json' -print -quit | grep -q .; then
             "$GH_STEWARD_BIN" runs context-capture-journal \
               --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
               --policy .agents/gh-steward-recovery-policy.json --package-root "$root" \
-              --runner-temp "$RUNNER_TEMP" --name execution --journal-root "$journal_dir"
+              --runner-temp "$RUNNER_TEMP" --name execution --journal-root "$journal_dir" \
+              > "$RUNNER_TEMP/execution-state-capture-journal-envelope.json"
           fi
           if [ "$APPLY_OUTCOME" = success ]; then
-            plan_sha="$(jq -er '.plans[0].sha256' "$root/run-context.json")"
+            plan_sha="$(jq -er '.plans | select(length == 1) | .[0].sha256' "$root/run-context.json")"
             jq -e --arg sha "$plan_sha" \
               '.data.status == "completed" and .data.plan_sha256 == $sha' \
               "$root/apply-results/execution.json" >/dev/null
             "$GH_STEWARD_BIN" runs context-mark-plan \
               --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
               --policy .agents/gh-steward-recovery-policy.json --package-root "$root" \
-              --runner-temp "$RUNNER_TEMP" --name execution --status completed
+              --runner-temp "$RUNNER_TEMP" --name execution --status completed \
+              > "$RUNNER_TEMP/execution-state-mark-completed-envelope.json"
           fi
 
-      - name: Publish execution state summary
-        if: always()
+      - name: Qualify exact undispatched native plan
+        id: qualify_prepared
+        if: always() && (steps.fresh_context.outputs.authorization_matches == 'true' || steps.resumed_plan.outputs.authorization_matches == 'true')
         env:
-          PROJECT_ACCESS: ${{ needs.prepare.outputs.project_available }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_NAME: Execution State Sync
+          PACKAGE_ROOT: ${{ runner.temp }}/execution-state-package
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(jq -er '.phase' "$PACKAGE_ROOT/run-context.json")" != prepared ]; then
+            echo 'outcome=not-prepared' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          key="$(jq -er '.recovery_key | select(type == "string" and length > 0)' "$PACKAGE_ROOT/run-context.json")"
+          "$GH_STEWARD_BIN" runs qualify-prepared \
+            --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --workflow execution_state_sync.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-name "$RUN_NAME" --recovery-key "$key" --package-root "$PACKAGE_ROOT" \
+            --runner-temp "$RUNNER_TEMP" --policy .agents/gh-steward-recovery-policy.json \
+            --workflow-sha "$GITHUB_WORKFLOW_SHA" --github-output "$GITHUB_OUTPUT"
+
+      - name: Publish apply summary
+        if: always() && (steps.fresh_context.outputs.ready == 'true' || steps.resumed_plan.outputs.ready == 'true')
         shell: bash
         run: |
           {
-            echo '## Execution State Sync'
+            echo '# Execution State Apply'
             echo
             echo "- repository: $GITHUB_REPOSITORY"
+            echo "- workflow run: $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT"
             if [ -s "$RUNNER_TEMP/execution-state-package/run-context.json" ]; then
-              target="$(jq -r '.attempt_target.target // {} | if .kind then "\(.kind) #\(.number)" else "not recorded" end' "$RUNNER_TEMP/execution-state-package/run-context.json")"
-              echo "- target: $target"
+              echo "- reviewed plan SHA: $(jq -r '.plans[0].sha256' "$RUNNER_TEMP/execution-state-package/run-context.json")"
+              echo "- phase: $(jq -r '.phase' "$RUNNER_TEMP/execution-state-package/run-context.json")"
             fi
-            echo "- run: $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT"
-            echo "- roadmap Project access: ${PROJECT_ACCESS:-not-needed}"
-            if [ -f "$RUNNER_TEMP/execution-state-package/apply-results/execution.json" ]; then
+            if [ -s "$RUNNER_TEMP/execution-state-package/apply-results/execution.json" ]; then
               echo
               echo '```json'
               jq . "$RUNNER_TEMP/execution-state-package/apply-results/execution.json"
@@ -493,37 +681,20 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Qualify exact undispatched native plans
-        id: qualify-prepared
-        if: always() && needs.prepare.outputs.artifact_name != '' && needs.prepare.outputs.mode != 'terminal'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PACKAGE_ROOT: ${{ runner.temp }}/execution-state-package
-          RUN_NAME: Execution State Sync
-        run: |
-          set -euo pipefail
-          key="$(jq -er '.recovery_key | select(type == "string" and length > 0)' "$PACKAGE_ROOT/run-context.json")"
-          "$GH_STEWARD_BIN" runs qualify-prepared \
-            --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --workflow execution_state_sync.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --run-name "$RUN_NAME" --recovery-key "$key" --package-root "$PACKAGE_ROOT" \
-            --runner-temp "$RUNNER_TEMP" --policy .agents/gh-steward-recovery-policy.json \
-            --workflow-sha "$GITHUB_WORKFLOW_SHA"
-
-      - name: Upload exact terminal execution recovery artifact
-        if: always() && needs.prepare.outputs.artifact_name != '' && needs.prepare.outputs.mode != 'terminal'
+      - name: Upload exact native execution recovery package
+        if: always() && (steps.fresh_context.outputs.authorization_matches == 'true' || steps.resumed_plan.outputs.authorization_matches == 'true')
         id: terminal_artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ${{ needs.prepare.outputs.artifact_name }}
+          name: ${{ steps.recovery.outputs.artifact_name }}
           path: ${{ runner.temp }}/execution-state-package
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 90
 
-      - name: Finalize exact terminal execution checkpoint
+      - name: Finalize the exact native execution checkpoint
         id: finalize_checkpoint
-        if: always() && steps.terminal_artifact.outcome == 'success' && steps.terminal_artifact.outputs.artifact-id != ''
+        if: always() && steps.terminal_artifact.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.terminal_artifact.outputs.artifact-id }}
@@ -531,18 +702,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ -s "$RUNNER_TEMP/execution-state-package/run-context.json" ]] || exit 0
           args=(--workflow execution_state_sync.yml --repository "$GITHUB_REPOSITORY" \
             --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --package "$RUNNER_TEMP/execution-state-package" --checkpoint "$RUNNER_TEMP/execution-state-checkpoint" \
+            --package "$RUNNER_TEMP/execution-state-package" \
+            --checkpoint "$RUNNER_TEMP/execution-state-checkpoint" \
             --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST")
           if [ -f "$RUNNER_TEMP/execution-state-package/recovery-source.json" ]; then
             args+=(--recovery-source recovery-source.json)
           fi
           scripts/finalize-gh-steward-run.sh "${args[@]}"
 
-      - name: Upload exact execution settlement checkpoint
-        if: always() && steps.finalize_checkpoint.outcome == 'success' && steps.finalize_checkpoint.outputs.outcome == 'checkpoint'
+      - name: Upload the exact native settlement checkpoint
+        if: steps.finalize_checkpoint.outputs.outcome == 'checkpoint'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ steps.finalize_checkpoint.outputs.checkpoint_name }}
@@ -550,96 +721,66 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  settle_noop:
-    name: Settle the execution no-op after the apply job is skipped
-    needs: [prepare, apply]
-    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.mode == 'noop' && needs.apply.result == 'skipped'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-    steps:
-      - name: Checkout trusted no-op settlement tooling
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-          ref: ${{ github.workflow_sha }}
-
-      - name: Acquire attested gh-steward release
-        run: scripts/with-gh-steward.sh --prepare
-
-      - name: Verify pinned gh-steward receipt
-        run: scripts/with-gh-steward.sh --verify
-
-      - name: Acquire the exact no-op handoff after the apply path is skipped
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: ${{ needs.prepare.outputs.artifact_id }}
-          ARTIFACT_DIGEST: ${{ needs.prepare.outputs.artifact_digest }}
-          RUN_NAME: Execution State Sync
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ && "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          "$GH_STEWARD_BIN" runs acquire-handoff \
-            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
-            --workflow execution_state_sync.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --run-name "$RUN_NAME" --recovery-key workflow-history-v2 \
-            --package-root "$RUNNER_TEMP/execution-state-package" --runner-temp "$RUNNER_TEMP" \
-            --policy .agents/gh-steward-recovery-policy.json \
-            --purpose transport \
-            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
-          jq -e '.phase == "prepared" and .plans == [] and .dispatch_steps == []' \
-            "$RUNNER_TEMP/execution-state-package/run-context.json" >/dev/null
-
-      - name: Finish the exact native zero-operation execution receipt
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_NAME: Execution State Sync
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/execution-state-package"
-          "$GH_STEWARD_BIN" runs finish-noop \
-            --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
-            --workflow execution_state_sync.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --run-name "$RUN_NAME" --recovery-key workflow-history-v2 \
-            --package-root "$root" --runner-temp "$RUNNER_TEMP" \
-            --policy .agents/gh-steward-recovery-policy.json --workflow-sha "$GITHUB_WORKFLOW_SHA" \
-            > "$RUNNER_TEMP/execution-state-workflow-noop-envelope.json"
-
-      - name: Upload exact terminal execution no-op artifact
-        id: noop_artifact
+      - name: Retain failed source acquisition evidence outside the recovery stream
+        if: always() && (steps.source_plan.outcome == 'failure' || steps.review_context.outcome == 'failure')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ${{ needs.prepare.outputs.artifact_name }}
+          name: execution-state-apply-source-failed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/execution-state-approved-source
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Retain failed apply recovery evidence outside the recovery stream
+        if: always() && steps.recovery.outputs.outcome == 'fresh' && steps.terminal_artifact.outcome != 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-state-apply-failed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/execution-state-package
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Retain native apply recovery command failure evidence
+        if: always() && steps.recovery.outcome == 'failure' && steps.recovery.outputs.outcome == ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-state-apply-recovery-error-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/execution-state-package
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Retain restored plan after rejecting mismatched apply inputs
+        if: always() && steps.recovery.outputs.outcome == 'resumed' && steps.resumed_plan.outputs.ready == 'true' && steps.resumed_plan.outputs.authorization_matches != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: execution-state-apply-input-mismatch-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-package
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 90
 
-      - name: Finalize exact execution no-op checkpoint
-        id: noop_checkpoint
-        if: steps.noop_artifact.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: ${{ steps.noop_artifact.outputs.artifact-id }}
-          ARTIFACT_DIGEST: ${{ steps.noop_artifact.outputs.artifact-digest }}
+      - name: Reject mismatched inputs on restored execution
+        if: always() && steps.resumed_plan.outputs.ready == 'true' && steps.resumed_plan.outputs.authorization_matches != 'true'
         shell: bash
         run: |
-          set -euo pipefail
-          scripts/finalize-gh-steward-run.sh \
-            --workflow execution_state_sync.yml --repository "$GITHUB_REPOSITORY" \
-            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
-            --package "$RUNNER_TEMP/execution-state-package" --checkpoint "$RUNNER_TEMP/execution-state-checkpoint" \
-            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
+          echo 'Apply inputs did not match the retained plan and approval; no new approval or plan was written.' >&2
+          exit 1
 
-      - name: Upload exact execution no-op settlement checkpoint
-        if: steps.noop_checkpoint.outcome == 'success' && steps.noop_checkpoint.outputs.outcome == 'checkpoint'
+      - name: Retain restored package after adapter validation failure
+        if: always() && steps.recovery.outputs.outcome == 'resumed' && steps.resumed_plan.outcome == 'failure'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ${{ steps.noop_checkpoint.outputs.checkpoint_name }}
-          path: ${{ steps.noop_checkpoint.outputs.checkpoint_path }}
+          name: execution-state-apply-adapter-failed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/execution-state-package
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 90
+
+      - name: Fail unless the exact reviewed apply completed
+        if: always() && (steps.fresh_context.outputs.authorization_matches == 'true' || steps.resumed_plan.outputs.authorization_matches == 'true') && steps.execution_apply.outcome != 'success'
+        shell: bash
+        run: |
+          echo 'The exact reviewed native execution apply did not complete; its recovery evidence was retained.' >&2
+          exit 1

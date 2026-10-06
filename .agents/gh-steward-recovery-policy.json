@@ -45,6 +45,9 @@
         ],
         [
           "Apply or recover exact reviewed execution plan"
+        ],
+        [
+          "Apply exact reviewed execution plan"
         ]
       ],
       "reviewed_source_shas": [],
@@ -60,22 +63,27 @@
             "project-membership-add",
             "project-field-set"
           ],
-          "attempt_target": "execution",
+          "attempt_target": "plan_set",
           "approval": {
-            "kind": "git-slop-execution"
+            "kind": "reviewed-dispatch",
+            "approval_input": "approve_plan_sha",
+            "reviewed_run_input": "plan_run_id",
+            "required_inputs": {
+              "operation": "apply"
+            }
           },
           "event": {
-            "kind": "execution_event",
+            "kind": "workflow_dispatch",
             "path": "events/dispatch-event.json"
           },
           "parent_merge": null,
           "prepared_recovery": {
-            "workflow_source_sha256": "9503c495765f67c63a06735244f795739213d95c6a3fc0019ce15567249b4f9e",
+            "workflow_source_sha256": "0d89f97f8bfcfff47a90ce43cd67ff0df5ebc4bfbbdbb63a0e1c45d32d98f744",
             "mutators": [
               {
-                "job": "Apply only the immutable reviewed execution plan",
+                "job": "Apply separately approved execution-state plan",
                 "steps": [
-                  "Apply or recover exact reviewed execution plan"
+                  "Apply exact reviewed execution plan"
                 ]
               }
             ]
@@ -88,12 +96,12 @@
           "attempt_target": "workflow_noop",
           "approval": {
             "kind": "local-noop",
-            "workflow_source_sha256": "9503c495765f67c63a06735244f795739213d95c6a3fc0019ce15567249b4f9e",
+            "workflow_source_sha256": "0d89f97f8bfcfff47a90ce43cd67ff0df5ebc4bfbbdbb63a0e1c45d32d98f744",
             "mutators": [
               {
-                "job": "Apply only the immutable reviewed execution plan",
+                "job": "Apply separately approved execution-state plan",
                 "steps": [
-                  "Apply or recover exact reviewed execution plan"
+                  "Apply exact reviewed execution plan"
                 ]
               }
             ]
@@ -132,7 +140,7 @@
           "event": null,
           "parent_merge": null,
           "prepared_recovery": {
-            "workflow_source_sha256": "a8723b320698899e5d0d8cb50d9a8b73fe7a09c343a397d91eefd80a7ab8b1da",
+            "workflow_source_sha256": "bc2d600371245a6281ad63840e12d79009e1d228ca3b7acb507cfdaff441bf36",
             "mutators": [
               {
                 "job": "Apply only the exact reviewed governance plan",
@@ -150,7 +158,7 @@
           "attempt_target": "workflow_noop",
           "approval": {
             "kind": "local-noop",
-            "workflow_source_sha256": "a8723b320698899e5d0d8cb50d9a8b73fe7a09c343a397d91eefd80a7ab8b1da",
+            "workflow_source_sha256": "bc2d600371245a6281ad63840e12d79009e1d228ca3b7acb507cfdaff441bf36",
             "mutators": [
               {
                 "job": "Apply only the exact reviewed governance plan",
@@ -196,7 +204,7 @@
           },
           "parent_merge": null,
           "prepared_recovery": {
-            "workflow_source_sha256": "d00d07a9a9e1afc3997becfd21b9d312fb73ccc64a7691e6988cb00cec5af562",
+            "workflow_source_sha256": "03ccfa4be75e40a2647f201a2babb788cc5f3df893a8a1ac40678acd355d9890",
             "mutators": [
               {
                 "job": "Apply only the exact reviewed merge plan",
@@ -214,7 +222,7 @@
           "attempt_target": "workflow_noop",
           "approval": {
             "kind": "local-noop",
-            "workflow_source_sha256": "d00d07a9a9e1afc3997becfd21b9d312fb73ccc64a7691e6988cb00cec5af562",
+            "workflow_source_sha256": "03ccfa4be75e40a2647f201a2babb788cc5f3df893a8a1ac40678acd355d9890",
             "mutators": [
               {
                 "job": "Apply only the exact reviewed merge plan",

@@ -41,7 +41,7 @@ cat > "$fixture/.agents/gh-steward.lock.json" <<JSON
 {
   "schema_version": 1,
   "repository": "coreycoto/gh-steward",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "source_revision": "$revision",
   "asset_sha256": {
     "darwin/amd64": "$binary_digest",
@@ -106,6 +106,8 @@ runner_temp="$test_root/runner-temp"
 mkdir -m 0700 "$runner_temp"
 github_env="$test_root/github-env"
 github_output="$test_root/github-output"
+github_path="$test_root/github-path"
+mkdir -p "$test_root/empty-gh-config" "$test_root/empty-xdg-data"
 git_log="$test_root/git.log"
 acquire_log="$test_root/acquire.log"
 gh_log="$test_root/gh.log"
@@ -114,12 +116,15 @@ fake_env=(
   "RUNNER_TEMP=$runner_temp"
   "GITHUB_ENV=$github_env"
   "GITHUB_OUTPUT=$github_output"
+  "GITHUB_PATH=$github_path"
+  "GH_CONFIG_DIR=$test_root/empty-gh-config"
+  "XDG_DATA_HOME=$test_root/empty-xdg-data"
   "FAKE_GIT_LOG=$git_log"
   "FAKE_ACQUIRE_LOG=$acquire_log"
   "FAKE_GH_LOG=$gh_log"
   "FAKE_BINARY_TEMPLATE=$test_root/gh-steward"
   "FAKE_SOURCE_REVISION=$revision"
-  "FAKE_TOOL_VERSION=0.3.0"
+  "FAKE_TOOL_VERSION=0.4.0"
   "FAKE_TARGET=$target"
   "FAKE_ASSET_SHA256=$binary_digest"
 )
@@ -133,6 +138,10 @@ grep -q "gh-steward-acquisition.json" "$github_env"
 
 binary_path="$(sed -n 's/^GH_STEWARD_BIN=//p' "$github_env")"
 env "${fake_env[@]}" GH_STEWARD_BIN="$binary_path" bash "$fixture/scripts/with-gh-steward.sh" --verify >/dev/null
+# The caller must use the receipt-bound path, without a host extension or PATH edit.
+env -u GH_TOKEN -u GITHUB_TOKEN "${fake_env[@]}" "$binary_path" version --json \
+  | jq -e --arg revision "$revision" ' .source_revision == $revision and .tool_version == "0.4.0"' >/dev/null
+[[ ! -e "$gh_log" && ! -e "$github_path" ]]
 
 cp "$fixture/.agents/gh-steward.lock.json" "$test_root/valid-lock.json"
 jq '.source_revision = "UNQUALIFIED_SOURCE_COMMIT"' "$test_root/valid-lock.json" > "$fixture/.agents/gh-steward.lock.json"

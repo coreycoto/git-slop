@@ -208,7 +208,9 @@ fn recovery_workflows_preserve_pending_invocations() {
             let mut errors = Vec::new();
             validate_recovery_concurrency(&drifted, name, &mut errors);
             assert!(
-                errors.iter().any(|error| error.contains("preserve pending recovery invocations")),
+                errors
+                    .iter()
+                    .any(|error| error.contains("preserve pending recovery invocations")),
                 "{name} accepted discarded or invalid queued runs: {errors:?}"
             );
         }
@@ -236,17 +238,22 @@ fn consumer_tooling_runner_executes_native_adapters_and_path_fixtures() {
 
 #[test]
 fn native_workflows_retain_pending_packages_after_qualification_failure() {
-    for name in ["execution_state_sync.yml", "governance-reconcile.yml", "merge-on-green.yml"] {
+    for name in [
+        "execution_state_sync.yml",
+        "governance-reconcile.yml",
+        "merge-on-green.yml",
+    ] {
         let valid = workflow_text(name);
         let mut errors = Vec::new();
         validate_prepared_package_retention(&valid, name, &mut errors);
         assert!(errors.is_empty(), "{name}: {errors:?}");
         for drifted in [
-            valid.replace("id: qualify-prepared", "id: obsolete-qualifier"),
+            valid.replace(if name == "execution_state_sync.yml" { "id: qualify_prepared" } else { "id: qualify-prepared" }, "id: obsolete-qualifier"),
             valid.replace("runs qualify-prepared", "runs finish-noop"),
             valid.replace("GH_TOKEN: ${{ github.token }}", "GH_TOKEN: unrelated"),
-            valid.replace("always() && needs.prepare.outputs.artifact_name", "steps.qualify-prepared.outcome == 'success' && needs.prepare.outputs.artifact_name"),
+            valid.replacen(if name == "execution_state_sync.yml" { "if: always() && (steps.fresh_context.outputs.authorization_matches" } else { "if: always() && needs.prepare.outputs.artifact_name" }, if name == "execution_state_sync.yml" { "if: steps.qualify_prepared.outcome == 'success' && (steps.fresh_context.outputs.authorization_matches" } else { "if: steps.qualify-prepared.outcome == 'success' && needs.prepare.outputs.artifact_name" }, 1),
         ] {
+            assert_ne!(valid, drifted, "{name}: negative fixture must change the source");
             let mut errors = Vec::new();
             validate_prepared_package_retention(&drifted, name, &mut errors);
             assert!(
@@ -262,14 +269,36 @@ fn native_prepared_policy_binds_each_plan_to_its_own_mutator() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let policy: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(root.join(".agents/gh-steward-recovery-policy.json")).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
     for (workflow, plan, job, step) in [
-        ("execution_state_sync.yml", "execution", "Apply only the immutable reviewed execution plan", "Apply or recover exact reviewed execution plan"),
-        ("governance-reconcile.yml", "label-palette", "Apply only the exact reviewed governance plan", "Apply exact reviewed label palette plan"),
-        ("merge-on-green.yml", "merge", "Apply only the exact reviewed merge plan", "Apply reviewed exact-head merge plan"),
+        (
+            "execution_state_sync.yml",
+            "execution",
+            "Apply separately approved execution-state plan",
+            "Apply exact reviewed execution plan",
+        ),
+        (
+            "governance-reconcile.yml",
+            "label-palette",
+            "Apply only the exact reviewed governance plan",
+            "Apply exact reviewed label palette plan",
+        ),
+        (
+            "merge-on-green.yml",
+            "merge",
+            "Apply only the exact reviewed merge plan",
+            "Apply reviewed exact-head merge plan",
+        ),
     ] {
         let plans = policy["workflows"][workflow]["plans"].as_object().unwrap();
-        assert_eq!(plans.values().filter(|value| value.get("prepared_recovery").is_some()).count(), 1);
+        assert_eq!(
+            plans
+                .values()
+                .filter(|value| value.get("prepared_recovery").is_some())
+                .count(),
+            1
+        );
         assert_eq!(
             plans[plan]["prepared_recovery"]["mutators"],
             serde_json::json!([{"job": job, "steps": [step]}]),
@@ -280,13 +309,17 @@ fn native_prepared_policy_binds_each_plan_to_its_own_mutator() {
 
 #[test]
 fn signed_plan_transport_rejects_filter_extraction_and_reserialized_inputs() {
-    for name in ["execution_state_sync.yml", "governance-reconcile.yml", "merge-on-green.yml"] {
+    for name in [
+        "execution_state_sync.yml",
+        "governance-reconcile.yml",
+        "merge-on-green.yml",
+    ] {
         let valid = workflow_text(name);
         let mut errors = Vec::new();
         validate_native_plan_transport(&valid, name, &mut errors);
         assert!(errors.is_empty(), "{name}: {errors:?}");
         for drifted in [
-            valid.replace("gh steward plan extract", "jq extract"),
+            valid.replace("\"$GH_STEWARD_BIN\" plan extract", "jq extract"),
             valid.replace("--input \"native-plan=", "--input \"plan="),
             valid.replace("--outer-command ", "--outer-command invalid-"),
             valid.replace("--plan-command ", "--plan-command invalid-"),

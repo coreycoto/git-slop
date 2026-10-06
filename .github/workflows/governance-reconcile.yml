@@ -110,10 +110,10 @@ jobs:
           cp "$GH_STEWARD_RECEIPT" "$root/gh-steward-acquisition.json"
           jq --slurpfile policy config/labels/label_palette.json \
             '{kind:"label-palette",policy:$policy[0]}' > "$root/previews/governance-request.json"
-          gh steward governance prepare --repo-root . \
+          "$GH_STEWARD_BIN" governance prepare --repo-root . \
             --input payload="$root/previews/governance-request.json" \
             --out "$root/previews/label-plan-envelope.json"
-          gh steward plan extract --repo-root "$GITHUB_WORKSPACE" \
+          "$GH_STEWARD_BIN" plan extract --repo-root "$GITHUB_WORKSPACE" \
             --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --input "envelope=$root/previews/label-plan-envelope.json" --outer-command governance-prepare \
             --plan-command governance-apply --out "$root/proposals/candidate.json"
@@ -386,7 +386,7 @@ jobs:
           jq -e --arg sha "$plan_sha" --slurpfile plan "$plan" \
             '.status == "approved" and (.approved_plans | length == 1 and .[0].name == "label-palette" and .[0].plan_sha256 == $sha and .[0].operation_ids == ($plan[0].operations | map(.id)))' \
             "$review" >/dev/null
-          gh steward governance apply --repo-root . --input plan="$plan" \
+          "$GH_STEWARD_BIN" governance apply --repo-root . --input plan="$plan" \
             --approve-plan-sha "$plan_sha" \
             --out "$root/apply-results/label-palette.json"
 

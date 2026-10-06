@@ -43,12 +43,19 @@ workflow's explicit permission scope and checked-in policy. Privileged
 `pull_request_target` workflows use the trusted base checkout, do not persist
 checkout credentials, and keep GitHub tokens on the steps that need them.
 
-The execution-state workflow uses a target-specific concurrency group without
-cancel-in-progress. Before a new plan, it inspects the complete workflow and
-artifact history, restores the latest pending plan and journal, and fails
-closed when the previous write's outcome cannot be proven. Its artifacts keep
-the reviewed plan, apply receipt, typed journal, source target, and run identity
-for future-process recovery.
+The execution-state workflow accepts only manual default-branch dispatches.
+`prepare` reads one PR or issue and retains a signed preview, then closes only
+that read-only invocation as a native no-op. `apply` is a separate dispatch
+with the reviewed preparation run and exact plan hash. Its independent job
+records the operator event before native dispatch; generating a hash grants no
+apply authority. Both jobs invoke the verified `$GH_STEWARD_BIN` directly.
+
+A noncanceling repository concurrency queue preserves all invocations. Before
+new work, native recovery inspects complete workflow/artifact history. Resumed
+work retains the original approval, plan and durable journal. Missing evidence
+or changed approval inputs produce a retained hold, with no replacement plan
+or success checkpoint. Preview-only receipts cannot settle legacy unknown
+attempts; reviewed source allowlists stay empty.
 
 Prefer `git push`, `gh release`, and `gh pr merge`; prompt before those commands
 in interactive sessions. Do not use the GitHub Git Data API to publish unless

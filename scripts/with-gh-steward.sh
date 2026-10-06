@@ -20,7 +20,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd -- "$script_dir/.." && pwd -P)"
 lock_path="$repo_root/.agents/gh-steward.lock.json"
 readonly tool_repository="coreycoto/gh-steward"
-readonly tool_version_expected="0.3.0"
+readonly tool_version_expected="0.4.0"
 readonly supported_targets='["darwin/amd64","darwin/arm64","linux/amd64","linux/arm64"]'
 
 require_command() {
@@ -159,9 +159,6 @@ if [[ "$mode" == "--prepare" ]]; then
       printf 'GH_STEWARD_BIN=%s\n' "$binary_path"
       printf 'GH_STEWARD_RECEIPT=%s\n' "$runner_temp/gh-steward-acquisition.json"
     } >> "$GITHUB_ENV"
-  fi
-  if [[ -n "${GITHUB_PATH-}" ]]; then
-    dirname -- "$binary_path" >> "$GITHUB_PATH"
   fi
   if [[ -n "${GITHUB_OUTPUT-}" ]]; then
     {
