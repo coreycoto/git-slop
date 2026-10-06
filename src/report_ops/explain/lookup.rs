@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) fn require_path_record(report: &Value, target_path: &str) -> Result<Value> {
-    resolved_record(report, &target_path).ok_or_else(|| {
+    resolved_record(report, target_path).ok_or_else(|| {
         let indexed = ["files", "folders"].iter().any(|collection| {
             array_at(report, &["compare_index", collection])
                 .iter()
