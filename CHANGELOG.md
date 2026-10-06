@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.16.5 - Unreleased
+## 0.16.5 - 2026-10-06
 
 Fix compact-report path explanations and compare text that omitted real score
 movements (#149, #153). Retain bounded Dogfood failure context alongside the
