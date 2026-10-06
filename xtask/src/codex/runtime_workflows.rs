@@ -71,7 +71,6 @@ pub(super) fn validate_agent_plugin_workflows(repo_root: &Path, errors: &mut Vec
                 CODEX_HOME_INPUT,
                 "pass the isolated Codex home to codex-action",
             ),
-            ("gpt-6-luna", "use the qualified lightweight Codex model"),
         ] {
             let present =
                 if workflow.name == "dependency-remediation.yml" && required == VALIDATE_COMMAND {
@@ -241,8 +240,12 @@ pub(super) fn validate_agent_plugin_workflow_text(
             "{name} must install the selected public plugins into isolated Codex state."
         ));
     }
-    if kind == AgentPluginWorkflowKind::CodexPlugins && !text.contains("gpt-6-luna") {
-        errors.push(format!("{name} must use the qualified gpt-6-luna model."));
+    let model = match name {
+        "governance-reconcile.yml" | "merge-on-green.yml" => "gpt-6.1-sol",
+        _ => "gpt-6-luna",
+    };
+    if kind == AgentPluginWorkflowKind::CodexPlugins && !text.contains(model) {
+        errors.push(format!("{name} must use the pinned {model} model."));
     }
     if kind == AgentPluginWorkflowKind::ExecutionState
         && [PROJECT_SNAPSHOT, EXECUTION_PREPARE, EXECUTION_APPLY]

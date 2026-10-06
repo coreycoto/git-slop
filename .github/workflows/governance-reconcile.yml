@@ -149,9 +149,9 @@ jobs:
           output-file: ${{ runner.temp }}/governance-review.json
           codex-home: ${{ runner.temp }}/codex-runtime/.codex
           codex-version: 0.160.0
-          model: gpt-6-luna
+          model: gpt-6.1-sol
           codex-args: >-
-            ["--output-schema",".github/codex/schemas/governance-reconcile.json"]
+            ["--config","model_reasoning_effort=high","--output-schema",".github/codex/schemas/governance-reconcile.json"]
           safety-strategy: drop-sudo
           sandbox: workspace-read-only
 

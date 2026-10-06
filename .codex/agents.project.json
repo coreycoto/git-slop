@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "plugin": "project-management",
+  "sourceRevision": "b052737bfa16021e7fab85b5b60c2c72ff17c723",
+  "roles": {
+    "dependency_patcher": {
+      "sourceRole": "pm_dependency_maintainer",
+      "file": "dependency-patcher.toml",
+      "description": "Dependency and CVE remediation worker for narrow, reviewable patch PRs.",
+      "appendInstructions": "Use $product-development:phased-refactor when the assigned dependency change requires product refactoring. Use Cargo manifests and lockfiles and the repository's required cargo xtask gates."
+    },
+    "docs_taxonomist": {
+      "sourceRole": "pm_documentation_steward",
+      "file": "docs-taxonomist.toml",
+      "description": "Docs maintainer that keeps policy, skill, plugin, and historical notes in the right buckets.",
+      "appendInstructions": "Preserve the guidance layers declared in AGENTS.md and the repository overlays in config/github/README.md and config/labels/README.md."
+    },
+    "governance_auditor": {
+      "sourceRole": "pm_governance_auditor",
+      "file": "governance-auditor.toml",
+      "description": "Read-only governance worker that audits backlog, label, and milestone state before safe deterministic apply steps.",
+      "appendInstructions": "Use the pinned $project-management:quarter-planning and $project-management:backlog-planning skills with $gh-steward:gh-steward-reviewed-governance. Use checked-in taxonomy, milestone and queue policy under config/github and config/labels. The parent performs native plans and any authorized mutations."
+    },
+    "merge_gatekeeper": {
+      "sourceRole": "pm_merge_reviewer",
+      "file": "merge-gatekeeper.toml",
+      "description": "Read-only PR merge gatekeeper that verifies green checks, label policy, and merge safety.",
+      "appendInstructions": "Use the pinned $gh-steward:gh-steward-reviewed-merge skill. Merge On Green prepares evidence; reviewed execution-state applies belong to the parent."
+    },
+    "release_publisher": {
+      "sourceRole": "pm_release_preparer",
+      "file": "release-publisher.toml",
+      "description": "Release preparation worker; publication remains with the parent.",
+      "appendInstructions": "Use the pinned $project-management:delivery-lifecycle skill and repository release contract. GitHub releases must be immutable before package-manager dispatch. The parent performs publication through standard Git and GitHub flows; no Git Data API fallback."
+    }
+  }
+}

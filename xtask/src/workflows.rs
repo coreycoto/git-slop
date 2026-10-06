@@ -151,10 +151,17 @@ pub fn validate(repo_root: &Path) -> Vec<String> {
     validate_public_release_workflows(repo_root, &mut errors);
     validate_packaged_contracts_script(repo_root, &mut errors);
 
-    let name = "merge-on-green.yml";
-    if let Some(text) = read(&workflows.join(name), &mut errors) {
-        forbid(&text, "gpt-5.4-nano", name, &mut errors);
-        require(&text, "gpt-6-luna", name, &mut errors);
+    for name in ["merge-on-green.yml", "governance-reconcile.yml"] {
+        if let Some(text) = read(&workflows.join(name), &mut errors) {
+            forbid(&text, "gpt-5.4-nano", name, &mut errors);
+            require(&text, "model: gpt-6.1-sol", name, &mut errors);
+            require(
+                &text,
+                r#""--config","model_reasoning_effort=high""#,
+                name,
+                &mut errors,
+            );
+        }
     }
 
     validate_action_versions(repo_root, &workflows, &mut errors);
