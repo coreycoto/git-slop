@@ -3,35 +3,28 @@
   "acceptances": [
     {
       "base_sha": "e1db17cbb80da9840a640a61fcbe5bfac12198f7",
-      "rationale": "Reviewed native runtime cutover adds exact handoff/recovery provenance, isolated credentials and fresh-runner candidate verification. Public CLI/detectors are unchanged; publication stays disabled pending Go ownership. Oversized-file errors were refactored away. Accept only these reviewed notice/warning contents and observed score ceilings; keep absolute policy and all other regression checks.",
+      "rationale": "Reviewed native cutover preserves exact approval, complete history, isolated credentials and immutable handoffs. The new execution helper was split by lifecycle phase; no size warning is accepted for it. Retain independent workflow guards and tests; defer ci.rs table modularization until this cutover is promoted. Accept only these exact notice/warning contents at observed ceilings; absolute policy, detectors, all other regressions and disabled publication remain enforced.",
       "entries": [
         {
           "path": ".agents/README.md",
           "reason": "material_score_increase",
           "severity": "notice",
-          "content_sha256": "8aaa43a284c4b0b23bfa508ced617794adeef00136d6dff510a7993a4891c1cb",
-          "maximum_slop_score": 31.8
-        },
-        {
-          "path": ".agents/plugins/marketplace-source.json",
-          "reason": "material_score_increase",
-          "severity": "notice",
-          "content_sha256": "a41fa74d179db616a2a8dd638a8bca6d1e406ce981aa5c028ff3454e273f6044",
-          "maximum_slop_score": 24.0
+          "content_sha256": "4c0a8a113e8b6db71ffff77e0e570e6759bc0ec8b1b09a4f8fa3b7bc92e70c59",
+          "maximum_slop_score": 31.7
         },
         {
           "path": ".github/codex/prompts/dependency-remediation.md",
           "reason": "material_score_increase",
           "severity": "notice",
           "content_sha256": "398299c89f7feb81dc86a4fdc1331f6fe58127d37e9a41e0da74e7674bf94a1f",
-          "maximum_slop_score": 22.2
+          "maximum_slop_score": 21.9
         },
         {
           "path": ".github/codex/prompts/governance-reconcile.md",
           "reason": "material_score_increase",
           "severity": "notice",
           "content_sha256": "8eeabb0a3f6092d74a340d6aa44e6fe531ae36c14f20180f58e1eae9c92ed0e0",
-          "maximum_slop_score": 24.1
+          "maximum_slop_score": 23.8
         },
         {
           "path": ".github/codex/schemas/dependency-remediation.json",
@@ -51,78 +44,71 @@
           "path": ".github/workflows/execution_state_sync.yml",
           "reason": "worse_band",
           "severity": "warning",
-          "content_sha256": "9503c495765f67c63a06735244f795739213d95c6a3fc0019ce15567249b4f9e",
-          "maximum_slop_score": 73.9
+          "content_sha256": "0d89f97f8bfcfff47a90ce43cd67ff0df5ebc4bfbbdbb63a0e1c45d32d98f744",
+          "maximum_slop_score": 83.0
         },
         {
           "path": ".github/workflows/governance-reconcile.yml",
           "reason": "worse_band",
           "severity": "warning",
-          "content_sha256": "a8723b320698899e5d0d8cb50d9a8b73fe7a09c343a397d91eefd80a7ab8b1da",
-          "maximum_slop_score": 68.7
+          "content_sha256": "bc2d600371245a6281ad63840e12d79009e1d228ca3b7acb507cfdaff441bf36",
+          "maximum_slop_score": 68.8
         },
         {
           "path": ".github/workflows/merge-on-green.yml",
           "reason": "worse_band",
           "severity": "warning",
-          "content_sha256": "d00d07a9a9e1afc3997becfd21b9d312fb73ccc64a7691e6988cb00cec5af562",
-          "maximum_slop_score": 75.6
+          "content_sha256": "03ccfa4be75e40a2647f201a2babb788cc5f3df893a8a1ac40678acd355d9890",
+          "maximum_slop_score": 75.7
         },
         {
           "path": "config/github/README.md",
           "reason": "material_score_increase",
           "severity": "notice",
-          "content_sha256": "fcfb5370a57835758462dda8590f154135177f7635fca1432c8a5deb8a149bce",
-          "maximum_slop_score": 21.1
+          "content_sha256": "3f434cd195129e363e73113934ac4a15fa4d3b38ea82c74cae610906b519b90e",
+          "maximum_slop_score": 21.8
         },
         {
           "path": "config/labels/README.md",
           "reason": "material_score_increase",
           "severity": "notice",
           "content_sha256": "c87b8295d282d7c6e97d0fc611a8b3f103fc99b01f10032028aea04ba9b9ded8",
-          "maximum_slop_score": 13.0
+          "maximum_slop_score": 12.8
         },
         {
           "path": "xtask/src/codex/runtime_manifest.rs",
           "reason": "material_score_increase",
           "severity": "notice",
-          "content_sha256": "5274932466404b1d00b07361f1ba176f3800f9752114a73d143caf2fc01d3a48",
-          "maximum_slop_score": 25.0
+          "content_sha256": "bb41a019f798248558189b4d68c55df17ff8252194fc26aa503e4ce4fa8cbba8",
+          "maximum_slop_score": 25.5
         },
         {
           "path": "xtask/src/codex/runtime_tests.rs",
           "reason": "worse_band",
           "severity": "notice",
-          "content_sha256": "6ede2bec0996c9f7be18ad9c037fd433aaab655b8111bf2824634a7e3ea12d34",
-          "maximum_slop_score": 43.5
-        },
-        {
-          "path": "xtask/src/codex/runtime_workflows.rs",
-          "reason": "material_score_increase",
-          "severity": "notice",
-          "content_sha256": "0ac980a0520e23ec1ce20ceaf8a14afdc8d2fcde599716a030d61cb0d22cf674",
-          "maximum_slop_score": 63.2
+          "content_sha256": "80caed0a3774be40599b9f810e59ae87974b284c28f62a3387ad196e58a0f9ca",
+          "maximum_slop_score": 49.1
         },
         {
           "path": "xtask/src/workflows/ci.rs",
           "reason": "worse_band",
-          "severity": "notice",
-          "content_sha256": "f65aa309ba7c90c82c67589daeefaee60a9d294ee66ef3b9a5e84e13f165feaa",
-          "maximum_slop_score": 63.9
+          "severity": "warning",
+          "content_sha256": "7ac290f82f93030e3ed8f17929b2f1a1c90c1854b9bc5af5e5fc0aab825d18a6",
+          "maximum_slop_score": 67.1
         },
         {
           "path": "xtask/src/workflows/tests/group_4.rs",
           "reason": "material_score_increase",
           "severity": "notice",
-          "content_sha256": "18ab2106a48a1296a0a54de4a69f77865e4d26574a409cfa7c52e5e03b261b41",
-          "maximum_slop_score": 23.4
+          "content_sha256": "45e153c0681613b1e1ea046fb1761950141b7cd5223066e50deea787b6161c8e",
+          "maximum_slop_score": 26.8
         },
         {
           "path": "xtask/src/workflows/tests/repository_contracts.rs",
           "reason": "worse_band",
           "severity": "notice",
-          "content_sha256": "419acf6aea7105c4a5ec1d493342121573a36e33384e33bf03e722e5bf7b53e0",
-          "maximum_slop_score": 25.4
+          "content_sha256": "52295904e1cc9b0d53555e536b6b5f2e3e3d97996bfdc26077dd49ed2c05f144",
+          "maximum_slop_score": 29.4
         }
       ]
     }
