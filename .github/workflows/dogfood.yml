@@ -123,11 +123,22 @@ jobs:
           target/release/git-slop compare --state-dir "$RUNNER_TEMP/dogfood-baselines" \
             --baseline dogfood-pr-base --head .slop/latest/report.json \
             --format json --detail full --limit 1000 >"$comparison"
-          scripts/verify-dogfood-regressions.sh \
-            config/github/dogfood-regression-acceptances.json \
-            "$comparison" .slop/latest/report.json "$BASE_SHA" "$HEAD_SHA"
+          printf 'Dogfood comparison: base=%s head=%s\n' "$BASE_SHA" "$HEAD_SHA"
           target/release/git-slop compare --state-dir "$RUNNER_TEMP/dogfood-baselines" \
-            --baseline dogfood-pr-base --head .slop/latest/report.json
+            --baseline dogfood-pr-base --head .slop/latest/report.json --top 10
+          if scripts/verify-dogfood-regressions.sh \
+            config/github/dogfood-regression-acceptances.json \
+            "$comparison" .slop/latest/report.json "$BASE_SHA" "$HEAD_SHA"; then
+            :
+          else
+            verification_status=$?
+            {
+              printf '\n### Dogfood regression verification failed\n\n'
+              printf 'Exact source: base `%s`, head `%s`.\n\n' "$BASE_SHA" "$HEAD_SHA"
+              printf 'The bounded, escaped comparison is in the job log. Download `git-slop-dogfood-failure-%s-%s` for the complete comparison and head report, including regression paths, scores and content hashes.\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit "$verification_status"
+          fi
 
       - name: Upload full Dogfood regression evidence on failure
         if: failure() && steps.regressions.outcome == 'failure'

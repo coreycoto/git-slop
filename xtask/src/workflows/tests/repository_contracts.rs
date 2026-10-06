@@ -337,6 +337,87 @@ fn dogfood_regression_failure_retains_full_reports_only_for_that_failure() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn dogfood_enforcement_emits_context_before_rejection_and_preserves_evidence() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let workflow = parsed(&workflow_text("dogfood.yml"));
+    let enforcement = workflow["jobs"]["dogfood"]["steps"]
+        .as_sequence()
+        .unwrap()
+        .iter()
+        .find(|step| step["id"].as_str() == Some("regressions"))
+        .unwrap()["run"]
+        .as_str()
+        .unwrap();
+    let base = "a".repeat(40);
+    let head = "b".repeat(40);
+    let digest = "c".repeat(64);
+    for rejected in [false, true] {
+        let fixture = tempfile::tempdir().unwrap();
+        for directory in ["target/release", "scripts", "config/github", ".slop/latest", "runner"] {
+            fs::create_dir_all(fixture.path().join(directory)).unwrap();
+        }
+        let binary = fixture.path().join("target/release/git-slop");
+        fs::write(&binary, "#!/usr/bin/env bash\nset -euo pipefail\nif [[ \" $* \" == *\" --format json \"* ]]; then\n  cat \"$COMPARISON_FIXTURE\"\nelse\n  printf '%s\\n' 'bounded native comparison rendered'\nfi\n").unwrap();
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+        let verifier = fixture.path().join("scripts/verify-dogfood-regressions.sh");
+        fs::copy(repo_root.join("scripts/verify-dogfood-regressions.sh"), &verifier).unwrap();
+        fs::set_permissions(&verifier, fs::Permissions::from_mode(0o755)).unwrap();
+        let manifest = fixture.path().join("config/github/dogfood-regression-acceptances.json");
+        write_dogfood_manifest(&manifest, vec![dogfood_acceptance(&base, &digest)]);
+        let manifest_bytes = fs::read(&manifest).unwrap();
+        let (mut comparison, mut report) = dogfood_fixture_documents(&base, &head, &digest);
+        let hostile_path = "src/unreviewed\n::error::[click](https://example.test).rs";
+        if rejected {
+            comparison["regressions"][0]["path"] = serde_json::json!(hostile_path);
+            report["files"][0]["path"] = serde_json::json!(hostile_path);
+        }
+        let comparison_bytes = serde_json::to_vec(&comparison).unwrap();
+        let report_bytes = serde_json::to_vec(&report).unwrap();
+        let comparison_fixture = fixture.path().join("comparison-fixture.json");
+        fs::write(&comparison_fixture, &comparison_bytes).unwrap();
+        let head_report = fixture.path().join(".slop/latest/report.json");
+        fs::write(&head_report, &report_bytes).unwrap();
+        let summary = fixture.path().join("summary.md");
+        let runner = fixture.path().join("runner");
+        let output = std::process::Command::new("bash")
+            .args(["-c", enforcement])
+            .current_dir(fixture.path())
+            .env("COMPARISON_FIXTURE", &comparison_fixture)
+            .env("RUNNER_TEMP", &runner)
+            .env("BASE_SHA", &base)
+            .env("HEAD_SHA", &head)
+            .env("GITHUB_STEP_SUMMARY", &summary)
+            .env("GITHUB_RUN_ID", "123")
+            .env("GITHUB_RUN_ATTEMPT", "2")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(output.status.code(), Some(if rejected { 1 } else { 0 }), "{stderr}");
+        assert!(stdout.contains(&format!("Dogfood comparison: base={base} head={head}")));
+        assert!(stdout.contains("bounded native comparison rendered"));
+        if rejected {
+            assert!(stderr.contains("exceed or drift from the reviewed acceptance ledger"));
+            let summary = fs::read_to_string(&summary).unwrap();
+            assert!(summary.contains(&base) && summary.contains(&head));
+            assert!(summary.contains("git-slop-dogfood-failure-123-2"));
+            assert!(summary.contains("content hashes"));
+            assert!(!summary.contains("unreviewed") && !summary.contains("::error::"));
+            assert!(!stdout.contains(hostile_path) && !stderr.contains(hostile_path));
+        } else {
+            assert!(stdout.contains("bound 1 reviewed regression(s)"));
+            assert!(!summary.exists(), "accepted input must not emit a failure summary");
+        }
+        assert_eq!(fs::read(runner.join("dogfood-comparison.json")).unwrap(), comparison_bytes);
+        assert_eq!(fs::read(head_report).unwrap(), report_bytes);
+        assert_eq!(fs::read(manifest).unwrap(), manifest_bytes, "verification mutated acceptance policy");
+    }
+}
+
 #[test]
 fn dogfood_retries_share_the_exact_source_clock_without_loosening_limits() {
     let good = workflow_text("dogfood.yml");
