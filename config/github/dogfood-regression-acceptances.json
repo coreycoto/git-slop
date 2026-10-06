@@ -44,8 +44,15 @@
     },
     {
       "base_sha": "40004cdb3f30f54d6ffe7b335fb795a3347cf52f",
-      "rationale": "Two reviewed fixture notices from required attestation credential and read-only CI regressions. Runtime tests cross the moderate score boundary after another verified revision; the 3248-token CI fixture crosses compact to healthy context. Both remain healthy and show zero duplication pressure. Preserve independent security coverage; exact content and observed ceilings bound this candidate.",
+      "rationale": "Three reviewed security-fixture notices: credential tests cross a moderate score boundary, CI guards cross compact to healthy context, and the acquisition fixture's required Actions isolation adds revision pressure while remaining compact and low-score. All retain zero duplication pressure. Preserve independent security coverage; exact content and observed ceilings bound this candidate.",
       "entries": [
+        {
+          "path": "scripts/with-gh-steward.test.sh",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "c4a28ca5aada4877d753815fc192e1f260b437575e7dca4476027ceb041f5abd",
+          "maximum_slop_score": 22.6
+        },
         {
           "path": "xtask/src/codex/runtime_tests.rs",
           "reason": "worse_band",
