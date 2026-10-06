@@ -175,7 +175,7 @@ pub(super) fn validate_release_acquisition_wrappers(repo_root: &Path, errors: &m
         ("source_dirty == false", "reject a dirty release binary"),
         (
             "env -u GH_TOKEN -u GITHUB_TOKEN",
-            "keep repository credentials out of source and release acquisition",
+            "keep repository credentials out of public source acquisition",
         ),
     ] {
         if !tool_wrapper.contains(required) {

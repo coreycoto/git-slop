@@ -166,23 +166,37 @@ fn codex_workflow_requires_verified_native_acquisition_and_isolated_plugins() {
         );
         assert!(!errors.is_empty(), "workflow accepted {leaked}");
     }
-    let leaked_acquisition_token = good.replace(
-        "      - name: Acquire gh-steward\n        run:",
-        "      - name: Acquire gh-steward\n        env:\n          GH_TOKEN: ${{ github.token }}\n        run:",
-    );
-    let mut errors = Vec::new();
-    validate_agent_plugin_workflow_text(
-        "fixture.yml",
-        &leaked_acquisition_token,
-        AgentPluginWorkflowKind::CodexPlugins,
-        &mut errors,
-    );
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.contains("must not receive GitHub tokens")),
-        "{errors:?}"
-    );
+    for changed in [
+        good.replace("          GH_TOKEN: ${{ github.token }}\n", ""),
+        good.replace("GH_TOKEN: ${{ github.token }}", "GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN }}"),
+        good.replace("          GH_TOKEN: ${{ github.token }}", "          GH_TOKEN: ${{ github.token }}\n          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}"),
+    ] {
+        let mut errors = Vec::new();
+        validate_agent_plugin_workflow_text(
+            "fixture.yml", &changed, AgentPluginWorkflowKind::CodexPlugins, &mut errors,
+        );
+        assert!(errors.iter().any(|error| error.contains("only the step-scoped GitHub job token")), "{errors:?}");
+    }
+    for step_name in ["Verify gh-steward", "Install public plugins"] {
+        let changed = good.replace(
+            &format!("      - name: {step_name}\n        run:"),
+            &format!("      - name: {step_name}\n        env:\n          GH_TOKEN: ${{{{ github.token }}}}\n        run:"),
+        );
+        assert_ne!(changed, good);
+        let mut errors = Vec::new();
+        validate_agent_plugin_workflow_text(
+            "fixture.yml",
+            &changed,
+            AgentPluginWorkflowKind::CodexPlugins,
+            &mut errors,
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("must not receive GitHub tokens")),
+            "{errors:?}"
+        );
+    }
 }
 
 #[test]
@@ -615,6 +629,8 @@ jobs:
         with:
           persist-credentials: false
       - name: Acquire gh-steward
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: scripts/with-gh-steward.sh --prepare
       - name: Verify gh-steward
         run: scripts/with-gh-steward.sh --verify

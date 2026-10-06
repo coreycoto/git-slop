@@ -101,7 +101,7 @@ validate_receipt_and_binary() {
   [[ -f "$binary_path" && ! -L "$binary_path" && -x "$binary_path" ]] || die "acquired binary is missing or unsafe"
   [[ "$(sha256_file "$binary_path")" == "$asset_digest" ]] || die "acquired binary changed after its attested receipt was written"
   local version_json
-  version_json="$("$binary_path" version --json)" || die "acquired binary failed its offline version check"
+  version_json="$(env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY "$binary_path" version --json)" || die "acquired binary failed its offline version check"
   jq -e \
     --arg version "$tool_version" \
     --arg revision "$source_revision" \
@@ -140,16 +140,17 @@ if [[ "$mode" == "--prepare" ]]; then
   source_dir="$(mktemp -d "$runner_temp/gh-steward-source.XXXXXX")"
   binary_dir="$(mktemp -d "$runner_temp/gh-steward-bin.XXXXXX")"
   acquisition_script="$source_dir/scripts/release/acquire-gh-steward.sh"
-  env -u GH_TOKEN -u GITHUB_TOKEN GIT_TERMINAL_PROMPT=0 GIT_CONFIG_GLOBAL=/dev/null \
+  env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY GIT_TERMINAL_PROMPT=0 GIT_CONFIG_GLOBAL=/dev/null \
     git clone --quiet --filter=blob:none --no-checkout "$source_url" "$source_dir" >&2
-  env -u GH_TOKEN -u GITHUB_TOKEN GIT_TERMINAL_PROMPT=0 GIT_CONFIG_GLOBAL=/dev/null \
+  env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY GIT_TERMINAL_PROMPT=0 GIT_CONFIG_GLOBAL=/dev/null \
     git -C "$source_dir" fetch --quiet --no-tags --depth=1 origin "$source_revision" >&2
-  env -u GH_TOKEN -u GITHUB_TOKEN GIT_TERMINAL_PROMPT=0 GIT_CONFIG_GLOBAL=/dev/null \
+  env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY GIT_TERMINAL_PROMPT=0 GIT_CONFIG_GLOBAL=/dev/null \
     git -C "$source_dir" checkout --quiet --detach "$source_revision" >&2
-  resolved_revision="$(git -C "$source_dir" rev-parse HEAD)"
+  resolved_revision="$(env -u GH_TOKEN -u GITHUB_TOKEN -u OPENAI_API_KEY git -C "$source_dir" rev-parse HEAD)"
   [[ "$resolved_revision" == "$source_revision" ]] || die "tool source checkout differs from the pinned revision"
   [[ -f "$acquisition_script" && ! -L "$acquisition_script" ]] || die "pinned tool source has no safe release acquisition helper"
-  receipt="$(env -u GH_TOKEN -u GITHUB_TOKEN bash "$acquisition_script" \
+  # GitHub CLI requires the step-scoped job token for attestation reads in Actions.
+  receipt="$(env -u GITHUB_TOKEN -u OPENAI_API_KEY bash "$acquisition_script" \
     "$tool_version" "$source_revision" "$binary_dir" "$asset_digest")" || die "attested gh-steward acquisition failed"
   binary_path="$binary_dir/gh-steward"
   printf '%s\n' "$receipt" > "$runner_temp/gh-steward-acquisition.json"

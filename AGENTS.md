@@ -68,6 +68,7 @@
 - Treat the official GitHub Codex plugin as a local interactive prerequisite, not as a CI dependency.
 - In CI, validate repo-owned contracts with `cargo xtask`; rely on checked-out repo files, prompt files, custom agents, `gh`, and GitHub tokens.
 - Acquire `gh-steward` from its immutable source revision and attested, checksum-pinned release asset into `RUNNER_TEMP`; fail closed while any release pin is unqualified. Never install the workflow binary globally.
+- Use the step-scoped GitHub job token for release attestation reads. Scrub credentials from public Git fetches and offline binary checks; keep offline receipt verification and plugin installation token-free.
 - Install Codex and the selected public Agent Plugins only into a `RUNNER_TEMP`-scoped `CODEX_HOME`; do not change global plugin state.
 - Execution State Sync uses manual default-branch preparation and a separate
   reviewed-run/exact-hash apply dispatch. In execution-state sync, keep the project PAT off job scope and pass it as `GH_TOKEN` only to the exact snapshot, prepare and apply steps that need it. In privileged `pull_request_target` automation, expose the repository mutation token only to the deliberate Codex mutation step.

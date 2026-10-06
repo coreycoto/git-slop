@@ -218,6 +218,35 @@ fn recovery_workflows_preserve_pending_invocations() {
 }
 
 #[test]
+fn hosted_acquisition_probe_preserves_read_only_scope_and_fixture_order() {
+    let valid = workflow_text("ci-maintainer.yml");
+    let mut errors = Vec::new();
+    validate_consumer_tool_fixture_jobs(&valid, "ci-maintainer.yml", &mut errors);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let mut write_scope = parsed(&valid);
+    write_scope["jobs"]["maintainer-contracts"]["permissions"]["contents"] = YamlValue::String("write".into());
+    let mut global_token = parsed(&valid);
+    global_token["env"]["GH_TOKEN"] = YamlValue::String("${{ github.token }}".into());
+    let mut probe_before_fixtures = parsed(&valid);
+    let steps = probe_before_fixtures["jobs"]["maintainer-contracts"]["steps"].as_sequence_mut().unwrap();
+    let probe = steps.iter().position(|step| step.get("run").and_then(YamlValue::as_str) == Some("scripts/with-gh-steward.sh --prepare")).unwrap();
+    let fixtures = steps.iter().position(|step| step.get("run").and_then(YamlValue::as_str) == Some("bash scripts/test-consumer-tooling.sh")).unwrap();
+    steps.swap(probe, fixtures);
+
+    for (changed, expected) in [
+        (valid.replace("GH_TOKEN: ${{ github.token }}", "GH_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN }}"), "only a step-scoped GitHub job token"),
+        (serde_yaml::to_string(&write_scope).unwrap(), "keep its job read-only"),
+        (serde_yaml::to_string(&global_token).unwrap(), "keep its job read-only"),
+        (serde_yaml::to_string(&probe_before_fixtures).unwrap(), "after its fixtures and validators"),
+    ] {
+        let mut errors = Vec::new();
+        validate_consumer_tool_fixture_jobs(&changed, "ci-maintainer.yml", &mut errors);
+        assert!(errors.iter().any(|error| error.contains(expected)), "{expected}: {errors:?}");
+    }
+}
+
+#[test]
 fn consumer_tooling_runner_executes_native_adapters_and_path_fixtures() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let runner = fs::read_to_string(root.join("scripts/test-consumer-tooling.sh")).unwrap();

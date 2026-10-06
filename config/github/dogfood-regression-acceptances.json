@@ -41,6 +41,33 @@
           "maximum_slop_score": 21.2
         }
       ]
+    },
+    {
+      "base_sha": "40004cdb3f30f54d6ffe7b335fb795a3347cf52f",
+      "rationale": "Three reviewed security-fixture notices: credential tests cross a moderate score boundary, CI guards cross compact to healthy context, and the acquisition fixture's required Actions isolation adds revision pressure while remaining compact and low-score. All retain zero duplication pressure. Preserve independent security coverage; exact content and observed ceilings bound this candidate.",
+      "entries": [
+        {
+          "path": "scripts/with-gh-steward.test.sh",
+          "reason": "material_score_increase",
+          "severity": "notice",
+          "content_sha256": "c4a28ca5aada4877d753815fc192e1f260b437575e7dca4476027ceb041f5abd",
+          "maximum_slop_score": 22.6
+        },
+        {
+          "path": "xtask/src/codex/runtime_tests.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "e937e2cf17734ad108a799650e0dbe17b5d1c989e010ccc2ba3d9b3426e7190b",
+          "maximum_slop_score": 50.2
+        },
+        {
+          "path": "xtask/src/workflows/tests/group_4.rs",
+          "reason": "worse_band",
+          "severity": "notice",
+          "content_sha256": "6f3d14e317f2ac288ccd9d80c7da9b3c526aabe40fe8fcdd33344e1f07629b78",
+          "maximum_slop_score": 29.7
+        }
+      ]
     }
   ]
 }

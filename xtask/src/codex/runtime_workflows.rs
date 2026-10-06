@@ -415,11 +415,21 @@ fn validate_acquisition_scope(
             ));
         }
     }
-    for step in prepares
-        .iter()
-        .chain(verifies.iter())
-        .chain(plugin_setup.iter())
-    {
+    for step in &prepares {
+        let env = step.raw.get("env").and_then(YamlValue::as_mapping);
+        if env.is_none_or(|env| {
+            env.len() != 1
+                || env
+                    .get(YamlValue::String("GH_TOKEN".into()))
+                    .and_then(YamlValue::as_str)
+                    != Some("${{ github.token }}")
+        }) {
+            errors.push(format!(
+                "{name} native acquisition must receive only the step-scoped GitHub job token for attestation reads."
+            ));
+        }
+    }
+    for step in verifies.iter().chain(plugin_setup.iter()) {
         if !step
             .raw
             .get("env")
@@ -431,7 +441,7 @@ fn validate_acquisition_scope(
             })
         {
             errors.push(format!(
-                "{name} acquisition and isolated plugin setup must not receive GitHub tokens or other workflow secrets."
+                "{name} offline verification and isolated plugin setup must not receive GitHub tokens or other workflow secrets."
             ));
         }
     }
