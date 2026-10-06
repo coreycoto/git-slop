@@ -60,6 +60,8 @@ jobs:
         run: cargo xtask validate-codex
 
       - name: Acquire attested gh-steward release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: scripts/with-gh-steward.sh --prepare
 
       - name: Verify pinned gh-steward receipt
@@ -381,6 +383,8 @@ jobs:
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
       - name: Acquire attested gh-steward release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: scripts/with-gh-steward.sh --prepare
 
       - name: Verify pinned gh-steward receipt

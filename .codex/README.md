@@ -26,6 +26,14 @@ version, platform, checksums, and GitHub provenance. Unqualified lock values
 are intentionally rejected until the final clean source and four release
 digests are supplied.
 
+In Actions, only the acquisition step passes `GH_TOKEN: ${{ github.token }}`
+to the pinned helper for GitHub attestation reads. Public Git source fetches
+and offline binary checks scrub credentials. Offline receipt verification and
+public plugin installation receive no token.
+The maintainer CI job verifies real attested acquisition and preserves its
+receipt after all offline fixtures and validators complete. This read-only
+probe creates no operation plan or apply and does not load Codex plugins.
+
 Reusable project and product development workflow guidance comes from the
 public Agent Plugins source. GitHub repository operations use `gh` and the
 native `gh-steward` extension. Its reviewed plans bind exact repository,

@@ -736,6 +736,42 @@ fn validate_consumer_tool_fixture_jobs(text: &str, name: &str, errors: &mut Vec<
             "{name} maintainer-contracts job must run {COMMAND}."
         ));
     }
+    let position = |command: &str| {
+        steps.iter().position(|step| step.get("run").and_then(YamlValue::as_str) == Some(command))
+    };
+    let probe = position("scripts/with-gh-steward.sh --prepare");
+    let verify = position("scripts/with-gh-steward.sh --verify");
+    if position(COMMAND)
+        .zip(position("cargo xtask validate"))
+        .zip(probe)
+        .zip(verify)
+        .is_none_or(|(((fixtures, contracts), probe), verify)| fixtures >= probe || contracts >= probe || probe >= verify)
+    {
+        errors.push(format!("{name} must run hosted acquisition and offline receipt verification after its fixtures and validators."));
+    }
+    if let Some(probe) = probe {
+        let env = steps[probe].get("env").and_then(YamlValue::as_mapping);
+        if env.is_none_or(|env| env.len() != 1 || env.get(YamlValue::String("GH_TOKEN".into())).and_then(YamlValue::as_str) != Some("${{ github.token }}")) {
+            errors.push(format!("{name} hosted acquisition must use only a step-scoped GitHub job token."));
+        }
+    }
+    if verify.is_some_and(|i| steps[i].get("env").is_some()) {
+        errors.push(format!("{name} offline receipt verification must receive no credential environment."));
+    }
+    let job = &payload["jobs"]["maintainer-contracts"];
+    let workflow_credentials = payload.get("env").and_then(YamlValue::as_mapping).is_some_and(|env| {
+        env.iter().any(|(key, value)| {
+            key.as_str().is_some_and(|key| key.ends_with("_TOKEN") || key == "OPENAI_API_KEY")
+                || value.as_str().is_some_and(|value| value.contains("secrets."))
+        })
+    });
+    if workflow_credentials || job.get("env").is_some()
+        || job.get("permissions").and_then(YamlValue::as_mapping).is_none_or(|permissions| {
+            permissions.len() != 1 || permissions.get(YamlValue::String("contents".into())).and_then(YamlValue::as_str) != Some("read")
+        })
+    {
+        errors.push(format!("{name} hosted acquisition probe must keep its job read-only without job-scoped credentials."));
+    }
 }
 
 fn validate_windows_action_ci_job(text: &str, name: &str, errors: &mut Vec<String>) {

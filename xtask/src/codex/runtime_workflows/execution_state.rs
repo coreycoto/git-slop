@@ -1,8 +1,8 @@
 use serde_yaml::Value as YamlValue;
 
 use super::{
-    EXECUTION_APPLY, EXECUTION_PREPARE, PROJECT_SNAPSHOT, PROJECT_TOKEN, WorkflowStepView,
-    validate_step_token, yaml_contains, yaml_mapping_has_key,
+    EXECUTION_APPLY, EXECUTION_PREPARE, GH_STEWARD_PREPARE, PROJECT_SNAPSHOT, PROJECT_TOKEN,
+    WorkflowStepView, validate_step_token, yaml_contains, yaml_mapping_has_key,
 };
 
 pub(crate) fn validate_policy_text(source: &str, workflow_source: &str, errors: &mut Vec<String>) {
@@ -229,8 +229,9 @@ pub(super) fn validate_trust(
             ]
             .iter()
             .any(|command| step.run.contains(command));
-            if !project && !recovery {
-                errors.push(format!("{name} must expose GitHub tokens only to scoped recovery, handoff, Project, or native execution steps."));
+            let acquisition = step.run.trim() == GH_STEWARD_PREPARE;
+            if !project && !recovery && !acquisition {
+                errors.push(format!("{name} must expose GitHub tokens only to scoped attestation, recovery, handoff, Project, or native execution steps."));
             } else if !project {
                 validate_step_token(step, concat!("$", "{{ github.token }}"), name, errors);
             }
