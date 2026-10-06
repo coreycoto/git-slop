@@ -71,7 +71,7 @@ jobs:
           output-file: .artifacts/codex/governance-reconcile.json
           codex-home: ${{ runner.temp }}/codex-runtime/.codex
           codex-args: >-
-            ["--model","gpt-5.4-mini","--output-schema",".github/codex/schemas/governance-reconcile.json"]
+            ["--model","gpt-6.1-sol","--config","model_reasoning_effort=high","--output-schema",".github/codex/schemas/governance-reconcile.json"]
           safety-strategy: drop-sudo
           sandbox: workspace-write
 

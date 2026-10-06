@@ -144,7 +144,7 @@ jobs:
           output-file: .artifacts/codex/merge-on-green.json
           codex-home: ${{ runner.temp }}/codex-runtime/.codex
           codex-args: >-
-            ["--model","gpt-5.6-luna","--output-schema",".github/codex/schemas/merge-on-green.json"]
+            ["--model","gpt-6.1-sol","--config","model_reasoning_effort=high","--output-schema",".github/codex/schemas/merge-on-green.json"]
           safety-strategy: drop-sudo
           sandbox: workspace-write
 
