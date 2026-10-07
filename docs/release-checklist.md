@@ -405,10 +405,11 @@ gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
   --jq 'select(.enabled == true)'
 ```
 
-The tap publisher must also require the published `git-slop-<version>` bottle
-release to report `immutable: true`. The historical `git-slop-0.11.8` bottle
-release predates tap-side enablement and is a documented exception; never
-replace its assets.
+The tap publisher must also require the published `git-slop-v<version>` bottle
+release to report `immutable: true`. This tag matches the release tag in the
+Formula's `bottle.root_url`. The historical `git-slop-0.11.8` bottle release uses
+the older tag format and predates tap-side enablement; it is a documented
+exception. Never replace its assets.
 
 The explicit Release Publish dispatch also authorizes one narrowly scoped
 Homebrew receiver dispatch. The receiver starts with the immutable
@@ -457,7 +458,7 @@ the version from the crates.io URL, so the Formula must not declare a redundant
 `version` stanza; its embedded-provenance assertions must also pass Homebrew's
 strict Ruby style.
 
-The tap publisher must also make the `git-slop-<version>` bottle release
+The tap publisher must also make the `git-slop-v<version>` bottle release
 GitHub-immutable and query its API record for `immutable: true` before reporting
 success. A bottle block with pinned digests is necessary but is not sufficient:
 if platform immutability cannot be enabled or verified, the tap workflow must
