@@ -114,15 +114,55 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RECOVERY_KEY: ${{ steps.preflight.outputs.recovery_key }}
           RUN_NAME: ${{ steps.preflight.outputs.run_name }}
+          GH_STEWARD_HISTORY_DOCUMENT: ${{ vars.GH_STEWARD_MERGE_HISTORY_DOCUMENT }}
         shell: bash
         run: |
           set -euo pipefail
+          history_input="$(scripts/acquire-gh-steward-history.sh "$GITHUB_REPOSITORY")"
+          recovery_args=(--policy .agents/gh-steward-recovery-policy.json)
+          if [[ -n "$history_input" ]]; then recovery_args+=(--input "$history_input"); fi
           "$GH_STEWARD_BIN" runs recover \
             --repo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --repo-root "$GITHUB_WORKSPACE" \
             --workflow merge-on-green.yml --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
             --run-name "$RUN_NAME" --recovery-key "$RECOVERY_KEY" \
             --package-root "$RUNNER_TEMP/merge-package" --runner-temp "$RUNNER_TEMP" \
-            --policy .agents/gh-steward-recovery-policy.json --github-output "$GITHUB_OUTPUT"
+            "${recovery_args[@]}" --github-output "$GITHUB_OUTPUT"
+
+      - name: Bind the native recovery hold to this attempt
+        id: recovery_diagnostic
+        if: ${{ always() && steps.recover.outputs.outcome == 'recovery_needed' }}
+        env:
+          RECOVERY_KEY: ${{ steps.preflight.outputs.recovery_key }}
+          RUN_NAME: ${{ steps.preflight.outputs.run_name }}
+          EVENT_SHA: ${{ steps.preflight.outputs.event_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          report="$RUNNER_TEMP/merge-package/recovery-needed.json"
+          [[ -f "$report" && ! -L "$report" && "$(wc -c < "$report")" -le 4096 ]]
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg key "$RECOVERY_KEY" \
+            '.schema_version == 1 and .status == "recovery_needed" and .repository == $repo and .workflow_file == "merge-on-green.yml" and .recovery_key == $key' "$report" > /dev/null
+          directory="$(mktemp -d "$RUNNER_TEMP/merge-recovery-diagnostic.XXXXXX")"
+          cp -- "$report" "$directory/recovery-report.json"
+          report_sha="$(sha256sum "$directory/recovery-report.json" | awk '{print $1}')"
+          jq -n --arg repo "$GITHUB_REPOSITORY" --arg name "$RUN_NAME" \
+            --arg workflow_sha "$GITHUB_WORKFLOW_SHA" --arg head_sha "$GITHUB_SHA" \
+            --arg workflow_ref "$GITHUB_WORKFLOW_REF" --arg event_name "$GITHUB_EVENT_NAME" \
+            --arg event_sha "$EVENT_SHA" --arg report_sha "$report_sha" \
+            --argjson run "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" \
+            '{schema_version:1,diagnostic_only:true,repository:$repo,workflow_file:"merge-on-green.yml",run_name:$name,workflow_ref:$workflow_ref,workflow_sha:$workflow_sha,head_sha:$head_sha,event_name:$event_name,raw_event_sha256:$event_sha,run_id:$run,attempt:$attempt,report:{path:"recovery-report.json",sha256:$report_sha}}' \
+            > "$directory/manifest.json"
+          echo "directory=$directory" >> "$GITHUB_OUTPUT"
+
+      - name: Retain the recovery hold without a settlement
+        if: ${{ always() && steps.recovery_diagnostic.outputs.directory != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gh-steward-recovery-diagnostic-merge-on-green-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ steps.recovery_diagnostic.outputs.directory }}
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Stop when exact prior evidence is unavailable
         if: steps.recover.outputs.outcome == 'recovery_needed'

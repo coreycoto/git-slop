@@ -204,12 +204,25 @@
           },
           "parent_merge": null,
           "prepared_recovery": {
-            "workflow_source_sha256": "75735b3f5018eb96a8f2b3cd48a42cc38b56449cff644e8f4051457199d6b456",
+            "workflow_source_sha256": "f5f2c06426e344c9832374413f88e687c9cd322d0f99c8d68a62e0ee809b5fa1",
             "mutators": [
               {
                 "job": "Apply only the exact reviewed merge plan",
                 "steps": [
                   "Apply reviewed exact-head merge plan"
+                ]
+              }
+            ],
+            "previous_sources": [
+              {
+                "workflow_source_sha256": "75735b3f5018eb96a8f2b3cd48a42cc38b56449cff644e8f4051457199d6b456",
+                "mutators": [
+                  {
+                    "job": "Apply only the exact reviewed merge plan",
+                    "steps": [
+                      "Apply reviewed exact-head merge plan"
+                    ]
+                  }
                 ]
               }
             ]
@@ -222,12 +235,25 @@
           "attempt_target": "workflow_noop",
           "approval": {
             "kind": "local-noop",
-            "workflow_source_sha256": "75735b3f5018eb96a8f2b3cd48a42cc38b56449cff644e8f4051457199d6b456",
+            "workflow_source_sha256": "f5f2c06426e344c9832374413f88e687c9cd322d0f99c8d68a62e0ee809b5fa1",
             "mutators": [
               {
                 "job": "Apply only the exact reviewed merge plan",
                 "steps": [
                   "Apply reviewed exact-head merge plan"
+                ]
+              }
+            ],
+            "previous_sources": [
+              {
+                "workflow_source_sha256": "75735b3f5018eb96a8f2b3cd48a42cc38b56449cff644e8f4051457199d6b456",
+                "mutators": [
+                  {
+                    "job": "Apply only the exact reviewed merge plan",
+                    "steps": [
+                      "Apply reviewed exact-head merge plan"
+                    ]
+                  }
                 ]
               }
             ]

@@ -41,6 +41,34 @@ fresh-native promotion. Configuring these channels does not admit either
 artifact or activate a recovery chain. Preserve failed diagnostics and every
 historical unknown; never replay an old attempt to clear a hold.
 
+The internal `GH_STEWARD_MERGE_HISTORY_DOCUMENT` repository variable supplies
+one transport descriptor after separate human review and activation approval:
+`{"kind":"history-promotion","asset_id":"123","sha256":"RAW_FILE_SHA256"}`.
+`kind` may instead be `history-cutover` for preview-only tracking. `asset_id`
+identifies a JSON release asset in this repository; `sha256` pins its complete
+raw file bytes, independently of the native document's review identity. The
+adapter reads at most 64 KiB of metadata and 8 MiB of document bytes, preserves
+them in private runner scratch, and passes one named input to native recovery.
+An empty variable supplies no input and retains strict recovery. An invalid,
+missing, oversized or changed asset fails closed without a fallback.
+
+Do not commit captures, publish assets or set this variable during source
+preparation. Merge the intended workflow/policy changes, wait for terminal runs,
+then capture fresh history. Obtain exact baseline consent before recording its
+review; prepare and separately review the promotion. Publish only the approved
+document and configure its returned asset ID and raw hash under explicit
+activation approval. Native recovery rechecks the issue reviews, target,
+complete history, policy and selected state; this variable grants no authority.
+Future plans retain their existing approval requirements. Native checkpoints
+carry the sealed documents after bootstrap; keep required lineage artifacts.
+Revoking a native review holds subsequent work. Clearing the variable does not
+revoke an already retained grant or erase lineage.
+
+This transport is a candidate consumer seam, pending hosted activation. Remove
+it when native GH Steward owns document acquisition; it creates no public CLI
+contract. Recovery holds are uploaded as separate run/source/event-bound
+diagnostics before the guard stops work, without creating a settlement.
+
 Use `gh steward` for complete live snapshots and reviewed, exact-hash GitHub
 plans. A plan hash identifies the saved artifact; it does not itself grant
 permission. Keep operation journals and receipts after interruption. Do not
