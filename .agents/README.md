@@ -26,11 +26,20 @@ receipt and staged binary before any native workflow command runs. Hosted
 callers invoke the quoted `$GH_STEWARD_BIN` path directly. A binary on `PATH`
 does not register a `gh` extension; acquisition does not change the host
 extension installation. The current
-lock names the qualified published v0.4.1 assets at source
-`148acedbf75dd8e2d3b1764ce02f282bceece43e`, including the shared `runs`
+lock names the qualified published v0.5.0 assets at source
+`a250444eb9187cd90d24aa5af82ac963b3753fa4`, including the shared `runs`
 commands. All four native release gates, independent tagged rebuilds, checksums
 and attestations passed. Consumer workflow promotion still requires its own
 hosted qualification and authorization.
+
+Merge On Green uses [#173](https://github.com/coreycoto/git-slop/issues/173)
+as its independent baseline and promotion review channel. The policy selects
+only that workflow and retains its existing `merge` plan and disabled
+publication. Capture the complete idle history with the pinned release, present
+the exact baseline for human review, then prepare and separately review the
+fresh-native promotion. Configuring these channels does not admit either
+artifact or activate a recovery chain. Preserve failed diagnostics and every
+historical unknown; never replay an old attempt to clear a hold.
 
 Use `gh steward` for complete live snapshots and reviewed, exact-hash GitHub
 plans. A plan hash identifies the saved artifact; it does not itself grant

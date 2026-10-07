@@ -238,6 +238,18 @@
           },
           "parent_merge": null
         }
+      },
+      "history_cutover_review_issue": {
+        "number": 173,
+        "trusted_logins": [
+          "coreycoto"
+        ]
+      },
+      "history_promotion_review_issue": {
+        "number": 173,
+        "trusted_logins": [
+          "coreycoto"
+        ]
       }
     }
   }

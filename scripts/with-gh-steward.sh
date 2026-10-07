@@ -20,7 +20,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd -- "$script_dir/.." && pwd -P)"
 lock_path="$repo_root/.agents/gh-steward.lock.json"
 readonly tool_repository="coreycoto/gh-steward"
-readonly tool_version_expected="0.4.1"
+readonly tool_version_expected="0.5.0"
 readonly supported_targets='["darwin/amd64","darwin/arm64","linux/amd64","linux/arm64"]'
 
 require_command() {
