@@ -26,8 +26,8 @@ receipt and staged binary before any native workflow command runs. Hosted
 callers invoke the quoted `$GH_STEWARD_BIN` path directly. A binary on `PATH`
 does not register a `gh` extension; acquisition does not change the host
 extension installation. The current
-lock names the qualified published v0.5.0 assets at source
-`a250444eb9187cd90d24aa5af82ac963b3753fa4`, including the shared `runs`
+lock names the qualified published v0.5.1 assets at source
+`0501f275617aaf25e986f1eba18bd1ca7bef2513`, including the shared `runs`
 commands. All four native release gates, independent tagged rebuilds, checksums
 and attestations passed. Consumer workflow promotion still requires its own
 hosted qualification and authorization.

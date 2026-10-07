@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "repository": "coreycoto/gh-steward",
-  "version": "0.5.0",
-  "source_revision": "a250444eb9187cd90d24aa5af82ac963b3753fa4",
+  "version": "0.5.1",
+  "source_revision": "0501f275617aaf25e986f1eba18bd1ca7bef2513",
   "asset_sha256": {
-    "darwin/amd64": "5e6784ae62a6910e04c1f745592e6477b2ba3e9d794a52fc98e6115ef821c061",
-    "darwin/arm64": "e0e23891517f7eb7869fae677bf56c8e0b88e7ee58885d34e00cd3480f2ea6c9",
-    "linux/amd64": "f250a339740d7015d347a9f03fde4ed8e3f3a310f1f002ed1200c91e6297af1d",
-    "linux/arm64": "cf9f46e41f3ae5f06d85d3e84636f361080433a4af85b592acf4c1ecee50dd4a"
+    "darwin/amd64": "343b133202b57d388ee0e87fad5e575193eda2750775e7cc17f014313d5c621a",
+    "darwin/arm64": "cae9def4544eba944059a6fd0bd9213c981be641156fef406d015a77d8b42963",
+    "linux/amd64": "f5bb1025e782fe30a36a1235657adffa00d308816b746fb09dec3d76889f43bf",
+    "linux/arm64": "e74a7382dbc26f5cb159966b64d5192695f286f2ac53a4ebed4e95a0f8e1b3fc"
   }
 }
