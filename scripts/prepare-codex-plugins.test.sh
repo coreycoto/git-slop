@@ -14,7 +14,7 @@ cp "$repo_root/.agents/plugins/marketplace-source.json" "$fixture/.agents/plugin
 jq -n \
   --arg revision "$(printf 'b%.0s' {1..40})" \
   --arg digest "$(printf 'a%.0s' {1..64})" \
-  '{schema_version:1,repository:"coreycoto/gh-steward",version:"0.4.1",source_revision:$revision,asset_sha256:{"darwin/amd64":$digest,"darwin/arm64":$digest,"linux/amd64":$digest,"linux/arm64":$digest}}' \
+  '{schema_version:1,repository:"coreycoto/gh-steward",version:"0.5.0",source_revision:$revision,asset_sha256:{"darwin/amd64":$digest,"darwin/arm64":$digest,"linux/amd64":$digest,"linux/arm64":$digest}}' \
   > "$fixture/.agents/gh-steward.lock.json"
 
 fake_bin="$test_root/fake-bin"
