@@ -23,11 +23,15 @@ git -C "$repo" init --quiet
 git -C "$repo" -c user.name='Test Fixture' -c user.email='fixture@example.invalid' add scripts
 git -C "$repo" -c user.name='Test Fixture' -c user.email='fixture@example.invalid' commit --quiet -m 'trusted control fixture'
 export GH_STEWARD_BIN="$scratch/native tool" GITHUB_SERVER_URL=https://github.com
-export GITHUB_WORKFLOW_SHA="$(git -C "$repo" rev-parse HEAD)"
+GITHUB_WORKFLOW_SHA="$(git -C "$repo" rev-parse HEAD)"
+export GITHUB_WORKFLOW_SHA
 export RUNNER_TEMP="$scratch" GITHUB_OUTPUT="$scratch/output"
 export VERIFY_LOG="$scratch/verify" NATIVE_ARGS="$scratch/args"
 touch "$GITHUB_OUTPUT"
+# Literal metacharacters probe argument safety.
+# shellcheck disable=SC2016
 title='A title with spaces and $(touch unexpected)'
+
 set +e
 bash "$repo/scripts/recover-gh-steward-run.sh" --recover task.yml example/widgets key "$title" 17 2 "$scratch/package"
 status=$?
