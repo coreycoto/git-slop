@@ -906,11 +906,10 @@ fn validate_windows_action_ci_job(text: &str, name: &str, errors: &mut Vec<Strin
 }
 
 fn validate_consumer_tool_fixtures(repo_root: &Path, errors: &mut Vec<String>) {
-    const TESTS: [&str; 5] = [
+    const TESTS: [&str; 4] = [
         "with-gh-steward.test.sh",
         "prepare-codex-plugins.test.sh",
         "recover-gh-steward-run.test.sh",
-        "acquire-gh-steward-history.test.sh",
         "dependency-remediation-paths.test.sh",
     ];
     for relative in TESTS {
@@ -943,7 +942,6 @@ fn validate_consumer_test_runner(text: &str, errors: &mut Vec<String>) {
         "with-gh-steward.test.sh",
         "prepare-codex-plugins.test.sh",
         "recover-gh-steward-run.test.sh",
-        "acquire-gh-steward-history.test.sh",
         "dependency-remediation-paths.test.sh",
     ] {
         if !test_list
