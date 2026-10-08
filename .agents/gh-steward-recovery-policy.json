@@ -204,7 +204,7 @@
           },
           "parent_merge": null,
           "prepared_recovery": {
-            "workflow_source_sha256": "f5f2c06426e344c9832374413f88e687c9cd322d0f99c8d68a62e0ee809b5fa1",
+            "workflow_source_sha256": "9628c84fe612624d94fb3e51777f818fa2bfc766cc533d3c337265c13c17fb64",
             "mutators": [
               {
                 "job": "Apply only the exact reviewed merge plan",
@@ -216,6 +216,17 @@
             "previous_sources": [
               {
                 "workflow_source_sha256": "75735b3f5018eb96a8f2b3cd48a42cc38b56449cff644e8f4051457199d6b456",
+                "mutators": [
+                  {
+                    "job": "Apply only the exact reviewed merge plan",
+                    "steps": [
+                      "Apply reviewed exact-head merge plan"
+                    ]
+                  }
+                ]
+              },
+              {
+                "workflow_source_sha256": "f5f2c06426e344c9832374413f88e687c9cd322d0f99c8d68a62e0ee809b5fa1",
                 "mutators": [
                   {
                     "job": "Apply only the exact reviewed merge plan",
@@ -235,7 +246,7 @@
           "attempt_target": "workflow_noop",
           "approval": {
             "kind": "local-noop",
-            "workflow_source_sha256": "f5f2c06426e344c9832374413f88e687c9cd322d0f99c8d68a62e0ee809b5fa1",
+            "workflow_source_sha256": "9628c84fe612624d94fb3e51777f818fa2bfc766cc533d3c337265c13c17fb64",
             "mutators": [
               {
                 "job": "Apply only the exact reviewed merge plan",
@@ -255,6 +266,17 @@
                     ]
                   }
                 ]
+              },
+              {
+                "workflow_source_sha256": "f5f2c06426e344c9832374413f88e687c9cd322d0f99c8d68a62e0ee809b5fa1",
+                "mutators": [
+                  {
+                    "job": "Apply only the exact reviewed merge plan",
+                    "steps": [
+                      "Apply reviewed exact-head merge plan"
+                    ]
+                  }
+                ]
               }
             ]
           },
@@ -265,17 +287,14 @@
           "parent_merge": null
         }
       },
-      "history_cutover_review_issue": {
-        "number": 173,
-        "trusted_logins": [
-          "coreycoto"
-        ]
-      },
-      "history_promotion_review_issue": {
-        "number": 173,
-        "trusted_logins": [
-          "coreycoto"
-        ]
+      "history_start": {
+        "id": 37712139508,
+        "created_at": "2026-10-08T01:16:58Z",
+        "display_title": "Merge CI 37711331601 PR manual",
+        "event": "workflow_run",
+        "workflow_id": 265387450,
+        "head_branch": "main",
+        "head_sha": "80afa3c5b403e3796e55765e6dc8edf3d834bd19"
       }
     }
   }

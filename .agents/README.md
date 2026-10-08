@@ -25,55 +25,18 @@ and expected digest. `--verify` rechecks the machine-readable acquisition
 receipt and staged binary before any native workflow command runs. Hosted
 callers invoke the quoted `$GH_STEWARD_BIN` path directly. A binary on `PATH`
 does not register a `gh` extension; acquisition does not change the host
-extension installation. The current
-lock names the qualified published v0.5.2 assets at source
-`61c906009511704628f52b2ecb9ed139c3add953`, including the shared `runs`
-commands. All four native release gates, independent tagged rebuilds, checksums
-and attestations passed. Consumer workflow promotion still requires its own
-hosted qualification and authorization.
+extension installation. The lock pins GH Steward 0.6.0 at source
+`5a4fa3dd46e3e9d54f631010e2cdf89a1d0414cc`. Acquisition requires matching
+published assets and source attestations before the consumer can use the tool.
 
-Fresh captures use `github-rest-pr-repository-bookkeeping-v2`, so validated
-derived repository statistics do not invalidate unchanged PR state. Repository
-identity, security settings and PR behavior remain checked; raw metadata is
-retained. Existing documents keep their sealed comparison contract. Adopting the
-new contract requires fresh captures and exact review before activation.
+Merge On Green adoption uses one reviewed `history_start` in the recovery
+policy instead of metadata releases, promotion comments or a repository variable.
+Old runs remain unknown and cannot be replayed; new interrupted operations retain
+ordinary native plans, journals and verified run artifacts.
 
-Merge On Green uses [#173](https://github.com/coreycoto/git-slop/issues/173)
-as its independent baseline and promotion review channel. The policy selects
-only that workflow and retains its existing `merge` plan and disabled
-publication. Capture the complete idle history with the pinned release, present
-the exact baseline for human review, then prepare and separately review the
-fresh-native promotion. Configuring these channels does not admit either
-artifact or activate a recovery chain. Preserve failed diagnostics and every
-historical unknown; never replay an old attempt to clear a hold.
-
-The internal `GH_STEWARD_MERGE_HISTORY_DOCUMENT` repository variable supplies
-one transport descriptor after separate human review and activation approval:
-`{"kind":"history-promotion","asset_id":"123","sha256":"RAW_FILE_SHA256"}`.
-`kind` may instead be `history-cutover` for preview-only tracking. `asset_id`
-identifies a JSON release asset in this repository; `sha256` pins its complete
-raw file bytes, independently of the native document's review identity. The
-adapter reads at most 64 KiB of metadata and 8 MiB of document bytes, preserves
-them in private runner scratch, and passes one named input to native recovery.
-An empty variable supplies no input and retains strict recovery. An invalid,
-missing, oversized or changed asset fails closed without a fallback.
-
-Do not commit captures, publish assets or set this variable during source
-preparation. Merge the intended workflow/policy changes, wait for terminal runs,
-then capture fresh history. Obtain exact baseline consent before recording its
-review; prepare and separately review the promotion. Publish only the approved
-document and configure its returned asset ID and raw hash under explicit
-activation approval. Native recovery rechecks the issue reviews, target,
-complete history, policy and selected state; this variable grants no authority.
-Future plans retain their existing approval requirements. Native checkpoints
-carry the sealed documents after bootstrap; keep required lineage artifacts.
-Revoking a native review holds subsequent work. Clearing the variable does not
-revoke an already retained grant or erase lineage.
-
-This transport is a candidate consumer seam, pending hosted activation. Remove
-it when native GH Steward owns document acquisition; it creates no public CLI
-contract. Recovery holds are uploaded as separate run/source/event-bound
-diagnostics before the guard stops work, without creating a settlement.
+Issue [#173](https://github.com/coreycoto/git-slop/issues/173) stays open until
+hosted native recovery is qualified. Review the boundary after accounting for
+unfinished old operations; do not advance it to bypass interrupted native work.
 
 Use `gh steward` for complete live snapshots and reviewed, exact-hash GitHub
 plans. A plan hash identifies the saved artifact; it does not itself grant
