@@ -20,12 +20,25 @@
           "attempt_target": "workflow_noop",
           "approval": {
             "kind": "local-noop",
-            "workflow_source_sha256": "f702bb0037f3b02c482459632e2a9d8c54aa31eac2b2491982c37282574fd0ae",
+            "workflow_source_sha256": "9159e7592e1aeed1ec6e845d6b302de9e5e6b685cb6d00944c2fa2c25e246cce",
             "mutators": [
               {
                 "job": "Settle an exact no-publication decision",
                 "steps": [
                   "Settle terminal decision through gh-steward"
+                ]
+              }
+            ],
+            "previous_sources": [
+              {
+                "workflow_source_sha256": "f702bb0037f3b02c482459632e2a9d8c54aa31eac2b2491982c37282574fd0ae",
+                "mutators": [
+                  {
+                    "job": "Settle an exact no-publication decision",
+                    "steps": [
+                      "Settle terminal decision through gh-steward"
+                    ]
+                  }
                 ]
               }
             ]
@@ -78,12 +91,25 @@
           },
           "parent_merge": null,
           "prepared_recovery": {
-            "workflow_source_sha256": "71754aef0a6b2e8b83ef568a67fea29a5b6ba0e0ca61f4ee2101ae64c98687d5",
+            "workflow_source_sha256": "5ae0fdda15ea6d94d2186fddee97f6bfd5231ff608cbedc1b85bb2e31f4f2fda",
             "mutators": [
               {
                 "job": "Apply separately approved execution-state plan",
                 "steps": [
                   "Apply exact reviewed execution plan"
+                ]
+              }
+            ],
+            "previous_sources": [
+              {
+                "workflow_source_sha256": "71754aef0a6b2e8b83ef568a67fea29a5b6ba0e0ca61f4ee2101ae64c98687d5",
+                "mutators": [
+                  {
+                    "job": "Apply separately approved execution-state plan",
+                    "steps": [
+                      "Apply exact reviewed execution plan"
+                    ]
+                  }
                 ]
               }
             ]
@@ -96,12 +122,25 @@
           "attempt_target": "workflow_noop",
           "approval": {
             "kind": "local-noop",
-            "workflow_source_sha256": "71754aef0a6b2e8b83ef568a67fea29a5b6ba0e0ca61f4ee2101ae64c98687d5",
+            "workflow_source_sha256": "5ae0fdda15ea6d94d2186fddee97f6bfd5231ff608cbedc1b85bb2e31f4f2fda",
             "mutators": [
               {
                 "job": "Apply separately approved execution-state plan",
                 "steps": [
                   "Apply exact reviewed execution plan"
+                ]
+              }
+            ],
+            "previous_sources": [
+              {
+                "workflow_source_sha256": "71754aef0a6b2e8b83ef568a67fea29a5b6ba0e0ca61f4ee2101ae64c98687d5",
+                "mutators": [
+                  {
+                    "job": "Apply separately approved execution-state plan",
+                    "steps": [
+                      "Apply exact reviewed execution plan"
+                    ]
+                  }
                 ]
               }
             ]
@@ -140,12 +179,25 @@
           "event": null,
           "parent_merge": null,
           "prepared_recovery": {
-            "workflow_source_sha256": "340037e2c6e550cac290fcfd37c3dafe7a32209b9c5d37c06bb6a743d41e0683",
+            "workflow_source_sha256": "ac88a96391ae147878add842a1b59ed2b16607b4a511c54b7fd7dbca4a759340",
             "mutators": [
               {
                 "job": "Apply only the exact reviewed governance plan",
                 "steps": [
                   "Apply exact reviewed label palette plan"
+                ]
+              }
+            ],
+            "previous_sources": [
+              {
+                "workflow_source_sha256": "340037e2c6e550cac290fcfd37c3dafe7a32209b9c5d37c06bb6a743d41e0683",
+                "mutators": [
+                  {
+                    "job": "Apply only the exact reviewed governance plan",
+                    "steps": [
+                      "Apply exact reviewed label palette plan"
+                    ]
+                  }
                 ]
               }
             ]
@@ -158,12 +210,25 @@
           "attempt_target": "workflow_noop",
           "approval": {
             "kind": "local-noop",
-            "workflow_source_sha256": "340037e2c6e550cac290fcfd37c3dafe7a32209b9c5d37c06bb6a743d41e0683",
+            "workflow_source_sha256": "ac88a96391ae147878add842a1b59ed2b16607b4a511c54b7fd7dbca4a759340",
             "mutators": [
               {
                 "job": "Apply only the exact reviewed governance plan",
                 "steps": [
                   "Apply exact reviewed label palette plan"
+                ]
+              }
+            ],
+            "previous_sources": [
+              {
+                "workflow_source_sha256": "340037e2c6e550cac290fcfd37c3dafe7a32209b9c5d37c06bb6a743d41e0683",
+                "mutators": [
+                  {
+                    "job": "Apply only the exact reviewed governance plan",
+                    "steps": [
+                      "Apply exact reviewed label palette plan"
+                    ]
+                  }
                 ]
               }
             ]
@@ -204,7 +269,7 @@
           },
           "parent_merge": null,
           "prepared_recovery": {
-            "workflow_source_sha256": "9628c84fe612624d94fb3e51777f818fa2bfc766cc533d3c337265c13c17fb64",
+            "workflow_source_sha256": "dd30ecf0e26fdb0f56307fa272778406a232c72c86e2d3b14683df6a89a6cd2e",
             "mutators": [
               {
                 "job": "Apply only the exact reviewed merge plan",
@@ -227,6 +292,17 @@
               },
               {
                 "workflow_source_sha256": "f5f2c06426e344c9832374413f88e687c9cd322d0f99c8d68a62e0ee809b5fa1",
+                "mutators": [
+                  {
+                    "job": "Apply only the exact reviewed merge plan",
+                    "steps": [
+                      "Apply reviewed exact-head merge plan"
+                    ]
+                  }
+                ]
+              },
+              {
+                "workflow_source_sha256": "9628c84fe612624d94fb3e51777f818fa2bfc766cc533d3c337265c13c17fb64",
                 "mutators": [
                   {
                     "job": "Apply only the exact reviewed merge plan",
@@ -246,7 +322,7 @@
           "attempt_target": "workflow_noop",
           "approval": {
             "kind": "local-noop",
-            "workflow_source_sha256": "9628c84fe612624d94fb3e51777f818fa2bfc766cc533d3c337265c13c17fb64",
+            "workflow_source_sha256": "dd30ecf0e26fdb0f56307fa272778406a232c72c86e2d3b14683df6a89a6cd2e",
             "mutators": [
               {
                 "job": "Apply only the exact reviewed merge plan",
@@ -269,6 +345,17 @@
               },
               {
                 "workflow_source_sha256": "f5f2c06426e344c9832374413f88e687c9cd322d0f99c8d68a62e0ee809b5fa1",
+                "mutators": [
+                  {
+                    "job": "Apply only the exact reviewed merge plan",
+                    "steps": [
+                      "Apply reviewed exact-head merge plan"
+                    ]
+                  }
+                ]
+              },
+              {
+                "workflow_source_sha256": "9628c84fe612624d94fb3e51777f818fa2bfc766cc533d3c337265c13c17fb64",
                 "mutators": [
                   {
                     "job": "Apply only the exact reviewed merge plan",

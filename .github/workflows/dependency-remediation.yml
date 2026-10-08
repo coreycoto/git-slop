@@ -66,7 +66,7 @@ jobs:
       outcome: ${{ steps.recover.outputs.outcome }}
       artifact_name: ${{ steps.recover.outputs.artifact_name }}
       handoff_id: ${{ steps.upload_handoff.outputs.artifact-id }}
-      handoff_digest: ${{ steps.upload_handoff.outputs.artifact-digest }}
+      handoff_digest: ${{ format('sha256:{0}', steps.upload_handoff.outputs.artifact-digest) }}
       handoff_name: ${{ steps.recover.outputs.artifact_name }}-handoff-00
     steps:
       - name: Checkout trusted recovery tooling
@@ -138,7 +138,7 @@ jobs:
       contents: read
     outputs:
       artifact_id: ${{ steps.upload_capture.outputs.artifact-id }}
-      artifact_digest: ${{ steps.upload_capture.outputs.artifact-digest }}
+      artifact_digest: ${{ format('sha256:{0}', steps.upload_capture.outputs.artifact-digest) }}
       artifact_name: ${{ steps.source.outputs.artifact_name }}
     steps:
       - name: Checkout trusted workflow tooling
@@ -206,7 +206,7 @@ jobs:
       ready: ${{ steps.collect.outputs.ready }}
       noop_reason: ${{ steps.collect.outputs.noop_reason || steps.disabled.outputs.noop_reason }}
       artifact_id: ${{ steps.upload_proposal.outputs.artifact-id }}
-      artifact_digest: ${{ steps.upload_proposal.outputs.artifact-digest }}
+      artifact_digest: ${{ format('sha256:{0}', steps.upload_proposal.outputs.artifact-digest) }}
       artifact_name: ${{ steps.collect.outputs.artifact_name }}
     steps:
       - name: Checkout trusted review controls
@@ -481,7 +481,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.noop_artifact.outputs.artifact-id }}
-          ARTIFACT_DIGEST: ${{ steps.noop_artifact.outputs.artifact-digest }}
+          ARTIFACT_DIGEST: ${{ format('sha256:{0}', steps.noop_artifact.outputs.artifact-digest) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -603,7 +603,7 @@ jobs:
       contents: read
     outputs:
       artifact_id: ${{ steps.upload_candidate.outputs.artifact-id }}
-      artifact_digest: ${{ steps.upload_candidate.outputs.artifact-digest }}
+      artifact_digest: ${{ format('sha256:{0}', steps.upload_candidate.outputs.artifact-digest) }}
       artifact_name: ${{ steps.upload_candidate.outputs.artifact-name }}
     steps:
       - name: Checkout trusted verification tooling

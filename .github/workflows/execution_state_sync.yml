@@ -311,7 +311,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.terminal_artifact.outputs.artifact-id }}
-          ARTIFACT_DIGEST: ${{ steps.terminal_artifact.outputs.artifact-digest }}
+          ARTIFACT_DIGEST: ${{ format('sha256:{0}', steps.terminal_artifact.outputs.artifact-digest) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -702,7 +702,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.terminal_artifact.outputs.artifact-id }}
-          ARTIFACT_DIGEST: ${{ steps.terminal_artifact.outputs.artifact-digest }}
+          ARTIFACT_DIGEST: ${{ format('sha256:{0}', steps.terminal_artifact.outputs.artifact-digest) }}
         shell: bash
         run: |
           set -euo pipefail

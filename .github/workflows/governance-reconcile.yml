@@ -26,7 +26,7 @@ jobs:
       phase: ${{ steps.package_outputs.outputs.phase }}
       artifact_name: ${{ steps.recover.outputs.artifact_name }}
       artifact_id: ${{ steps.upload_handoff.outputs.artifact-id }}
-      artifact_digest: ${{ steps.upload_handoff.outputs.artifact-digest }}
+      artifact_digest: ${{ format('sha256:{0}', steps.upload_handoff.outputs.artifact-digest) }}
     steps:
       - name: Checkout trusted workflow tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -462,7 +462,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.terminal_artifact.outputs.artifact-id }}
-          ARTIFACT_DIGEST: ${{ steps.terminal_artifact.outputs.artifact-digest }}
+          ARTIFACT_DIGEST: ${{ format('sha256:{0}', steps.terminal_artifact.outputs.artifact-digest) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -561,7 +561,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.noop_artifact.outputs.artifact-id }}
-          ARTIFACT_DIGEST: ${{ steps.noop_artifact.outputs.artifact-digest }}
+          ARTIFACT_DIGEST: ${{ format('sha256:{0}', steps.noop_artifact.outputs.artifact-digest) }}
         shell: bash
         run: |
           set -euo pipefail
