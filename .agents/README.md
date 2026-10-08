@@ -26,11 +26,17 @@ receipt and staged binary before any native workflow command runs. Hosted
 callers invoke the quoted `$GH_STEWARD_BIN` path directly. A binary on `PATH`
 does not register a `gh` extension; acquisition does not change the host
 extension installation. The current
-lock names the qualified published v0.5.1 assets at source
-`0501f275617aaf25e986f1eba18bd1ca7bef2513`, including the shared `runs`
+lock names the qualified published v0.5.2 assets at source
+`61c906009511704628f52b2ecb9ed139c3add953`, including the shared `runs`
 commands. All four native release gates, independent tagged rebuilds, checksums
 and attestations passed. Consumer workflow promotion still requires its own
 hosted qualification and authorization.
+
+Fresh captures use `github-rest-pr-repository-bookkeeping-v2`, so validated
+derived repository statistics do not invalidate unchanged PR state. Repository
+identity, security settings and PR behavior remain checked; raw metadata is
+retained. Existing documents keep their sealed comparison contract. Adopting the
+new contract requires fresh captures and exact review before activation.
 
 Merge On Green uses [#173](https://github.com/coreycoto/git-slop/issues/173)
 as its independent baseline and promotion review channel. The policy selects

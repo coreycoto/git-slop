@@ -66,11 +66,11 @@ jq -e '
   and (keys == ["asset_sha256", "repository", "schema_version", "source_revision", "version"])
   and .schema_version == 1
   and .repository == "coreycoto/gh-steward"
-  and .version == "0.5.1"
+  and .version == "0.5.2"
   and (.source_revision | type == "string" and test("^[0-9a-f]{40}$"))
   and (.asset_sha256 | type == "object" and keys == ["darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"] and all(.[]; type == "string" and test("^[0-9a-f]{64}$")))
 ' "$gh_steward_lock" >/dev/null || die "gh-steward plugin source lock is unqualified or malformed"
-[[ "$gh_steward_repo" == "coreycoto/gh-steward" && "$gh_steward_version" == "0.5.1" ]] || die "gh-steward plugin source identity differs from the reviewed tool lock"
+[[ "$gh_steward_repo" == "coreycoto/gh-steward" && "$gh_steward_version" == "0.5.2" ]] || die "gh-steward plugin source identity differs from the reviewed tool lock"
 
 require_runner_temp_path() {
   local candidate="$1"
