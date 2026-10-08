@@ -42,7 +42,7 @@ cat > "$fixture/.agents/gh-steward.lock.json" <<JSON
 {
   "schema_version": 1,
   "repository": "coreycoto/gh-steward",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "source_revision": "$revision",
   "asset_sha256": {
     "darwin/amd64": "$binary_digest",
@@ -139,7 +139,7 @@ fake_env=(
   "FAKE_GH_LOG=$gh_log"
   "FAKE_BINARY_TEMPLATE=$test_root/gh-steward"
   "FAKE_SOURCE_REVISION=$revision"
-  "FAKE_TOOL_VERSION=0.5.1"
+  "FAKE_TOOL_VERSION=0.5.2"
   "FAKE_TARGET=$target"
   "FAKE_ASSET_SHA256=$binary_digest"
 )
@@ -155,7 +155,7 @@ binary_path="$(sed -n 's/^GH_STEWARD_BIN=//p' "$github_env")"
 env "${fake_env[@]}" GH_STEWARD_BIN="$binary_path" bash "$fixture/scripts/with-gh-steward.sh" --verify >/dev/null
 # The caller must use the receipt-bound path, without a host extension or PATH edit.
 env -u GH_TOKEN -u GITHUB_TOKEN "${fake_env[@]}" "$binary_path" version --json \
-  | jq -e --arg revision "$revision" ' .source_revision == $revision and .tool_version == "0.5.1"' >/dev/null
+  | jq -e --arg revision "$revision" ' .source_revision == $revision and .tool_version == "0.5.2"' >/dev/null
 [[ ! -e "$gh_log" && ! -e "$github_path" ]]
 
 cp "$fixture/.agents/gh-steward.lock.json" "$test_root/valid-lock.json"
