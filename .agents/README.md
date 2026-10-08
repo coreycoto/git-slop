@@ -25,8 +25,8 @@ and expected digest. `--verify` rechecks the machine-readable acquisition
 receipt and staged binary before any native workflow command runs. Hosted
 callers invoke the quoted `$GH_STEWARD_BIN` path directly. A binary on `PATH`
 does not register a `gh` extension; acquisition does not change the host
-extension installation. The lock pins GH Steward 0.6.1 at source
-`5ae11ada98688e2b85ef3342b208d56c9346b32c`. Acquisition requires matching
+extension installation. The lock pins GH Steward 0.6.2 at source
+`ce582391cb6340af4b572dc744e4fcbe129c8950`. Acquisition requires matching
 published assets and source attestations before the consumer can use the tool.
 
 Merge On Green adoption uses one reviewed `history_start` in the recovery
