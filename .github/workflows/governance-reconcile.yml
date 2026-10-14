@@ -144,7 +144,7 @@ jobs:
       - name: Review the exact governance candidate
         id: review
         if: steps.candidate.outputs.has_operations == 'true'
-        uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1
+        uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/governance-reconcile.md
@@ -272,7 +272,7 @@ jobs:
       - name: Upload exact governance handoff for apply or no-op settlement
         if: always() && steps.package_outputs.outputs.package != '' && (steps.package_outputs.outputs.mode == 'prepared' || steps.package_outputs.outputs.mode == 'resumed' || steps.package_outputs.outputs.mode == 'noop')
         id: upload_handoff
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.recover.outputs.artifact_name }}-handoff-00
           path: ${{ steps.package_outputs.outputs.package }}
@@ -282,7 +282,7 @@ jobs:
 
       - name: Upload a terminal observer artifact without new work
         if: always() && steps.package_outputs.outputs.mode == 'terminal'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.recover.outputs.artifact_name }}
           path: ${{ runner.temp }}/governance-package
@@ -448,7 +448,7 @@ jobs:
       - name: Upload exact governance recovery artifact
         if: always() && needs.prepare.outputs.artifact_name != ''
         id: terminal_artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ needs.prepare.outputs.artifact_name }}
           path: ${{ runner.temp }}/governance-package
@@ -478,7 +478,7 @@ jobs:
 
       - name: Upload exact governance settlement checkpoint
         if: always() && steps.finalize_checkpoint.outcome == 'success' && steps.finalize_checkpoint.outputs.outcome == 'checkpoint'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.finalize_checkpoint.outputs.checkpoint_name }}
           path: ${{ steps.finalize_checkpoint.outputs.checkpoint_path }}
@@ -547,7 +547,7 @@ jobs:
 
       - name: Upload exact terminal governance no-op artifact
         id: noop_artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ needs.prepare.outputs.artifact_name }}
           path: ${{ runner.temp }}/governance-package
@@ -573,7 +573,7 @@ jobs:
 
       - name: Upload exact governance no-op settlement checkpoint
         if: steps.noop_checkpoint.outcome == 'success' && steps.noop_checkpoint.outputs.outcome == 'checkpoint'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.noop_checkpoint.outputs.checkpoint_name }}
           path: ${{ steps.noop_checkpoint.outputs.checkpoint_path }}

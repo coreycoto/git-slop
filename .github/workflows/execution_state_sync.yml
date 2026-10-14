@@ -93,7 +93,7 @@ jobs:
 
       - name: Retain held recovery diagnostic outside the recovery stream
         if: always() && steps.recovery.outputs.outcome == 'recovery_needed'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-recovery-needed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-package
@@ -110,7 +110,7 @@ jobs:
 
       - name: Retain restored execution evidence outside the recovery stream
         if: always() && steps.recovery.outputs.outcome == 'resumed'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-resumed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-package
@@ -120,7 +120,7 @@ jobs:
 
       - name: Retain settled rerun observation outside the recovery stream
         if: always() && steps.recovery.outputs.outcome == 'terminal'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-terminal-observer-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-package
@@ -286,7 +286,7 @@ jobs:
       - name: Upload exact terminal native package
         if: always() && steps.finish_noop.outcome == 'success'
         id: terminal_artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.recovery.outputs.artifact_name }}
           path: ${{ runner.temp }}/execution-state-package
@@ -297,7 +297,7 @@ jobs:
       - name: Upload preview transport handoff
         if: always() && steps.terminal_artifact.outcome == 'success' && steps.noop_context.outputs.ready == 'true'
         id: handoff_artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.recovery.outputs.artifact_name }}-handoff-00
           path: ${{ runner.temp }}/execution-state-package
@@ -324,7 +324,7 @@ jobs:
 
       - name: Upload the exact native settlement checkpoint
         if: steps.finalize_checkpoint.outputs.outcome == 'checkpoint'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.finalize_checkpoint.outputs.checkpoint_name }}
           path: ${{ steps.finalize_checkpoint.outputs.checkpoint_path }}
@@ -333,7 +333,7 @@ jobs:
 
       - name: Retain failed prepare evidence outside the recovery stream
         if: always() && steps.recovery.outputs.outcome == 'fresh' && steps.terminal_artifact.outcome != 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-prepare-failed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-package
@@ -343,7 +343,7 @@ jobs:
 
       - name: Retain failed prepare Project diagnostics separately
         if: always() && steps.recovery.outputs.outcome == 'fresh' && steps.terminal_artifact.outcome != 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-prepare-diagnostics-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-diagnostics
@@ -353,7 +353,7 @@ jobs:
 
       - name: Retain native recovery command failure evidence
         if: always() && steps.recovery.outcome == 'failure' && steps.recovery.outputs.outcome == ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-recovery-error-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-package
@@ -434,7 +434,7 @@ jobs:
 
       - name: Retain held apply recovery diagnostic outside the recovery stream
         if: always() && steps.recovery.outputs.outcome == 'recovery_needed'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-apply-recovery-needed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-package
@@ -450,7 +450,7 @@ jobs:
 
       - name: Retain settled apply observer evidence outside the recovery stream
         if: always() && steps.recovery.outputs.outcome == 'terminal'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-apply-terminal-observer-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-package
@@ -688,7 +688,7 @@ jobs:
       - name: Upload exact native execution recovery package
         if: always() && (steps.fresh_context.outputs.authorization_matches == 'true' || steps.resumed_plan.outputs.authorization_matches == 'true')
         id: terminal_artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.recovery.outputs.artifact_name }}
           path: ${{ runner.temp }}/execution-state-package
@@ -718,7 +718,7 @@ jobs:
 
       - name: Upload the exact native settlement checkpoint
         if: steps.finalize_checkpoint.outputs.outcome == 'checkpoint'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.finalize_checkpoint.outputs.checkpoint_name }}
           path: ${{ steps.finalize_checkpoint.outputs.checkpoint_path }}
@@ -727,7 +727,7 @@ jobs:
 
       - name: Retain failed source acquisition evidence outside the recovery stream
         if: always() && (steps.source_plan.outcome == 'failure' || steps.review_context.outcome == 'failure')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-apply-source-failed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-approved-source
@@ -737,7 +737,7 @@ jobs:
 
       - name: Retain failed apply recovery evidence outside the recovery stream
         if: always() && steps.recovery.outputs.outcome == 'fresh' && steps.terminal_artifact.outcome != 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-apply-failed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-package
@@ -747,7 +747,7 @@ jobs:
 
       - name: Retain native apply recovery command failure evidence
         if: always() && steps.recovery.outcome == 'failure' && steps.recovery.outputs.outcome == ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-apply-recovery-error-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-package
@@ -757,7 +757,7 @@ jobs:
 
       - name: Retain restored plan after rejecting mismatched apply inputs
         if: always() && steps.recovery.outputs.outcome == 'resumed' && steps.resumed_plan.outputs.ready == 'true' && steps.resumed_plan.outputs.authorization_matches != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-apply-input-mismatch-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-package
@@ -774,7 +774,7 @@ jobs:
 
       - name: Retain restored package after adapter validation failure
         if: always() && steps.recovery.outputs.outcome == 'resumed' && steps.resumed_plan.outcome == 'failure'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: execution-state-apply-adapter-failed-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/execution-state-package
