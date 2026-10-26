@@ -121,7 +121,7 @@ jobs:
       - name: Upload immutable native recovery handoff
         id: upload_handoff
         if: steps.recover.outputs.outcome != 'recovery_needed'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.recover.outputs.artifact_name }}-handoff-00
           path: ${{ runner.temp }}/dependency-remediation-package
@@ -186,7 +186,7 @@ jobs:
 
       - name: Upload immutable source verification handoff
         id: upload_capture
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.source.outputs.artifact_name }}
           path: ${{ runner.temp }}/dependency-remediation-capture
@@ -241,7 +241,7 @@ jobs:
           --id "$ARTIFACT_ID" --name "$ARTIFACT_NAME" --digest "$ARTIFACT_DIGEST"
 
       - name: Download the exact source capture artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v7
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v7
         with:
           artifact-ids: ${{ needs.capture.outputs.artifact_id }}
           path: ${{ runner.temp }}/dependency-remediation-source
@@ -281,7 +281,7 @@ jobs:
       - name: Run Codex over bounded patch and verification data only
         if: steps.codex_preflight.outputs.enabled == 'true'
         id: run_codex
-        uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1
+        uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: ${{ runner.temp }}/dependency-remediation-trusted/dependency-remediation.md
@@ -321,7 +321,7 @@ jobs:
       - name: Upload immutable proposal handoff
         id: upload_proposal
         if: steps.collect.outputs.ready == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: gh-steward-dependency-remediation-proposal-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/dependency-remediation-proposal
@@ -380,7 +380,7 @@ jobs:
           --id "$CAPTURE_ID" --name "$CAPTURE_NAME" --digest "$CAPTURE_DIGEST"
 
       - name: Download the exact source capture artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v7
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v7
         with:
           artifact-ids: ${{ needs.capture.outputs.artifact_id }}
           path: ${{ runner.temp }}/dependency-remediation-noop-capture
@@ -467,7 +467,7 @@ jobs:
 
       - name: Upload exact terminal dependency no-op artifact
         id: noop_artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ needs.recover.outputs.artifact_name }}
           path: ${{ runner.temp }}/dependency-remediation-package
@@ -494,7 +494,7 @@ jobs:
 
       - name: Upload exact dependency no-op settlement checkpoint
         if: steps.noop_checkpoint.outcome == 'success' && steps.noop_checkpoint.outputs.outcome == 'checkpoint'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.noop_checkpoint.outputs.checkpoint_name }}
           path: ${{ steps.noop_checkpoint.outputs.checkpoint_path }}
@@ -549,13 +549,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/capture-artifact" "$RUNNER_TEMP/proposal-artifact"
 
       - name: Download exact capture artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v7
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v7
         with:
           artifact-ids: ${{ needs.capture.outputs.artifact_id }}
           path: ${{ runner.temp }}/capture-artifact
 
       - name: Download exact proposal artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v7
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v7
         with:
           artifact-ids: ${{ needs.proposal.outputs.artifact_id }}
           path: ${{ runner.temp }}/proposal-artifact
@@ -645,13 +645,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/capture-artifact" "$RUNNER_TEMP/proposal-artifact"
 
       - name: Download exact capture artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v7
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v7
         with:
           artifact-ids: ${{ needs.capture.outputs.artifact_id }}
           path: ${{ runner.temp }}/capture-artifact
 
       - name: Download exact proposal artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v7
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v7
         with:
           artifact-ids: ${{ needs.proposal.outputs.artifact_id }}
           path: ${{ runner.temp }}/proposal-artifact
@@ -713,7 +713,7 @@ jobs:
 
       - name: Upload exact immutable candidate handoff
         id: upload_candidate
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: gh-steward-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
